@@ -89,10 +89,10 @@ func (p *PgStore) FindNoticeBySourceAndExternalID(ctx context.Context, sourceID,
 	return &rec, true, nil
 }
 
-func (p *PgStore) CreateNotice(ctx context.Context, notice collector.NormalizedNotice, rawDocID string) (string, error) {
+func (p *PgStore) CreateNotice(ctx context.Context, notice collector.NormalizedNotice, rawDocID string) (string, string, error) {
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer tx.Rollback()
 
@@ -109,17 +109,19 @@ func (p *PgStore) CreateNotice(ctx context.Context, notice collector.NormalizedN
 		notice.BudgetAmount, notice.SupportAmount, notice.Status, notice.OfficialURL,
 	).Scan(&noticeID)
 	if err != nil {
-		return "", fmt.Errorf("insert notice: %w", err)
+		return "", "", fmt.Errorf("insert notice: %w", err)
 	}
 
-	_, err = tx.ExecContext(ctx, `
+	var versionID string
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO notice_versions (notice_id, version_number, raw_document_id, change_type, is_current)
-		VALUES ($1, 1, $2, 'initial', true)`, noticeID, rawDocID)
+		VALUES ($1, 1, $2, 'initial', true) RETURNING id`, noticeID, rawDocID,
+	).Scan(&versionID)
 	if err != nil {
-		return "", fmt.Errorf("insert notice_version: %w", err)
+		return "", "", fmt.Errorf("insert notice_version: %w", err)
 	}
 
-	return noticeID, tx.Commit()
+	return noticeID, versionID, tx.Commit()
 }
 
 func (p *PgStore) AddNewVersion(ctx context.Context, noticeID string, notice collector.NormalizedNotice, rawDocID string, changeType string) (string, int, error) {
@@ -195,6 +197,40 @@ func (p *PgStore) RecordChanges(ctx context.Context, changes []store.ChangeRecor
 		}
 	}
 	return nil
+}
+
+func (p *PgStore) SaveAttachment(ctx context.Context, att store.AttachmentRecord) (string, error) {
+	var id string
+	err := p.db.QueryRowContext(ctx, `
+		INSERT INTO attachments
+			(notice_version_id, original_filename, stored_filename, file_type, file_size_bytes,
+			 file_hash, download_url, download_status)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		RETURNING id`,
+		att.NoticeVersionID, att.OriginalFilename, att.StoredKey, att.FileType, att.FileSizeBytes,
+		att.FileHash, att.DownloadURL, att.DownloadStatus,
+	).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("insert attachment: %w", err)
+	}
+	return id, nil
+}
+
+func (p *PgStore) FindAttachmentByDownloadURL(ctx context.Context, downloadURL string) (*store.AttachmentRecord, bool, error) {
+	var rec store.AttachmentRecord
+	rec.DownloadURL = downloadURL
+	err := p.db.QueryRowContext(ctx, `
+		SELECT original_filename, stored_filename, file_type, file_size_bytes, file_hash, download_status
+		FROM attachments WHERE download_url = $1 AND download_status = 'completed'
+		ORDER BY created_at DESC LIMIT 1`, downloadURL,
+	).Scan(&rec.OriginalFilename, &rec.StoredKey, &rec.FileType, &rec.FileSizeBytes, &rec.FileHash, &rec.DownloadStatus)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("query attachment: %w", err)
+	}
+	return &rec, true, nil
 }
 
 func (p *PgStore) LastRawContentHash(ctx context.Context, noticeID string) (string, error) {

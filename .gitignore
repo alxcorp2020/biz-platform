@@ -2,6 +2,7 @@
 *.log
 .claude/settings.local.json
 /collector/collector
+/collector/data/
 /analyzer/__pycache__/
 /analyzer/venv/
 .DS_Store

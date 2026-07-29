@@ -48,6 +48,21 @@ type ChangeRecord struct {
 	Importance   string
 }
 
+// AttachmentRecord mirrors the attachments table (5.5). StoredKey is a
+// storage-backend-agnostic key ("stored_filename" in the schema) — v1
+// resolves it against local disk, a later object-storage backend resolves
+// the same key against S3/R2 instead.
+type AttachmentRecord struct {
+	NoticeVersionID  string
+	OriginalFilename string
+	StoredKey        string
+	FileType         string
+	FileSizeBytes    int64
+	FileHash         string // "" for a failed download — schema requires NOT NULL, not a real hash
+	DownloadURL      string
+	DownloadStatus   string // "completed" | "failed"
+}
+
 // Store is the persistence contract the collector runner depends on.
 // 원칙: 원본은 절대 수정하지 않는다 — there is intentionally no
 // UpdateRawDocument method.
@@ -57,8 +72,10 @@ type Store interface {
 	// FindNoticeBySourceAndExternalID returns (nil, false, nil) if not found.
 	FindNoticeBySourceAndExternalID(ctx context.Context, sourceID, externalID string) (*NoticeRecord, bool, error)
 
-	// CreateNotice inserts a brand-new notice with version 1.
-	CreateNotice(ctx context.Context, notice collector.NormalizedNotice, rawDocID string) (noticeID string, err error)
+	// CreateNotice inserts a brand-new notice with version 1, returning both
+	// the notice id and its version-1 id (attachments FK to the version, not
+	// the notice).
+	CreateNotice(ctx context.Context, notice collector.NormalizedNotice, rawDocID string) (noticeID string, versionID string, err error)
 
 	// AddNewVersion appends a new version to an existing notice and marks
 	// the previous version as no longer current.
@@ -69,18 +86,29 @@ type Store interface {
 	// LastRawContentHash returns the content hash of the current version's
 	// raw document, used to skip re-processing unchanged content (6.6).
 	LastRawContentHash(ctx context.Context, noticeID string) (string, error)
+
+	// SaveAttachment records one attachment row (always inserted — even a
+	// re-used already-downloaded file gets its own row per notice version).
+	SaveAttachment(ctx context.Context, att AttachmentRecord) (id string, err error)
+
+	// FindAttachmentByDownloadURL looks up a previously completed download
+	// by source URL, so the same file linked from a re-collected/updated
+	// notice doesn't get fetched over HTTP again (spec 6.6: 동일 첨부파일
+	// 재등록 시 재다운로드/재분석 안 함).
+	FindAttachmentByDownloadURL(ctx context.Context, downloadURL string) (*AttachmentRecord, bool, error)
 }
 
 // ---------------- In-memory implementation (dev/test only) ----------------
 
 type InMemoryStore struct {
-	mu        sync.Mutex
-	rawDocs   map[string]RawDocumentRecord
-	notices   map[string]*NoticeRecord
-	versions  map[string][]NoticeVersionRecord // noticeID -> versions
-	bySrcExt  map[string]string                // "sourceID|externalID" -> noticeID
-	changes   []ChangeRecord
-	seq       int
+	mu          sync.Mutex
+	rawDocs     map[string]RawDocumentRecord
+	notices     map[string]*NoticeRecord
+	versions    map[string][]NoticeVersionRecord // noticeID -> versions
+	bySrcExt    map[string]string                // "sourceID|externalID" -> noticeID
+	changes     []ChangeRecord
+	attachments []AttachmentRecord
+	seq         int
 }
 
 func NewInMemoryStore() *InMemoryStore {
@@ -118,18 +146,19 @@ func (s *InMemoryStore) FindNoticeBySourceAndExternalID(ctx context.Context, sou
 	return rec, true, nil
 }
 
-func (s *InMemoryStore) CreateNotice(ctx context.Context, notice collector.NormalizedNotice, rawDocID string) (string, error) {
+func (s *InMemoryStore) CreateNotice(ctx context.Context, notice collector.NormalizedNotice, rawDocID string) (string, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := s.nextID("notice")
+	verID := s.nextID("ver")
 	now := time.Now()
 	s.notices[id] = &NoticeRecord{ID: id, Notice: notice, CurrentVersion: 1, FirstCollectedAt: now, LastVerifiedAt: now}
 	s.versions[id] = []NoticeVersionRecord{{
-		ID: s.nextID("ver"), NoticeID: id, VersionNumber: 1,
+		ID: verID, NoticeID: id, VersionNumber: 1,
 		RawDocumentID: rawDocID, ChangeType: "initial", IsCurrent: true,
 	}}
 	s.bySrcExt[notice.SourceID+"|"+notice.ExternalNoticeID] = id
-	return id, nil
+	return id, verID, nil
 }
 
 func (s *InMemoryStore) AddNewVersion(ctx context.Context, noticeID string, notice collector.NormalizedNotice, rawDocID string, changeType string) (string, int, error) {
@@ -170,6 +199,26 @@ func (s *InMemoryStore) LastRawContentHash(ctx context.Context, noticeID string)
 	}
 	last := vs[len(vs)-1]
 	return s.rawDocs[last.RawDocumentID].ContentHash, nil
+}
+
+func (s *InMemoryStore) SaveAttachment(ctx context.Context, att AttachmentRecord) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := s.nextID("att")
+	s.attachments = append(s.attachments, att)
+	return id, nil
+}
+
+func (s *InMemoryStore) FindAttachmentByDownloadURL(ctx context.Context, downloadURL string) (*AttachmentRecord, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := len(s.attachments) - 1; i >= 0; i-- {
+		if s.attachments[i].DownloadURL == downloadURL && s.attachments[i].DownloadStatus == "completed" {
+			rec := s.attachments[i]
+			return &rec, true, nil
+		}
+	}
+	return nil, false, nil
 }
 
 // Changes exposes recorded changes for inspection in tests/demo output.
