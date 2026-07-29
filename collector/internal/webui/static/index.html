@@ -400,6 +400,31 @@
     gap: 0.6rem !important;
     text-transform: none;
   }
+  .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .field-group-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .checkbox-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.5rem 1rem;
+    border: 1px solid var(--hairline);
+    padding: 0.75rem;
+    background: #fff;
+  }
+  .checkbox-grid .checkbox-label {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 0.9rem;
+    color: var(--ink);
+  }
   .auth-form input, .profile-form input {
     padding: 0.6rem 0.7rem;
     border: 1px solid var(--hairline);
@@ -502,6 +527,7 @@ const ERROR_MESSAGES = {
   internal_error: '서버 처리 중 오류가 발생했습니다.',
   notice_not_found: '공고를 찾을 수 없습니다.',
   company_profile_required: '기업 프로필이 없습니다. 먼저 기업 프로필을 등록해주세요.',
+  invalid_industry_group: '알 수 없는 업종 분류입니다.',
 };
 
 const ELIGIBILITY_RESULT_LABELS = {
@@ -835,11 +861,20 @@ function renderLogin(container) {
   });
 }
 
+// eligibility.go의 industryGroups와 순서·값 모두 일치해야 한다.
+const INDUSTRY_GROUPS = [
+  'ICT/SW', '연구/조사/컨설팅', '설계/감리/CM', '행사/홍보/미디어',
+  '시설관리/유지보수', '환경/폐기물', '생활서비스', '전문서비스', '교육', '기타',
+];
+
 function fillProfileForm(form, profile) {
   if (!profile) return;
-  form.businessType.value = profile.businessType || '';
+  form.businessType.value = (profile.businessType || []).join(', ');
   form.region.value = profile.region || '';
-  form.industry.value = profile.industry || '';
+  const selectedIndustry = new Set(profile.industry || []);
+  form.querySelectorAll('input[name="industry"]').forEach(cb => {
+    cb.checked = selectedIndustry.has(cb.value);
+  });
   form.businessAgeYears.value = profile.businessAgeYears ?? '';
   form.revenueAmount.value = profile.revenueAmount ?? '';
   form.employeeCount.value = profile.employeeCount ?? '';
@@ -871,9 +906,16 @@ async function renderProfile(container) {
     <div class="detail-card">
       <h2>기업 프로필</h2>
       <form id="profile-form" class="profile-form">
-        <label>업태<input type="text" name="businessType"></label>
+        <label>업태 (쉼표로 구분, 겸업 시 여러 개 등록 가능)<input type="text" name="businessType"></label>
         <label>지역<input type="text" name="region"></label>
-        <label>업종<input type="text" name="industry"></label>
+        <div class="field-group">
+          <span class="field-group-label">업종 (겸업 시 여러 개 선택 가능 — 하나라도 일치하면 적합 판정)</span>
+          <div class="checkbox-grid">
+            ${INDUSTRY_GROUPS.map(g => `
+              <label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}"> ${escapeHtml(g)}</label>
+            `).join('')}
+          </div>
+        </div>
         <label>업력(년)<input type="number" step="0.1" name="businessAgeYears"></label>
         <label>매출액(원)<input type="number" name="revenueAmount"></label>
         <label>직원 수<input type="number" name="employeeCount"></label>
@@ -903,9 +945,9 @@ async function renderProfile(container) {
     const toNum = (v) => (v === '' || v === null ? null : Number(v));
     const toList = (v) => (v || '').split(',').map(s => s.trim()).filter(Boolean);
     const payload = {
-      businessType: fd.get('businessType') || null,
+      businessType: toList(fd.get('businessType')),
       region: fd.get('region') || null,
-      industry: fd.get('industry') || null,
+      industry: fd.getAll('industry'),
       businessAgeYears: toNum(fd.get('businessAgeYears')),
       revenueAmount: toNum(fd.get('revenueAmount')),
       employeeCount: toNum(fd.get('employeeCount')),

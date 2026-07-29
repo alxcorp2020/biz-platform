@@ -196,9 +196,9 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 type companyProfileDTO struct {
 	ID                   string   `json:"id"`
-	BusinessType         *string  `json:"businessType"`
+	BusinessType         []string `json:"businessType"`
 	Region               *string  `json:"region"`
-	Industry             *string  `json:"industry"`
+	Industry             []string `json:"industry"`
 	BusinessAgeYears     *float64 `json:"businessAgeYears"`
 	RevenueAmount        *int64   `json:"revenueAmount"`
 	EmployeeCount        *int64   `json:"employeeCount"`
@@ -212,10 +212,10 @@ type companyProfileDTO struct {
 
 func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProfileDTO, error) {
 	var p companyProfileDTO
-	var businessType, region, industry, companySize, creditRating sql.NullString
+	var region, companySize, creditRating sql.NullString
 	var businessAgeYears sql.NullFloat64
 	var revenueAmount, employeeCount, maxPerformanceAmount sql.NullInt64
-	var licenses, certs pq.StringArray
+	var businessType, industry, licenses, certs pq.StringArray
 
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT id, business_type, region, industry, business_age_years, revenue_amount,
@@ -232,9 +232,9 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 		return nil, err
 	}
 
-	p.BusinessType = nullStringPtr(businessType)
+	p.BusinessType = []string(businessType)
 	p.Region = nullStringPtr(region)
-	p.Industry = nullStringPtr(industry)
+	p.Industry = []string(industry)
 	p.CompanySize = nullStringPtr(companySize)
 	p.CreditRating = nullStringPtr(creditRating)
 	p.RevenueAmount = nullInt64Ptr(revenueAmount)
@@ -297,9 +297,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 type companyProfileRequest struct {
-	BusinessType         *string  `json:"businessType"`
+	BusinessType         []string `json:"businessType"`
 	Region               *string  `json:"region"`
-	Industry             *string  `json:"industry"`
+	Industry             []string `json:"industry"`
 	BusinessAgeYears     *float64 `json:"businessAgeYears"`
 	RevenueAmount        *int64   `json:"revenueAmount"`
 	EmployeeCount        *int64   `json:"employeeCount"`
@@ -323,7 +323,15 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_body"})
 		return
 	}
+	for _, g := range req.Industry {
+		if !isKnownIndustryGroup(g) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_industry_group"})
+			return
+		}
+	}
 
+	businessType := pq.Array(req.BusinessType)
+	industry := pq.Array(req.Industry)
 	licenses := pq.Array(req.Licenses)
 	certifications := pq.Array(req.Certifications)
 
@@ -340,7 +348,7 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 				revenue_amount, employee_count, company_size, licenses, certifications,
 				direct_production_cert, max_performance_amount, credit_rating
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-			userID, req.BusinessType, req.Region, req.Industry, req.BusinessAgeYears,
+			userID, businessType, req.Region, industry, req.BusinessAgeYears,
 			req.RevenueAmount, req.EmployeeCount, req.CompanySize, licenses, certifications,
 			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating)
 	case err != nil:
@@ -355,7 +363,7 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 				certifications = $10, direct_production_cert = $11,
 				max_performance_amount = $12, credit_rating = $13
 			WHERE user_id = $1`,
-			userID, req.BusinessType, req.Region, req.Industry, req.BusinessAgeYears,
+			userID, businessType, req.Region, industry, req.BusinessAgeYears,
 			req.RevenueAmount, req.EmployeeCount, req.CompanySize, licenses, certifications,
 			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating)
 	}

@@ -252,9 +252,9 @@ CREATE TABLE users (
 CREATE TABLE company_profiles (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id             UUID NOT NULL REFERENCES users(id),
-    business_type       TEXT,
+    business_type       TEXT[],  -- 자유 태그 다중선택 (사업자등록증 업태 여러 줄 등록 반영)
     region               TEXT,
-    industry             TEXT,
+    industry             TEXT[], -- 대분류 다중선택, OR 매칭 (겸업 반영 — 5.7 참고)
     business_age_years   NUMERIC(4,1),
     revenue_amount        BIGINT,
     employee_count        INTEGER,

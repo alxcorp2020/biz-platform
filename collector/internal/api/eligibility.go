@@ -16,6 +16,9 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strings"
+
+	"github.com/lib/pq"
 )
 
 const (
@@ -30,6 +33,87 @@ const (
 	evalDisclaimer = "이 결과는 공고의 구조화 항목만으로 산출한 1차 참고용 판정이며, 확정 판정이 아닙니다. " +
 		"반드시 공식 공고문 원문을 확인하세요."
 )
+
+// industryRawToGroup maps every distinct notices.industry value observed in
+// real g2b data (2026-07-29 조회, 35종) to a broad selectable category. g2b's
+// industry field is free text, not a standard classification — this mapping
+// exists so a company can multi-select a handful of broad categories instead
+// of every raw string, and so eligibility matching can OR across the group's
+// raw values instead of requiring an exact string match (겸업 반영: 소상공인은
+// 보통 업종을 2개 이상 등록한다).
+//
+// Keys are trimmed — real g2b rows have inconsistent leading/trailing spaces
+// (e.g. " 폐기물 처리 "), so notice industry values are trimmed before lookup.
+var industryRawToGroup = map[string]string{
+	"SW 및 시스템 개발":     "ICT/SW",
+	"시스템 운영환경 구축":     "ICT/SW",
+	"DB구축 및 자료입력":     "ICT/SW",
+	"디지털콘텐츠 개발":       "ICT/SW",
+	"ICT사업 컨설팅":       "ICT/SW",
+	"통신서비스":           "ICT/SW",
+
+	"학술연구서비스":         "연구/조사/컨설팅",
+	"시장 및 여론조사":       "연구/조사/컨설팅",
+	"문화재 조사/발굴 및 수리":  "연구/조사/컨설팅",
+	"기술시험,검사 및 분석":    "연구/조사/컨설팅",
+
+	"설계":              "설계/감리/CM",
+	"감리":              "설계/감리/CM",
+	"CM":              "설계/감리/CM",
+	"측량":              "설계/감리/CM",
+
+	"행사 기획 및 대행":      "행사/홍보/미디어",
+	"매체제작":            "행사/홍보/미디어",
+	"홍보 및 마케팅":        "행사/홍보/미디어",
+	"전시관 및 홍보관 설치":    "행사/홍보/미디어",
+	"디자인":             "행사/홍보/미디어",
+
+	"시설물관리, 청소 등":     "시설관리/유지보수",
+	"운영 및 유지관리":       "시설관리/유지보수",
+	"수리":              "시설관리/유지보수",
+	"임대":              "시설관리/유지보수",
+
+	"폐기물 처리":          "환경/폐기물",
+	"폐기물 재활용":         "환경/폐기물",
+
+	"운송서비스":           "생활서비스",
+	"여행서비스":           "생활서비스",
+	"숙박서비스":           "생활서비스",
+	"음식서비스":           "생활서비스",
+	"보건서비스":           "생활서비스",
+
+	"보험서비스":           "전문서비스",
+	"회계서비스":           "전문서비스",
+	"사업장 위탁":          "전문서비스",
+
+	"교육서비스":           "교육",
+
+	"기타":              "기타",
+}
+
+// industryGroups is the fixed, ordered list of selectable multi-select
+// options (order matters for a stable UI — map iteration order does not).
+var industryGroups = []string{
+	"ICT/SW",
+	"연구/조사/컨설팅",
+	"설계/감리/CM",
+	"행사/홍보/미디어",
+	"시설관리/유지보수",
+	"환경/폐기물",
+	"생활서비스",
+	"전문서비스",
+	"교육",
+	"기타",
+}
+
+func isKnownIndustryGroup(group string) bool {
+	for _, g := range industryGroups {
+		if g == group {
+			return true
+		}
+	}
+	return false
+}
 
 type eligibilityItem struct {
 	Category string `json:"category"`
@@ -47,7 +131,8 @@ func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 	noticeID := r.PathValue("id")
 
 	var profileID string
-	var companyRegion, companyIndustry, companySize sql.NullString
+	var companyRegion, companySize sql.NullString
+	var companyIndustry pq.StringArray
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, region, industry, company_size FROM company_profiles WHERE user_id = $1`, userID,
 	).Scan(&profileID, &companyRegion, &companyIndustry, &companySize)
@@ -94,7 +179,7 @@ func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
-	industryItem, err := s.evaluateIndustry(ctx, versionID, profileID, noticeIndustry, companyIndustry)
+	industryItem, err := s.evaluateIndustry(ctx, versionID, profileID, noticeIndustry, []string(companyIndustry))
 	if err != nil {
 		s.logger.Error("evaluate: industry check failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
@@ -167,28 +252,44 @@ func (s *Server) evaluateRegion(ctx context.Context, versionID, profileID string
 	return eligibilityItem{Category: "지역", Result: result, Reason: reason}, nil
 }
 
-func (s *Server) evaluateIndustry(ctx context.Context, versionID, profileID string, noticeIndustry, companyIndustry sql.NullString) (eligibilityItem, error) {
+// evaluateIndustry OR-matches: a company can select multiple broad industry
+// groups (겸업 반영, e.g. 사업자등록증에 마케팅업 + 통신판매업 둘 다 등록된
+// 경우), so it's "met" the moment the notice's industry group is any one of
+// them — not "met" only if every selected group matches.
+func (s *Server) evaluateIndustry(ctx context.Context, versionID, profileID string, noticeIndustry sql.NullString, companyGroups []string) (eligibilityItem, error) {
+	noticeRaw := strings.TrimSpace(noticeIndustry.String)
+
 	var result, reason string
 	switch {
-	case !noticeIndustry.Valid || noticeIndustry.String == "":
+	case !noticeIndustry.Valid || noticeRaw == "":
 		result = "insufficient_data"
 		reason = "공고에 업종 정보가 없어 업종 조건을 판정할 수 없습니다."
-	case !companyIndustry.Valid || companyIndustry.String == "":
+	case len(companyGroups) == 0:
 		result = "insufficient_data"
 		reason = "기업 프로필에 업종 정보가 없어 판정할 수 없습니다."
-	case noticeIndustry.String == companyIndustry.String:
-		result = "met"
-		reason = fmt.Sprintf("공고 업종(%s)과 기업 업종이 일치합니다.", noticeIndustry.String)
 	default:
-		result = "needs_confirmation"
-		reason = fmt.Sprintf(
-			"공고 업종(%s)과 기업 업종(%s)이 문자열상 다릅니다. 표준 업종 분류체계 매핑이 아직 없어 "+
-				"실제로는 유사/동일 업종일 수 있으니 원문에서 직접 확인하세요.",
-			noticeIndustry.String, companyIndustry.String)
+		noticeGroup, known := industryRawToGroup[noticeRaw]
+		switch {
+		case !known:
+			result = "needs_confirmation"
+			reason = fmt.Sprintf(
+				"공고 업종(%s)이 자동 분류 목록에 없는 새로운 값입니다. 기업이 선택한 업종(%s)과 "+
+					"일치하는지 원문에서 직접 확인하세요.",
+				noticeRaw, strings.Join(companyGroups, ", "))
+		case containsString(companyGroups, noticeGroup):
+			result = "met"
+			reason = fmt.Sprintf("공고 업종(%s, %s 분류)이 기업이 선택한 업종과 일치합니다.", noticeRaw, noticeGroup)
+		default:
+			result = "needs_confirmation"
+			reason = fmt.Sprintf(
+				"공고 업종(%s, %s 분류)이 기업이 선택한 업종(%s)과 다릅니다. 업종 분류가 정확한 표준 "+
+					"산업분류가 아니므로 실제로는 겹칠 수 있으니 원문에서 직접 확인하세요.",
+				noticeRaw, noticeGroup, strings.Join(companyGroups, ", "))
+		}
 	}
 
 	conditionID, err := s.findOrCreateAutoCondition(ctx, versionID,
-		"업종", "auto:industry", "eq", nsOrEmpty(noticeIndustry),
+		"업종", "auto:industry", "eq", noticeRaw,
 		"공고 API 구조화 필드(industry) 자동 추출 — 문서 미분석, 1차 참고용")
 	if err != nil {
 		return eligibilityItem{}, err
@@ -197,6 +298,15 @@ func (s *Server) evaluateIndustry(ctx context.Context, versionID, profileID stri
 		return eligibilityItem{}, err
 	}
 	return eligibilityItem{Category: "업종", Result: result, Reason: reason}, nil
+}
+
+func containsString(list []string, v string) bool {
+	for _, s := range list {
+		if s == v {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) evaluateBudgetSize(ctx context.Context, versionID, profileID string, budgetAmount sql.NullInt64, companySize sql.NullString) (eligibilityItem, error) {
