@@ -26,4 +26,6 @@ services:
         fromDatabase:
           name: biz-platform-db
           property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
     healthCheckPath: /healthz
