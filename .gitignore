@@ -3,6 +3,8 @@
 .claude/settings.local.json
 /collector/collector
 /collector/data/
+/data/
 /analyzer/__pycache__/
 /analyzer/venv/
+/analyzer/**/*.extracted.txt
 .DS_Store

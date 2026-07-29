@@ -1,0 +1,14 @@
+# macOS x86_64(Intel) 환경 참고: cryptography>=49와 pypdfium2>=5.12는
+# x86_64용 macOS 휠을 더 이상 배포하지 않아(arm64/universal2만 제공) 소스
+# 빌드가 필요해진다(Rust/OpenSSL 툴체인 요구). 아래 버전은 x86_64 macOS에
+# 사전 빌드된 휠이 있는 마지막 버전으로 고정한 것 — Apple Silicon이나 리눅스
+# 배포 환경에서는 최신 버전으로 올려도 무방하다.
+cryptography==48.0.1
+pypdfium2==5.11.0
+
+pdfplumber==0.11.10        # PDF 텍스트/표 추출
+pyhwp==0.1b15              # 구형 .hwp(OLE2 바이너리) 파싱 — hwp5txt CLI로 호출
+six==1.17.0                # pyhwp가 six를 쓰지만 의존성으로 선언하지 않음(패키징 누락)
+hwp-hwpx-parser==1.0.0     # .hwpx(zip+XML) 파싱 — "python-hwpx"는 PyPI에 존재하지 않아 대체
+openpyxl==3.1.5            # .xlsx 처리
+psycopg2-binary==2.9.12    # Postgres 연결

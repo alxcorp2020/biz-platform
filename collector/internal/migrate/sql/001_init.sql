@@ -137,6 +137,8 @@ CREATE TABLE attachments (
                             CHECK (download_status IN ('pending','downloading','completed','failed')),
     extraction_status     TEXT NOT NULL DEFAULT 'pending'
                             CHECK (extraction_status IN ('pending','processing','completed','failed','unsupported')),
+    extracted_text        TEXT,   -- 4단계 텍스트 추출 결과 (analyzer/run_extraction.py)
+    extraction_error       TEXT,   -- 실패/미지원 사유
     analysis_status      TEXT NOT NULL DEFAULT 'pending'
                             CHECK (analysis_status IN ('pending','processing','completed','failed')),
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now()

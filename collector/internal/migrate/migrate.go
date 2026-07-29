@@ -42,7 +42,21 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureCompanyProfileArrayColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_profiles array columns: %w", err)
 	}
+	if err := ensureAttachmentTextColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate attachments text columns: %w", err)
+	}
 	return nil
+}
+
+// ensureAttachmentTextColumns adds the extracted_text/extraction_error
+// columns analyzer/run_extraction.py writes to, for any DB created before
+// this migration existed. IF NOT EXISTS makes this safe to run every startup.
+func ensureAttachmentTextColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE attachments ADD COLUMN IF NOT EXISTS extracted_text TEXT;
+		ALTER TABLE attachments ADD COLUMN IF NOT EXISTS extraction_error TEXT;
+	`)
+	return err
 }
 
 // ensureCompanyProfileArrayColumns converts company_profiles.business_type
