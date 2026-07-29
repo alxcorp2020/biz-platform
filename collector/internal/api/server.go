@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"biz-platform/collector/internal/webui"
 )
 
 type Server struct {
@@ -29,6 +31,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /api/notices", s.handleListNotices)
 	mux.HandleFunc("GET /api/notices/{id}", s.handleGetNotice)
+	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }
 

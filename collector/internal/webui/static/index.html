@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공공사업 참여판단 데이터 플랫폼</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --border: #d9dde3;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --bg-soft: #f5f6f8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    color: #1a1d23;
+    background: #fff;
+  }
+  header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.25rem;
+  }
+  main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 1.5rem;
+  }
+  .filters {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+  .filters input {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+  }
+  .filters input[name="q"] { flex: 1; min-width: 160px; }
+  .filters button {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .back-link {
+    display: inline-block;
+    margin-bottom: 1rem;
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.6rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th { color: var(--muted); font-weight: 600; }
+  tr.notice-row { cursor: pointer; }
+  tr.notice-row:hover { background: var(--bg-soft); }
+  .status-badge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    background: var(--bg-soft);
+    color: var(--muted);
+  }
+  .empty, .loading, .error {
+    color: var(--muted);
+    padding: 2rem 0;
+    text-align: center;
+  }
+  .error { color: #b91c1c; }
+  .detail-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .detail-card h2 { margin-top: 0; }
+  .detail-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.75rem;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  .detail-meta dt { color: var(--muted); font-size: 0.8rem; }
+  .detail-meta dd { margin: 0.1rem 0 0; }
+  .official-link {
+    display: inline-block;
+    margin-top: 0.5rem;
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+  h3 { font-size: 1rem; margin-bottom: 0.5rem; }
+  .importance-high { color: #b91c1c; font-weight: 600; }
+  .importance-medium { color: #b45309; }
+  .importance-low { color: var(--muted); }
+
+  @media (prefers-color-scheme: dark) {
+    body { background: #15171c; color: #e6e8eb; }
+    :root { --border: #33363d; --bg-soft: #1e2126; --muted: #9096a1; }
+    .filters input { background: #1e2126; color: #e6e8eb; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>공공사업 참여판단 데이터 플랫폼</h1>
+</header>
+<main id="app"></main>
+
+<script>
+const app = document.getElementById('app');
+
+function h(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content; }
+
+function formatDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d)) return '-';
+  return d.toISOString().slice(0, 10);
+}
+
+function formatBudget(n) {
+  if (n === null || n === undefined) return '-';
+  return Number(n).toLocaleString('ko-KR') + '원';
+}
+
+async function fetchJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('요청 실패 (' + res.status + ')');
+  return res.json();
+}
+
+function renderList(container) {
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <form class="filters" id="filter-form">
+      <input type="text" name="q" placeholder="공고명 검색" value="${params.get('q') || ''}">
+      <input type="text" name="region" placeholder="지역" value="${params.get('region') || ''}">
+      <input type="text" name="industry" placeholder="업종" value="${params.get('industry') || ''}">
+      <button type="submit">검색</button>
+    </form>
+    <div id="list-body" class="loading">불러오는 중...</div>
+  `));
+
+  document.getElementById('filter-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const p = new URLSearchParams();
+    for (const [k, v] of fd.entries()) if (v) p.set(k, v);
+    location.hash = '#/?' + p.toString();
+  });
+
+  const listBody = document.getElementById('list-body');
+  const apiParams = new URLSearchParams();
+  if (params.get('q')) apiParams.set('q', params.get('q'));
+  if (params.get('region')) apiParams.set('region', params.get('region'));
+  if (params.get('industry')) apiParams.set('industry', params.get('industry'));
+
+  fetchJSON('/api/notices?' + apiParams.toString())
+    .then(data => {
+      if (!data.items || data.items.length === 0) {
+        listBody.className = 'empty';
+        listBody.textContent = '조건에 맞는 공고가 없습니다.';
+        return;
+      }
+      const rows = data.items.map(n => `
+        <tr class="notice-row" data-id="${n.id}">
+          <td>${escapeHtml(n.title)}</td>
+          <td>${escapeHtml(n.organizationName || '-')}</td>
+          <td>${escapeHtml(n.region || '-')}</td>
+          <td>${escapeHtml(n.industry || '-')}</td>
+          <td><span class="status-badge">${escapeHtml(n.status || '-')}</span></td>
+          <td>${formatDate(n.applicationEndAt)}</td>
+          <td>${formatBudget(n.budgetAmount)}</td>
+        </tr>
+      `).join('');
+      listBody.className = '';
+      listBody.innerHTML = '';
+      listBody.appendChild(h(`
+        <table>
+          <thead>
+            <tr>
+              <th>공고명</th><th>발주기관</th><th>지역</th><th>업종</th>
+              <th>상태</th><th>마감일</th><th>예산</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `));
+      listBody.querySelectorAll('.notice-row').forEach(row => {
+        row.addEventListener('click', () => {
+          location.hash = '#/notices/' + row.dataset.id;
+        });
+      });
+    })
+    .catch(err => {
+      listBody.className = 'error';
+      listBody.textContent = err.message;
+    });
+}
+
+function renderDetail(container, id) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/" class="back-link">&larr; 목록으로</a>
+    <div id="detail-body" class="loading">불러오는 중...</div>
+  `));
+  const body = document.getElementById('detail-body');
+
+  fetchJSON('/api/notices/' + encodeURIComponent(id))
+    .then(data => {
+      const n = data.notice;
+      const changes = data.changes || [];
+      const changeRows = changes.length
+        ? changes.map(c => `
+            <tr>
+              <td>${escapeHtml(c.field)}</td>
+              <td>${escapeHtml(c.oldValue || '-')}</td>
+              <td>${escapeHtml(c.newValue || '-')}</td>
+              <td class="importance-${escapeHtml(c.importance || 'low')}">${escapeHtml(c.importance || '-')}</td>
+              <td>${formatDate(c.createdAt)}</td>
+            </tr>
+          `).join('')
+        : '';
+
+      body.className = '';
+      body.innerHTML = '';
+      body.appendChild(h(`
+        <div class="detail-card">
+          <h2>${escapeHtml(n.title)}</h2>
+          <dl class="detail-meta">
+            <div><dt>발주기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
+            <div><dt>지역</dt><dd>${escapeHtml(n.region || '-')}</dd></div>
+            <div><dt>업종</dt><dd>${escapeHtml(n.industry || '-')}</dd></div>
+            <div><dt>상태</dt><dd>${escapeHtml(n.status || '-')}</dd></div>
+            <div><dt>마감일</dt><dd>${formatDate(n.applicationEndAt)}</dd></div>
+            <div><dt>예산</dt><dd>${formatBudget(n.budgetAmount)}</dd></div>
+            <div><dt>버전</dt><dd>v${n.currentVersion}</dd></div>
+          </dl>
+          ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 &rarr;</a>` : ''}
+        </div>
+        <h3>변경 이력</h3>
+        ${changeRows
+          ? `<table>
+              <thead><tr><th>항목</th><th>이전 값</th><th>변경 값</th><th>중요도</th><th>일시</th></tr></thead>
+              <tbody>${changeRows}</tbody>
+            </table>`
+          : '<p class="empty">변경 이력이 없습니다.</p>'}
+      `));
+    })
+    .catch(err => {
+      body.className = 'error';
+      body.textContent = err.message;
+    });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+function route() {
+  const hash = location.hash || '#/';
+  const path = hash.split('?')[0];
+  const detailMatch = path.match(/^#\/notices\/(.+)$/);
+  if (detailMatch) {
+    renderDetail(app, decodeURIComponent(detailMatch[1]));
+  } else {
+    renderList(app);
+  }
+}
+
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
