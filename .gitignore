@@ -1,5 +1,6 @@
 .env
 *.log
+.claude/settings.local.json
 /collector/collector
 /analyzer/__pycache__/
 /analyzer/venv/
