@@ -15,15 +15,16 @@ import (
 )
 
 type Server struct {
-	db     *sql.DB
-	logger *slog.Logger
+	db            *sql.DB
+	logger        *slog.Logger
+	sessionSecret []byte
 }
 
-func New(db *sql.DB, logger *slog.Logger) *Server {
+func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{db: db, logger: logger}
+	return &Server{db: db, logger: logger, sessionSecret: sessionSecret}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -31,6 +32,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /api/notices", s.handleListNotices)
 	mux.HandleFunc("GET /api/notices/{id}", s.handleGetNotice)
+	mux.HandleFunc("POST /api/auth/signup", s.handleSignup)
+	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
+	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/me", s.handleMe)
+	mux.HandleFunc("PUT /api/me/company-profile", s.handleUpsertCompanyProfile)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }
@@ -195,7 +201,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return

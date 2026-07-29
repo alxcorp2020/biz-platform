@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"log/slog"
 	"net/http"
@@ -54,12 +55,30 @@ func main() {
 
 	startBackgroundCollection(dsn, logger)
 
-	srv := api.New(db, logger)
+	srv := api.New(db, logger, loadSessionSecret(logger))
 	logger.Info("api server starting", "port", port)
 	if err := http.ListenAndServe(":"+port, srv.Routes()); err != nil {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+// loadSessionSecret reads SESSION_SECRET, or generates a random one if unset.
+// A generated secret only lives for this process: it invalidates all
+// sessions on restart and won't match across multiple instances, so set
+// SESSION_SECRET explicitly for any real deployment.
+func loadSessionSecret(logger *slog.Logger) []byte {
+	if v := os.Getenv("SESSION_SECRET"); v != "" {
+		return []byte(v)
+	}
+	logger.Warn("SESSION_SECRET is not set; generating a random secret for this process only " +
+		"(sessions will be invalidated on restart and won't work across multiple instances)")
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		logger.Error("failed to generate random session secret", "error", err)
+		os.Exit(1)
+	}
+	return secret
 }
 
 // startBackgroundCollection runs the collection pipeline inside the API

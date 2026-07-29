@@ -24,8 +24,36 @@
     border-bottom: 1px solid var(--border);
   }
   header h1 {
-    margin: 0 0 0.5rem;
+    margin: 0;
     font-size: 1.25rem;
+  }
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .brand-link {
+    color: inherit;
+    text-decoration: none;
+  }
+  .auth-nav {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: 0.9rem;
+  }
+  .auth-nav a, .link-btn {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
   }
   main {
     max-width: 960px;
@@ -117,6 +145,62 @@
   .importance-medium { color: #b45309; }
   .importance-low { color: var(--muted); }
 
+  .auth-card {
+    max-width: 360px;
+    margin: 0 auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+  .auth-card h2 { margin-top: 0; }
+  .auth-form, .profile-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+  .profile-form {
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  .auth-form label, .profile-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .checkbox-label {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 0.5rem !important;
+  }
+  .auth-form input, .profile-form input {
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.95rem;
+    color: inherit;
+    background: transparent;
+  }
+  .auth-form button, .profile-form button {
+    padding: 0.6rem 1rem;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .auth-switch {
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .success {
+    color: #15803d;
+    font-size: 0.9rem;
+  }
+
   @media (prefers-color-scheme: dark) {
     body { background: #15171c; color: #e6e8eb; }
     :root { --border: #33363d; --bg-soft: #1e2126; --muted: #9096a1; }
@@ -126,7 +210,10 @@
 </head>
 <body>
 <header>
-  <h1>공공사업 참여판단 데이터 플랫폼</h1>
+  <div class="header-row">
+    <h1><a href="#/" class="brand-link">공공사업 참여판단 데이터 플랫폼</a></h1>
+    <nav id="auth-nav" class="auth-nav"></nav>
+  </div>
 </header>
 <main id="app"></main>
 
@@ -151,6 +238,75 @@ async function fetchJSON(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error('요청 실패 (' + res.status + ')');
   return res.json();
+}
+
+const ERROR_MESSAGES = {
+  invalid_email: '이메일 형식이 올바르지 않습니다.',
+  password_too_short: '비밀번호는 최소 8자 이상이어야 합니다.',
+  email_already_registered: '이미 가입된 이메일입니다.',
+  invalid_credentials: '이메일 또는 비밀번호가 올바르지 않습니다.',
+  unauthorized: '로그인이 필요합니다.',
+  invalid_body: '요청 형식이 올바르지 않습니다.',
+  query_failed: '서버 처리 중 오류가 발생했습니다.',
+  internal_error: '서버 처리 중 오류가 발생했습니다.',
+};
+
+async function apiRequest(method, url, body) {
+  const opts = { method };
+  if (body !== undefined) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(url, opts);
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* empty body */ }
+  if (!res.ok) {
+    const code = data && data.error;
+    const err = new Error((code && ERROR_MESSAGES[code]) || ('요청 실패 (' + res.status + ')'));
+    err.code = code;
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+let currentUser = null;
+let currentProfile = null;
+
+async function loadMe() {
+  try {
+    const data = await apiRequest('GET', '/api/me');
+    currentUser = data.user;
+    currentProfile = data.companyProfile;
+  } catch (err) {
+    currentUser = null;
+    currentProfile = null;
+  }
+  renderHeader();
+}
+
+function renderHeader() {
+  const nav = document.getElementById('auth-nav');
+  if (currentUser) {
+    nav.innerHTML = '';
+    nav.appendChild(h(`
+      <a href="#/me/profile">내 프로필</a>
+      <button type="button" id="logout-btn" class="link-btn">로그아웃</button>
+    `));
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      try { await apiRequest('POST', '/api/auth/logout'); } catch (err) { /* ignore */ }
+      currentUser = null;
+      currentProfile = null;
+      renderHeader();
+      location.hash = '#/';
+    });
+  } else {
+    nav.innerHTML = '';
+    nav.appendChild(h(`
+      <a href="#/auth/login">로그인</a>
+      <a href="#/auth/signup">회원가입</a>
+    `));
+  }
 }
 
 function renderList(container) {
@@ -285,9 +441,175 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) { return escapeHtml(s); }
 
+function renderSignup(container) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="auth-card">
+      <h2>회원가입</h2>
+      <form id="signup-form" class="auth-form">
+        <label>이메일<input type="email" name="email" required></label>
+        <label>비밀번호 (최소 8자)<input type="password" name="password" minlength="8" required></label>
+        <div id="signup-error" class="error" style="display:none"></div>
+        <button type="submit">가입하기</button>
+      </form>
+      <p class="auth-switch">이미 계정이 있으신가요? <a href="#/auth/login">로그인</a></p>
+    </div>
+  `));
+  const form = document.getElementById('signup-form');
+  const errorBox = document.getElementById('signup-error');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    try {
+      const data = await apiRequest('POST', '/api/auth/signup', {
+        email: fd.get('email'), password: fd.get('password'),
+      });
+      currentUser = { id: data.id, email: data.email, role: 'user', plan: 'free' };
+      currentProfile = null;
+      renderHeader();
+      location.hash = '#/me/profile';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+function renderLogin(container) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="auth-card">
+      <h2>로그인</h2>
+      <form id="login-form" class="auth-form">
+        <label>이메일<input type="email" name="email" required></label>
+        <label>비밀번호<input type="password" name="password" required></label>
+        <div id="login-error" class="error" style="display:none"></div>
+        <button type="submit">로그인</button>
+      </form>
+      <p class="auth-switch">계정이 없으신가요? <a href="#/auth/signup">회원가입</a></p>
+    </div>
+  `));
+  const form = document.getElementById('login-form');
+  const errorBox = document.getElementById('login-error');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    try {
+      const data = await apiRequest('POST', '/api/auth/login', {
+        email: fd.get('email'), password: fd.get('password'),
+      });
+      currentUser = { id: data.id, email: data.email };
+      renderHeader();
+      await loadMe();
+      location.hash = '#/';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+function fillProfileForm(form, profile) {
+  if (!profile) return;
+  form.businessType.value = profile.businessType || '';
+  form.region.value = profile.region || '';
+  form.industry.value = profile.industry || '';
+  form.businessAgeYears.value = profile.businessAgeYears ?? '';
+  form.revenueAmount.value = profile.revenueAmount ?? '';
+  form.employeeCount.value = profile.employeeCount ?? '';
+  form.companySize.value = profile.companySize || '';
+  form.licenses.value = (profile.licenses || []).join(', ');
+  form.certifications.value = (profile.certifications || []).join(', ');
+  form.directProductionCert.checked = !!profile.directProductionCert;
+  form.maxPerformanceAmount.value = profile.maxPerformanceAmount ?? '';
+  form.creditRating.value = profile.creditRating || '';
+}
+
+async function renderProfile(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let me;
+  try {
+    me = await apiRequest('GET', '/api/me');
+  } catch (err) {
+    location.hash = '#/auth/login';
+    return;
+  }
+  currentUser = me.user;
+  currentProfile = me.companyProfile;
+  renderHeader();
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="detail-card">
+      <h2>기업 프로필</h2>
+      <form id="profile-form" class="profile-form">
+        <label>업태<input type="text" name="businessType"></label>
+        <label>지역<input type="text" name="region"></label>
+        <label>업종<input type="text" name="industry"></label>
+        <label>업력(년)<input type="number" step="0.1" name="businessAgeYears"></label>
+        <label>매출액(원)<input type="number" name="revenueAmount"></label>
+        <label>직원 수<input type="number" name="employeeCount"></label>
+        <label>기업 규모<input type="text" name="companySize" placeholder="소기업/소상공인/중기업 등"></label>
+        <label>보유 면허 (쉼표로 구분)<input type="text" name="licenses"></label>
+        <label>보유 인증 (쉼표로 구분)<input type="text" name="certifications"></label>
+        <label class="checkbox-label"><input type="checkbox" name="directProductionCert"> 직접생산확인증명 보유</label>
+        <label>최근 3년 최대 실적(원)<input type="number" name="maxPerformanceAmount"></label>
+        <label>신용등급<input type="text" name="creditRating"></label>
+        <div id="profile-error" class="error" style="display:none"></div>
+        <div id="profile-success" class="success" style="display:none"></div>
+        <button type="submit">저장</button>
+      </form>
+    </div>
+  `));
+
+  const form = document.getElementById('profile-form');
+  const errorBox = document.getElementById('profile-error');
+  const successBox = document.getElementById('profile-success');
+  fillProfileForm(form, currentProfile);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    successBox.style.display = 'none';
+    const fd = new FormData(form);
+    const toNum = (v) => (v === '' || v === null ? null : Number(v));
+    const toList = (v) => (v || '').split(',').map(s => s.trim()).filter(Boolean);
+    const payload = {
+      businessType: fd.get('businessType') || null,
+      region: fd.get('region') || null,
+      industry: fd.get('industry') || null,
+      businessAgeYears: toNum(fd.get('businessAgeYears')),
+      revenueAmount: toNum(fd.get('revenueAmount')),
+      employeeCount: toNum(fd.get('employeeCount')),
+      companySize: fd.get('companySize') || null,
+      licenses: toList(fd.get('licenses')),
+      certifications: toList(fd.get('certifications')),
+      directProductionCert: fd.get('directProductionCert') === 'on',
+      maxPerformanceAmount: toNum(fd.get('maxPerformanceAmount')),
+      creditRating: fd.get('creditRating') || null,
+    };
+    try {
+      const data = await apiRequest('PUT', '/api/me/company-profile', payload);
+      currentProfile = data.companyProfile;
+      successBox.textContent = '저장되었습니다.';
+      successBox.style.display = 'block';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
 function route() {
   const hash = location.hash || '#/';
   const path = hash.split('?')[0];
+  if (path === '#/auth/signup') { renderSignup(app); return; }
+  if (path === '#/auth/login') { renderLogin(app); return; }
+  if (path === '#/me/profile') { renderProfile(app); return; }
   const detailMatch = path.match(/^#\/notices\/(.+)$/);
   if (detailMatch) {
     renderDetail(app, decodeURIComponent(detailMatch[1]));
@@ -297,6 +619,7 @@ function route() {
 }
 
 window.addEventListener('hashchange', route);
+loadMe();
 route();
 </script>
 </body>
