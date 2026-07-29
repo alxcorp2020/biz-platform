@@ -296,6 +296,71 @@
   .importance-major { color: var(--warn); }
   .importance-minor { color: var(--ink-soft); }
 
+  /* ---------- Eligibility check ---------- */
+  .eligibility-check-btn {
+    padding: 0.6rem 1.1rem;
+    border: 1px solid var(--seal);
+    background: var(--seal);
+    color: var(--paper-raise);
+    border-radius: 2px;
+    cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
+  }
+  .eligibility-check-btn:hover { background: var(--seal-soft); border-color: var(--seal-soft); }
+  .eligibility-check-btn:disabled { opacity: 0.6; cursor: default; }
+  .eligibility-disclaimer {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--warn);
+    border: 1px dashed var(--warn);
+    padding: 0.6rem 0.8rem;
+    margin: 1rem 0 0.5rem;
+    background: rgba(180, 121, 31, 0.08);
+  }
+  .elig-overall {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.88rem;
+  }
+  .elig-list {
+    border-top: 1px solid var(--hairline);
+    margin: 0.75rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .elig-item {
+    padding: 0.9rem 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .elig-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+  }
+  .elig-category {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .elig-result {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  .elig-result--met { color: var(--ok); }
+  .elig-result--not_met { color: var(--seal); }
+  .elig-result--needs_confirmation { color: var(--warn); }
+  .elig-result--insufficient_data { color: var(--ink-soft); }
+  .elig-reason {
+    margin: 0.4rem 0 0;
+    font-size: 0.85rem;
+    color: var(--ink);
+  }
+
   /* ---------- Auth / profile forms ---------- */
   .auth-card {
     max-width: 380px;
@@ -435,6 +500,15 @@ const ERROR_MESSAGES = {
   invalid_body: '요청 형식이 올바르지 않습니다.',
   query_failed: '서버 처리 중 오류가 발생했습니다.',
   internal_error: '서버 처리 중 오류가 발생했습니다.',
+  notice_not_found: '공고를 찾을 수 없습니다.',
+  company_profile_required: '기업 프로필이 없습니다. 먼저 기업 프로필을 등록해주세요.',
+};
+
+const ELIGIBILITY_RESULT_LABELS = {
+  met: '충족',
+  not_met: '미충족',
+  needs_confirmation: '확인 필요',
+  insufficient_data: '데이터 부족',
 };
 
 async function apiRequest(method, url, body) {
@@ -604,6 +678,8 @@ function renderDetail(container, id) {
           </dl>
           ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 &rarr;</a>` : ''}
         </div>
+        <h3>우리 회사 적합성 확인</h3>
+        <div id="eligibility-section"></div>
         <h3>변경 이력</h3>
         ${changeRows
           ? `<table>
@@ -612,11 +688,74 @@ function renderDetail(container, id) {
             </table>`
           : '<p class="empty">변경 이력이 없습니다.</p>'}
       `));
+      renderEligibilitySection(document.getElementById('eligibility-section'), id);
     })
     .catch(err => {
       body.className = 'error';
       body.textContent = err.message;
     });
+}
+
+function renderEligibilityResult(container, data) {
+  const overall = data.overallResult;
+  const itemsHtml = data.items.map(it => `
+    <li class="elig-item">
+      <div class="elig-head">
+        <span class="elig-category">${escapeHtml(it.category)}</span>
+        <span class="elig-result elig-result--${escapeHtml(it.result)}">${escapeHtml(ELIGIBILITY_RESULT_LABELS[it.result] || it.result)}</span>
+      </div>
+      <p class="elig-reason">${escapeHtml(it.reason)}</p>
+    </li>
+  `).join('');
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="eligibility-disclaimer">⚠ ${escapeHtml(data.disclaimer)}</div>
+    <p class="elig-overall">종합 결과:
+      <span class="elig-result elig-result--${escapeHtml(overall)}">${escapeHtml(ELIGIBILITY_RESULT_LABELS[overall] || overall)}</span>
+    </p>
+    <ul class="elig-list">${itemsHtml}</ul>
+  `));
+}
+
+function renderEligibilitySection(container, noticeId) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <button type="button" id="eligibility-btn" class="eligibility-check-btn">우리 회사 적합성 확인</button>
+    <div id="eligibility-result"></div>
+  `));
+
+  document.getElementById('eligibility-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('eligibility-btn');
+    const resultBox = document.getElementById('eligibility-result');
+
+    if (!currentUser) {
+      location.hash = '#/auth/login';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '확인 중...';
+    resultBox.innerHTML = '';
+    try {
+      const data = await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/evaluate');
+      renderEligibilityResult(resultBox, data);
+    } catch (err) {
+      if (err.status === 401) {
+        location.hash = '#/auth/login';
+      } else if (err.code === 'company_profile_required') {
+        resultBox.appendChild(h(
+          '<p class="error">기업 프로필을 먼저 등록해야 합니다. <a href="#/me/profile">기업 프로필 등록하기</a></p>'
+        ));
+      } else {
+        resultBox.className = 'error';
+        resultBox.textContent = err.message;
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '우리 회사 적합성 확인';
+    }
+  });
 }
 
 function escapeHtml(s) {
