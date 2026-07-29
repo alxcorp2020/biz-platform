@@ -64,6 +64,17 @@ def extract_hwpx(path):
     return text
 
 
+def _render_pdf_table(table):
+    """표를 '<표>' 마커 + '셀1 | 셀2 | 셀3' 평문으로 렌더링한다. HWP/HWPX
+    파서가 이미 남기는 '<표>' 마커와 형식을 맞춰, 다음 단계(섹션 추출)가
+    포맷 무관하게 "표 근처인지"를 판단할 수 있게 한다."""
+    lines = ["<표>"]
+    for row in table:
+        cells = [(c or "").strip().replace("\n", " ") for c in row]
+        lines.append(" | ".join(cells))
+    return "\n".join(lines)
+
+
 def extract_pdf(path):
     import pdfplumber
     parts = []
@@ -72,6 +83,8 @@ def extract_pdf(path):
             t = page.extract_text()
             if t:
                 parts.append(t)
+            for table in page.extract_tables():
+                parts.append(_render_pdf_table(table))
     if not parts:
         raise ExtractionError("no extractable text (스캔 이미지 PDF일 가능성)")
     return "\n\n".join(parts)

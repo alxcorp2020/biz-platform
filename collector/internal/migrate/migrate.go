@@ -45,7 +45,35 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureAttachmentTextColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate attachments text columns: %w", err)
 	}
+	if err := ensureStructuredExtractionColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate structured-extraction columns: %w", err)
+	}
 	return nil
+}
+
+// ensureStructuredExtractionColumns supports analyzer/extract_sections.py:
+//   - eligibility_conditions.review_status gains 'review_required' (already
+//     used by notice_versions.review_status elsewhere in this schema).
+//   - required_documents gains the same provenance/confidence columns
+//     eligibility_conditions already has (confidence, review_status,
+//     source_attachment_id, source_page) — it had none of them before.
+// DROP CONSTRAINT IF EXISTS + re-ADD makes the CHECK update idempotent;
+// ADD COLUMN IF NOT EXISTS makes the new columns idempotent.
+func ensureStructuredExtractionColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE eligibility_conditions DROP CONSTRAINT IF EXISTS eligibility_conditions_review_status_check;
+		ALTER TABLE eligibility_conditions ADD CONSTRAINT eligibility_conditions_review_status_check
+			CHECK (review_status IN ('pending','confirmed','rejected','review_required'));
+
+		ALTER TABLE required_documents ADD COLUMN IF NOT EXISTS source_page INTEGER;
+		ALTER TABLE required_documents ADD COLUMN IF NOT EXISTS source_attachment_id UUID REFERENCES attachments(id);
+		ALTER TABLE required_documents ADD COLUMN IF NOT EXISTS confidence NUMERIC(3,2) NOT NULL DEFAULT 0.70;
+		ALTER TABLE required_documents ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'pending';
+		ALTER TABLE required_documents DROP CONSTRAINT IF EXISTS required_documents_review_status_check;
+		ALTER TABLE required_documents ADD CONSTRAINT required_documents_review_status_check
+			CHECK (review_status IN ('pending','confirmed','rejected','review_required'));
+	`)
+	return err
 }
 
 // ensureAttachmentTextColumns adds the extracted_text/extraction_error

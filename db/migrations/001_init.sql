@@ -182,7 +182,7 @@ CREATE TABLE eligibility_conditions (
     source_attachment_id UUID REFERENCES attachments(id),
     confidence      NUMERIC(3,2) NOT NULL DEFAULT 1.00,  -- 0.00~1.00
     review_status   TEXT NOT NULL DEFAULT 'pending'
-                        CHECK (review_status IN ('pending','confirmed','rejected')),
+                        CHECK (review_status IN ('pending','confirmed','rejected','review_required')),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_eligibility_version ON eligibility_conditions(notice_version_id);
@@ -202,7 +202,12 @@ CREATE TABLE required_documents (
     signature_required BOOLEAN,
     designated_form   BOOLEAN,
     submission_format TEXT,
-    source_text       TEXT
+    source_text       TEXT,
+    source_page          INTEGER,
+    source_attachment_id UUID REFERENCES attachments(id),
+    confidence           NUMERIC(3,2) NOT NULL DEFAULT 0.70,
+    review_status        TEXT NOT NULL DEFAULT 'pending'
+                              CHECK (review_status IN ('pending','confirmed','rejected','review_required'))
 );
 
 -- ------------------------------------------------------------
