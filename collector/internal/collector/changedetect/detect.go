@@ -44,11 +44,17 @@ func Compare(prev, next collector.NormalizedNotice) []FieldChange {
 
 	cmp("title", prev.Title, next.Title)
 	cmp("organization_name", prev.OrganizationName, next.OrganizationName)
+	cmp("department_name", prev.DepartmentName, next.DepartmentName)
 	cmp("region", prev.Region, next.Region)
 	cmp("industry", prev.Industry, next.Industry)
 	cmp("status", prev.Status, next.Status)
-	cmp("application_end_at", fmtTimePtr(prev.ApplicationEndAt), fmtTimePtr(next.ApplicationEndAt))
-	cmp("application_start_at", fmtTimePtr(prev.ApplicationStartAt), fmtTimePtr(next.ApplicationStartAt))
+	// application_start_at/application_end_at are stored as DATE columns (no
+	// time-of-day or timezone) — comparing at full RFC3339 precision would
+	// flag every notice as "changed" on every re-read, since a value fresh
+	// off the source (with a real time-of-day) never equals the same value
+	// round-tripped through a DATE column (always midnight UTC).
+	cmp("application_end_at", fmtDatePtr(prev.ApplicationEndAt), fmtDatePtr(next.ApplicationEndAt))
+	cmp("application_start_at", fmtDatePtr(prev.ApplicationStartAt), fmtDatePtr(next.ApplicationStartAt))
 	cmp("budget_amount", fmtAmount(prev.BudgetAmount), fmtAmount(next.BudgetAmount))
 	cmp("support_amount", fmtAmount(prev.SupportAmount), fmtAmount(next.SupportAmount))
 
@@ -69,11 +75,11 @@ func OverallChangeType(changes []FieldChange) string {
 	return "minor_update"
 }
 
-func fmtTimePtr(t *time.Time) string {
+func fmtDatePtr(t *time.Time) string {
 	if t == nil {
 		return ""
 	}
-	return t.Format(time.RFC3339)
+	return t.Format("2006-01-02")
 }
 
 func fmtAmount(v *int64) string {

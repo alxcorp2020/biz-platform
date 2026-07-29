@@ -12,9 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"biz-platform/collector/internal/collector"
 	"biz-platform/collector/internal/collector/pgstore"
 	"biz-platform/collector/internal/collector/runner"
 	"biz-platform/collector/internal/collector/sources/demo"
+	"biz-platform/collector/internal/collector/sources/g2b"
 )
 
 func main() {
@@ -29,8 +31,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	src := demo.New()
-	st, err := pgstore.Open(ctx, dsn, src.SourceCode(), "데모 데이터 소스", "procurement", "demo://local")
+	src, sourceName, baseURL := newCollectorSource(logger)
+	st, err := pgstore.Open(ctx, dsn, src.SourceCode(), sourceName, "procurement", baseURL)
 	if err != nil {
 		logger.Error("failed to open pgstore", "error", err)
 		os.Exit(1)
@@ -63,4 +65,15 @@ func main() {
 			runOnce()
 		}
 	}
+}
+
+// newCollectorSource picks the real 나라장터 source when G2B_SERVICE_KEY is
+// configured, falling back to the bundled demo source otherwise so a fresh
+// deploy without the key yet still has something to show.
+func newCollectorSource(logger *slog.Logger) (collector.Collector, string, string) {
+	if key := os.Getenv("G2B_SERVICE_KEY"); key != "" {
+		return g2b.New(key), "조달청_나라장터 입찰공고정보서비스", "https://apis.data.go.kr/1230000/ad/BidPublicInfoService"
+	}
+	logger.Warn("G2B_SERVICE_KEY is not set; falling back to the bundled demo data source")
+	return demo.New(), "데모 데이터 소스", "demo://local"
 }

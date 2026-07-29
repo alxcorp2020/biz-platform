@@ -28,4 +28,6 @@ services:
           property: connectionString
       - key: SESSION_SECRET
         generateValue: true
+      - key: G2B_SERVICE_KEY
+        sync: false
     healthCheckPath: /healthz

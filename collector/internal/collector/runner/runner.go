@@ -58,6 +58,12 @@ func (r *Runner) RunIncremental(ctx context.Context, since time.Time) JobResult 
 	result := JobResult{Status: StatusRunning, StartedAt: time.Now()}
 	cursor := collector.Cursor{SinceTime: since}
 
+	// Guards against a source whose result set shifts while we page through
+	// it (e.g. new/updated rows change ordering mid-run on a live API),
+	// which can surface the same ExternalNoticeID on two different pages
+	// within one run and otherwise record spurious duplicate versions.
+	seen := make(map[string]bool)
+
 	for page := 0; page < r.MaxPages; page++ {
 		items, next, err := r.Collector.FetchList(ctx, cursor)
 		if err != nil {
@@ -68,6 +74,11 @@ func (r *Runner) RunIncremental(ctx context.Context, since time.Time) JobResult 
 		}
 
 		for _, item := range items {
+			if seen[item.ExternalNoticeID] {
+				continue
+			}
+			seen[item.ExternalNoticeID] = true
+
 			result.ProcessedCount++
 			if err := r.processItem(ctx, item); err != nil {
 				result.FailedCount++

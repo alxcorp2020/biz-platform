@@ -67,14 +67,14 @@ func (p *PgStore) SaveRawDocument(ctx context.Context, doc collector.RawDocument
 
 func (p *PgStore) FindNoticeBySourceAndExternalID(ctx context.Context, sourceID, externalID string) (*store.NoticeRecord, bool, error) {
 	row := p.db.QueryRowContext(ctx, `
-		SELECT id, title, organization_name, region, industry, status,
+		SELECT id, title, organization_name, department_name, region, industry, status,
 		       application_start_at, application_end_at, budget_amount, support_amount,
 		       official_url, current_version
 		FROM notices WHERE source_id = $1 AND external_notice_id = $2`, p.sourceID, externalID)
 
 	var rec store.NoticeRecord
 	var n collector.NormalizedNotice
-	err := row.Scan(&rec.ID, &n.Title, &n.OrganizationName, &n.Region, &n.Industry, &n.Status,
+	err := row.Scan(&rec.ID, &n.Title, &n.OrganizationName, &n.DepartmentName, &n.Region, &n.Industry, &n.Status,
 		&n.ApplicationStartAt, &n.ApplicationEndAt, &n.BudgetAmount, &n.SupportAmount,
 		&n.OfficialURL, &rec.CurrentVersion)
 	if err == sql.ErrNoRows {
@@ -99,12 +99,12 @@ func (p *PgStore) CreateNotice(ctx context.Context, notice collector.NormalizedN
 	var noticeID string
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO notices
-			(source_id, external_notice_id, notice_type, title, organization_name, region, industry,
+			(source_id, external_notice_id, notice_type, title, organization_name, department_name, region, industry,
 			 published_at, application_start_at, application_end_at, budget_amount, support_amount,
 			 status, official_url, current_version)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,1)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,1)
 		RETURNING id`,
-		p.sourceID, notice.ExternalNoticeID, notice.NoticeType, notice.Title, notice.OrganizationName,
+		p.sourceID, notice.ExternalNoticeID, notice.NoticeType, notice.Title, notice.OrganizationName, notice.DepartmentName,
 		notice.Region, notice.Industry, notice.PublishedAt, notice.ApplicationStartAt, notice.ApplicationEndAt,
 		notice.BudgetAmount, notice.SupportAmount, notice.Status, notice.OfficialURL,
 	).Scan(&noticeID)
@@ -148,11 +148,11 @@ func (p *PgStore) AddNewVersion(ctx context.Context, noticeID string, notice col
 
 	_, err = tx.ExecContext(ctx, `
 		UPDATE notices SET
-			title=$2, organization_name=$3, region=$4, industry=$5, status=$6,
-			application_start_at=$7, application_end_at=$8, budget_amount=$9, support_amount=$10,
-			official_url=$11, current_version=$12, last_verified_at=now()
+			title=$2, organization_name=$3, department_name=$4, region=$5, industry=$6, status=$7,
+			application_start_at=$8, application_end_at=$9, budget_amount=$10, support_amount=$11,
+			official_url=$12, current_version=$13, last_verified_at=now()
 		WHERE id=$1`,
-		noticeID, notice.Title, notice.OrganizationName, notice.Region, notice.Industry, notice.Status,
+		noticeID, notice.Title, notice.OrganizationName, notice.DepartmentName, notice.Region, notice.Industry, notice.Status,
 		notice.ApplicationStartAt, notice.ApplicationEndAt, notice.BudgetAmount, notice.SupportAmount,
 		notice.OfficialURL, newVerNum)
 	if err != nil {
@@ -162,11 +162,34 @@ func (p *PgStore) AddNewVersion(ctx context.Context, noticeID string, notice col
 	return versionID, newVerNum, tx.Commit()
 }
 
+// RecordChanges resolves each ChangeRecord's from/to version *numbers* into
+// the notice_versions row ids the notice_changes table's foreign keys
+// actually require (to_version_id is NOT NULL).
 func (p *PgStore) RecordChanges(ctx context.Context, changes []store.ChangeRecord) error {
 	for _, c := range changes {
+		var toVersionID string
+		if err := p.db.QueryRowContext(ctx,
+			`SELECT id FROM notice_versions WHERE notice_id = $1 AND version_number = $2`,
+			c.NoticeID, c.ToVersion,
+		).Scan(&toVersionID); err != nil {
+			return fmt.Errorf("resolve to_version_id: %w", err)
+		}
+
+		var fromVersionID sql.NullString
+		if c.FromVersion > 0 {
+			var id string
+			if err := p.db.QueryRowContext(ctx,
+				`SELECT id FROM notice_versions WHERE notice_id = $1 AND version_number = $2`,
+				c.NoticeID, c.FromVersion,
+			).Scan(&id); err == nil {
+				fromVersionID = sql.NullString{String: id, Valid: true}
+			}
+		}
+
 		_, err := p.db.ExecContext(ctx, `
-			INSERT INTO notice_changes (notice_id, changed_field, old_value, new_value, importance)
-			VALUES ($1,$2,$3,$4,$5)`, c.NoticeID, c.Field, c.OldValue, c.NewValue, c.Importance)
+			INSERT INTO notice_changes (notice_id, from_version_id, to_version_id, changed_field, old_value, new_value, importance)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			c.NoticeID, fromVersionID, toVersionID, c.Field, c.OldValue, c.NewValue, c.Importance)
 		if err != nil {
 			return fmt.Errorf("insert notice_change: %w", err)
 		}
