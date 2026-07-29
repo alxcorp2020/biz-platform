@@ -1,0 +1,6 @@
+.env
+*.log
+/collector/collector
+/analyzer/__pycache__/
+/analyzer/venv/
+.DS_Store

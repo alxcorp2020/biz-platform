@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: biz
+      POSTGRES_PASSWORD: bizpassword
+      POSTGRES_DB: biz_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U biz -d biz_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 첨부파일 원본 저장소 (운영에서는 Cloudflare R2 / AWS S3로 교체 가능,
+  # S3 호환 API이므로 애플리케이션 코드는 동일하게 유지)
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: bizadmin
+      MINIO_ROOT_PASSWORD: bizadminpassword
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+volumes:
+  pgdata:
+  miniodata:

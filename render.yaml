@@ -1,0 +1,34 @@
+# Render Blueprint (https://render.com/docs/blueprint-spec)
+# 배포 방법: Render 대시보드 -> New -> Blueprint -> 이 저장소 선택
+# 무료 티어: web/worker 각각 free plan, Postgres는 90일 무료 후 유료 전환 필요 (Render 정책,
+# 배포 시점에 https://render.com/docs/free 에서 최신 조건 재확인 권장)
+
+databases:
+  - name: biz-platform-db
+    plan: free
+    databaseName: biz_platform
+    user: biz
+
+services:
+  - type: web
+    name: biz-platform-api
+    plan: free
+    runtime: docker
+    dockerfilePath: ./Dockerfile.apiserver
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: biz-platform-db
+          property: connectionString
+    healthCheckPath: /healthz
+
+  - type: worker
+    name: biz-platform-collector
+    plan: free
+    runtime: docker
+    dockerfilePath: ./Dockerfile.collector
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: biz-platform-db
+          property: connectionString

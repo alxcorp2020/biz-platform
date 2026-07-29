@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1
+FROM golang:1.22-bookworm AS build
+WORKDIR /src
+COPY collector/go.mod collector/go.sum ./
+RUN go mod download
+COPY collector/ ./
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/collector-daemon ./cmd/collector-daemon
+
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /out/collector-daemon /collector-daemon
+ENTRYPOINT ["/collector-daemon"]
