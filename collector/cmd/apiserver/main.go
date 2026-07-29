@@ -9,10 +9,14 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	_ "github.com/lib/pq"
 
 	"biz-platform/collector/internal/api"
+	"biz-platform/collector/internal/collector/pgstore"
+	"biz-platform/collector/internal/collector/runner"
+	"biz-platform/collector/internal/collector/sources/demo"
 	"biz-platform/collector/internal/migrate"
 )
 
@@ -48,10 +52,44 @@ func main() {
 		port = "8080"
 	}
 
+	startBackgroundCollection(dsn, logger)
+
 	srv := api.New(db, logger)
 	logger.Info("api server starting", "port", port)
 	if err := http.ListenAndServe(":"+port, srv.Routes()); err != nil {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+// startBackgroundCollection runs the collection pipeline inside the API
+// server process on a 1-hour ticker. This exists because Render's free plan
+// does not support a separate Background Worker service type — folding
+// collection into the web service is the free-tier workaround. On a paid
+// plan, prefer running cmd/collector-daemon as its own service instead and
+// removing this call.
+func startBackgroundCollection(dsn string, logger *slog.Logger) {
+	go func() {
+		ctx := context.Background()
+		src := demo.New()
+		st, err := pgstore.Open(ctx, dsn, src.SourceCode(), "데모 데이터 소스", "procurement", "demo://local")
+		if err != nil {
+			logger.Error("background collection: failed to open store", "error", err)
+			return
+		}
+		rn := runner.New(src, st, logger)
+
+		runOnce := func() {
+			res := rn.RunIncremental(ctx, time.Time{})
+			logger.Info("background collection cycle finished",
+				"status", res.Status, "processed", res.ProcessedCount, "success", res.SuccessCount)
+		}
+
+		runOnce()
+		ticker := time.NewTicker(60 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			runOnce()
+		}
+	}()
 }

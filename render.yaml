@@ -1,7 +1,13 @@
 # Render Blueprint (https://render.com/docs/blueprint-spec)
 # 배포 방법: Render 대시보드 -> New -> Blueprint -> 이 저장소 선택
-# 무료 티어: web/worker 각각 free plan, Postgres는 90일 무료 후 유료 전환 필요 (Render 정책,
+# 무료 티어: web plan free, Postgres는 90일 무료 후 유료 전환 필요 (Render 정책,
 # 배포 시점에 https://render.com/docs/free 에서 최신 조건 재확인 권장)
+#
+# 참고: Render 무료 플랜은 Background Worker 서비스 타입을 지원하지 않아,
+# 수집 파이프라인은 별도 워커가 아니라 API 서버 프로세스 안에서 함께 실행됩니다
+# (collector/cmd/apiserver/main.go의 startBackgroundCollection). 유료 플랜으로
+# 전환 시 아래 worker 서비스 블록을 다시 추가하고 apiserver의 백그라운드 수집
+# 호출을 제거하는 것을 권장합니다.
 
 databases:
   - name: biz-platform-db
@@ -21,14 +27,3 @@ services:
           name: biz-platform-db
           property: connectionString
     healthCheckPath: /healthz
-
-  - type: worker
-    name: biz-platform-collector
-    plan: free
-    runtime: docker
-    dockerfilePath: ./Dockerfile.collector
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: biz-platform-db
-          property: connectionString
