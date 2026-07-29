@@ -217,6 +217,49 @@
   }
   .error { color: var(--seal); }
 
+  /* ---------- Skeleton loading (관보/장부 톤 — 회색 반짝임 대신 --hairline 계열) ---------- */
+  .skeleton-block {
+    display: block;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--hairline) 25%, var(--paper-raise) 50%, var(--hairline) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.6s ease-in-out infinite;
+  }
+  @keyframes skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton-block { animation: none; background: var(--hairline); }
+  }
+  .skeleton-line { height: 0.85rem; margin-bottom: 0.5rem; }
+  .skeleton-line:last-child { margin-bottom: 0; }
+  .skeleton-line--eyebrow { width: 35%; height: 0.6rem; }
+  .skeleton-line--title { width: 70%; height: 1.1rem; }
+  .skeleton-line--headline { width: 60%; height: 1.4rem; margin-top: 0.4rem; }
+  .skeleton-line--meta { width: 50%; height: 0.7rem; }
+  .skeleton-line--meta-cell { width: 75%; height: 0.9rem; }
+  .skeleton-line--category { width: 30%; height: 0.65rem; }
+  .skeleton-line--result { width: 20%; height: 0.8rem; }
+  .skeleton-line--reason { width: 85%; height: 0.8rem; margin-top: 0.4rem; }
+  .skeleton-num { width: 1.6rem; height: 0.9rem; }
+  .skeleton-seal {
+    width: 62px;
+    height: 62px;
+    border-radius: 50%;
+  }
+  .skeleton-row { cursor: default; }
+  .skeleton-row:hover { background: none; }
+  .skeleton-card .skeleton-line--headline { margin-bottom: 0.5rem; }
+  .skeleton-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1rem;
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hairline);
+  }
+
   /* ---------- Detail ---------- */
   .detail-card {
     border: 1px solid var(--hairline);
@@ -510,6 +553,44 @@ function sealBadgeHtml(iso, extraClass) {
   return `<div class="seal ${info.cls} ${extraClass || ''}">${escapeHtml(info.label)}</div>`;
 }
 
+// 실제 데이터가 오기 전 화면 형태만 미리 보여주는 스켈레톤. 개수는 고정
+// (실제 결과 건수를 알 수 없으므로) — 목록/상세/적합성 확인 모두 공용.
+function skeletonListHtml(count) {
+  const row = `
+    <div class="ledger-row skeleton-row">
+      <div class="ledger-num"><span class="skeleton-block skeleton-num"></span></div>
+      <div class="ledger-main">
+        <span class="skeleton-block skeleton-line skeleton-line--eyebrow"></span>
+        <span class="skeleton-block skeleton-line skeleton-line--title"></span>
+        <span class="skeleton-block skeleton-line skeleton-line--meta"></span>
+      </div>
+      <div class="ledger-seal"><span class="skeleton-block skeleton-seal"></span></div>
+    </div>`;
+  return `<div class="ledger">${row.repeat(count)}</div>`;
+}
+
+function skeletonDetailHtml() {
+  const cell = '<span class="skeleton-block skeleton-line skeleton-line--meta-cell"></span>';
+  return `
+    <div class="detail-card skeleton-card">
+      <span class="skeleton-block skeleton-line skeleton-line--eyebrow"></span>
+      <span class="skeleton-block skeleton-line skeleton-line--headline"></span>
+      <div class="skeleton-meta-grid">${cell.repeat(7)}</div>
+    </div>`;
+}
+
+function skeletonEligibilityHtml() {
+  const item = `
+    <div class="elig-item">
+      <div class="elig-head">
+        <span class="skeleton-block skeleton-line skeleton-line--category"></span>
+        <span class="skeleton-block skeleton-line skeleton-line--result"></span>
+      </div>
+      <span class="skeleton-block skeleton-line skeleton-line--reason"></span>
+    </div>`;
+  return `<div class="elig-list">${item.repeat(3)}</div>`;
+}
+
 async function fetchJSON(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error('요청 실패 (' + res.status + ')');
@@ -605,7 +686,7 @@ function renderList(container) {
       <input type="text" name="industry" placeholder="업종" value="${params.get('industry') || ''}">
       <button type="submit">검색</button>
     </form>
-    <div id="list-body" class="loading">불러오는 중...</div>
+    <div id="list-body">${skeletonListHtml(6)}</div>
   `));
 
   document.getElementById('filter-form').addEventListener('submit', (e) => {
@@ -667,7 +748,7 @@ function renderDetail(container, id) {
   container.innerHTML = '';
   container.appendChild(h(`
     <a href="#/" class="back-link">&larr; 목록으로</a>
-    <div id="detail-body" class="loading">불러오는 중...</div>
+    <div id="detail-body">${skeletonDetailHtml()}</div>
   `));
   const body = document.getElementById('detail-body');
 
@@ -762,11 +843,13 @@ function renderEligibilitySection(container, noticeId) {
 
     btn.disabled = true;
     btn.textContent = '확인 중...';
-    resultBox.innerHTML = '';
+    resultBox.className = '';
+    resultBox.innerHTML = skeletonEligibilityHtml();
     try {
       const data = await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/evaluate');
       renderEligibilityResult(resultBox, data);
     } catch (err) {
+      resultBox.innerHTML = '';
       if (err.status === 401) {
         location.hash = '#/auth/login';
       } else if (err.code === 'company_profile_required') {
