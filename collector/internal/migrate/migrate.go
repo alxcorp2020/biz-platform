@@ -48,7 +48,26 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureStructuredExtractionColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate structured-extraction columns: %w", err)
 	}
+	if err := ensureAIExtractionColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate AI-extraction columns: %w", err)
+	}
 	return nil
+}
+
+// ensureAIExtractionColumns supports analyzer/ai_extract.py (규칙 기반 1차 추출을
+// 보완하는 AI 2차 추출): eligibility_conditions/required_documents 행이 규칙
+// 기반인지 AI 기반인지 구분하고, AI 기반 행에는 재현성 확인용으로 사용한
+// 모델명을 남긴다. ADD COLUMN IF NOT EXISTS makes this idempotent.
+func ensureAIExtractionColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE eligibility_conditions ADD COLUMN IF NOT EXISTS extraction_method TEXT NOT NULL DEFAULT 'rule'
+			CHECK (extraction_method IN ('rule','ai'));
+		ALTER TABLE eligibility_conditions ADD COLUMN IF NOT EXISTS model_version TEXT;
+		ALTER TABLE required_documents ADD COLUMN IF NOT EXISTS extraction_method TEXT NOT NULL DEFAULT 'rule'
+			CHECK (extraction_method IN ('rule','ai'));
+		ALTER TABLE required_documents ADD COLUMN IF NOT EXISTS model_version TEXT;
+	`)
+	return err
 }
 
 // ensureStructuredExtractionColumns supports analyzer/extract_sections.py:
@@ -57,6 +76,7 @@ func Apply(ctx context.Context, db *sql.DB) error {
 //   - required_documents gains the same provenance/confidence columns
 //     eligibility_conditions already has (confidence, review_status,
 //     source_attachment_id, source_page) — it had none of them before.
+//
 // DROP CONSTRAINT IF EXISTS + re-ADD makes the CHECK update idempotent;
 // ADD COLUMN IF NOT EXISTS makes the new columns idempotent.
 func ensureStructuredExtractionColumns(ctx context.Context, db *sql.DB) error {

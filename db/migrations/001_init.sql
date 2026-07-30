@@ -183,6 +183,9 @@ CREATE TABLE eligibility_conditions (
     confidence      NUMERIC(3,2) NOT NULL DEFAULT 1.00,  -- 0.00~1.00
     review_status   TEXT NOT NULL DEFAULT 'pending'
                         CHECK (review_status IN ('pending','confirmed','rejected','review_required')),
+    extraction_method TEXT NOT NULL DEFAULT 'rule'
+                        CHECK (extraction_method IN ('rule','ai')),
+    model_version   TEXT,  -- AI 추출(2차)에 사용한 모델명 — 재현성 확인용, 규칙 기반 행은 NULL
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_eligibility_version ON eligibility_conditions(notice_version_id);
@@ -207,7 +210,10 @@ CREATE TABLE required_documents (
     source_attachment_id UUID REFERENCES attachments(id),
     confidence           NUMERIC(3,2) NOT NULL DEFAULT 0.70,
     review_status        TEXT NOT NULL DEFAULT 'pending'
-                              CHECK (review_status IN ('pending','confirmed','rejected','review_required'))
+                              CHECK (review_status IN ('pending','confirmed','rejected','review_required')),
+    extraction_method    TEXT NOT NULL DEFAULT 'rule'
+                              CHECK (extraction_method IN ('rule','ai')),
+    model_version        TEXT  -- AI 추출(2차)에 사용한 모델명 — 재현성 확인용, 규칙 기반 행은 NULL
 );
 
 -- ------------------------------------------------------------

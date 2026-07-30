@@ -12,3 +12,4 @@ six==1.17.0                # pyhwp가 six를 쓰지만 의존성으로 선언하
 hwp-hwpx-parser==1.0.0     # .hwpx(zip+XML) 파싱 — "python-hwpx"는 PyPI에 존재하지 않아 대체
 openpyxl==3.1.5            # .xlsx 처리
 psycopg2-binary==2.9.12    # Postgres 연결
+anthropic==0.120.2         # AI 기반 보완 추출(2차, ai_extract.py)
