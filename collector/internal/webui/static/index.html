@@ -361,6 +361,17 @@
     white-space: pre-wrap;
   }
   .document-name { margin: 0; font-size: 0.92rem; color: var(--ink); }
+  .document-head { margin-bottom: 0.35rem; }
+  .extraction-method-badge {
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .extraction-method-badge--rule { background: var(--bg-soft); color: var(--ink-soft); }
+  .extraction-method-badge--ai { background: rgba(46,90,172,0.10); color: var(--accent-blue); }
   .document-item--reference {
     background: rgba(196,132,29,0.07);
     border-radius: 8px;
@@ -371,6 +382,40 @@
   .document-reference-note { margin: 0; font-weight: 600; color: var(--warn); font-size: 0.9rem; }
   .glossary-btn--warn { border-color: var(--warn); color: var(--warn); }
   .glossary-btn--warn:hover, .glossary-btn--warn:focus-visible { background: var(--warn); color: #fff; }
+
+  /* ---------- 공고 상세정보 / 첨부파일 (g2b 원문 필드) ---------- */
+  .detail-sub {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    font-weight: 400;
+  }
+  .restriction-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 2rem;
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.88rem;
+  }
+  .restriction-label { color: var(--ink-soft); font-weight: 600; margin-right: 0.5rem; }
+  .restriction-value { color: var(--ink); }
+  .attachment-list { list-style: none; margin: 0 0 2rem; padding: 0; border-top: 1px solid var(--border); }
+  .attachment-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .attachment-name { font-size: 0.9rem; color: var(--ink); }
+  .attachment-name a { color: var(--accent-blue); text-decoration: none; font-weight: 500; }
+  .attachment-name a:hover { text-decoration: underline; }
+  .attachment-meta { font-size: 0.78rem; color: var(--ink-soft); white-space: nowrap; }
 
   /* ---------- 검토 대기 (review queue) ---------- */
   .review-queue-header {
@@ -653,6 +698,21 @@ function formatDate(iso) {
 function formatBudget(n) {
   if (n === null || n === undefined) return '-';
   return Number(n).toLocaleString('ko-KR') + '원';
+}
+
+function formatDateTime(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d)) return '-';
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatFileSize(bytes) {
+  if (bytes === null || bytes === undefined) return '';
+  if (bytes < 1024) return bytes + 'B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + 'KB';
+  return (bytes / 1024 / 1024).toFixed(1) + 'MB';
 }
 
 const STATUS_LABELS = { open: '진행중', closed: '마감', cancelled: '취소', reannounced: '재공고' };
@@ -993,6 +1053,10 @@ function renderDetail(container, id) {
           </dl>
           ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 &rarr;</a>` : ''}
         </div>
+        <h3>공고 상세정보</h3>
+        <div id="notice-detail-info-section"></div>
+        <h3>첨부파일</h3>
+        <div id="attachments-section"></div>
         <div class="extraction-banner">
           <span aria-hidden="true">ℹ</span>
           아래 내용은 첨부문서에서 자동으로 추출되었습니다. 원문과 다를 수 있으니 반드시 대조 확인하세요.
@@ -1011,6 +1075,8 @@ function renderDetail(container, id) {
             </table>`
           : '<p class="empty">변경 이력이 없습니다.</p>'}
       `));
+      renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail);
+      renderAttachments(document.getElementById('attachments-section'), data.attachments || []);
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || []);
       renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || []);
       renderEligibilitySection(document.getElementById('eligibility-section'), id);
@@ -1021,8 +1087,93 @@ function renderDetail(container, id) {
     });
 }
 
+// g2b 원문 JSON(raw_documents.raw_content)에서 그때그때 파싱한 상세 필드.
+// 지역제한은 이 데이터 소스(목록조회 API)에 판단기준 텍스트만 있고 구체적인
+// 지역명 목록 자체가 없어, 표로 꾸미지 않고 있는 그대로(판단기준 문구 또는
+// "확인 불가")를 보여준다 — 없는 데이터를 있는 것처럼 표로 만들지 않는다.
+function renderNoticeDetailInfo(container, detail) {
+  container.innerHTML = '';
+  if (!detail) {
+    container.appendChild(h('<p class="section-empty">원문 상세 데이터를 확인할 수 없습니다.</p>'));
+    return;
+  }
+  const rows = [];
+  if (detail.noticeKind) rows.push(['공고종류', escapeHtml(detail.noticeKind)]);
+  if (detail.contractMethod) rows.push(['계약방법', escapeHtml(detail.contractMethod)]);
+  if (detail.awardMethod) {
+    let v = escapeHtml(detail.awardMethod);
+    if (detail.awardMethodDetail) v += `<span class="detail-sub">${escapeHtml(detail.awardMethodDetail)}</span>`;
+    rows.push(['낙찰방법', v]);
+  }
+  if (detail.awardLowerLimitRate) rows.push(['낙찰하한율', `<span class="mono">${escapeHtml(detail.awardLowerLimitRate)}%</span>`]);
+  if (detail.rebidAllowed !== null && detail.rebidAllowed !== undefined) {
+    rows.push(['재입찰 허용', detail.rebidAllowed ? '허용' : '불허']);
+  }
+  if (detail.estimatedPrice != null) rows.push(['추정가격', `<span class="mono">${formatBudget(detail.estimatedPrice)}</span>`]);
+  if (detail.vat != null) rows.push(['부가가치세', `<span class="mono">${formatBudget(detail.vat)}</span>`]);
+  if (detail.officerName) {
+    let v = escapeHtml(detail.officerName);
+    if (detail.officerPhone) v += ` <span class="mono">${escapeHtml(detail.officerPhone)}</span>`;
+    rows.push(['담당자', v]);
+  }
+  if (detail.qualificationDeadlineAt) rows.push(['입찰참가자격등록 마감', `<span class="mono">${formatDateTime(detail.qualificationDeadlineAt)}</span>`]);
+  if (detail.applicationStartAt) rows.push(['입찰서 제출 시작', `<span class="mono">${formatDateTime(detail.applicationStartAt)}</span>`]);
+  if (detail.applicationEndAt) rows.push(['입찰서 제출 마감', `<span class="mono">${formatDateTime(detail.applicationEndAt)}</span>`]);
+  if (detail.bidOpeningAt) rows.push(['개찰일시', `<span class="mono">${formatDateTime(detail.bidOpeningAt)}</span>`]);
+
+  const dl = rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${value}</dd></div>`).join('');
+
+  const industryText = detail.industryRestricted === true ? '있음'
+    : detail.industryRestricted === false ? '없음' : '정보 없음';
+  const regionText = detail.regionRestrictionBasis
+    ? `있음 (판단기준: ${escapeHtml(detail.regionRestrictionBasis)})`
+    : '이 데이터만으로는 확인 불가 — 원문 공고 확인 필요';
+
+  container.appendChild(h(`
+    <dl class="detail-meta">${dl}</dl>
+    <div class="restriction-summary">
+      <div><span class="restriction-label">업종제한</span><span class="restriction-value">${industryText}</span></div>
+      <div><span class="restriction-label">지역제한</span><span class="restriction-value">${regionText}</span></div>
+    </div>
+  `));
+}
+
+function renderAttachments(container, items) {
+  container.innerHTML = '';
+  if (!items.length) {
+    container.appendChild(h('<p class="section-empty">첨부파일이 없습니다.</p>'));
+    return;
+  }
+  const rows = items.map(it => {
+    const sizeText = formatFileSize(it.fileSizeBytes);
+    const statusBadge = it.downloadStatus !== 'completed'
+      ? `<span class="status-badge status-badge--muted">${escapeHtml(it.downloadStatus)}</span>`
+      : '';
+    const nameHtml = it.downloadUrl
+      ? `<a href="${escapeAttr(it.downloadUrl)}" target="_blank" rel="noopener">${escapeHtml(it.originalFilename)}</a>`
+      : escapeHtml(it.originalFilename);
+    return `
+      <li class="attachment-item">
+        <span class="attachment-name">${nameHtml}</span>
+        <span class="attachment-meta mono">${escapeHtml((it.fileType || '').toUpperCase())} ${sizeText}</span>
+        ${statusBadge}
+      </li>`;
+  }).join('');
+  container.appendChild(h(`<ul class="attachment-list">${rows}</ul>`));
+}
+
 const CONDITION_CATEGORY_LABELS = { general: '일반' };
 const NO_DOCUMENT_LIST_LABEL = '(본문에 목록 없음 - 별첨/타 문서 참조)';
+
+// 규칙 기반(1차)과 AI 보완(2차) 결과를 한 목록에 같이 보여준다 — AI 보완이
+// 있다고 규칙 기반 원본(특히 review_required)을 화면에서 지우면 정보를
+// 숨기는 셈이라, 대신 배지로 출처를 구분한다.
+function extractionMethodBadgeHtml(method) {
+  if (method === 'ai') {
+    return '<span class="extraction-method-badge extraction-method-badge--ai">AI 보완</span>';
+  }
+  return '<span class="extraction-method-badge extraction-method-badge--rule">규칙 기반</span>';
+}
 
 // 첨부문서 분석이 아직 안 된 공고(신규 수집 공고 대부분)에는 목록 자체가
 // 없다는 사실을 숨기지 않고 그대로 보여준다 — 섹션을 숨기면 이 기능이
@@ -1037,6 +1188,7 @@ function renderEligibilityConditions(container, items) {
     <li class="condition-item">
       <div class="condition-head">
         <span class="condition-category">${escapeHtml(CONDITION_CATEGORY_LABELS[it.category] || it.category)}</span>
+        ${extractionMethodBadgeHtml(it.extractionMethod)}
         ${it.reviewStatus === 'review_required' ? reviewRequiredWarningHtml() : ''}
       </div>
       <p class="condition-name">${escapeHtml(it.conditionName)}</p>
@@ -1056,11 +1208,13 @@ function renderRequiredDocuments(container, items) {
     if (it.documentName === NO_DOCUMENT_LIST_LABEL) {
       return `
         <li class="document-item document-item--reference">
+          <div class="document-head">${extractionMethodBadgeHtml(it.extractionMethod)}</div>
           <p class="document-reference-note">☞ 원문 확인 필요 — 본문에 서류 목록이 없어 별첨/타 문서를 참조해야 합니다.</p>
         </li>`;
     }
     return `
       <li class="document-item">
+        <div class="document-head">${extractionMethodBadgeHtml(it.extractionMethod)}</div>
         <p class="document-name">${escapeHtml(it.documentName)}</p>
       </li>`;
   }).join('');

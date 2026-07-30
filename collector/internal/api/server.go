@@ -167,6 +167,8 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 
 	eligibilityConditions := []eligibilityConditionItem{}
 	requiredDocuments := []requiredDocumentItem{}
+	attachments := []attachmentItem{}
+	var rawDetail *noticeRawDetail
 	versionID, err := s.currentVersionID(r.Context(), id, it.CurrentVersion)
 	if err != nil {
 		s.logger.Error("get notice: current version lookup failed", "error", err)
@@ -179,6 +181,14 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error("list required documents failed", "error", err)
 		}
+		attachments, err = s.listAttachments(r.Context(), versionID)
+		if err != nil {
+			s.logger.Error("list attachments failed", "error", err)
+		}
+		rawDetail, err = s.fetchNoticeRawDetail(r.Context(), versionID)
+		if err != nil {
+			s.logger.Error("fetch notice raw detail failed", "error", err)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -186,6 +196,8 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"changes":               changes,
 		"eligibilityConditions": eligibilityConditions,
 		"requiredDocuments":     requiredDocuments,
+		"attachments":           attachments,
+		"detail":                rawDetail,
 	})
 }
 
@@ -199,20 +211,25 @@ func (s *Server) currentVersionID(ctx context.Context, noticeID string, currentV
 }
 
 type eligibilityConditionItem struct {
-	Category      string  `json:"category"`
-	ConditionName string  `json:"conditionName"`
-	SourceText    string  `json:"sourceText"`
-	Confidence    float64 `json:"confidence"`
-	ReviewStatus  string  `json:"reviewStatus"`
+	Category         string  `json:"category"`
+	ConditionName    string  `json:"conditionName"`
+	SourceText       string  `json:"sourceText"`
+	Confidence       float64 `json:"confidence"`
+	ReviewStatus     string  `json:"reviewStatus"`
+	ExtractionMethod string  `json:"extractionMethod"`
 }
 
 // listEligibilityConditions returns only document-derived rows (source_attachment_id
 // IS NOT NULL) — it excludes the synthetic 지역/업종/예산규모 rows that
 // handleEvaluateNotice auto-creates to satisfy eligibility_evaluations' FK,
 // which carry condition_name "auto:region" etc. and aren't real extracted text.
+// Rule-based and AI-supplemented rows are both included (extractionMethod
+// tells the frontend which is which) — a rule-based review_required row
+// isn't superseded just because an AI row exists alongside it, so hiding it
+// would drop information rather than just deduplicate.
 func (s *Server) listEligibilityConditions(ctx context.Context, versionID string) ([]eligibilityConditionItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT category, condition_name, source_text, confidence, review_status
+		SELECT category, condition_name, source_text, confidence, review_status, extraction_method
 		FROM eligibility_conditions
 		WHERE notice_version_id = $1 AND source_attachment_id IS NOT NULL AND review_status != 'rejected'
 		ORDER BY created_at`, versionID)
@@ -224,7 +241,7 @@ func (s *Server) listEligibilityConditions(ctx context.Context, versionID string
 	out := []eligibilityConditionItem{}
 	for rows.Next() {
 		var it eligibilityConditionItem
-		if err := rows.Scan(&it.Category, &it.ConditionName, &it.SourceText, &it.Confidence, &it.ReviewStatus); err != nil {
+		if err := rows.Scan(&it.Category, &it.ConditionName, &it.SourceText, &it.Confidence, &it.ReviewStatus, &it.ExtractionMethod); err != nil {
 			continue
 		}
 		out = append(out, it)
@@ -233,14 +250,15 @@ func (s *Server) listEligibilityConditions(ctx context.Context, versionID string
 }
 
 type requiredDocumentItem struct {
-	DocumentName string `json:"documentName"`
-	SourceText   string `json:"sourceText"`
-	IsRequired   bool   `json:"isRequired"`
+	DocumentName     string `json:"documentName"`
+	SourceText       string `json:"sourceText"`
+	IsRequired       bool   `json:"isRequired"`
+	ExtractionMethod string `json:"extractionMethod"`
 }
 
 func (s *Server) listRequiredDocuments(ctx context.Context, versionID string) ([]requiredDocumentItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT document_name, COALESCE(source_text, ''), is_required
+		SELECT document_name, COALESCE(source_text, ''), is_required, extraction_method
 		FROM required_documents
 		WHERE notice_version_id = $1 AND review_status != 'rejected'
 		ORDER BY document_name`, versionID)
@@ -252,7 +270,7 @@ func (s *Server) listRequiredDocuments(ctx context.Context, versionID string) ([
 	out := []requiredDocumentItem{}
 	for rows.Next() {
 		var it requiredDocumentItem
-		if err := rows.Scan(&it.DocumentName, &it.SourceText, &it.IsRequired); err != nil {
+		if err := rows.Scan(&it.DocumentName, &it.SourceText, &it.IsRequired, &it.ExtractionMethod); err != nil {
 			continue
 		}
 		out = append(out, it)
