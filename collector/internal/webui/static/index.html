@@ -319,6 +319,59 @@
   .importance-major { color: var(--warn); font-weight: 600; }
   .importance-minor { color: var(--ink-soft); }
 
+  /* ---------- 자동 추출 결과 (참가자격 요건 / 제출서류) ---------- */
+  .extraction-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-blue);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    margin-bottom: 1.5rem;
+  }
+  .section-empty { color: var(--ink-soft); font-size: 0.88rem; padding: 0 0 1.5rem; margin: 0; }
+  .condition-list, .document-list {
+    list-style: none;
+    margin: 0 0 2rem;
+    padding: 0;
+    border-top: 1px solid var(--border);
+  }
+  .condition-item, .document-item { padding: 0.9rem 0; border-bottom: 1px solid var(--border); }
+  .condition-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; }
+  .condition-category {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent-blue);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .condition-name { margin: 0 0 0.5rem; font-weight: 600; font-size: 0.92rem; color: var(--ink); }
+  .source-quote {
+    margin: 0;
+    padding: 0.6rem 0.9rem;
+    background: var(--bg-soft);
+    border-left: 3px solid var(--border);
+    border-radius: 0 6px 6px 0;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    white-space: pre-wrap;
+  }
+  .document-name { margin: 0; font-size: 0.92rem; color: var(--ink); }
+  .document-item--reference {
+    background: rgba(196,132,29,0.07);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    border-bottom: none;
+    margin-bottom: 0.5rem;
+  }
+  .document-reference-note { margin: 0; font-weight: 600; color: var(--warn); font-size: 0.9rem; }
+  .glossary-btn--warn { border-color: var(--warn); color: var(--warn); }
+  .glossary-btn--warn:hover, .glossary-btn--warn:focus-visible { background: var(--warn); color: #fff; }
+
   /* ---------- Glossary tooltip ---------- */
   .glossary { position: relative; display: inline-flex; align-items: center; }
   .glossary-btn {
@@ -586,17 +639,24 @@ const GLOSSARY = {
   '업종 판정': '업종은 대분류 그룹 단위로 비교합니다. 기업이 선택한 그룹 중 하나라도 공고 업종과 일치하면 충족으로 판정합니다.',
 };
 
-let glossaryCounter = 0;
+let tooltipCounter = 0;
+function tooltipIconHtml(icon, text, ariaLabel, extraClass) {
+  tooltipCounter++;
+  const id = 'tip-' + tooltipCounter;
+  return `<span class="glossary">` +
+    `<button type="button" class="glossary-btn ${extraClass || ''}" aria-expanded="false" aria-describedby="${id}" aria-label="${escapeAttr(ariaLabel)}">${icon}</button>` +
+    `<span class="glossary-tooltip" id="${id}" role="tooltip">${escapeHtml(text)}</span>` +
+    `</span>`;
+}
 function glossaryHtml(term, label) {
   const def = GLOSSARY[term];
   const display = label || term;
   if (!def) return escapeHtml(display);
-  glossaryCounter++;
-  const id = 'gloss-' + glossaryCounter;
-  return `${escapeHtml(display)}<span class="glossary">` +
-    `<button type="button" class="glossary-btn" aria-expanded="false" aria-describedby="${id}" aria-label="${escapeAttr(term)} 용어 설명">?</button>` +
-    `<span class="glossary-tooltip" id="${id}" role="tooltip">${escapeHtml(def)}</span>` +
-    `</span>`;
+  return escapeHtml(display) + tooltipIconHtml('?', def, term + ' 용어 설명', '');
+}
+// 표 근처라 규칙 기반 추출이 불완전할 수 있는 참가자격 항목에 붙는 경고 아이콘.
+function reviewRequiredWarningHtml() {
+  return tooltipIconHtml('!', '표 안에 있어 자동 추출이 불완전할 수 있습니다.', '표 인접 주의', 'glossary-btn--warn');
 }
 
 function closeAllGlossary() {
@@ -868,6 +928,14 @@ function renderDetail(container, id) {
           </dl>
           ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 &rarr;</a>` : ''}
         </div>
+        <div class="extraction-banner">
+          <span aria-hidden="true">ℹ</span>
+          아래 내용은 첨부문서에서 자동으로 추출되었습니다. 원문과 다를 수 있으니 반드시 대조 확인하세요.
+        </div>
+        <h3>참가자격 요건</h3>
+        <div id="eligibility-conditions-section"></div>
+        <h3>제출서류</h3>
+        <div id="required-documents-section"></div>
         <h3>우리 회사 ${glossaryHtml('적합성 확인', '적합성 확인 (1차 참고용)')}</h3>
         <div id="eligibility-section"></div>
         <h3>변경 이력</h3>
@@ -878,12 +946,60 @@ function renderDetail(container, id) {
             </table>`
           : '<p class="empty">변경 이력이 없습니다.</p>'}
       `));
+      renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || []);
+      renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || []);
       renderEligibilitySection(document.getElementById('eligibility-section'), id);
     })
     .catch(err => {
       body.className = 'error';
       body.textContent = err.message;
     });
+}
+
+const CONDITION_CATEGORY_LABELS = { general: '일반' };
+const NO_DOCUMENT_LIST_LABEL = '(본문에 목록 없음 - 별첨/타 문서 참조)';
+
+// 첨부문서 분석이 아직 안 된 공고(신규 수집 공고 대부분)에는 목록 자체가
+// 없다는 사실을 숨기지 않고 그대로 보여준다 — 섹션을 숨기면 이 기능이
+// 있는지조차 모르게 되므로, 안내 문구로 상태를 알린다.
+function renderEligibilityConditions(container, items) {
+  container.innerHTML = '';
+  if (!items.length) {
+    container.appendChild(h('<p class="section-empty">아직 분석되지 않았습니다.</p>'));
+    return;
+  }
+  const rows = items.map(it => `
+    <li class="condition-item">
+      <div class="condition-head">
+        <span class="condition-category">${escapeHtml(CONDITION_CATEGORY_LABELS[it.category] || it.category)}</span>
+        ${it.reviewStatus === 'review_required' ? reviewRequiredWarningHtml() : ''}
+      </div>
+      <p class="condition-name">${escapeHtml(it.conditionName)}</p>
+      <blockquote class="source-quote">${escapeHtml(it.sourceText)}</blockquote>
+    </li>
+  `).join('');
+  container.appendChild(h(`<ul class="condition-list">${rows}</ul>`));
+}
+
+function renderRequiredDocuments(container, items) {
+  container.innerHTML = '';
+  if (!items.length) {
+    container.appendChild(h('<p class="section-empty">아직 분석되지 않았습니다.</p>'));
+    return;
+  }
+  const rows = items.map(it => {
+    if (it.documentName === NO_DOCUMENT_LIST_LABEL) {
+      return `
+        <li class="document-item document-item--reference">
+          <p class="document-reference-note">☞ 원문 확인 필요 — 본문에 서류 목록이 없어 별첨/타 문서를 참조해야 합니다.</p>
+        </li>`;
+    }
+    return `
+      <li class="document-item">
+        <p class="document-name">${escapeHtml(it.documentName)}</p>
+      </li>`;
+  }).join('');
+  container.appendChild(h(`<ul class="document-list">${rows}</ul>`));
 }
 
 function renderEligibilityResult(container, data) {

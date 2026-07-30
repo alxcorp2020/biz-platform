@@ -162,7 +162,99 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("list changes failed", "error", err)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"notice": it, "changes": changes})
+	eligibilityConditions := []eligibilityConditionItem{}
+	requiredDocuments := []requiredDocumentItem{}
+	versionID, err := s.currentVersionID(r.Context(), id, it.CurrentVersion)
+	if err != nil {
+		s.logger.Error("get notice: current version lookup failed", "error", err)
+	} else {
+		eligibilityConditions, err = s.listEligibilityConditions(r.Context(), versionID)
+		if err != nil {
+			s.logger.Error("list eligibility conditions failed", "error", err)
+		}
+		requiredDocuments, err = s.listRequiredDocuments(r.Context(), versionID)
+		if err != nil {
+			s.logger.Error("list required documents failed", "error", err)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"notice":                it,
+		"changes":               changes,
+		"eligibilityConditions": eligibilityConditions,
+		"requiredDocuments":     requiredDocuments,
+	})
+}
+
+func (s *Server) currentVersionID(ctx context.Context, noticeID string, currentVersion int) (string, error) {
+	var versionID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM notice_versions WHERE notice_id = $1 AND version_number = $2`,
+		noticeID, currentVersion,
+	).Scan(&versionID)
+	return versionID, err
+}
+
+type eligibilityConditionItem struct {
+	Category      string  `json:"category"`
+	ConditionName string  `json:"conditionName"`
+	SourceText    string  `json:"sourceText"`
+	Confidence    float64 `json:"confidence"`
+	ReviewStatus  string  `json:"reviewStatus"`
+}
+
+// listEligibilityConditions returns only document-derived rows (source_attachment_id
+// IS NOT NULL) — it excludes the synthetic 지역/업종/예산규모 rows that
+// handleEvaluateNotice auto-creates to satisfy eligibility_evaluations' FK,
+// which carry condition_name "auto:region" etc. and aren't real extracted text.
+func (s *Server) listEligibilityConditions(ctx context.Context, versionID string) ([]eligibilityConditionItem, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT category, condition_name, source_text, confidence, review_status
+		FROM eligibility_conditions
+		WHERE notice_version_id = $1 AND source_attachment_id IS NOT NULL
+		ORDER BY created_at`, versionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []eligibilityConditionItem{}
+	for rows.Next() {
+		var it eligibilityConditionItem
+		if err := rows.Scan(&it.Category, &it.ConditionName, &it.SourceText, &it.Confidence, &it.ReviewStatus); err != nil {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out, nil
+}
+
+type requiredDocumentItem struct {
+	DocumentName string `json:"documentName"`
+	SourceText   string `json:"sourceText"`
+	IsRequired   bool   `json:"isRequired"`
+}
+
+func (s *Server) listRequiredDocuments(ctx context.Context, versionID string) ([]requiredDocumentItem, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT document_name, COALESCE(source_text, ''), is_required
+		FROM required_documents
+		WHERE notice_version_id = $1
+		ORDER BY document_name`, versionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []requiredDocumentItem{}
+	for rows.Next() {
+		var it requiredDocumentItem
+		if err := rows.Scan(&it.DocumentName, &it.SourceText, &it.IsRequired); err != nil {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out, nil
 }
 
 type changeItem struct {
