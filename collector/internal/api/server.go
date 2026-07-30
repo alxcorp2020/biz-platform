@@ -11,22 +11,31 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/lib/pq"
 
 	"biz-platform/collector/internal/webui"
 )
 
 type Server struct {
-	db            *sql.DB
-	logger        *slog.Logger
-	sessionSecret []byte
+	db              *sql.DB
+	logger          *slog.Logger
+	sessionSecret   []byte
+	attachmentDir   string
+	anthropicClient *anthropic.Client
 }
 
-func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte) *Server {
+func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{db: db, logger: logger, sessionSecret: sessionSecret}
+	return &Server{
+		db:              db,
+		logger:          logger,
+		sessionSecret:   sessionSecret,
+		attachmentDir:   attachmentDir,
+		anthropicClient: anthropicClient,
+	}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -47,6 +56,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/review/queue", s.handleReviewQueue)
 	mux.HandleFunc("POST /api/review/eligibility-conditions/{id}", s.handleReviewEligibilityCondition)
 	mux.HandleFunc("POST /api/review/required-documents/{id}", s.handleReviewRequiredDocument)
+	mux.HandleFunc("POST /api/me/company-profile/documents", s.handleUploadCompanyDocument)
+	mux.HandleFunc("POST /api/me/licenses", s.handleCreateLicense)
+	mux.HandleFunc("GET /api/me/licenses", s.handleListLicenses)
+	mux.HandleFunc("POST /api/me/certifications", s.handleCreateCertification)
+	mux.HandleFunc("GET /api/me/certifications", s.handleListCertifications)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }

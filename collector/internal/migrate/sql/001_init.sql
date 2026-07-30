@@ -316,6 +316,66 @@ CREATE TABLE document_checklist_items (
 );
 
 -- ------------------------------------------------------------
+-- 면허·인증 구조화 + 증빙서류 업로드 (3.3/3.4/4) — company_profiles의
+-- licenses/certifications TEXT[]는 하위호환으로 유지하고, 이 테이블들이
+-- 진실의 원천이 된다. company_documents는 사용자가 업로드한 증빙서류
+-- 원본 파일 기록(첨부파일 attachments와 동일한 해시 기반 저장 방식).
+-- ------------------------------------------------------------
+CREATE TABLE company_documents (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id UUID NOT NULL REFERENCES company_profiles(id),
+    original_filename  TEXT NOT NULL,
+    stored_filename    TEXT NOT NULL,
+    file_type          TEXT NOT NULL,
+    file_size_bytes    BIGINT NOT NULL,
+    file_hash          TEXT NOT NULL,
+    uploaded_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- confidence: A=공식API(추후), B=증빙서류 업로드+사용자확인, C=서류없이
+-- 사용자 직접입력, D=AI추출 미확인(추후, 이번 구현엔 미사용 — 후보는
+-- 사용자 확인 전까지 DB에 저장되지 않으므로 D 상태 자체가 발생하지 않음).
+-- status: 보유/미보유/확인되지않음 3가지를 명확히 구분 — "정보없음"을
+-- "미보유"로 자동 처리하지 않는다(입력하는 쪽이 명시적으로 선택).
+CREATE TABLE company_licenses (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id    UUID NOT NULL REFERENCES company_profiles(id),
+    category              TEXT NOT NULL,
+    name                  TEXT NOT NULL,
+    registration_number   TEXT,
+    issuing_authority     TEXT,
+    issued_at             DATE,
+    expires_at            DATE,
+    applicable_industry   TEXT,
+    source_document_id    UUID REFERENCES company_documents(id),
+    confidence            TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+    status                TEXT NOT NULL CHECK (status IN ('보유','미보유','확인되지않음')),
+    verified_at           TIMESTAMPTZ,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_company_licenses_profile ON company_licenses(company_profile_id);
+
+CREATE TABLE company_certifications (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id    UUID NOT NULL REFERENCES company_profiles(id),
+    category              TEXT NOT NULL,
+    name                  TEXT NOT NULL,
+    registration_number   TEXT,
+    issuing_authority     TEXT,
+    issued_at             DATE,
+    expires_at            DATE,
+    applicable_industry   TEXT,
+    source_document_id    UUID REFERENCES company_documents(id),
+    confidence            TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+    status                TEXT NOT NULL CHECK (status IN ('보유','미보유','확인되지않음')),
+    verified_at           TIMESTAMPTZ,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_company_certifications_profile ON company_certifications(company_profile_id);
+
+-- ------------------------------------------------------------
 -- 관심공고(북마크) — 로그인 사용자가 공고를 찜해두고 마이페이지에서
 -- 모아본다. 기업 프로필과 무관하게 user_id에만 연결된다.
 -- ------------------------------------------------------------

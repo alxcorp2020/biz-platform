@@ -12,6 +12,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/anthropics/anthropic-sdk-go"
 	_ "github.com/lib/pq"
 
 	"biz-platform/collector/internal/api"
@@ -57,7 +58,16 @@ func main() {
 
 	startBackgroundCollection(dsn, logger)
 
-	srv := api.New(db, logger, loadSessionSecret(logger))
+	attachmentDir := os.Getenv("ATTACHMENT_DIR")
+	if attachmentDir == "" {
+		attachmentDir = "./data/attachments"
+	}
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		logger.Warn("ANTHROPIC_API_KEY is not set; 면허·인증 증빙서류 업로드 AI 추출은 요청 시 실패합니다")
+	}
+	anthropicClient := anthropic.NewClient()
+
+	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient)
 	logger.Info("api server starting", "port", port)
 	if err := http.ListenAndServe(":"+port, srv.Routes()); err != nil {
 		logger.Error("server stopped", "error", err)

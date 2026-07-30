@@ -60,7 +60,70 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureAISummaryColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate AI-summary columns: %w", err)
 	}
+	if err := ensureCompanyLicenseTables(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_documents/licenses/certifications tables: %w", err)
+	}
 	return nil
+}
+
+// ensureCompanyLicenseTables adds company_documents/company_licenses/
+// company_certifications for any DB created before this migration existed —
+// same CREATE TABLE IF NOT EXISTS pattern as ensureDocumentChecklistTable.
+// company_profiles.licenses/certifications (TEXT[]) stay untouched for
+// backward compatibility; these tables become the source of truth going
+// forward.
+func ensureCompanyLicenseTables(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS company_documents (
+			id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id UUID NOT NULL REFERENCES company_profiles(id),
+			original_filename  TEXT NOT NULL,
+			stored_filename    TEXT NOT NULL,
+			file_type          TEXT NOT NULL,
+			file_size_bytes    BIGINT NOT NULL,
+			file_hash          TEXT NOT NULL,
+			uploaded_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+
+		CREATE TABLE IF NOT EXISTS company_licenses (
+			id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id    UUID NOT NULL REFERENCES company_profiles(id),
+			category              TEXT NOT NULL,
+			name                  TEXT NOT NULL,
+			registration_number   TEXT,
+			issuing_authority     TEXT,
+			issued_at             DATE,
+			expires_at            DATE,
+			applicable_industry   TEXT,
+			source_document_id    UUID REFERENCES company_documents(id),
+			confidence            TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+			status                TEXT NOT NULL CHECK (status IN ('보유','미보유','확인되지않음')),
+			verified_at           TIMESTAMPTZ,
+			created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_company_licenses_profile ON company_licenses(company_profile_id);
+
+		CREATE TABLE IF NOT EXISTS company_certifications (
+			id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id    UUID NOT NULL REFERENCES company_profiles(id),
+			category              TEXT NOT NULL,
+			name                  TEXT NOT NULL,
+			registration_number   TEXT,
+			issuing_authority     TEXT,
+			issued_at             DATE,
+			expires_at            DATE,
+			applicable_industry   TEXT,
+			source_document_id    UUID REFERENCES company_documents(id),
+			confidence            TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+			status                TEXT NOT NULL CHECK (status IN ('보유','미보유','확인되지않음')),
+			verified_at           TIMESTAMPTZ,
+			created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_company_certifications_profile ON company_certifications(company_profile_id);
+	`)
+	return err
 }
 
 // ensureAISummaryColumns supports analyzer/ai_summarize.py("핵심 3줄 요약",
