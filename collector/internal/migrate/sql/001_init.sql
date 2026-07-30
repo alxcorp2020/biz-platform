@@ -298,6 +298,19 @@ CREATE TABLE eligibility_evaluations (
 CREATE INDEX idx_eval_company_notice ON eligibility_evaluations(company_profile_id, notice_version_id);
 
 -- ------------------------------------------------------------
+-- 제출서류 체크리스트(사용자가 준비 여부를 표시) — "AI 비서" 1단계,
+-- 기업 프로필 기준으로 문서별 준비 상태를 기록한다.
+-- ------------------------------------------------------------
+CREATE TABLE document_checklist_items (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id    UUID NOT NULL REFERENCES company_profiles(id),
+    required_document_id  UUID NOT NULL REFERENCES required_documents(id),
+    is_checked            BOOLEAN NOT NULL DEFAULT true,
+    checked_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (company_profile_id, required_document_id)
+);
+
+-- ------------------------------------------------------------
 -- 과금: 분석 크레딧 (무료체험 / 건별결제 / 구독 잔여건)
 -- ------------------------------------------------------------
 CREATE TABLE analysis_credits (

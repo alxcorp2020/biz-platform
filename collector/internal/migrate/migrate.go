@@ -51,7 +51,28 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureAIExtractionColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate AI-extraction columns: %w", err)
 	}
+	if err := ensureDocumentChecklistTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate document_checklist_items table: %w", err)
+	}
 	return nil
+}
+
+// ensureDocumentChecklistTable adds document_checklist_items for any DB
+// created before this migration existed — the first genuinely new table
+// added post-initial-schema (prior migrations only ALTERed existing
+// tables). CREATE TABLE IF NOT EXISTS makes it idempotent the same way.
+func ensureDocumentChecklistTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS document_checklist_items (
+			id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id    UUID NOT NULL REFERENCES company_profiles(id),
+			required_document_id  UUID NOT NULL REFERENCES required_documents(id),
+			is_checked            BOOLEAN NOT NULL DEFAULT true,
+			checked_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (company_profile_id, required_document_id)
+		);
+	`)
+	return err
 }
 
 // ensureAIExtractionColumns supports analyzer/ai_extract.py (규칙 기반 1차 추출을

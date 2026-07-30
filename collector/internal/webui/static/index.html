@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>공공사업 참여판단 데이터 플랫폼</title>
+<title>공공사업 AI 비서</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -66,18 +66,24 @@
     font-weight: 700;
     color: var(--navy);
   }
-  .auth-nav {
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .header-links, .auth-nav {
     display: flex;
     align-items: center;
     gap: 1.25rem;
     font-size: 0.9rem;
   }
-  .auth-nav a, .link-btn {
+  .header-links a, .auth-nav a, .link-btn {
     color: var(--accent-blue);
     text-decoration: none;
     font-weight: 500;
   }
-  .auth-nav a:hover, .link-btn:hover { text-decoration: underline; }
+  .header-links a:hover, .auth-nav a:hover, .link-btn:hover { text-decoration: underline; }
   .link-btn { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
 
   main { max-width: 1000px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
@@ -245,6 +251,129 @@
     border-top: 1px solid var(--border);
   }
 
+  /* ---------- Home / AI 대시보드 ---------- */
+  .home-hero {
+    max-width: 640px;
+    margin: 2rem auto;
+    padding: 2.5rem 2rem;
+    text-align: center;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .home-hero-eyebrow {
+    margin: 0 0 0.6rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent-blue);
+  }
+  .home-hero-title {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.5;
+    color: var(--navy);
+  }
+  .home-hero-desc {
+    margin: 0 0 1.75rem;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--ink-soft);
+  }
+  .home-hero-actions { display: flex; justify-content: center; gap: 0.85rem; flex-wrap: wrap; }
+  .home-cta-primary, .home-cta-secondary {
+    display: inline-block;
+    padding: 0.7rem 1.6rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.92rem;
+    text-decoration: none;
+  }
+  .home-cta-primary { background: var(--navy); color: #fff; border: 1px solid var(--navy); }
+  .home-cta-primary:hover { background: var(--navy-deep); border-color: var(--navy-deep); }
+  .home-cta-secondary { background: #fff; color: var(--navy); border: 1px solid var(--border); }
+  .home-cta-secondary:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+  .home-browse-link {
+    display: inline-block;
+    margin-top: 1.5rem;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    text-decoration: none;
+  }
+  .home-browse-link:hover { text-decoration: underline; color: var(--accent-blue); }
+
+  .dash-greeting { margin-bottom: 1.75rem; }
+  .dash-greeting-eyebrow { margin: 0 0 0.3rem; font-size: 0.85rem; font-weight: 600; color: var(--accent-blue); }
+  .dash-greeting-title { margin: 0; font-size: 1.35rem; font-weight: 700; color: var(--ink); }
+  .dash-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2.25rem;
+  }
+  .dash-tile {
+    padding: 1.1rem 1.25rem;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .dash-tile-count { font-size: 1.6rem; font-weight: 700; color: var(--ink); margin-bottom: 0.3rem; }
+  .dash-tile-label { font-size: 0.82rem; color: var(--ink-soft); font-weight: 500; }
+  .dash-tile--ready .dash-tile-count { color: var(--success); }
+  .dash-tile--review .dash-tile-count { color: var(--warn); }
+  .dash-tile--not-recommended .dash-tile-count { color: var(--danger); }
+  .dash-section-title { font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 0 0 1rem; }
+  .fit-score-badge {
+    display: inline-block;
+    padding: 0.2rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(31,138,95,0.10);
+    color: var(--success);
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
+  /* ---------- AI 참여 분석 (공고 상세 첫 화면) ---------- */
+  .ai-section-title { margin: 0 0 1rem; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
+  .ai-participation-card {
+    padding: 1.5rem 1.75rem;
+    border-radius: 12px;
+    margin-bottom: 2rem;
+    border: 1px solid var(--border);
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .ai-participation-card--ready { border-color: rgba(31,138,95,0.35); background: rgba(31,138,95,0.04); }
+  .ai-participation-card--needs_review { border-color: rgba(196,132,29,0.35); background: rgba(196,132,29,0.04); }
+  .ai-participation-card--not_recommended { border-color: rgba(192,57,43,0.35); background: rgba(192,57,43,0.04); }
+  .ai-participation-card--cta { text-align: center; }
+  .ai-participation-cta-text { margin: 0 0 1.1rem; color: var(--ink-soft); font-size: 0.95rem; }
+  .ai-participation-head { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .ai-bucket-badge {
+    display: inline-block;
+    padding: 0.35rem 0.9rem;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.9rem;
+  }
+  .ai-bucket-badge--ready { background: rgba(31,138,95,0.15); color: var(--success); }
+  .ai-bucket-badge--needs_review { background: rgba(196,132,29,0.15); color: var(--warn); }
+  .ai-bucket-badge--not_recommended { background: rgba(192,57,43,0.15); color: var(--danger); }
+  .ai-participation-score { font-size: 0.92rem; color: var(--ink-soft); font-weight: 600; }
+  .ai-participation-subtitle { margin: 0 0 0.25rem; font-size: 0.85rem; font-weight: 600; color: var(--ink-soft); }
+  .ai-missing-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--border); }
+  .ai-missing-empty { margin: 0; font-size: 0.9rem; color: var(--ink-soft); }
+  .ai-next-action { display: inline-block; margin-top: 0.75rem; font-weight: 600; font-size: 0.9rem; }
+  .ai-disclaimer {
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+    margin: 1.1rem 0 0;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--border);
+  }
+
   /* ---------- Detail ---------- */
   .detail-card {
     border: 1px solid var(--border);
@@ -380,6 +509,18 @@
     margin-bottom: 0.5rem;
   }
   .document-reference-note { margin: 0; font-weight: 600; color: var(--warn); font-size: 0.9rem; }
+  .document-check { display: flex; align-items: center; gap: 0.55rem; cursor: pointer; }
+  .document-check input[type="checkbox"] { width: 1.05rem; height: 1.05rem; cursor: pointer; flex-shrink: 0; }
+  .doc-progress { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 1rem; }
+  .doc-progress-bar {
+    flex: 1;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    overflow: hidden;
+  }
+  .doc-progress-fill { height: 100%; background: var(--success); border-radius: 999px; transition: width .2s ease; }
+  .doc-progress-label { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
   .glossary-btn--warn { border-color: var(--warn); color: var(--warn); }
   .glossary-btn--warn:hover, .glossary-btn--warn:focus-visible { background: var(--warn); color: #fff; }
 
@@ -534,28 +675,7 @@
     display: block;
   }
 
-  /* ---------- Eligibility check ---------- */
-  .eligibility-check-btn {
-    padding: 0.65rem 1.25rem;
-    border: 1px solid var(--navy);
-    background: var(--navy);
-    color: #fff;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 0.9rem;
-  }
-  .eligibility-check-btn:hover { background: var(--navy-deep); border-color: var(--navy-deep); }
-  .eligibility-check-btn:disabled { opacity: 0.6; cursor: default; }
-  .eligibility-disclaimer {
-    font-size: 0.82rem;
-    color: var(--warn);
-    border: 1px solid rgba(196,132,29,0.35);
-    background: rgba(196,132,29,0.08);
-    border-radius: 8px;
-    padding: 0.7rem 0.9rem;
-    margin: 1rem 0 0.5rem;
-  }
+  /* ---------- Eligibility check (per-category, still used inside AI 참여 분석) ---------- */
   .elig-overall { font-size: 0.92rem; }
   .elig-list {
     border-top: 1px solid var(--border);
@@ -668,10 +788,15 @@
 <header class="site-header">
   <div class="header-inner">
     <a href="#/" class="brand-link">
-      <p class="brand-eyebrow">나라장터 공공입찰 공고 자동 분석</p>
-      <h1 class="brand-title">공공사업 참여판단 데이터 플랫폼</h1>
+      <p class="brand-eyebrow">우리 회사에 맞는 사업을 AI가 찾아드립니다</p>
+      <h1 class="brand-title">공공사업 AI 비서</h1>
     </a>
-    <nav id="auth-nav" class="auth-nav"></nav>
+    <div class="header-right">
+      <nav class="header-links">
+        <a href="#/notices">전체 공고</a>
+      </nav>
+      <nav id="auth-nav" class="auth-nav"></nav>
+    </div>
   </div>
 </header>
 <main id="app"></main>
@@ -829,18 +954,6 @@ function skeletonDetailHtml() {
     </div>`;
 }
 
-function skeletonEligibilityHtml() {
-  const item = `
-    <div class="elig-item">
-      <div class="elig-head">
-        <span class="skeleton-block skeleton-line skeleton-line--category"></span>
-        <span class="skeleton-block skeleton-line skeleton-line--result"></span>
-      </div>
-      <span class="skeleton-block skeleton-line skeleton-line--reason"></span>
-    </div>`;
-  return `<div class="elig-list">${item.repeat(3)}</div>`;
-}
-
 async function fetchJSON(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error('요청 실패 (' + res.status + ')');
@@ -945,6 +1058,115 @@ function renderHeader() {
   }
 }
 
+// ---------- 홈: AI 대시보드 ----------
+// #/의 첫 화면. 로그인 상태·프로필 등록 여부는 /api/dashboard 응답 자체로
+// 판단한다(401 → 마케팅 CTA, hasProfile:false → 온보딩 CTA) — currentUser
+// 전역값은 loadMe()가 비동기로 채우는 중일 수 있어 신뢰하지 않는다.
+async function renderHome(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/dashboard');
+  } catch (err) {
+    if (err.status === 401) {
+      renderMarketingHero(container);
+      return;
+    }
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  if (!data.hasProfile) {
+    renderOnboardingHero(container);
+    return;
+  }
+
+  renderDashboard(container, data);
+}
+
+function renderMarketingHero(container) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="home-hero">
+      <p class="home-hero-eyebrow">AI 공공사업 참여판단 비서</p>
+      <h2 class="home-hero-title">우리 회사가 지금 참여할 수 있는 공공사업,<br>AI가 대신 찾아드립니다.</h2>
+      <p class="home-hero-desc">공고를 하나하나 읽어보는 대신, 회사 정보를 한 번만 등록하면 AI가 참여 가능성을 분석하고 부족한 조건까지 알려드립니다.</p>
+      <div class="home-hero-actions">
+        <a href="#/auth/signup" class="home-cta-primary">무료로 시작하기</a>
+        <a href="#/auth/login" class="home-cta-secondary">로그인</a>
+      </div>
+      <a href="#/notices" class="home-browse-link">또는 전체 공고 목록 바로 보기 →</a>
+    </div>
+  `));
+}
+
+function renderOnboardingHero(container) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="home-hero">
+      <p class="home-hero-eyebrow">거의 다 왔습니다</p>
+      <h2 class="home-hero-title">회사 정보를 등록하면<br>AI가 바로 분석을 시작합니다.</h2>
+      <p class="home-hero-desc">업종·지역·기업 규모만 입력하면 지금 활성화된 공고를 스캔해서 참여 가능성을 알려드립니다.</p>
+      <div class="home-hero-actions">
+        <a href="#/me/profile" class="home-cta-primary">회사 정보 등록하기</a>
+      </div>
+    </div>
+  `));
+}
+
+function renderDashboard(container, data) {
+  container.innerHTML = '';
+
+  const tiles = [
+    { label: '즉시 참여 가능', count: data.readyCount, cls: 'dash-tile--ready' },
+    { label: '확인 필요', count: data.needsReviewCount, cls: 'dash-tile--review' },
+    { label: '참여 비추천', count: data.notRecommendedCount, cls: 'dash-tile--not-recommended' },
+    { label: '오늘 변경된 공고', count: data.changedTodayCount, cls: '' },
+    { label: '이번주 마감', count: data.closingThisWeekCount, cls: '' },
+  ];
+  const tilesHtml = tiles.map(t => `
+    <div class="dash-tile ${t.cls}">
+      <div class="dash-tile-count">${t.count}건</div>
+      <div class="dash-tile-label">${escapeHtml(t.label)}</div>
+    </div>
+  `).join('');
+
+  const recs = data.recommendations || [];
+  const recHtml = recs.length
+    ? `<div class="notice-list">${recs.map(rec => `
+        <div class="notice-card" data-id="${escapeAttr(rec.noticeId)}">
+          <div class="notice-card-main">
+            <div class="notice-org">${escapeHtml(rec.organizationName || '-')}</div>
+            <div class="notice-title">${escapeHtml(rec.title)}</div>
+            <div class="notice-meta">
+              <span class="fit-score-badge">${rec.metCount}/${rec.totalCount} 조건 충족</span>
+            </div>
+          </div>
+          ${ddayBadgeHtml(rec.applicationEndAt)}
+        </div>
+      `).join('')}</div>`
+    : '<p class="empty">지금 조건에 딱 맞는 추천 사업이 없습니다. 회사 프로필을 보완하면 더 정확해집니다.</p>';
+
+  container.appendChild(h(`
+    <div class="dash-greeting">
+      <p class="dash-greeting-eyebrow">안녕하세요.</p>
+      <h2 class="dash-greeting-title">오늘 AI가 분석한 결과입니다.</h2>
+    </div>
+    <div class="dash-tiles">${tilesHtml}</div>
+    <h3 class="dash-section-title">추천 사업</h3>
+    ${recHtml}
+  `));
+
+  container.querySelectorAll('.notice-card').forEach(row => {
+    row.addEventListener('click', () => {
+      location.hash = '#/notices/' + row.dataset.id;
+    });
+  });
+}
+
 function renderList(container) {
   const params = new URLSearchParams(location.hash.split('?')[1] || '');
   container.innerHTML = '';
@@ -963,7 +1185,7 @@ function renderList(container) {
     const fd = new FormData(e.target);
     const p = new URLSearchParams();
     for (const [k, v] of fd.entries()) if (v) p.set(k, v);
-    location.hash = '#/?' + p.toString();
+    location.hash = '#/notices?' + p.toString();
   });
 
   const listBody = document.getElementById('list-body');
@@ -1015,7 +1237,7 @@ function renderList(container) {
 function renderDetail(container, id) {
   container.innerHTML = '';
   container.appendChild(h(`
-    <a href="#/" class="back-link">&larr; 목록으로</a>
+    <a href="#/notices" class="back-link">&larr; 목록으로</a>
     <div id="detail-body">${skeletonDetailHtml()}</div>
   `));
   const body = document.getElementById('detail-body');
@@ -1039,6 +1261,8 @@ function renderDetail(container, id) {
       body.className = '';
       body.innerHTML = '';
       body.appendChild(h(`
+        <h3 class="ai-section-title">AI 참여 분석</h3>
+        <div id="ai-participation-section"></div>
         <div class="detail-card">
           <p class="detail-eyebrow">${escapeHtml(n.organizationName || '-')}</p>
           <h2>${escapeHtml(n.title)}</h2>
@@ -1065,8 +1289,6 @@ function renderDetail(container, id) {
         <div id="eligibility-conditions-section"></div>
         <h3>제출서류</h3>
         <div id="required-documents-section"></div>
-        <h3>우리 회사 ${glossaryHtml('적합성 확인', '적합성 확인 (1차 참고용)')}</h3>
-        <div id="eligibility-section"></div>
         <h3>변경 이력</h3>
         ${changeRows
           ? `<table>
@@ -1075,11 +1297,11 @@ function renderDetail(container, id) {
             </table>`
           : '<p class="empty">변경 이력이 없습니다.</p>'}
       `));
+      renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore);
       renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail);
       renderAttachments(document.getElementById('attachments-section'), data.attachments || []);
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || []);
-      renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || []);
-      renderEligibilitySection(document.getElementById('eligibility-section'), id);
+      renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || [], id, data.documentReadiness);
     })
     .catch(err => {
       body.className = 'error';
@@ -1198,12 +1420,28 @@ function renderEligibilityConditions(container, items) {
   container.appendChild(h(`<ul class="condition-list">${rows}</ul>`));
 }
 
-function renderRequiredDocuments(container, items) {
+// readiness는 handleGetNotice가 함께 내려주는 {total, checked} 집계 — 로그인/
+// 프로필 여부와 무관하게 항상 값이 온다(비로그인이면 checked는 전부 false).
+// 체크박스 토글은 PUT /api/notices/{id}/documents/{id}/checklist를 호출하고,
+// 진행률 숫자는 서버 재조회 없이 로컬에서 +1/-1로 갱신한다(리스트에 포함된
+// "본문에 목록 없음" 참조행은 total에는 잡히지만 체크 대상이 아니라 DOM
+// 재계산과 어긋날 수 있어, 서버가 준 total을 고정값으로 쓴다).
+function renderRequiredDocuments(container, items, noticeId, readiness) {
   container.innerHTML = '';
   if (!items.length) {
     container.appendChild(h('<p class="section-empty">아직 분석되지 않았습니다.</p>'));
     return;
   }
+
+  const hasReadiness = !!readiness && readiness.total > 0;
+  let checkedCount = hasReadiness ? readiness.checked : 0;
+  const total = hasReadiness ? readiness.total : 0;
+  const progressHtml = hasReadiness ? `
+    <div class="doc-progress">
+      <div class="doc-progress-bar"><div class="doc-progress-fill" id="doc-progress-fill" style="width:${Math.round((checkedCount / total) * 100)}%"></div></div>
+      <span class="doc-progress-label" id="doc-progress-label">서류 준비 ${checkedCount}/${total}</span>
+    </div>` : '';
+
   const rows = items.map(it => {
     if (it.documentName === NO_DOCUMENT_LIST_LABEL) {
       return `
@@ -1215,74 +1453,106 @@ function renderRequiredDocuments(container, items) {
     return `
       <li class="document-item">
         <div class="document-head">${extractionMethodBadgeHtml(it.extractionMethod)}</div>
-        <p class="document-name">${escapeHtml(it.documentName)}</p>
+        <label class="document-check">
+          <input type="checkbox" data-document-id="${escapeAttr(it.id)}" ${it.checked ? 'checked' : ''}>
+          <span class="document-name">${escapeHtml(it.documentName)}</span>
+        </label>
       </li>`;
   }).join('');
-  container.appendChild(h(`<ul class="document-list">${rows}</ul>`));
-}
 
-function renderEligibilityResult(container, data) {
-  const overall = data.overallResult;
-  const itemsHtml = data.items.map(it => `
-    <li class="elig-item">
-      <div class="elig-head">
-        <span class="elig-category">${eligCategoryHtml(it.category)}</span>
-        <span class="elig-result elig-result--${escapeHtml(it.result)}">${eligResultHtml(it.result)}</span>
-      </div>
-      <p class="elig-reason">${escapeHtml(it.reason)}</p>
-    </li>
-  `).join('');
+  container.appendChild(h(`${progressHtml}<p class="error doc-checklist-error" style="display:none"></p><ul class="document-list">${rows}</ul>`));
 
-  container.innerHTML = '';
-  container.appendChild(h(`
-    <div class="eligibility-disclaimer">⚠ ${escapeHtml(data.disclaimer)}</div>
-    <p class="elig-overall">종합 결과:
-      <span class="elig-result elig-result--${escapeHtml(overall)}">${eligResultHtml(overall)}</span>
-    </p>
-    <ul class="elig-list">${itemsHtml}</ul>
-  `));
-}
-
-function renderEligibilitySection(container, noticeId) {
-  container.innerHTML = '';
-  container.appendChild(h(`
-    <button type="button" id="eligibility-btn" class="eligibility-check-btn">우리 회사 적합성 확인</button>
-    <div id="eligibility-result"></div>
-  `));
-
-  document.getElementById('eligibility-btn').addEventListener('click', async () => {
-    const btn = document.getElementById('eligibility-btn');
-    const resultBox = document.getElementById('eligibility-result');
-
-    if (!currentUser) {
-      location.hash = '#/auth/login';
-      return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = '확인 중...';
-    resultBox.className = '';
-    resultBox.innerHTML = skeletonEligibilityHtml();
-    try {
-      const data = await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/evaluate');
-      renderEligibilityResult(resultBox, data);
-    } catch (err) {
-      resultBox.innerHTML = '';
-      if (err.status === 401) {
-        location.hash = '#/auth/login';
-      } else if (err.code === 'company_profile_required') {
-        resultBox.appendChild(h(
-          '<p class="error">기업 프로필을 먼저 등록해야 합니다. <a href="#/me/profile">기업 프로필 등록하기</a></p>'
-        ));
-      } else {
-        resultBox.className = 'error';
-        resultBox.textContent = err.message;
+  const errBox = container.querySelector('.doc-checklist-error');
+  container.querySelectorAll('input[data-document-id]').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      const documentId = cb.dataset.documentId;
+      const checked = cb.checked;
+      cb.disabled = true;
+      if (errBox) errBox.style.display = 'none';
+      try {
+        await apiRequest('PUT', '/api/notices/' + encodeURIComponent(noticeId) + '/documents/' + encodeURIComponent(documentId) + '/checklist', { checked });
+        checkedCount += checked ? 1 : -1;
+        const fill = document.getElementById('doc-progress-fill');
+        const label = document.getElementById('doc-progress-label');
+        if (fill) fill.style.width = Math.round((checkedCount / total) * 100) + '%';
+        if (label) label.textContent = `서류 준비 ${checkedCount}/${total}`;
+      } catch (err) {
+        cb.checked = !checked;
+        if (err.status === 401) {
+          location.hash = '#/auth/login';
+        } else if (errBox) {
+          errBox.textContent = err.message;
+          errBox.style.display = '';
+        }
+      } finally {
+        cb.disabled = false;
       }
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '우리 회사 적합성 확인';
-    }
+    });
   });
+}
+
+const PARTICIPATION_BUCKET_LABELS = {
+  ready: '참여 추천',
+  needs_review: '확인 필요',
+  not_recommended: '참여 비추천',
+};
+
+// 공고 상세 첫 화면에 자동으로 뜨는 "AI 참여 분석" — data.participationScore
+// (handleGetNotice가 로그인+회사 프로필 기준으로 이미 계산해 응답에 포함)를
+// 그대로 렌더링한다. 별도 버튼/클릭 없음 — 예전 "우리 회사 적합성 확인" 버튼은
+// 이 섹션으로 통합되어 제거되었다. AI는 "가능/불가능"을 단정하지 않고
+// "추천/확인 필요/비추천"으로만 표현한다(최종 결정은 사용자 몫).
+function renderParticipationSection(container, score) {
+  container.innerHTML = '';
+
+  if (!currentUser) {
+    container.appendChild(h(`
+      <div class="ai-participation-card ai-participation-card--cta">
+        <p class="ai-participation-cta-text">로그인하고 회사 정보를 등록하면 AI가 이 공고의 참여 가능성을 분석해 드립니다.</p>
+        <a href="#/auth/login" class="home-cta-primary">로그인하고 확인하기</a>
+      </div>
+    `));
+    return;
+  }
+  if (!score) {
+    container.appendChild(h(`
+      <div class="ai-participation-card ai-participation-card--cta">
+        <p class="ai-participation-cta-text">회사 정보를 등록하면 AI가 이 공고의 참여 가능성을 분석해 드립니다.</p>
+        <a href="#/me/profile" class="home-cta-primary">회사 정보 등록하기</a>
+      </div>
+    `));
+    return;
+  }
+
+  const bucketLabel = PARTICIPATION_BUCKET_LABELS[score.bucket] || score.bucket;
+  const missing = score.categories.filter(c => c.result !== 'met');
+  const missingHtml = missing.length
+    ? `<ul class="ai-missing-list">${missing.map(c => `
+        <li class="elig-item">
+          <div class="elig-head">
+            <span class="elig-category">${eligCategoryHtml(c.category)}</span>
+            <span class="elig-result elig-result--${escapeHtml(c.result)}">${eligResultHtml(c.result)}</span>
+          </div>
+          <p class="elig-reason">${escapeHtml(c.reason)}</p>
+        </li>`).join('')}</ul>`
+    : '<p class="ai-missing-empty">확인된 조건이 모두 충족되었습니다.</p>';
+
+  const nextAction = missing.some(c => c.result === 'insufficient_data')
+    ? '<a href="#/me/profile" class="ai-next-action">회사 정보 보완하기 &rarr;</a>'
+    : '';
+
+  container.appendChild(h(`
+    <div class="ai-participation-card ai-participation-card--${escapeHtml(score.bucket)}">
+      <div class="ai-participation-head">
+        <span class="ai-bucket-badge ai-bucket-badge--${escapeHtml(score.bucket)}">${escapeHtml(bucketLabel)}</span>
+        <span class="ai-participation-score">${score.totalCount}개 중 ${score.metCount}개 충족</span>
+      </div>
+      <p class="ai-participation-subtitle">부족한 조건</p>
+      ${missingHtml}
+      ${nextAction}
+      <p class="ai-disclaimer">⚠ 등록된 회사 정보와 공고 정보만으로 계산한 참고용 분석입니다. 최종 참여 여부는 원문 공고를 직접 확인한 후 결정하세요.</p>
+    </div>
+  `));
 }
 
 function renderSignup(container) {
@@ -1570,12 +1840,13 @@ function route() {
   if (path === '#/auth/login') { renderLogin(app); return; }
   if (path === '#/me/profile') { renderProfile(app); return; }
   if (path === '#/review') { renderReviewQueue(app); return; }
+  if (path === '#/notices') { renderList(app); return; }
   const detailMatch = path.match(/^#\/notices\/(.+)$/);
   if (detailMatch) {
     renderDetail(app, decodeURIComponent(detailMatch[1]));
-  } else {
-    renderList(app);
+    return;
   }
+  renderHome(app);
 }
 
 window.addEventListener('hashchange', route);

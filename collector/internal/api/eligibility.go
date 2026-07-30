@@ -22,9 +22,9 @@ import (
 )
 
 const (
-	ruleEngineVersion   = "structured-fields-v1"
-	regionNationwide    = "전국"
-	smallBusinessSize   = "소기업"
+	ruleEngineVersion = "structured-fields-v1"
+	regionNationwide  = "전국"
+	smallBusinessSize = "소기업"
 	// smallBusinessBudgetCap: 소기업이 참여하기엔 예산 규모가 크다고 볼 수
 	// 있는 예시 기준선(10억 원). 실제 참가자격 규정은 아직 모델링하지
 	// 않았으므로 확정 판정이 아니라 "확인 필요" 플래그로만 쓴다.
@@ -45,50 +45,50 @@ const (
 // Keys are trimmed — real g2b rows have inconsistent leading/trailing spaces
 // (e.g. " 폐기물 처리 "), so notice industry values are trimmed before lookup.
 var industryRawToGroup = map[string]string{
-	"SW 및 시스템 개발":     "ICT/SW",
-	"시스템 운영환경 구축":     "ICT/SW",
-	"DB구축 및 자료입력":     "ICT/SW",
-	"디지털콘텐츠 개발":       "ICT/SW",
-	"ICT사업 컨설팅":       "ICT/SW",
-	"통신서비스":           "ICT/SW",
+	"SW 및 시스템 개발": "ICT/SW",
+	"시스템 운영환경 구축": "ICT/SW",
+	"DB구축 및 자료입력": "ICT/SW",
+	"디지털콘텐츠 개발":   "ICT/SW",
+	"ICT사업 컨설팅":   "ICT/SW",
+	"통신서비스":       "ICT/SW",
 
-	"학술연구서비스":         "연구/조사/컨설팅",
-	"시장 및 여론조사":       "연구/조사/컨설팅",
-	"문화재 조사/발굴 및 수리":  "연구/조사/컨설팅",
-	"기술시험,검사 및 분석":    "연구/조사/컨설팅",
+	"학술연구서비스":        "연구/조사/컨설팅",
+	"시장 및 여론조사":      "연구/조사/컨설팅",
+	"문화재 조사/발굴 및 수리": "연구/조사/컨설팅",
+	"기술시험,검사 및 분석":   "연구/조사/컨설팅",
 
-	"설계":              "설계/감리/CM",
-	"감리":              "설계/감리/CM",
-	"CM":              "설계/감리/CM",
-	"측량":              "설계/감리/CM",
+	"설계": "설계/감리/CM",
+	"감리": "설계/감리/CM",
+	"CM": "설계/감리/CM",
+	"측량": "설계/감리/CM",
 
-	"행사 기획 및 대행":      "행사/홍보/미디어",
-	"매체제작":            "행사/홍보/미디어",
-	"홍보 및 마케팅":        "행사/홍보/미디어",
-	"전시관 및 홍보관 설치":    "행사/홍보/미디어",
-	"디자인":             "행사/홍보/미디어",
+	"행사 기획 및 대행":   "행사/홍보/미디어",
+	"매체제작":         "행사/홍보/미디어",
+	"홍보 및 마케팅":     "행사/홍보/미디어",
+	"전시관 및 홍보관 설치": "행사/홍보/미디어",
+	"디자인":          "행사/홍보/미디어",
 
-	"시설물관리, 청소 등":     "시설관리/유지보수",
-	"운영 및 유지관리":       "시설관리/유지보수",
-	"수리":              "시설관리/유지보수",
-	"임대":              "시설관리/유지보수",
+	"시설물관리, 청소 등": "시설관리/유지보수",
+	"운영 및 유지관리":   "시설관리/유지보수",
+	"수리":          "시설관리/유지보수",
+	"임대":          "시설관리/유지보수",
 
-	"폐기물 처리":          "환경/폐기물",
-	"폐기물 재활용":         "환경/폐기물",
+	"폐기물 처리":  "환경/폐기물",
+	"폐기물 재활용": "환경/폐기물",
 
-	"운송서비스":           "생활서비스",
-	"여행서비스":           "생활서비스",
-	"숙박서비스":           "생활서비스",
-	"음식서비스":           "생활서비스",
-	"보건서비스":           "생활서비스",
+	"운송서비스": "생활서비스",
+	"여행서비스": "생활서비스",
+	"숙박서비스": "생활서비스",
+	"음식서비스": "생활서비스",
+	"보건서비스": "생활서비스",
 
-	"보험서비스":           "전문서비스",
-	"회계서비스":           "전문서비스",
-	"사업장 위탁":          "전문서비스",
+	"보험서비스":  "전문서비스",
+	"회계서비스":  "전문서비스",
+	"사업장 위탁": "전문서비스",
 
-	"교육서비스":           "교육",
+	"교육서비스": "교육",
 
-	"기타":              "기타",
+	"기타": "기타",
 }
 
 // industryGroups is the fixed, ordered list of selectable multi-select
@@ -220,25 +220,25 @@ func overallResult(items []eligibilityItem) string {
 	return "met"
 }
 
-func (s *Server) evaluateRegion(ctx context.Context, versionID, profileID string, noticeRegion, companyRegion sql.NullString) (eligibilityItem, error) {
-	var result, reason string
+// scoreRegion is the pure decision logic behind evaluateRegion — no DB
+// access, safe to call in a loop (dashboard scans hundreds of notices).
+func scoreRegion(noticeRegion, companyRegion sql.NullString) (result, reason string) {
 	switch {
 	case !noticeRegion.Valid || noticeRegion.String == "":
-		result = "insufficient_data"
-		reason = "공고에 지역 정보가 없어 지역 조건을 판정할 수 없습니다."
+		return "insufficient_data", "공고에 지역 정보가 없어 지역 조건을 판정할 수 없습니다."
 	case noticeRegion.String == regionNationwide:
-		result = "met"
-		reason = "공고가 전국 대상이라 지역 제한이 없습니다."
+		return "met", "공고가 전국 대상이라 지역 제한이 없습니다."
 	case !companyRegion.Valid || companyRegion.String == "":
-		result = "insufficient_data"
-		reason = "기업 프로필에 지역 정보가 없어 판정할 수 없습니다."
+		return "insufficient_data", "기업 프로필에 지역 정보가 없어 판정할 수 없습니다."
 	case noticeRegion.String == companyRegion.String:
-		result = "met"
-		reason = fmt.Sprintf("공고 지역(%s)과 기업 지역이 일치합니다.", noticeRegion.String)
+		return "met", fmt.Sprintf("공고 지역(%s)과 기업 지역이 일치합니다.", noticeRegion.String)
 	default:
-		result = "not_met"
-		reason = fmt.Sprintf("공고 지역(%s)이 기업 지역(%s)과 다릅니다.", noticeRegion.String, companyRegion.String)
+		return "not_met", fmt.Sprintf("공고 지역(%s)이 기업 지역(%s)과 다릅니다.", noticeRegion.String, companyRegion.String)
 	}
+}
+
+func (s *Server) evaluateRegion(ctx context.Context, versionID, profileID string, noticeRegion, companyRegion sql.NullString) (eligibilityItem, error) {
+	result, reason := scoreRegion(noticeRegion, companyRegion)
 
 	conditionID, err := s.findOrCreateAutoCondition(ctx, versionID,
 		"지역", "auto:region", "eq", nsOrEmpty(noticeRegion),
@@ -252,41 +252,41 @@ func (s *Server) evaluateRegion(ctx context.Context, versionID, profileID string
 	return eligibilityItem{Category: "지역", Result: result, Reason: reason}, nil
 }
 
-// evaluateIndustry OR-matches: a company can select multiple broad industry
-// groups (겸업 반영, e.g. 사업자등록증에 마케팅업 + 통신판매업 둘 다 등록된
-// 경우), so it's "met" the moment the notice's industry group is any one of
-// them — not "met" only if every selected group matches.
-func (s *Server) evaluateIndustry(ctx context.Context, versionID, profileID string, noticeIndustry sql.NullString, companyGroups []string) (eligibilityItem, error) {
+// scoreIndustry is the pure decision logic behind evaluateIndustry — OR-matches:
+// a company can select multiple broad industry groups (겸업 반영, e.g.
+// 사업자등록증에 마케팅업 + 통신판매업 둘 다 등록된 경우), so it's "met" the
+// moment the notice's industry group is any one of them — not "met" only if
+// every selected group matches.
+func scoreIndustry(noticeIndustry sql.NullString, companyGroups []string) (result, reason string) {
 	noticeRaw := strings.TrimSpace(noticeIndustry.String)
 
-	var result, reason string
 	switch {
 	case !noticeIndustry.Valid || noticeRaw == "":
-		result = "insufficient_data"
-		reason = "공고에 업종 정보가 없어 업종 조건을 판정할 수 없습니다."
+		return "insufficient_data", "공고에 업종 정보가 없어 업종 조건을 판정할 수 없습니다."
 	case len(companyGroups) == 0:
-		result = "insufficient_data"
-		reason = "기업 프로필에 업종 정보가 없어 판정할 수 없습니다."
+		return "insufficient_data", "기업 프로필에 업종 정보가 없어 판정할 수 없습니다."
 	default:
 		noticeGroup, known := industryRawToGroup[noticeRaw]
 		switch {
 		case !known:
-			result = "needs_confirmation"
-			reason = fmt.Sprintf(
+			return "needs_confirmation", fmt.Sprintf(
 				"공고 업종(%s)이 자동 분류 목록에 없는 새로운 값입니다. 기업이 선택한 업종(%s)과 "+
 					"일치하는지 원문에서 직접 확인하세요.",
 				noticeRaw, strings.Join(companyGroups, ", "))
 		case containsString(companyGroups, noticeGroup):
-			result = "met"
-			reason = fmt.Sprintf("공고 업종(%s, %s 분류)이 기업이 선택한 업종과 일치합니다.", noticeRaw, noticeGroup)
+			return "met", fmt.Sprintf("공고 업종(%s, %s 분류)이 기업이 선택한 업종과 일치합니다.", noticeRaw, noticeGroup)
 		default:
-			result = "needs_confirmation"
-			reason = fmt.Sprintf(
+			return "needs_confirmation", fmt.Sprintf(
 				"공고 업종(%s, %s 분류)이 기업이 선택한 업종(%s)과 다릅니다. 업종 분류가 정확한 표준 "+
 					"산업분류가 아니므로 실제로는 겹칠 수 있으니 원문에서 직접 확인하세요.",
 				noticeRaw, noticeGroup, strings.Join(companyGroups, ", "))
 		}
 	}
+}
+
+func (s *Server) evaluateIndustry(ctx context.Context, versionID, profileID string, noticeIndustry sql.NullString, companyGroups []string) (eligibilityItem, error) {
+	noticeRaw := strings.TrimSpace(noticeIndustry.String)
+	result, reason := scoreIndustry(noticeIndustry, companyGroups)
 
 	conditionID, err := s.findOrCreateAutoCondition(ctx, versionID,
 		"업종", "auto:industry", "eq", noticeRaw,
@@ -309,22 +309,23 @@ func containsString(list []string, v string) bool {
 	return false
 }
 
-func (s *Server) evaluateBudgetSize(ctx context.Context, versionID, profileID string, budgetAmount sql.NullInt64, companySize sql.NullString) (eligibilityItem, error) {
-	var result, reason string
+// scoreBudgetSize is the pure decision logic behind evaluateBudgetSize.
+func scoreBudgetSize(budgetAmount sql.NullInt64, companySize sql.NullString) (result, reason string) {
 	switch {
 	case !companySize.Valid || companySize.String == "" || !budgetAmount.Valid:
-		result = "insufficient_data"
-		reason = "기업 규모 또는 공고 예산 정보가 없어 예산 규모 조건을 판정할 수 없습니다."
+		return "insufficient_data", "기업 규모 또는 공고 예산 정보가 없어 예산 규모 조건을 판정할 수 없습니다."
 	case companySize.String == smallBusinessSize && budgetAmount.Int64 >= smallBusinessBudgetCap:
-		result = "needs_confirmation"
-		reason = fmt.Sprintf(
+		return "needs_confirmation", fmt.Sprintf(
 			"기업 규모가 %s인데 공고 예산(%d원)이 %d원 이상으로 큽니다. "+
 				"실제 참가자격 규정을 확인하지 않은 예시 기준이니, 공고문에서 참가자격을 직접 확인하세요.",
 			smallBusinessSize, budgetAmount.Int64, smallBusinessBudgetCap)
 	default:
-		result = "met"
-		reason = "예산 규모 관련 확인된 제한 사항이 없습니다."
+		return "met", "예산 규모 관련 확인된 제한 사항이 없습니다."
 	}
+}
+
+func (s *Server) evaluateBudgetSize(ctx context.Context, versionID, profileID string, budgetAmount sql.NullInt64, companySize sql.NullString) (eligibilityItem, error) {
+	result, reason := scoreBudgetSize(budgetAmount, companySize)
 
 	conditionID, err := s.findOrCreateAutoCondition(ctx, versionID,
 		"예산규모", "auto:budget_size", "gte", fmt.Sprintf("%d", smallBusinessBudgetCap),

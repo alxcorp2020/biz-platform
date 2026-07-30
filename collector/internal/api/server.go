@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/lib/pq"
+
 	"biz-platform/collector/internal/webui"
 )
 
@@ -37,7 +39,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("PUT /api/me/company-profile", s.handleUpsertCompanyProfile)
+	mux.HandleFunc("GET /api/dashboard", s.handleDashboard)
 	mux.HandleFunc("POST /api/notices/{id}/evaluate", s.handleEvaluateNotice)
+	mux.HandleFunc("PUT /api/notices/{noticeId}/documents/{documentId}/checklist", s.handleToggleChecklistItem)
 	mux.HandleFunc("GET /api/review/queue", s.handleReviewQueue)
 	mux.HandleFunc("POST /api/review/eligibility-conditions/{id}", s.handleReviewEligibilityCondition)
 	mux.HandleFunc("POST /api/review/required-documents/{id}", s.handleReviewRequiredDocument)
@@ -165,6 +169,31 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("list changes failed", "error", err)
 	}
 
+	// 로그인 + 회사 프로필이 있으면 이 자리에서 바로 참여 가능성을 계산해
+	// 응답에 얹는다(비영속 — DB에 안 씀). "AI 참여 분석" 섹션이 상세 페이지
+	// 로드 시 자동으로 채워지도록 하기 위함이며, 같은 계산을 dashboard.go의
+	// scoreNoticeForCompany와 공유한다.
+	var profileID string
+	var score *participationScore
+	if userID, ok := s.currentUserID(r); ok {
+		var companyRegion, companySize sql.NullString
+		var companyIndustry pq.StringArray
+		err := s.db.QueryRowContext(r.Context(),
+			`SELECT id, region, industry, company_size FROM company_profiles WHERE user_id = $1`, userID,
+		).Scan(&profileID, &companyRegion, &companyIndustry, &companySize)
+		if err != nil && err != sql.ErrNoRows {
+			s.logger.Error("get notice: profile lookup failed", "error", err)
+		}
+		if err == nil {
+			company := companyScoringInput{Region: companyRegion, Industry: []string(companyIndustry), Size: companySize}
+			computed := scoreNoticeForCompany(
+				noticeScoringInput{Region: region, Industry: industry, BudgetAmount: budget},
+				company,
+			)
+			score = &computed
+		}
+	}
+
 	eligibilityConditions := []eligibilityConditionItem{}
 	requiredDocuments := []requiredDocumentItem{}
 	attachments := []attachmentItem{}
@@ -177,7 +206,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error("list eligibility conditions failed", "error", err)
 		}
-		requiredDocuments, err = s.listRequiredDocuments(r.Context(), versionID)
+		requiredDocuments, err = s.listRequiredDocuments(r.Context(), versionID, profileID)
 		if err != nil {
 			s.logger.Error("list required documents failed", "error", err)
 		}
@@ -191,13 +220,22 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	checkedCount := 0
+	for _, d := range requiredDocuments {
+		if d.Checked {
+			checkedCount++
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"notice":                it,
 		"changes":               changes,
 		"eligibilityConditions": eligibilityConditions,
 		"requiredDocuments":     requiredDocuments,
+		"documentReadiness":     map[string]int{"total": len(requiredDocuments), "checked": checkedCount},
 		"attachments":           attachments,
 		"detail":                rawDetail,
+		"participationScore":    score,
 	})
 }
 
@@ -250,18 +288,28 @@ func (s *Server) listEligibilityConditions(ctx context.Context, versionID string
 }
 
 type requiredDocumentItem struct {
+	ID               string `json:"id"`
 	DocumentName     string `json:"documentName"`
 	SourceText       string `json:"sourceText"`
 	IsRequired       bool   `json:"isRequired"`
 	ExtractionMethod string `json:"extractionMethod"`
+	Checked          bool   `json:"checked"`
 }
 
-func (s *Server) listRequiredDocuments(ctx context.Context, versionID string) ([]requiredDocumentItem, error) {
+// listRequiredDocuments takes profileID so it can report each item's
+// checklist state for the current user. When profileID is "" (not logged
+// in / no company profile), it's bound as SQL NULL — the join condition
+// never matches NULL, so every item comes back unchecked without a
+// separate query path.
+func (s *Server) listRequiredDocuments(ctx context.Context, versionID, profileID string) ([]requiredDocumentItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT document_name, COALESCE(source_text, ''), is_required, extraction_method
-		FROM required_documents
-		WHERE notice_version_id = $1 AND review_status != 'rejected'
-		ORDER BY document_name`, versionID)
+		SELECT rd.id, rd.document_name, COALESCE(rd.source_text, ''), rd.is_required, rd.extraction_method,
+		       COALESCE(dci.is_checked, false)
+		FROM required_documents rd
+		LEFT JOIN document_checklist_items dci
+		       ON dci.required_document_id = rd.id AND dci.company_profile_id = $2
+		WHERE rd.notice_version_id = $1 AND rd.review_status != 'rejected'
+		ORDER BY rd.document_name`, versionID, sql.NullString{String: profileID, Valid: profileID != ""})
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +318,7 @@ func (s *Server) listRequiredDocuments(ctx context.Context, versionID string) ([
 	out := []requiredDocumentItem{}
 	for rows.Next() {
 		var it requiredDocumentItem
-		if err := rows.Scan(&it.DocumentName, &it.SourceText, &it.IsRequired, &it.ExtractionMethod); err != nil {
+		if err := rows.Scan(&it.ID, &it.DocumentName, &it.SourceText, &it.IsRequired, &it.ExtractionMethod, &it.Checked); err != nil {
 			continue
 		}
 		out = append(out, it)
