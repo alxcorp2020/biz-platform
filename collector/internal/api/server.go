@@ -38,6 +38,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("PUT /api/me/company-profile", s.handleUpsertCompanyProfile)
 	mux.HandleFunc("POST /api/notices/{id}/evaluate", s.handleEvaluateNotice)
+	mux.HandleFunc("GET /api/review/queue", s.handleReviewQueue)
+	mux.HandleFunc("POST /api/review/eligibility-conditions/{id}", s.handleReviewEligibilityCondition)
+	mux.HandleFunc("POST /api/review/required-documents/{id}", s.handleReviewRequiredDocument)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }
@@ -211,7 +214,7 @@ func (s *Server) listEligibilityConditions(ctx context.Context, versionID string
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT category, condition_name, source_text, confidence, review_status
 		FROM eligibility_conditions
-		WHERE notice_version_id = $1 AND source_attachment_id IS NOT NULL
+		WHERE notice_version_id = $1 AND source_attachment_id IS NOT NULL AND review_status != 'rejected'
 		ORDER BY created_at`, versionID)
 	if err != nil {
 		return nil, err
@@ -239,7 +242,7 @@ func (s *Server) listRequiredDocuments(ctx context.Context, versionID string) ([
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT document_name, COALESCE(source_text, ''), is_required
 		FROM required_documents
-		WHERE notice_version_id = $1
+		WHERE notice_version_id = $1 AND review_status != 'rejected'
 		ORDER BY document_name`, versionID)
 	if err != nil {
 		return nil, err
