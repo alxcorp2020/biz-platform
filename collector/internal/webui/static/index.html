@@ -403,6 +403,15 @@
     border-top: 1px solid var(--border);
   }
 
+  /* ---------- 공고 변경 -> 우리 회사 영향 ---------- */
+  .change-impact-card { margin: 1.25rem 0 2rem; }
+  .change-impact-transition { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .change-impact-arrow { color: var(--ink-soft); font-weight: 600; }
+  .change-impact-list { margin: 0; padding: 0; list-style: none; }
+  .change-impact-list li {
+    padding: 0.7rem 0; border-top: 1px solid var(--border); font-size: 0.92rem; color: var(--ink);
+  }
+
   /* ---------- Detail ---------- */
   .detail-card {
     border: 1px solid var(--border);
@@ -1432,9 +1441,11 @@ function renderDetail(container, id) {
               <tbody>${changeRows}</tbody>
             </table>`
           : '<p class="empty">변경 이력이 없습니다.</p>'}
+        <div id="change-impact-section"></div>
       `));
       renderAISummary(document.getElementById('ai-summary-section'), data.aiSummary);
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore);
+      renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
       renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail);
       renderAttachments(document.getElementById('attachments-section'), data.attachments || []);
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || []);
@@ -1717,6 +1728,33 @@ function renderParticipationSection(container, score) {
       <p class="ai-participation-subtitle">부족한 조건</p>
       ${missingHtml}
       ${nextAction}
+      <p class="ai-disclaimer">⚠ 등록된 회사 정보와 공고 정보만으로 계산한 참고용 분석입니다. 최종 참여 여부는 원문 공고를 직접 확인한 후 결정하세요.</p>
+    </div>
+  `));
+}
+
+// renderChangeImpact — 공고에 가장 최근 생긴 변경(region/industry/
+// budget_amount 중 참여 가능성에 실제로 영향을 주는 필드)이 우리 회사
+// 참여 가능성을 어떻게 바꿨는지 보여준다. data.changeImpact는 해당하는
+// 변경이 없거나(다른 필드만 바뀜) 비로그인/프로필 미등록이면 null이라
+// 이 경우 섹션 자체를 렌더링하지 않는다(handleGetNotice가 이미 판단).
+function renderChangeImpact(container, impact) {
+  container.innerHTML = '';
+  if (!impact) return;
+
+  const beforeLabel = PARTICIPATION_BUCKET_LABELS[impact.before.bucket] || impact.before.bucket;
+  const afterLabel = PARTICIPATION_BUCKET_LABELS[impact.after.bucket] || impact.after.bucket;
+  const fieldsHtml = impact.changedFields.map(f => `<li>${escapeHtml(f.summary)}</li>`).join('');
+
+  container.appendChild(h(`
+    <div class="ai-participation-card change-impact-card ai-participation-card--${escapeHtml(impact.after.bucket)}">
+      <p class="ai-participation-subtitle">이번 변경이 우리 회사에 미치는 영향</p>
+      <div class="change-impact-transition">
+        <span class="ai-bucket-badge ai-bucket-badge--${escapeHtml(impact.before.bucket)}">변경 전: ${escapeHtml(beforeLabel)}</span>
+        <span class="change-impact-arrow">&rarr;</span>
+        <span class="ai-bucket-badge ai-bucket-badge--${escapeHtml(impact.after.bucket)}">변경 후: ${escapeHtml(afterLabel)}</span>
+      </div>
+      <ul class="change-impact-list">${fieldsHtml}</ul>
       <p class="ai-disclaimer">⚠ 등록된 회사 정보와 공고 정보만으로 계산한 참고용 분석입니다. 최종 참여 여부는 원문 공고를 직접 확인한 후 결정하세요.</p>
     </div>
   `));

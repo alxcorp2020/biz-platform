@@ -205,6 +205,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	// scoreNoticeForCompany와 공유한다.
 	var profileID string
 	var score *participationScore
+	var company companyScoringInput
 	if loggedIn {
 		var companyRegion, companySize sql.NullString
 		var companyIndustry pq.StringArray
@@ -215,7 +216,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("get notice: profile lookup failed", "error", err)
 		}
 		if err == nil {
-			company := companyScoringInput{Region: companyRegion, Industry: []string(companyIndustry), Size: companySize}
+			company = companyScoringInput{Region: companyRegion, Industry: []string(companyIndustry), Size: companySize}
 			computed := scoreNoticeForCompany(
 				noticeScoringInput{Region: region, Industry: industry, BudgetAmount: budget},
 				company,
@@ -255,6 +256,16 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var impact *changeImpact
+	if score != nil && versionID != "" {
+		impact, err = s.computeLatestChangeImpact(r.Context(), versionID,
+			noticeScoringInput{Region: region, Industry: industry, BudgetAmount: budget}, company, *score)
+		if err != nil {
+			s.logger.Error("compute change impact failed", "error", err)
+			impact = nil
+		}
+	}
+
 	checkedCount := 0
 	for _, d := range requiredDocuments {
 		if d.Checked {
@@ -272,6 +283,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"detail":                rawDetail,
 		"participationScore":    score,
 		"aiSummary":             aiSummary,
+		"changeImpact":          impact,
 	})
 }
 
