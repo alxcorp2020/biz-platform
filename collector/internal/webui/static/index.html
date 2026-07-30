@@ -354,6 +354,18 @@
 
   /* ---------- AI 참여 분석 (공고 상세 첫 화면) ---------- */
   .ai-section-title { margin: 0 0 1rem; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
+  .ai-summary-card {
+    padding: 1.25rem 1.5rem;
+    border-radius: 12px;
+    margin-bottom: 2rem;
+    border: 1px solid var(--border);
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .ai-summary-list { margin: 0; padding-left: 1.2rem; }
+  .ai-summary-list li { font-size: 0.95rem; color: var(--ink); line-height: 1.6; }
+  .ai-summary-list li + li { margin-top: 0.3rem; }
+  .ai-summary-meta { margin: 0.9rem 0 0; font-size: 0.78rem; color: var(--ink-soft); }
   .ai-participation-card {
     padding: 1.5rem 1.75rem;
     border-radius: 12px;
@@ -1330,6 +1342,8 @@ function renderDetail(container, id) {
       body.className = '';
       body.innerHTML = '';
       body.appendChild(h(`
+        <h3 class="ai-section-title">핵심 요약</h3>
+        <div id="ai-summary-section"></div>
         <h3 class="ai-section-title">AI 참여 분석</h3>
         <div id="ai-participation-section"></div>
         <div class="detail-card">
@@ -1371,6 +1385,7 @@ function renderDetail(container, id) {
             </table>`
           : '<p class="empty">변경 이력이 없습니다.</p>'}
       `));
+      renderAISummary(document.getElementById('ai-summary-section'), data.aiSummary);
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore);
       renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail);
       renderAttachments(document.getElementById('attachments-section'), data.attachments || []);
@@ -1571,6 +1586,25 @@ const PARTICIPATION_BUCKET_LABELS = {
   needs_review: '확인 필요',
   not_recommended: '참여 비추천',
 };
+
+// "핵심 요약" — analyzer/ai_summarize.py(claude-sonnet-5)가 배치로 미리
+// 생성해둔 3줄 요약을 그대로 보여준다(Go/프론트 어느 쪽도 실시간으로 Claude를
+// 호출하지 않음). 아직 생성되지 않은 공고가 대부분일 수 있으므로 기존 다른
+// 섹션들과 같은 톤("아직 분석되지 않았습니다")으로 그 상태를 그대로 알린다.
+function renderAISummary(container, summary) {
+  container.innerHTML = '';
+  if (!summary || !summary.lines || !summary.lines.length) {
+    container.appendChild(h('<p class="section-empty">아직 요약이 생성되지 않았습니다.</p>'));
+    return;
+  }
+  const items = summary.lines.map(line => `<li>${escapeHtml(line)}</li>`).join('');
+  container.appendChild(h(`
+    <div class="ai-summary-card">
+      <ul class="ai-summary-list">${items}</ul>
+      <p class="ai-summary-meta">AI 요약 · ${escapeHtml(summary.model || '')} · ${formatDateTime(summary.generatedAt)}</p>
+    </div>
+  `));
+}
 
 // 공고 상세 첫 화면에 자동으로 뜨는 "AI 참여 분석" — data.participationScore
 // (handleGetNotice가 로그인+회사 프로필 기준으로 이미 계산해 응답에 포함)를

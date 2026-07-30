@@ -214,6 +214,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	requiredDocuments := []requiredDocumentItem{}
 	attachments := []attachmentItem{}
 	var rawDetail *noticeRawDetail
+	var aiSummary *noticeAISummary
 	versionID, err := s.currentVersionID(r.Context(), id, it.CurrentVersion)
 	if err != nil {
 		s.logger.Error("get notice: current version lookup failed", "error", err)
@@ -234,6 +235,10 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error("fetch notice raw detail failed", "error", err)
 		}
+		aiSummary, err = s.fetchNoticeAISummary(r.Context(), versionID)
+		if err != nil {
+			s.logger.Error("fetch notice AI summary failed", "error", err)
+		}
 	}
 
 	checkedCount := 0
@@ -252,6 +257,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"attachments":           attachments,
 		"detail":                rawDetail,
 		"participationScore":    score,
+		"aiSummary":             aiSummary,
 	})
 }
 

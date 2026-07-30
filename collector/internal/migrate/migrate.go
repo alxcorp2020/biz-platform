@@ -57,7 +57,23 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureNoticeBookmarksTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate notice_bookmarks table: %w", err)
 	}
+	if err := ensureAISummaryColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate AI-summary columns: %w", err)
+	}
 	return nil
+}
+
+// ensureAISummaryColumns supports analyzer/ai_summarize.py("핵심 3줄 요약",
+// claude-sonnet-5): notice_versions에 요약 결과를 저장한다. 재현성 확인용으로
+// 사용 모델명(ai_summary_model)과 생성 시각을 함께 남긴다. ADD COLUMN IF NOT
+// EXISTS makes this idempotent.
+func ensureAISummaryColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notice_versions ADD COLUMN IF NOT EXISTS ai_summary_lines TEXT[];
+		ALTER TABLE notice_versions ADD COLUMN IF NOT EXISTS ai_summary_model TEXT;
+		ALTER TABLE notice_versions ADD COLUMN IF NOT EXISTS ai_summary_generated_at TIMESTAMPTZ;
+	`)
+	return err
 }
 
 // ensureNoticeBookmarksTable adds notice_bookmarks(관심공고) for any DB

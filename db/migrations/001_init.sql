@@ -117,6 +117,11 @@ CREATE TABLE notice_versions (
     is_current      BOOLEAN NOT NULL DEFAULT true,
     review_status   TEXT NOT NULL DEFAULT 'pending'
                         CHECK (review_status IN ('pending','auto_approved','reviewed','review_required')),
+    -- AI 요약 브리핑(analyzer/ai_summarize.py, claude-sonnet-5) — 공고 상세의
+    -- "핵심 3줄 요약". 버전별 1:1 속성이라 별도 테이블이 아니라 컬럼으로 둔다.
+    ai_summary_lines        TEXT[],
+    ai_summary_model        TEXT,
+    ai_summary_generated_at TIMESTAMPTZ,
     UNIQUE (notice_id, version_number)
 );
 CREATE INDEX idx_notice_versions_current ON notice_versions(notice_id) WHERE is_current;
