@@ -177,6 +177,23 @@
   }
   .notice-meta .dot { color: var(--border); }
 
+  /* ---------- 관심공고(북마크) ---------- */
+  .notice-card-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem; flex-shrink: 0; }
+  .bookmark-btn {
+    background: none;
+    border: none;
+    padding: 0.1rem;
+    font-size: 1.35rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--border);
+  }
+  .bookmark-btn:hover { color: var(--warn); }
+  .bookmark-btn.is-bookmarked { color: var(--warn); }
+  .bookmark-btn:disabled { cursor: default; opacity: 0.6; }
+  .detail-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+  .detail-card-head .bookmark-btn { font-size: 1.6rem; }
+
   /* ---------- Badges ---------- */
   .dday-badge {
     flex-shrink: 0;
@@ -875,6 +892,45 @@ function ddayBadgeHtml(iso, extraClass) {
   return `<span class="dday-badge mono ${info.cls} ${extraClass || ''}">${escapeHtml(info.label)}</span>`;
 }
 
+// ---------- 관심공고(북마크) ----------
+function bookmarkButtonHtml(noticeId, isBookmarked) {
+  return `<button type="button" class="bookmark-btn${isBookmarked ? ' is-bookmarked' : ''}" ` +
+    `data-notice-id="${escapeAttr(noticeId)}" data-bookmarked="${isBookmarked ? 'true' : 'false'}" ` +
+    `aria-pressed="${isBookmarked ? 'true' : 'false'}" aria-label="관심공고 등록/해제" title="관심공고">` +
+    `${isBookmarked ? '★' : '☆'}</button>`;
+}
+
+// container 안의 모든 .bookmark-btn에 클릭 핸들러를 붙인다. 부모 .notice-card의
+// "상세로 이동" 클릭을 막기 위해 stopPropagation을 쓰고, 비로그인이면 로그인
+// 페이지로 보낸다(기존 다른 버튼들과 동일한 패턴). opts.onUnbookmark(noticeId, btn)는
+// 해제 성공 시 호출 — 관심공고 목록 페이지에서 카드를 즉시 제거하는 데 쓴다.
+function wireBookmarkButtons(container, opts) {
+  container.querySelectorAll('.bookmark-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!currentUser) {
+        location.hash = '#/auth/login';
+        return;
+      }
+      const noticeId = btn.dataset.noticeId;
+      const next = btn.dataset.bookmarked !== 'true';
+      btn.disabled = true;
+      try {
+        await apiRequest('PUT', '/api/notices/' + encodeURIComponent(noticeId) + '/bookmark', { bookmarked: next });
+        btn.dataset.bookmarked = next ? 'true' : 'false';
+        btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+        btn.classList.toggle('is-bookmarked', next);
+        btn.textContent = next ? '★' : '☆';
+        if (!next && opts && opts.onUnbookmark) opts.onUnbookmark(noticeId, btn);
+      } catch (err) {
+        if (err.status === 401) location.hash = '#/auth/login';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
 // ---------- 용어 설명(glossary) ----------
 const GLOSSARY = {
   '나라장터': '조달청이 운영하는 대한민국 공공기관 입찰 공고 통합 사이트입니다.',
@@ -1043,6 +1099,7 @@ function renderHeader() {
     const reviewLink = REVIEWER_ROLES.includes(currentUser.role) ? '<a href="#/review">검토 대기</a>' : '';
     nav.appendChild(h(`
       ${reviewLink}
+      <a href="#/me/bookmarks">관심공고</a>
       <a href="#/me/profile">내 프로필</a>
       <button type="button" id="logout-btn" class="link-btn">로그아웃</button>
     `));
@@ -1149,7 +1206,10 @@ function renderDashboard(container, data) {
               <span class="fit-score-badge">${rec.metCount}/${rec.totalCount} 조건 충족</span>
             </div>
           </div>
-          ${ddayBadgeHtml(rec.applicationEndAt)}
+          <div class="notice-card-side">
+            ${bookmarkButtonHtml(rec.noticeId, rec.isBookmarked)}
+            ${ddayBadgeHtml(rec.applicationEndAt)}
+          </div>
         </div>
       `).join('')}</div>`
     : '<p class="empty">지금 조건에 딱 맞는 추천 사업이 없습니다. 회사 프로필을 보완하면 더 정확해집니다.</p>';
@@ -1169,6 +1229,7 @@ function renderDashboard(container, data) {
       location.hash = '#/notices/' + row.dataset.id;
     });
   });
+  wireBookmarkButtons(container);
 }
 
 function renderList(container) {
@@ -1220,7 +1281,10 @@ function renderList(container) {
               ${statusBadgeHtml(n.status)}
             </div>
           </div>
-          ${ddayBadgeHtml(n.applicationEndAt)}
+          <div class="notice-card-side">
+            ${bookmarkButtonHtml(n.id, n.isBookmarked)}
+            ${ddayBadgeHtml(n.applicationEndAt)}
+          </div>
         </div>
       `).join('');
       listBody.className = '';
@@ -1231,6 +1295,7 @@ function renderList(container) {
           location.hash = '#/notices/' + row.dataset.id;
         });
       });
+      wireBookmarkButtons(listBody);
     })
     .catch(err => {
       listBody.className = 'error';
@@ -1268,8 +1333,13 @@ function renderDetail(container, id) {
         <h3 class="ai-section-title">AI 참여 분석</h3>
         <div id="ai-participation-section"></div>
         <div class="detail-card">
-          <p class="detail-eyebrow">${escapeHtml(n.organizationName || '-')}</p>
-          <h2>${escapeHtml(n.title)}</h2>
+          <div class="detail-card-head">
+            <div>
+              <p class="detail-eyebrow">${escapeHtml(n.organizationName || '-')}</p>
+              <h2>${escapeHtml(n.title)}</h2>
+            </div>
+            ${bookmarkButtonHtml(n.id, n.isBookmarked)}
+          </div>
           <dl class="detail-meta">
             <div><dt>발주기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
             <div><dt>지역</dt><dd>${escapeHtml(n.region || '-')}</dd></div>
@@ -1306,6 +1376,7 @@ function renderDetail(container, id) {
       renderAttachments(document.getElementById('attachments-section'), data.attachments || []);
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || []);
       renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || [], id, data.documentReadiness);
+      wireBookmarkButtons(body);
     })
     .catch(err => {
       body.className = 'error';
@@ -1664,6 +1735,72 @@ function fillProfileForm(form, profile) {
   form.creditRating.value = profile.creditRating || '';
 }
 
+// 관심공고(마이페이지). 해제 시 renderReviewList가 승인/반려 후
+// card.remove()하는 것과 같은 패턴으로 새로고침 없이 카드를 즉시 지운다.
+async function renderBookmarks(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/me/bookmarks');
+  } catch (err) {
+    if (err.status === 401) {
+      location.hash = '#/auth/login';
+      return;
+    }
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  container.innerHTML = '';
+  const emptyHtml = '<p class="empty">아직 등록한 관심공고가 없습니다. 공고 목록에서 별표를 눌러 등록해보세요.</p>';
+  if (!data.items.length) {
+    container.appendChild(h(emptyHtml));
+    return;
+  }
+
+  const rows = data.items.map(n => `
+    <div class="notice-card" data-id="${escapeAttr(n.id)}">
+      <div class="notice-card-main">
+        <div class="notice-org">${escapeHtml(n.organizationName || '-')}</div>
+        <div class="notice-title">${escapeHtml(n.title)}</div>
+        <div class="notice-meta">
+          <span>${escapeHtml(n.region || '-')}</span>
+          <span class="dot">·</span>
+          <span>${escapeHtml(n.industry || '-')}</span>
+          <span class="dot">·</span>
+          <span class="mono">${formatBudget(n.budgetAmount)}</span>
+          <span class="dot">·</span>
+          ${statusBadgeHtml(n.status)}
+        </div>
+      </div>
+      <div class="notice-card-side">
+        ${bookmarkButtonHtml(n.id, true)}
+        ${ddayBadgeHtml(n.applicationEndAt)}
+      </div>
+    </div>
+  `).join('');
+  container.appendChild(h(`<div class="notice-list">${rows}</div>`));
+
+  container.querySelectorAll('.notice-card').forEach(row => {
+    row.addEventListener('click', () => {
+      location.hash = '#/notices/' + row.dataset.id;
+    });
+  });
+  wireBookmarkButtons(container, {
+    onUnbookmark: (noticeId, btn) => {
+      const card = btn.closest('.notice-card');
+      if (card) card.remove();
+      if (!container.querySelector('.notice-card')) {
+        container.innerHTML = '';
+        container.appendChild(h(emptyHtml));
+      }
+    },
+  });
+}
+
 async function renderProfile(container) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
@@ -1853,6 +1990,7 @@ function route() {
   if (path === '#/auth/signup') { renderSignup(app); return; }
   if (path === '#/auth/login') { renderLogin(app); return; }
   if (path === '#/me/profile') { renderProfile(app); return; }
+  if (path === '#/me/bookmarks') { renderBookmarks(app); return; }
   if (path === '#/review') { renderReviewQueue(app); return; }
   if (path === '#/notices') { renderList(app); return; }
   const detailMatch = path.match(/^#\/notices\/(.+)$/);

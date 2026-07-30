@@ -33,6 +33,7 @@ type dashboardRecommendation struct {
 	ApplicationEndAt *time.Time `json:"applicationEndAt"`
 	MetCount         int        `json:"metCount"`
 	TotalCount       int        `json:"totalCount"`
+	IsBookmarked     bool       `json:"isBookmarked"`
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +60,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	company := companyScoringInput{Region: region, Industry: []string(industryArr), Size: size}
+
+	bookmarkedIDs, err := s.fetchBookmarkedNoticeIDs(ctx, userID)
+	if err != nil {
+		s.logger.Error("dashboard: bookmarked notice ids query failed", "error", err)
+	}
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, title, organization_name, region, industry, budget_amount, application_end_at
@@ -96,6 +102,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			rec := dashboardRecommendation{
 				NoticeID: id, Title: title, OrganizationName: org.String,
 				MetCount: score.MetCount, TotalCount: score.TotalCount,
+				IsBookmarked: bookmarkedIDs[id],
 			}
 			if deadline.Valid {
 				rec.ApplicationEndAt = &deadline.Time
@@ -144,6 +151,27 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"totalScanned":         totalScanned,
 		"recommendations":      recommendations,
 	})
+}
+
+// fetchBookmarkedNoticeIDs는 이미 최대 500건을 스캔하는 메인 공고 쿼리에
+// notice_bookmarks LEFT JOIN을 더 얹기보다, 사용자의 북마크 집합을 한 번만
+// 조회해 맵으로 들고 있다가 추천 목록 생성 시 O(1)로 체크한다.
+func (s *Server) fetchBookmarkedNoticeIDs(ctx context.Context, userID string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT notice_id FROM notice_bookmarks WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ids := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		ids[id] = true
+	}
+	return ids, rows.Err()
 }
 
 func (s *Server) countNoticesChangedToday(ctx context.Context) (int, error) {

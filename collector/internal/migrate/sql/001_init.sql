@@ -311,6 +311,19 @@ CREATE TABLE document_checklist_items (
 );
 
 -- ------------------------------------------------------------
+-- 관심공고(북마크) — 로그인 사용자가 공고를 찜해두고 마이페이지에서
+-- 모아본다. 기업 프로필과 무관하게 user_id에만 연결된다.
+-- ------------------------------------------------------------
+CREATE TABLE notice_bookmarks (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES users(id),
+    notice_id   UUID NOT NULL REFERENCES notices(id),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, notice_id)
+);
+CREATE INDEX idx_notice_bookmarks_notice ON notice_bookmarks(notice_id);
+
+-- ------------------------------------------------------------
 -- 과금: 분석 크레딧 (무료체험 / 건별결제 / 구독 잔여건)
 -- ------------------------------------------------------------
 CREATE TABLE analysis_credits (

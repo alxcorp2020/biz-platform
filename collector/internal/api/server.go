@@ -42,6 +42,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/dashboard", s.handleDashboard)
 	mux.HandleFunc("POST /api/notices/{id}/evaluate", s.handleEvaluateNotice)
 	mux.HandleFunc("PUT /api/notices/{noticeId}/documents/{documentId}/checklist", s.handleToggleChecklistItem)
+	mux.HandleFunc("PUT /api/notices/{id}/bookmark", s.handleToggleBookmark)
+	mux.HandleFunc("GET /api/me/bookmarks", s.handleListBookmarks)
 	mux.HandleFunc("GET /api/review/queue", s.handleReviewQueue)
 	mux.HandleFunc("POST /api/review/eligibility-conditions/{id}", s.handleReviewEligibilityCondition)
 	mux.HandleFunc("POST /api/review/required-documents/{id}", s.handleReviewRequiredDocument)
@@ -60,6 +62,7 @@ type noticeListItem struct {
 	BudgetAmount     *int64     `json:"budgetAmount"`
 	OfficialURL      string     `json:"officialUrl"`
 	CurrentVersion   int        `json:"currentVersion"`
+	IsBookmarked     bool       `json:"isBookmarked"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -75,11 +78,8 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	region := q.Get("region")
 	industry := q.Get("industry")
 	keyword := q.Get("q")
+	userID, loggedIn := s.currentUserID(r)
 
-	query := `
-		SELECT id, title, organization_name, region, industry, status,
-		       application_end_at, budget_amount, official_url, current_version
-		FROM notices WHERE 1=1`
 	args := []any{}
 	argN := 0
 	addArg := func(v any) string {
@@ -87,16 +87,27 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		args = append(args, v)
 		return "$" + itoa(argN)
 	}
+
+	// LEFT JOIN + NULL 파라미터 트릭: 비로그인이면 sql.NullString{Valid:false}를
+	// 바인딩해서 "x = NULL"이 항상 거짓이 되게 만든다 — listRequiredDocuments가
+	// 이미 쓰고 있는 것과 같은 패턴(별도 인증 분기 없이 isBookmarked가 자연히 false).
+	query := `
+		SELECT n.id, n.title, n.organization_name, n.region, n.industry, n.status,
+		       n.application_end_at, n.budget_amount, n.official_url, n.current_version,
+		       (nb.id IS NOT NULL) AS is_bookmarked
+		FROM notices n
+		LEFT JOIN notice_bookmarks nb ON nb.notice_id = n.id AND nb.user_id = ` + addArg(sql.NullString{String: userID, Valid: loggedIn}) + `
+		WHERE 1=1`
 	if region != "" {
-		query += " AND region = " + addArg(region)
+		query += " AND n.region = " + addArg(region)
 	}
 	if industry != "" {
-		query += " AND industry = " + addArg(industry)
+		query += " AND n.industry = " + addArg(industry)
 	}
 	if keyword != "" {
-		query += " AND title ILIKE " + addArg("%"+keyword+"%")
+		query += " AND n.title ILIKE " + addArg("%"+keyword+"%")
 	}
-	query += " ORDER BY published_at DESC NULLS LAST LIMIT 50"
+	query += " ORDER BY n.published_at DESC NULLS LAST LIMIT 50"
 
 	rows, err := s.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
@@ -113,7 +124,7 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		var budget sql.NullInt64
 		var deadline sql.NullTime
 		if err := rows.Scan(&it.ID, &it.Title, &org, &region, &industry, &it.Status,
-			&deadline, &budget, &officialURL, &it.CurrentVersion); err != nil {
+			&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked); err != nil {
 			s.logger.Error("scan notice row failed", "error", err)
 			continue
 		}
@@ -135,17 +146,22 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
+	userID, loggedIn := s.currentUserID(r)
+
 	var it noticeListItem
 	var org, region, industry, officialURL sql.NullString
 	var budget sql.NullInt64
 	var deadline sql.NullTime
 
 	err := s.db.QueryRowContext(r.Context(), `
-		SELECT id, title, organization_name, region, industry, status,
-		       application_end_at, budget_amount, official_url, current_version
-		FROM notices WHERE id = $1`, id,
+		SELECT n.id, n.title, n.organization_name, n.region, n.industry, n.status,
+		       n.application_end_at, n.budget_amount, n.official_url, n.current_version,
+		       (nb.id IS NOT NULL) AS is_bookmarked
+		FROM notices n
+		LEFT JOIN notice_bookmarks nb ON nb.notice_id = n.id AND nb.user_id = $2
+		WHERE n.id = $1`, id, sql.NullString{String: userID, Valid: loggedIn},
 	).Scan(&it.ID, &it.Title, &org, &region, &industry, &it.Status,
-		&deadline, &budget, &officialURL, &it.CurrentVersion)
+		&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked)
 
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notice_not_found"})
@@ -175,7 +191,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	// scoreNoticeForCompany와 공유한다.
 	var profileID string
 	var score *participationScore
-	if userID, ok := s.currentUserID(r); ok {
+	if loggedIn {
 		var companyRegion, companySize sql.NullString
 		var companyIndustry pq.StringArray
 		err := s.db.QueryRowContext(r.Context(),

@@ -54,7 +54,27 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureDocumentChecklistTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate document_checklist_items table: %w", err)
 	}
+	if err := ensureNoticeBookmarksTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate notice_bookmarks table: %w", err)
+	}
 	return nil
+}
+
+// ensureNoticeBookmarksTable adds notice_bookmarks(관심공고) for any DB
+// created before this migration existed. CREATE TABLE IF NOT EXISTS makes
+// it idempotent — same pattern as ensureDocumentChecklistTable.
+func ensureNoticeBookmarksTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS notice_bookmarks (
+			id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id     UUID NOT NULL REFERENCES users(id),
+			notice_id   UUID NOT NULL REFERENCES notices(id),
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (user_id, notice_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_notice_bookmarks_notice ON notice_bookmarks(notice_id);
+	`)
+	return err
 }
 
 // ensureDocumentChecklistTable adds document_checklist_items for any DB
