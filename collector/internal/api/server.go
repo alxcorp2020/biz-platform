@@ -225,7 +225,14 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("get notice: profile lookup failed", "error", err)
 		}
 		if err == nil {
-			company = companyScoringInput{Region: companyRegion, Industry: []string(companyIndustry), Size: companySize}
+			trackRecordMax, err := s.fetchTrackRecordMaxAmount(r.Context(), profileID)
+			if err != nil {
+				s.logger.Error("get notice: track record max amount query failed", "error", err)
+			}
+			company = companyScoringInput{
+				Region: companyRegion, Industry: []string(companyIndustry), Size: companySize,
+				TrackRecordMaxAmount: trackRecordMax,
+			}
 			computed := scoreNoticeForCompany(
 				noticeScoringInput{Region: region, Industry: industry, BudgetAmount: budget},
 				company,

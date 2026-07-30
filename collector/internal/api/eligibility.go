@@ -193,10 +193,23 @@ func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	items := []eligibilityItem{regionItem, industryItem, budgetItem}
+
+	trackRecordMax, err := s.fetchTrackRecordMaxAmount(ctx, profileID)
+	if err != nil {
+		s.logger.Error("evaluate: track record max amount query failed", "error", err)
+	}
+	categories := make([]categoryScore, len(items))
+	for i, it := range items {
+		categories[i] = categoryScore{Category: it.Category, Result: it.Result, Reason: it.Reason}
+	}
+	grade, gradeReason := gradeFromCategories(categories, trackRecordThin(budgetAmount, trackRecordMax))
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"noticeId":         noticeID,
 		"companyProfileId": profileID,
 		"overallResult":    overallResult(items),
+		"grade":            grade,
+		"gradeReason":      gradeReason,
 		"items":            items,
 		"disclaimer":       evalDisclaimer,
 	})

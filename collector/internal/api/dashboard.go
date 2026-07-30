@@ -44,11 +44,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
+	var profileID string
 	var region, size sql.NullString
 	var industryArr pq.StringArray
 	err := s.db.QueryRowContext(ctx,
-		`SELECT region, industry, company_size FROM company_profiles WHERE user_id = $1`, userID,
-	).Scan(&region, &industryArr, &size)
+		`SELECT id, region, industry, company_size FROM company_profiles WHERE user_id = $1`, userID,
+	).Scan(&profileID, &region, &industryArr, &size)
 	if err == sql.ErrNoRows {
 		// 프로필이 없는 것은 에러가 아니다 — 프론트가 온보딩 화면으로 분기한다.
 		writeJSON(w, http.StatusOK, map[string]any{"hasProfile": false})
@@ -59,7 +60,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
-	company := companyScoringInput{Region: region, Industry: []string(industryArr), Size: size}
+	trackRecordMax, err := s.fetchTrackRecordMaxAmount(ctx, profileID)
+	if err != nil {
+		s.logger.Error("dashboard: track record max amount query failed", "error", err)
+	}
+	company := companyScoringInput{
+		Region: region, Industry: []string(industryArr), Size: size,
+		TrackRecordMaxAmount: trackRecordMax,
+	}
 
 	bookmarkedIDs, err := s.fetchBookmarkedNoticeIDs(ctx, userID)
 	if err != nil {
@@ -81,6 +89,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var readyCount, needsReviewCount, notRecommendedCount, totalScanned int
+	gradeCounts := map[string]int{
+		gradeRecommended: 0, gradeConditional: 0, gradeJointVentureReview: 0,
+		gradeNeedsConfirmation: 0, gradeNotRecommended: 0,
+	}
 	recommendations := []dashboardRecommendation{}
 	for rows.Next() {
 		var id, title string
@@ -96,6 +108,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			noticeScoringInput{Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget},
 			company,
 		)
+		gradeCounts[score.Grade]++
 		switch score.Bucket {
 		case "ready":
 			readyCount++
@@ -150,6 +163,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"closingThisWeekCount": closingThisWeekCount,
 		"totalScanned":         totalScanned,
 		"recommendations":      recommendations,
+		"gradeCounts":          gradeCounts,
 	})
 }
 

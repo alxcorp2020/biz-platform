@@ -17,6 +17,19 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
+// fetchTrackRecordMaxAmount returns MAX(contract_amount) across a company's
+// track records — the coarse capacity signal scoring.go's trackRecordThin
+// uses for the 공동수급 검토(joint-venture-review) grade. Callers fetch this
+// once per request/company (same pattern as region/industry/size), never
+// per notice, so scoreNoticeForCompany itself stays DB-free.
+func (s *Server) fetchTrackRecordMaxAmount(ctx context.Context, profileID string) (sql.NullInt64, error) {
+	var maxAmount sql.NullInt64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT MAX(contract_amount) FROM company_track_records WHERE company_profile_id = $1`, profileID,
+	).Scan(&maxAmount)
+	return maxAmount, err
+}
+
 type trackRecordCandidate struct {
 	ProjectName    string `json:"projectName"`
 	ClientName     string `json:"clientName"`

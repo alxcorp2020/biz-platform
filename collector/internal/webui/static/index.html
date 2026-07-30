@@ -374,9 +374,13 @@
     background: #fff;
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
   }
-  .ai-participation-card--ready { border-color: rgba(31,138,95,0.35); background: rgba(31,138,95,0.04); }
-  .ai-participation-card--needs_review { border-color: rgba(196,132,29,0.35); background: rgba(196,132,29,0.04); }
+  .ai-participation-card--ready,
+  .ai-participation-card--recommended { border-color: rgba(31,138,95,0.35); background: rgba(31,138,95,0.04); }
+  .ai-participation-card--needs_review,
+  .ai-participation-card--joint_venture_review { border-color: rgba(196,132,29,0.35); background: rgba(196,132,29,0.04); }
   .ai-participation-card--not_recommended { border-color: rgba(192,57,43,0.35); background: rgba(192,57,43,0.04); }
+  .ai-participation-card--conditional { border-color: rgba(46,90,172,0.35); background: rgba(46,90,172,0.04); }
+  .ai-participation-card--needs_confirmation { border-color: var(--border); background: var(--bg-soft); }
   .ai-participation-card--cta { text-align: center; }
   .ai-participation-cta-text { margin: 0 0 1.1rem; color: var(--ink-soft); font-size: 0.95rem; }
   .ai-participation-head { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 1rem; flex-wrap: wrap; }
@@ -387,10 +391,18 @@
     font-weight: 700;
     font-size: 0.9rem;
   }
-  .ai-bucket-badge--ready { background: rgba(31,138,95,0.15); color: var(--success); }
-  .ai-bucket-badge--needs_review { background: rgba(196,132,29,0.15); color: var(--warn); }
+  .ai-bucket-badge--ready,
+  .ai-bucket-badge--recommended { background: rgba(31,138,95,0.15); color: var(--success); }
+  .ai-bucket-badge--needs_review,
+  .ai-bucket-badge--joint_venture_review { background: rgba(196,132,29,0.15); color: var(--warn); }
   .ai-bucket-badge--not_recommended { background: rgba(192,57,43,0.15); color: var(--danger); }
+  .ai-bucket-badge--conditional { background: rgba(46,90,172,0.15); color: var(--accent-blue); }
+  .ai-bucket-badge--needs_confirmation { background: var(--bg-soft); color: var(--ink-soft); }
   .ai-participation-score { font-size: 0.92rem; color: var(--ink-soft); font-weight: 600; }
+  .ai-grade-reason {
+    margin: 0.75rem 0; padding: 0.75rem 0.9rem; border-radius: 8px;
+    background: rgba(196,132,29,0.08); color: var(--ink); font-size: 0.9rem;
+  }
   .ai-participation-subtitle { margin: 0 0 0.25rem; font-size: 0.85rem; font-weight: 600; color: var(--ink-soft); }
   .ai-missing-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--border); }
   .ai-missing-empty { margin: 0; font-size: 0.9rem; color: var(--ink-soft); }
@@ -1658,6 +1670,16 @@ const PARTICIPATION_BUCKET_LABELS = {
   not_recommended: '참여 비추천',
 };
 
+// GRADE_LABELS — 5단계 종합판정(participationScore.grade). 기존 3단계
+// bucket을 대체하지 않고 보완하는 세분화 등급이다.
+const GRADE_LABELS = {
+  recommended: '참여 권장',
+  conditional: '조건부 참여 가능',
+  joint_venture_review: '공동수급 검토',
+  needs_confirmation: '확인 필요',
+  not_recommended: '참여 곤란',
+};
+
 // "핵심 요약" — analyzer/ai_summarize.py(claude-sonnet-5)가 배치로 미리
 // 생성해둔 3줄 요약을 그대로 보여준다(Go/프론트 어느 쪽도 실시간으로 Claude를
 // 호출하지 않음). 아직 생성되지 않은 공고가 대부분일 수 있으므로 기존 다른
@@ -1704,7 +1726,7 @@ function renderParticipationSection(container, score) {
     return;
   }
 
-  const bucketLabel = PARTICIPATION_BUCKET_LABELS[score.bucket] || score.bucket;
+  const gradeLabel = GRADE_LABELS[score.grade] || score.grade;
   const missing = score.categories.filter(c => c.result !== 'met');
   // dataGapSide === 'notice'는 공고 자체에 데이터가 없는 경우(사용자가 고칠 수
   // 없음 — g2b 수집 데이터의 구조적 한계)라 "자료 부족"이 아니라 "정보 없음"으로
@@ -1732,11 +1754,12 @@ function renderParticipationSection(container, score) {
     : '';
 
   container.appendChild(h(`
-    <div class="ai-participation-card ai-participation-card--${escapeHtml(score.bucket)}">
+    <div class="ai-participation-card ai-participation-card--${escapeHtml(score.grade)}">
       <div class="ai-participation-head">
-        <span class="ai-bucket-badge ai-bucket-badge--${escapeHtml(score.bucket)}">${escapeHtml(bucketLabel)}</span>
+        <span class="ai-bucket-badge ai-bucket-badge--${escapeHtml(score.grade)}">${escapeHtml(gradeLabel)}</span>
         <span class="ai-participation-score">${score.totalCount}개 중 ${score.metCount}개 충족</span>
       </div>
+      ${score.gradeReason ? `<p class="ai-grade-reason">${escapeHtml(score.gradeReason)}</p>` : ''}
       <p class="ai-participation-subtitle">부족한 조건</p>
       ${missingHtml}
       ${nextAction}
@@ -1754,19 +1777,20 @@ function renderChangeImpact(container, impact) {
   container.innerHTML = '';
   if (!impact) return;
 
-  const beforeLabel = PARTICIPATION_BUCKET_LABELS[impact.before.bucket] || impact.before.bucket;
-  const afterLabel = PARTICIPATION_BUCKET_LABELS[impact.after.bucket] || impact.after.bucket;
+  const beforeLabel = GRADE_LABELS[impact.before.grade] || impact.before.grade;
+  const afterLabel = GRADE_LABELS[impact.after.grade] || impact.after.grade;
   const fieldsHtml = impact.changedFields.map(f => `<li>${escapeHtml(f.summary)}</li>`).join('');
 
   container.appendChild(h(`
-    <div class="ai-participation-card change-impact-card ai-participation-card--${escapeHtml(impact.after.bucket)}">
+    <div class="ai-participation-card change-impact-card ai-participation-card--${escapeHtml(impact.after.grade)}">
       <p class="ai-participation-subtitle">이번 변경이 우리 회사에 미치는 영향</p>
       <div class="change-impact-transition">
-        <span class="ai-bucket-badge ai-bucket-badge--${escapeHtml(impact.before.bucket)}">변경 전: ${escapeHtml(beforeLabel)}</span>
+        <span class="ai-bucket-badge ai-bucket-badge--${escapeHtml(impact.before.grade)}">변경 전: ${escapeHtml(beforeLabel)}</span>
         <span class="change-impact-arrow">&rarr;</span>
-        <span class="ai-bucket-badge ai-bucket-badge--${escapeHtml(impact.after.bucket)}">변경 후: ${escapeHtml(afterLabel)}</span>
+        <span class="ai-bucket-badge ai-bucket-badge--${escapeHtml(impact.after.grade)}">변경 후: ${escapeHtml(afterLabel)}</span>
       </div>
       <ul class="change-impact-list">${fieldsHtml}</ul>
+      ${impact.after.gradeReason ? `<p class="ai-grade-reason">${escapeHtml(impact.after.gradeReason)}</p>` : ''}
       <p class="ai-disclaimer">⚠ 등록된 회사 정보와 공고 정보만으로 계산한 참고용 분석입니다. 최종 참여 여부는 원문 공고를 직접 확인한 후 결정하세요.</p>
     </div>
   `));
