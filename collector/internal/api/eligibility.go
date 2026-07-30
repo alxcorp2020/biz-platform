@@ -222,23 +222,28 @@ func overallResult(items []eligibilityItem) string {
 
 // scoreRegion is the pure decision logic behind evaluateRegion — no DB
 // access, safe to call in a loop (dashboard scans hundreds of notices).
-func scoreRegion(noticeRegion, companyRegion sql.NullString) (result, reason string) {
+// scoreRegion의 세 번째 리턴값(dataGapSide)은 insufficient_data일 때 어느 쪽에
+// 정보가 없는지 구분한다: "notice"는 공고 자체에 지역 데이터가 없는 경우(g2b
+// 수집 데이터의 구조적 한계 — 사용자가 고칠 수 없음), "company"는 기업 프로필에
+// 지역이 없는 경우(사용자가 "내 프로필"에서 채워 넣으면 해결됨). 이 구분이 없으면
+// 프론트가 "회사 정보 보완하기"를 모든 자료 부족 상황에 잘못 안내하게 된다.
+func scoreRegion(noticeRegion, companyRegion sql.NullString) (result, reason, dataGapSide string) {
 	switch {
 	case !noticeRegion.Valid || noticeRegion.String == "":
-		return "insufficient_data", "공고에 지역 정보가 없어 지역 조건을 판정할 수 없습니다."
+		return "insufficient_data", "공고에 지역 정보가 없어 지역 조건을 판정할 수 없습니다.", "notice"
 	case noticeRegion.String == regionNationwide:
-		return "met", "공고가 전국 대상이라 지역 제한이 없습니다."
+		return "met", "공고가 전국 대상이라 지역 제한이 없습니다.", ""
 	case !companyRegion.Valid || companyRegion.String == "":
-		return "insufficient_data", "기업 프로필에 지역 정보가 없어 판정할 수 없습니다."
+		return "insufficient_data", "기업 프로필에 지역 정보가 없어 판정할 수 없습니다.", "company"
 	case noticeRegion.String == companyRegion.String:
-		return "met", fmt.Sprintf("공고 지역(%s)과 기업 지역이 일치합니다.", noticeRegion.String)
+		return "met", fmt.Sprintf("공고 지역(%s)과 기업 지역이 일치합니다.", noticeRegion.String), ""
 	default:
-		return "not_met", fmt.Sprintf("공고 지역(%s)이 기업 지역(%s)과 다릅니다.", noticeRegion.String, companyRegion.String)
+		return "not_met", fmt.Sprintf("공고 지역(%s)이 기업 지역(%s)과 다릅니다.", noticeRegion.String, companyRegion.String), ""
 	}
 }
 
 func (s *Server) evaluateRegion(ctx context.Context, versionID, profileID string, noticeRegion, companyRegion sql.NullString) (eligibilityItem, error) {
-	result, reason := scoreRegion(noticeRegion, companyRegion)
+	result, reason, _ := scoreRegion(noticeRegion, companyRegion)
 
 	conditionID, err := s.findOrCreateAutoCondition(ctx, versionID,
 		"지역", "auto:region", "eq", nsOrEmpty(noticeRegion),

@@ -24,6 +24,12 @@ type categoryScore struct {
 	Category string `json:"category"`
 	Result   string `json:"result"`
 	Reason   string `json:"reason"`
+	// DataGapSide는 Result가 insufficient_data일 때만 채워진다: "notice"는
+	// 공고 자체에 데이터가 없는 경우(사용자가 고칠 수 없음 — g2b 원본 데이터의
+	// 구조적 한계), "company"는 기업 프로필 정보 부족(사용자가 "내 프로필"에서
+	// 채우면 해결됨). 프론트가 "회사 정보 보완하기" 링크를 정확히 그 경우에만
+	// 보여주고, notice 쪽은 "지역 정보 없음" 같은 별도 문구로 구분해서 보여준다.
+	DataGapSide string `json:"dataGapSide,omitempty"`
 }
 
 // participationScore.Bucket is one of "ready" | "needs_review" | "not_recommended".
@@ -37,12 +43,12 @@ type participationScore struct {
 }
 
 func scoreNoticeForCompany(notice noticeScoringInput, company companyScoringInput) participationScore {
-	regionResult, regionReason := scoreRegion(notice.Region, company.Region)
+	regionResult, regionReason, regionGapSide := scoreRegion(notice.Region, company.Region)
 	industryResult, industryReason := scoreIndustry(notice.Industry, company.Industry)
 	budgetResult, budgetReason := scoreBudgetSize(notice.BudgetAmount, company.Size)
 
 	categories := []categoryScore{
-		{Category: "지역", Result: regionResult, Reason: regionReason},
+		{Category: "지역", Result: regionResult, Reason: regionReason, DataGapSide: regionGapSide},
 		{Category: "업종", Result: industryResult, Reason: industryReason},
 		{Category: "예산 규모", Result: budgetResult, Reason: budgetReason},
 	}

@@ -697,6 +697,10 @@
   .elig-result--needs_confirmation { color: var(--warn); }
   .elig-result--insufficient_data { color: var(--ink-soft); }
   .elig-reason { margin: 0.4rem 0 0; font-size: 0.88rem; color: var(--ink); }
+  /* 공고 자체에 데이터가 없는 경우(사용자가 고칠 수 없음) — "미충족/확인 필요"류의
+     경고색이 아니라 중립적인 정보 표시로 구분한다. */
+  .elig-item--notice-gap { background: var(--bg-soft); border-radius: 8px; padding: 0.9rem 1rem; border-bottom: none; margin-bottom: 0.5rem; }
+  .elig-item--notice-gap .elig-result { color: var(--ink-soft); }
 
   /* ---------- Auth / profile forms ---------- */
   .auth-card {
@@ -1526,18 +1530,28 @@ function renderParticipationSection(container, score) {
 
   const bucketLabel = PARTICIPATION_BUCKET_LABELS[score.bucket] || score.bucket;
   const missing = score.categories.filter(c => c.result !== 'met');
+  // dataGapSide === 'notice'는 공고 자체에 데이터가 없는 경우(사용자가 고칠 수
+  // 없음 — g2b 수집 데이터의 구조적 한계)라 "자료 부족"이 아니라 "정보 없음"으로
+  // 구분해서 보여준다. 'company'는 기업 프로필을 채우면 해결되는 경우다.
   const missingHtml = missing.length
-    ? `<ul class="ai-missing-list">${missing.map(c => `
-        <li class="elig-item">
+    ? `<ul class="ai-missing-list">${missing.map(c => {
+        const isNoticeGap = c.dataGapSide === 'notice';
+        const resultLabel = isNoticeGap ? '정보 없음' : eligResultHtml(c.result);
+        return `
+        <li class="elig-item${isNoticeGap ? ' elig-item--notice-gap' : ''}">
           <div class="elig-head">
             <span class="elig-category">${eligCategoryHtml(c.category)}</span>
-            <span class="elig-result elig-result--${escapeHtml(c.result)}">${eligResultHtml(c.result)}</span>
+            <span class="elig-result elig-result--${escapeHtml(c.result)}">${resultLabel}</span>
           </div>
           <p class="elig-reason">${escapeHtml(c.reason)}</p>
-        </li>`).join('')}</ul>`
+        </li>`;
+      }).join('')}</ul>`
     : '<p class="ai-missing-empty">확인된 조건이 모두 충족되었습니다.</p>';
 
-  const nextAction = missing.some(c => c.result === 'insufficient_data')
+  // "회사 정보 보완하기"는 기업 프로필을 채우면 실제로 해결되는 경우에만
+  // 보여준다 — 공고 쪽 데이터 공백(dataGapSide==='notice')은 프로필을 채워도
+  // 해결되지 않으므로 이 링크를 보여주면 잘못된 안내가 된다.
+  const nextAction = missing.some(c => c.dataGapSide === 'company')
     ? '<a href="#/me/profile" class="ai-next-action">회사 정보 보완하기 &rarr;</a>'
     : '';
 
