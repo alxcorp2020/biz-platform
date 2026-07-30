@@ -3,225 +3,216 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>오늘의 공공입찰 공고 — 공공사업 참여판단 데이터 플랫폼</title>
+<title>공공사업 참여판단 데이터 플랫폼</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --ink: #16233F;
-    --ink-soft: #5B6472;
-    --paper: #EDE9DE;
-    --paper-raise: #F6F4EC;
-    --hairline: #CBC3AE;
-    --seal: #A3342A;
-    --seal-soft: #C75B4F;
-    --ok: #2F6B4C;
-    --warn: #B4791F;
+    --navy: #14213D;
+    --navy-deep: #0B1526;
+    --ink: #1A1A1A;
+    --ink-soft: #5F6672;
+    --bg: #FFFFFF;
+    --bg-soft: #F5F6F8;
+    --border: #E2E5EA;
+    --accent-blue: #2E5AAC;
+    --success: #1F8A5F;
+    --warn: #C4841D;
+    --danger: #C0392B;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    background: var(--paper);
+    background: var(--bg);
     color: var(--ink);
     font-family: 'Noto Sans KR', sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  a { color: var(--seal); }
+  a { color: var(--accent-blue); }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
 
-  /* ---------- Masthead ---------- */
-  .masthead {
-    background: var(--paper);
-    border-bottom: 3px solid var(--ink);
-    padding: 1.75rem 1.5rem 1.25rem;
+  /* ---------- Header ---------- */
+  .site-header {
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 1.25rem 1.5rem;
   }
-  .masthead-inner {
-    max-width: 960px;
+  .header-inner {
+    max-width: 1000px;
     margin: 0 auto;
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: center;
     gap: 1rem;
     flex-wrap: wrap;
   }
-  .brand-link { text-decoration: none; color: inherit; }
-  .masthead-eyebrow {
-    margin: 0 0 0.35rem;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.72rem;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+  .brand-link {
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .brand-eyebrow {
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 500;
     color: var(--ink-soft);
   }
-  .masthead-title {
+  .brand-title {
     margin: 0;
-    font-family: 'Source Serif 4', serif;
+    font-size: 1.3rem;
     font-weight: 700;
-    font-size: clamp(1.5rem, 4vw, 2.25rem);
-    letter-spacing: -0.01em;
+    color: var(--navy);
   }
   .auth-nav {
     display: flex;
     align-items: center;
-    gap: 1.1rem;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.8rem;
-    letter-spacing: 0.02em;
-    padding-bottom: 0.3rem;
+    gap: 1.25rem;
+    font-size: 0.9rem;
   }
   .auth-nav a, .link-btn {
-    color: var(--seal);
+    color: var(--accent-blue);
     text-decoration: none;
-    border-bottom: 1px solid transparent;
+    font-weight: 500;
   }
-  .auth-nav a:hover, .link-btn:hover { border-bottom-color: var(--seal); }
+  .auth-nav a:hover, .link-btn:hover { text-decoration: underline; }
   .link-btn { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
 
-  main { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  main { max-width: 1000px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
 
   /* ---------- Filters ---------- */
   .filters {
     display: flex;
-    gap: 0.6rem;
+    gap: 0.75rem;
     flex-wrap: wrap;
-    margin-bottom: 1.75rem;
-    padding-bottom: 1.25rem;
-    border-bottom: 1px solid var(--hairline);
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
   }
   .filters input {
-    padding: 0.55rem 0.75rem;
-    border: 1px solid var(--hairline);
-    background: var(--paper-raise);
+    padding: 0.6rem 0.85rem;
+    border: 1px solid var(--border);
+    background: #fff;
     color: var(--ink);
-    border-radius: 2px;
-    font-family: 'Noto Sans KR', sans-serif;
-    font-size: 0.9rem;
+    border-radius: 8px;
+    font-size: 0.92rem;
+  }
+  .filters input:focus {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 1px;
+    border-color: var(--accent-blue);
   }
   .filters input[name="q"] { flex: 1; min-width: 200px; }
   .filters button {
-    padding: 0.55rem 1.25rem;
-    border: 1px solid var(--ink);
-    background: var(--ink);
-    color: var(--paper);
-    border-radius: 2px;
+    padding: 0.6rem 1.35rem;
+    border: 1px solid var(--navy);
+    background: var(--navy);
+    color: #fff;
+    border-radius: 8px;
     cursor: pointer;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.82rem;
-    letter-spacing: 0.05em;
+    font-weight: 600;
+    font-size: 0.9rem;
   }
+  .filters button:hover { background: var(--navy-deep); border-color: var(--navy-deep); }
 
   .back-link {
     display: inline-block;
-    margin-bottom: 1.5rem;
-    color: var(--seal);
+    margin-bottom: 1.25rem;
+    color: var(--accent-blue);
     text-decoration: none;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.82rem;
+    font-size: 0.9rem;
+    font-weight: 500;
   }
+  .back-link:hover { text-decoration: underline; }
 
-  /* ---------- Ledger list ---------- */
-  .ledger { border-top: 1px solid var(--hairline); }
-  .ledger-row {
-    display: grid;
-    grid-template-columns: 3rem 1fr auto;
-    gap: 1.25rem;
-    align-items: center;
-    padding: 1.25rem 0;
-    border-bottom: 1px solid var(--hairline);
-    cursor: pointer;
-  }
-  .ledger-row:hover { background: rgba(163, 52, 42, 0.05); }
-  .ledger-num {
-    font-family: 'IBM Plex Mono', monospace;
-    color: var(--ink-soft);
-    font-size: 0.85rem;
-    border-right: 1px solid var(--hairline);
-    align-self: stretch;
+  /* ---------- Notice card list ---------- */
+  .notice-list { display: flex; flex-direction: column; gap: 0.85rem; }
+  .notice-card {
     display: flex;
     align-items: flex-start;
-    padding-top: 0.15rem;
+    gap: 1.25rem;
+    padding: 1.25rem 1.5rem;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    transition: border-color .15s ease, box-shadow .15s ease;
   }
-  .ledger-main { min-width: 0; border-right: 1px solid var(--hairline); padding-right: 1.25rem; }
-  .ledger-org {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.72rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--ink-soft);
-    margin-bottom: 0.35rem;
+  .notice-card:hover {
+    border-color: var(--accent-blue);
+    box-shadow: 0 2px 8px rgba(20,33,61,0.10);
   }
-  .ledger-title {
-    font-family: 'Source Serif 4', serif;
-    font-size: 1.15rem;
+  .notice-card-main { flex: 1; min-width: 0; }
+  .notice-org {
+    font-size: 0.82rem;
     font-weight: 600;
-    line-height: 1.35;
-    margin: 0 0 0.5rem;
-    color: var(--ink);
+    color: var(--accent-blue);
+    margin-bottom: 0.3rem;
   }
-  .ledger-meta {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.78rem;
+  .notice-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.4;
+    margin: 0 0 0.55rem;
+  }
+  .notice-meta {
+    font-size: 0.85rem;
     color: var(--ink-soft);
     display: flex;
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
   }
-  .ledger-meta .dot { color: var(--hairline); }
-  .ledger-seal { display: flex; justify-content: center; }
+  .notice-meta .dot { color: var(--border); }
 
-  .seal {
-    width: 62px;
-    height: 62px;
-    border-radius: 50%;
-    border: 2px solid var(--seal);
-    color: var(--seal);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: 'IBM Plex Mono', monospace;
-    font-weight: 600;
-    font-size: 0.72rem;
-    transform: rotate(-7deg);
-    mix-blend-mode: multiply;
-    text-align: center;
-    line-height: 1.15;
+  /* ---------- Badges ---------- */
+  .dday-badge {
     flex-shrink: 0;
+    display: inline-block;
+    padding: 0.35rem 0.8rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.78rem;
+    white-space: nowrap;
+    background: rgba(46,90,172,0.10);
+    color: var(--accent-blue);
   }
-  .seal--warn { border-color: var(--warn); color: var(--warn); }
-  .seal--past { border-color: var(--ink-soft); color: var(--ink-soft); }
-  .seal--inline {
-    width: 44px;
-    height: 44px;
-    font-size: 0.6rem;
-  }
+  .dday-badge--danger { background: rgba(192,57,43,0.10); color: var(--danger); }
+  .dday-badge--muted { background: var(--bg-soft); color: var(--ink-soft); }
+  .dday-badge--inline { padding: 0.15rem 0.55rem; font-size: 0.75rem; }
 
   .status-badge {
     display: inline-block;
-    padding: 0.1rem 0.5rem;
-    border: 1px solid var(--hairline);
-    border-radius: 2px;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.7rem;
-    color: var(--ok);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    padding: 0.15rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(31,138,95,0.10);
+    color: var(--success);
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
   }
+  .status-badge--warn { background: rgba(196,132,29,0.12); color: var(--warn); }
+  .status-badge--muted { background: var(--bg-soft); color: var(--ink-soft); }
 
   .empty, .loading, .error {
     color: var(--ink-soft);
     padding: 3rem 0;
     text-align: center;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.85rem;
+    font-size: 0.92rem;
   }
-  .error { color: var(--seal); }
+  .error { color: var(--danger); }
 
-  /* ---------- Skeleton loading (관보/장부 톤 — 회색 반짝임 대신 --hairline 계열) ---------- */
+  /* ---------- Skeleton loading ---------- */
   .skeleton-block {
     display: block;
-    border-radius: 2px;
-    background: linear-gradient(90deg, var(--hairline) 25%, var(--paper-raise) 50%, var(--hairline) 75%);
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--border) 25%, var(--bg-soft) 50%, var(--border) 75%);
     background-size: 200% 100%;
     animation: skeleton-shimmer 1.6s ease-in-out infinite;
   }
@@ -230,48 +221,51 @@
     100% { background-position: -200% 0; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .skeleton-block { animation: none; background: var(--hairline); }
+    .skeleton-block { animation: none; background: var(--border); }
   }
   .skeleton-line { height: 0.85rem; margin-bottom: 0.5rem; }
   .skeleton-line:last-child { margin-bottom: 0; }
-  .skeleton-line--eyebrow { width: 35%; height: 0.6rem; }
+  .skeleton-line--eyebrow { width: 35%; height: 0.65rem; }
   .skeleton-line--title { width: 70%; height: 1.1rem; }
   .skeleton-line--headline { width: 60%; height: 1.4rem; margin-top: 0.4rem; }
-  .skeleton-line--meta { width: 50%; height: 0.7rem; }
+  .skeleton-line--meta { width: 50%; height: 0.75rem; }
   .skeleton-line--meta-cell { width: 75%; height: 0.9rem; }
-  .skeleton-line--category { width: 30%; height: 0.65rem; }
+  .skeleton-line--category { width: 30%; height: 0.68rem; }
   .skeleton-line--result { width: 20%; height: 0.8rem; }
   .skeleton-line--reason { width: 85%; height: 0.8rem; margin-top: 0.4rem; }
-  .skeleton-num { width: 1.6rem; height: 0.9rem; }
-  .skeleton-seal {
-    width: 62px;
-    height: 62px;
-    border-radius: 50%;
-  }
+  .skeleton-pill { width: 64px; height: 28px; border-radius: 999px; flex-shrink: 0; }
   .skeleton-row { cursor: default; }
-  .skeleton-row:hover { background: none; }
-  .skeleton-card .skeleton-line--headline { margin-bottom: 0.5rem; }
+  .skeleton-row:hover { border-color: var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
   .skeleton-meta-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 1rem;
     margin-top: 1.25rem;
     padding-top: 1.25rem;
-    border-top: 1px solid var(--hairline);
+    border-top: 1px solid var(--border);
   }
 
   /* ---------- Detail ---------- */
   .detail-card {
-    border: 1px solid var(--hairline);
-    background: var(--paper-raise);
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 12px;
     padding: 1.75rem;
     margin-bottom: 2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .detail-eyebrow {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent-blue);
   }
   .detail-card h2 {
-    margin: 0.25rem 0 0;
-    font-family: 'Source Serif 4', serif;
-    font-size: 1.5rem;
-    line-height: 1.35;
+    margin: 0.3rem 0 0;
+    font-size: 1.4rem;
+    font-weight: 700;
+    line-height: 1.4;
+    color: var(--ink);
   }
   .detail-meta {
     display: grid;
@@ -279,20 +273,17 @@
     gap: 1rem;
     margin: 1.25rem 0 0;
     padding-top: 1.25rem;
-    border-top: 1px solid var(--hairline);
+    border-top: 1px solid var(--border);
   }
   .detail-meta dt {
     margin: 0;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.7rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: 0.78rem;
+    font-weight: 500;
     color: var(--ink-soft);
   }
   .detail-meta dd {
     margin: 0.3rem 0 0;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.92rem;
+    font-size: 0.95rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -300,122 +291,152 @@
   .official-link {
     display: inline-block;
     margin-top: 1rem;
-    color: var(--seal);
+    color: var(--accent-blue);
     text-decoration: none;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.85rem;
-    border-bottom: 1px solid var(--seal-soft);
+    font-weight: 600;
+    font-size: 0.9rem;
   }
+  .official-link:hover { text-decoration: underline; }
 
   h3 {
-    font-family: 'Source Serif 4', serif;
-    font-weight: 600;
-    font-size: 1.1rem;
-    margin: 0 0 0.75rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--navy);
+    margin: 0 0 0.9rem;
     padding-bottom: 0.5rem;
-    border-bottom: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--border);
   }
 
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.85rem;
-  }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
   th, td {
     text-align: left;
-    padding: 0.6rem 0.5rem;
-    border-bottom: 1px solid var(--hairline);
+    padding: 0.65rem 0.5rem;
+    border-bottom: 1px solid var(--border);
     vertical-align: top;
   }
-  th {
-    color: var(--ink-soft);
-    font-weight: 500;
-    font-size: 0.7rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .importance-critical { color: var(--seal); font-weight: 600; }
-  .importance-major { color: var(--warn); }
+  th { color: var(--ink-soft); font-weight: 600; font-size: 0.78rem; }
+  .importance-critical { color: var(--danger); font-weight: 700; }
+  .importance-major { color: var(--warn); font-weight: 600; }
   .importance-minor { color: var(--ink-soft); }
+
+  /* ---------- Glossary tooltip ---------- */
+  .glossary { position: relative; display: inline-flex; align-items: center; }
+  .glossary-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: 0.3em;
+    border-radius: 50%;
+    border: 1px solid var(--accent-blue);
+    background: #fff;
+    color: var(--accent-blue);
+    font-size: 0.6rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    vertical-align: middle;
+  }
+  .glossary-btn:hover, .glossary-btn:focus-visible {
+    background: var(--accent-blue);
+    color: #fff;
+    outline: none;
+  }
+  .glossary-tooltip {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: 260px;
+    background: var(--navy-deep);
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 400;
+    line-height: 1.5;
+    padding: 0.65rem 0.8rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+    z-index: 20;
+    text-align: left;
+  }
+  .glossary-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: var(--navy-deep);
+  }
+  .glossary-btn:hover + .glossary-tooltip,
+  .glossary-btn:focus-visible + .glossary-tooltip,
+  .glossary.is-open .glossary-tooltip {
+    display: block;
+  }
 
   /* ---------- Eligibility check ---------- */
   .eligibility-check-btn {
-    padding: 0.6rem 1.1rem;
-    border: 1px solid var(--seal);
-    background: var(--seal);
-    color: var(--paper-raise);
-    border-radius: 2px;
+    padding: 0.65rem 1.25rem;
+    border: 1px solid var(--navy);
+    background: var(--navy);
+    color: #fff;
+    border-radius: 8px;
     cursor: pointer;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.82rem;
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    font-size: 0.9rem;
   }
-  .eligibility-check-btn:hover { background: var(--seal-soft); border-color: var(--seal-soft); }
+  .eligibility-check-btn:hover { background: var(--navy-deep); border-color: var(--navy-deep); }
   .eligibility-check-btn:disabled { opacity: 0.6; cursor: default; }
   .eligibility-disclaimer {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.75rem;
+    font-size: 0.82rem;
     color: var(--warn);
-    border: 1px dashed var(--warn);
-    padding: 0.6rem 0.8rem;
+    border: 1px solid rgba(196,132,29,0.35);
+    background: rgba(196,132,29,0.08);
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
     margin: 1rem 0 0.5rem;
-    background: rgba(180, 121, 31, 0.08);
   }
-  .elig-overall {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.88rem;
-  }
+  .elig-overall { font-size: 0.92rem; }
   .elig-list {
-    border-top: 1px solid var(--hairline);
+    border-top: 1px solid var(--border);
     margin: 0.75rem 0 0;
     padding: 0;
     list-style: none;
   }
-  .elig-item {
-    padding: 0.9rem 0;
-    border-bottom: 1px solid var(--hairline);
-  }
+  .elig-item { padding: 0.9rem 0; border-bottom: 1px solid var(--border); }
   .elig-head {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     gap: 1rem;
   }
-  .elig-category {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--ink-soft);
-  }
-  .elig-result {
-    font-family: 'IBM Plex Mono', monospace;
-    font-weight: 600;
-    font-size: 0.85rem;
-  }
-  .elig-result--met { color: var(--ok); }
-  .elig-result--not_met { color: var(--seal); }
+  .elig-category { font-size: 0.78rem; color: var(--ink-soft); font-weight: 600; }
+  .elig-result { font-weight: 700; font-size: 0.88rem; }
+  .elig-result--met { color: var(--success); }
+  .elig-result--not_met { color: var(--danger); }
   .elig-result--needs_confirmation { color: var(--warn); }
   .elig-result--insufficient_data { color: var(--ink-soft); }
-  .elig-reason {
-    margin: 0.4rem 0 0;
-    font-size: 0.85rem;
-    color: var(--ink);
-  }
+  .elig-reason { margin: 0.4rem 0 0; font-size: 0.88rem; color: var(--ink); }
 
   /* ---------- Auth / profile forms ---------- */
   .auth-card {
-    max-width: 380px;
+    max-width: 400px;
     margin: 0 auto;
-    border: 1px solid var(--hairline);
-    background: var(--paper-raise);
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 14px;
     padding: 2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
   }
   .auth-card h2 {
     margin-top: 0;
-    font-family: 'Source Serif 4', serif;
-    font-size: 1.4rem;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--navy);
     text-align: center;
   }
   .auth-form, .profile-form {
@@ -423,92 +444,76 @@
     flex-direction: column;
     gap: 1rem;
   }
-  .profile-form {
-    max-width: 520px;
-    margin: 0 auto;
-  }
+  .profile-form { max-width: 560px; margin: 0 auto; }
   .auth-form label, .profile-form label {
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.72rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: 0.82rem;
+    font-weight: 600;
     color: var(--ink-soft);
   }
   .checkbox-label {
     flex-direction: row !important;
     align-items: center;
     gap: 0.6rem !important;
-    text-transform: none;
+    font-weight: 400;
   }
-  .field-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .field-group-label {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.72rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--ink-soft);
-  }
+  .field-group { display: flex; flex-direction: column; gap: 0.5rem; }
+  .field-group-label { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); }
   .checkbox-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 0.5rem 1rem;
-    border: 1px solid var(--hairline);
-    padding: 0.75rem;
-    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.85rem;
+    background: var(--bg-soft);
   }
-  .checkbox-grid .checkbox-label {
-    font-family: 'Noto Sans KR', sans-serif;
-    font-size: 0.9rem;
-    color: var(--ink);
-  }
+  .checkbox-grid .checkbox-label { font-size: 0.9rem; color: var(--ink); font-weight: 400; }
   .auth-form input, .profile-form input {
-    padding: 0.6rem 0.7rem;
-    border: 1px solid var(--hairline);
+    padding: 0.65rem 0.8rem;
+    border: 1px solid var(--border);
     background: #fff;
     color: var(--ink);
-    border-radius: 2px;
-    font-family: 'Noto Sans KR', sans-serif;
+    border-radius: 8px;
     font-size: 0.95rem;
   }
+  .auth-form input:focus, .profile-form input:focus {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 1px;
+    border-color: var(--accent-blue);
+  }
   .auth-form button, .profile-form button {
-    padding: 0.7rem 1rem;
-    border: 1px solid var(--seal);
-    background: var(--seal);
-    color: var(--paper-raise);
-    border-radius: 2px;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--navy);
+    background: var(--navy);
+    color: #fff;
+    border-radius: 8px;
     cursor: pointer;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.85rem;
-    letter-spacing: 0.05em;
+    font-weight: 600;
+    font-size: 0.92rem;
     margin-top: 0.5rem;
   }
   .auth-form button:hover, .profile-form button:hover {
-    background: var(--seal-soft);
-    border-color: var(--seal-soft);
+    background: var(--navy-deep);
+    border-color: var(--navy-deep);
   }
   .auth-switch {
     text-align: center;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.8rem;
+    font-size: 0.87rem;
     color: var(--ink-soft);
     margin-top: 1.25rem;
   }
-  .success { color: var(--ok); font-size: 0.85rem; }
+  .success { color: var(--success); font-size: 0.88rem; }
 </style>
 </head>
 <body>
-<header class="masthead">
-  <div class="masthead-inner">
+<header class="site-header">
+  <div class="header-inner">
     <a href="#/" class="brand-link">
-      <p class="masthead-eyebrow">공공사업 참여판단 데이터 플랫폼</p>
-      <h1 class="masthead-title">오늘의 공공입찰 공고</h1>
+      <p class="brand-eyebrow">나라장터 공공입찰 공고 자동 분석</p>
+      <h1 class="brand-title">공공사업 참여판단 데이터 플랫폼</h1>
     </a>
     <nav id="auth-nav" class="auth-nav"></nav>
   </div>
@@ -519,6 +524,13 @@
 const app = document.getElementById('app');
 
 function h(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content; }
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
 
 function formatDate(iso) {
   if (!iso) return '-';
@@ -532,41 +544,101 @@ function formatBudget(n) {
   return Number(n).toLocaleString('ko-KR') + '원';
 }
 
-// 마감일을 원형 도장 배지로 표시: D-5 이내는 경고색, 마감 지나면 무채색.
-function sealInfo(iso) {
-  if (!iso) return { label: '-', cls: '' };
+const STATUS_LABELS = { open: '진행중', closed: '마감', cancelled: '취소', reannounced: '재공고' };
+
+function statusBadgeHtml(status) {
+  const label = STATUS_LABELS[status] || status || '-';
+  const cls = status === 'reannounced' ? 'status-badge--warn'
+    : (status === 'closed' || status === 'cancelled') ? 'status-badge--muted' : '';
+  const inner = status === 'reannounced' ? glossaryHtml('재공고', label) : escapeHtml(label);
+  return `<span class="status-badge ${cls}">${inner}</span>`;
+}
+
+// 마감일을 사각 배지(pill)로 표시: D-5 이내는 위험색, 지난 공고는 무채색.
+function ddayInfo(iso) {
+  if (!iso) return { label: '-', cls: 'dday-badge--muted' };
   const d = new Date(iso);
-  if (isNaN(d)) return { label: '-', cls: '' };
+  if (isNaN(d)) return { label: '-', cls: 'dday-badge--muted' };
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const target = new Date(d);
   target.setHours(0, 0, 0, 0);
   const diffDays = Math.round((target - today) / 86400000);
-  if (diffDays < 0) return { label: '마감', cls: 'seal--past' };
-  if (diffDays === 0) return { label: 'D-DAY', cls: 'seal--warn' };
-  if (diffDays <= 5) return { label: 'D-' + diffDays, cls: 'seal--warn' };
+  if (diffDays < 0) return { label: '마감', cls: 'dday-badge--muted' };
+  if (diffDays === 0) return { label: 'D-DAY', cls: 'dday-badge--danger' };
+  if (diffDays <= 5) return { label: 'D-' + diffDays, cls: 'dday-badge--danger' };
   return { label: 'D-' + diffDays, cls: '' };
 }
 
-function sealBadgeHtml(iso, extraClass) {
-  const info = sealInfo(iso);
-  return `<div class="seal ${info.cls} ${extraClass || ''}">${escapeHtml(info.label)}</div>`;
+function ddayBadgeHtml(iso, extraClass) {
+  const info = ddayInfo(iso);
+  return `<span class="dday-badge mono ${info.cls} ${extraClass || ''}">${escapeHtml(info.label)}</span>`;
 }
+
+// ---------- 용어 설명(glossary) ----------
+const GLOSSARY = {
+  '나라장터': '조달청이 운영하는 대한민국 공공기관 입찰 공고 통합 사이트입니다.',
+  '재공고': '최초 공고 이후 내용이 변경되어 다시 게시된 공고입니다. 마감일이나 조건이 바뀌었을 수 있으니 꼭 확인하세요.',
+  '직접생산확인': '제조업체가 실제로 해당 제품을 직접 생산한다는 것을 중소벤처기업부가 인증하는 제도입니다.',
+  '적합성 확인': '지역/업종/예산 등 기본 조건만으로 자동 판정한 결과입니다. 확정 판정이 아니므로 반드시 공식 공고문 원문을 확인하세요.',
+  '확인 필요': '정보가 부족하거나 애매해서 단정할 수 없는 상태입니다. 원문을 직접 확인해주세요.',
+  '자료 부족': '공고나 기업 프로필에 해당 정보 자체가 없어서 판정할 수 없는 상태입니다.',
+  '업종 판정': '업종은 대분류 그룹 단위로 비교합니다. 기업이 선택한 그룹 중 하나라도 공고 업종과 일치하면 충족으로 판정합니다.',
+};
+
+let glossaryCounter = 0;
+function glossaryHtml(term, label) {
+  const def = GLOSSARY[term];
+  const display = label || term;
+  if (!def) return escapeHtml(display);
+  glossaryCounter++;
+  const id = 'gloss-' + glossaryCounter;
+  return `${escapeHtml(display)}<span class="glossary">` +
+    `<button type="button" class="glossary-btn" aria-expanded="false" aria-describedby="${id}" aria-label="${escapeAttr(term)} 용어 설명">?</button>` +
+    `<span class="glossary-tooltip" id="${id}" role="tooltip">${escapeHtml(def)}</span>` +
+    `</span>`;
+}
+
+function closeAllGlossary() {
+  document.querySelectorAll('.glossary.is-open').forEach(el => {
+    el.classList.remove('is-open');
+    const btn = el.querySelector('.glossary-btn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.glossary-btn');
+  if (btn) {
+    e.stopPropagation();
+    const wrap = btn.closest('.glossary');
+    const willOpen = !wrap.classList.contains('is-open');
+    closeAllGlossary();
+    if (willOpen) {
+      wrap.classList.add('is-open');
+      btn.setAttribute('aria-expanded', 'true');
+    }
+    return;
+  }
+  closeAllGlossary();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeAllGlossary();
+});
 
 // 실제 데이터가 오기 전 화면 형태만 미리 보여주는 스켈레톤. 개수는 고정
 // (실제 결과 건수를 알 수 없으므로) — 목록/상세/적합성 확인 모두 공용.
 function skeletonListHtml(count) {
-  const row = `
-    <div class="ledger-row skeleton-row">
-      <div class="ledger-num"><span class="skeleton-block skeleton-num"></span></div>
-      <div class="ledger-main">
+  const card = `
+    <div class="notice-card skeleton-row">
+      <div class="notice-card-main">
         <span class="skeleton-block skeleton-line skeleton-line--eyebrow"></span>
         <span class="skeleton-block skeleton-line skeleton-line--title"></span>
         <span class="skeleton-block skeleton-line skeleton-line--meta"></span>
       </div>
-      <div class="ledger-seal"><span class="skeleton-block skeleton-seal"></span></div>
+      <span class="skeleton-block skeleton-pill"></span>
     </div>`;
-  return `<div class="ledger">${row.repeat(count)}</div>`;
+  return `<div class="notice-list">${card.repeat(count)}</div>`;
 }
 
 function skeletonDetailHtml() {
@@ -615,8 +687,20 @@ const ELIGIBILITY_RESULT_LABELS = {
   met: '충족',
   not_met: '미충족',
   needs_confirmation: '확인 필요',
-  insufficient_data: '데이터 부족',
+  insufficient_data: '자료 부족',
 };
+
+function eligResultHtml(result) {
+  const label = ELIGIBILITY_RESULT_LABELS[result] || result;
+  if (result === 'needs_confirmation') return glossaryHtml('확인 필요', label);
+  if (result === 'insufficient_data') return glossaryHtml('자료 부족', label);
+  return escapeHtml(label);
+}
+
+function eligCategoryHtml(category) {
+  if (category === '업종') return glossaryHtml('업종 판정', category);
+  return escapeHtml(category);
+}
 
 async function apiRequest(method, url, body) {
   const opts = { method };
@@ -710,29 +794,28 @@ function renderList(container) {
         listBody.textContent = '조건에 맞는 공고가 없습니다.';
         return;
       }
-      const rows = data.items.map((n, i) => `
-        <div class="ledger-row" data-id="${n.id}">
-          <div class="ledger-num">${String(i + 1).padStart(3, '0')}</div>
-          <div class="ledger-main">
-            <div class="ledger-org">${escapeHtml(n.organizationName || '-')}</div>
-            <div class="ledger-title">${escapeHtml(n.title)}</div>
-            <div class="ledger-meta">
+      const rows = data.items.map(n => `
+        <div class="notice-card" data-id="${n.id}">
+          <div class="notice-card-main">
+            <div class="notice-org">${escapeHtml(n.organizationName || '-')}</div>
+            <div class="notice-title">${escapeHtml(n.title)}</div>
+            <div class="notice-meta">
               <span>${escapeHtml(n.region || '-')}</span>
               <span class="dot">·</span>
               <span>${escapeHtml(n.industry || '-')}</span>
               <span class="dot">·</span>
-              <span>${formatBudget(n.budgetAmount)}</span>
+              <span class="mono">${formatBudget(n.budgetAmount)}</span>
               <span class="dot">·</span>
-              <span class="status-badge">${escapeHtml(n.status || '-')}</span>
+              ${statusBadgeHtml(n.status)}
             </div>
           </div>
-          <div class="ledger-seal">${sealBadgeHtml(n.applicationEndAt)}</div>
+          ${ddayBadgeHtml(n.applicationEndAt)}
         </div>
       `).join('');
       listBody.className = '';
       listBody.innerHTML = '';
-      listBody.appendChild(h(`<div class="ledger">${rows}</div>`));
-      listBody.querySelectorAll('.ledger-row').forEach(row => {
+      listBody.appendChild(h(`<div class="notice-list">${rows}</div>`));
+      listBody.querySelectorAll('.notice-card').forEach(row => {
         row.addEventListener('click', () => {
           location.hash = '#/notices/' + row.dataset.id;
         });
@@ -760,10 +843,10 @@ function renderDetail(container, id) {
         ? changes.map(c => `
             <tr>
               <td>${escapeHtml(c.field)}</td>
-              <td>${escapeHtml(c.oldValue || '-')}</td>
-              <td>${escapeHtml(c.newValue || '-')}</td>
+              <td class="mono">${escapeHtml(c.oldValue || '-')}</td>
+              <td class="mono">${escapeHtml(c.newValue || '-')}</td>
               <td class="importance-${escapeHtml(c.importance || 'minor')}">${escapeHtml(c.importance || '-')}</td>
-              <td>${formatDate(c.createdAt)}</td>
+              <td class="mono">${formatDate(c.createdAt)}</td>
             </tr>
           `).join('')
         : '';
@@ -772,20 +855,20 @@ function renderDetail(container, id) {
       body.innerHTML = '';
       body.appendChild(h(`
         <div class="detail-card">
-          <p class="masthead-eyebrow">${escapeHtml(n.organizationName || '-')}</p>
+          <p class="detail-eyebrow">${escapeHtml(n.organizationName || '-')}</p>
           <h2>${escapeHtml(n.title)}</h2>
           <dl class="detail-meta">
             <div><dt>발주기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
             <div><dt>지역</dt><dd>${escapeHtml(n.region || '-')}</dd></div>
             <div><dt>업종</dt><dd>${escapeHtml(n.industry || '-')}</dd></div>
-            <div><dt>상태</dt><dd>${escapeHtml(n.status || '-')}</dd></div>
-            <div><dt>마감일</dt><dd>${sealBadgeHtml(n.applicationEndAt, 'seal--inline')}${formatDate(n.applicationEndAt)}</dd></div>
-            <div><dt>예산</dt><dd>${formatBudget(n.budgetAmount)}</dd></div>
-            <div><dt>버전</dt><dd>v${n.currentVersion}</dd></div>
+            <div><dt>상태</dt><dd>${statusBadgeHtml(n.status)}</dd></div>
+            <div><dt>마감일</dt><dd>${ddayBadgeHtml(n.applicationEndAt, 'dday-badge--inline')}<span class="mono">${formatDate(n.applicationEndAt)}</span></dd></div>
+            <div><dt>예산</dt><dd class="mono">${formatBudget(n.budgetAmount)}</dd></div>
+            <div><dt>버전</dt><dd class="mono">v${n.currentVersion}</dd></div>
           </dl>
           ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 &rarr;</a>` : ''}
         </div>
-        <h3>우리 회사 적합성 확인</h3>
+        <h3>우리 회사 ${glossaryHtml('적합성 확인', '적합성 확인 (1차 참고용)')}</h3>
         <div id="eligibility-section"></div>
         <h3>변경 이력</h3>
         ${changeRows
@@ -808,8 +891,8 @@ function renderEligibilityResult(container, data) {
   const itemsHtml = data.items.map(it => `
     <li class="elig-item">
       <div class="elig-head">
-        <span class="elig-category">${escapeHtml(it.category)}</span>
-        <span class="elig-result elig-result--${escapeHtml(it.result)}">${escapeHtml(ELIGIBILITY_RESULT_LABELS[it.result] || it.result)}</span>
+        <span class="elig-category">${eligCategoryHtml(it.category)}</span>
+        <span class="elig-result elig-result--${escapeHtml(it.result)}">${eligResultHtml(it.result)}</span>
       </div>
       <p class="elig-reason">${escapeHtml(it.reason)}</p>
     </li>
@@ -819,7 +902,7 @@ function renderEligibilityResult(container, data) {
   container.appendChild(h(`
     <div class="eligibility-disclaimer">⚠ ${escapeHtml(data.disclaimer)}</div>
     <p class="elig-overall">종합 결과:
-      <span class="elig-result elig-result--${escapeHtml(overall)}">${escapeHtml(ELIGIBILITY_RESULT_LABELS[overall] || overall)}</span>
+      <span class="elig-result elig-result--${escapeHtml(overall)}">${eligResultHtml(overall)}</span>
     </p>
     <ul class="elig-list">${itemsHtml}</ul>
   `));
@@ -866,13 +949,6 @@ function renderEligibilitySection(container, noticeId) {
     }
   });
 }
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[c]));
-}
-function escapeAttr(s) { return escapeHtml(s); }
 
 function renderSignup(container) {
   container.innerHTML = '';
@@ -1005,7 +1081,7 @@ async function renderProfile(container) {
         <label>기업 규모<input type="text" name="companySize" placeholder="소기업/소상공인/중기업 등"></label>
         <label>보유 면허 (쉼표로 구분)<input type="text" name="licenses"></label>
         <label>보유 인증 (쉼표로 구분)<input type="text" name="certifications"></label>
-        <label class="checkbox-label"><input type="checkbox" name="directProductionCert"> 직접생산확인증명 보유</label>
+        <label class="checkbox-label"><input type="checkbox" name="directProductionCert"> ${glossaryHtml('직접생산확인', '직접생산확인증명 보유')}</label>
         <label>최근 3년 최대 실적(원)<input type="number" name="maxPerformanceAmount"></label>
         <label>신용등급<input type="text" name="creditRating"></label>
         <div id="profile-error" class="error" style="display:none"></div>
