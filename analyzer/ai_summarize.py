@@ -28,6 +28,7 @@ ai_extract.py와 마찬가지로 비용이 드는 단계라 항상 수동으로,
 import argparse
 import logging
 import os
+import re
 
 import anthropic
 import psycopg2
@@ -155,13 +156,25 @@ def call_claude(client, context):
     return lines, response.usage
 
 
+# 실제 운영 실행 중 발견된 사례: 모델이 '<...', '</antml>', '</anT>' 같은
+# 깨진 태그 조각을 반환했는데, "비어있지 않은 문자열 3개"라는 조건은
+# 통과해서 그대로 저장된 적이 있다(정상적인 요약 문장이 아닌데도 형식만
+# 맞아 걸러지지 않음). 이런 걸 저장하지 않도록 명백히 비정상적인 패턴을
+# 최소한으로 걸러낸다 — 완벽한 품질 검증은 아니고, 이 사례처럼 태그 조각이
+# 섞여 나오는 명백한 오작동만 잡아내는 안전장치다.
+_SUSPICIOUS_PATTERN_RE = re.compile(r"[<>]|antml", re.IGNORECASE)
+
+
 def validate_lines(lines):
-    """3줄 모두 비어있지 않은 문자열인지 확인. 모델이 형식을 어기면 지어내서
-    채우지 않고 그 항목 자체를 버린다."""
+    """3줄 모두 비어있지 않은 문자열이고, 태그 조각 등 명백히 비정상적인
+    패턴이 섞이지 않았는지 확인. 모델이 형식을 어기거나 이상한 값을 반환하면
+    지어내서 채우지 않고 그 항목 자체를 버린다."""
     if not isinstance(lines, list) or len(lines) != 3:
         return None
     cleaned = [s.strip() for s in lines if isinstance(s, str) and s.strip()]
     if len(cleaned) != 3:
+        return None
+    if any(_SUSPICIOUS_PATTERN_RE.search(s) for s in cleaned):
         return None
     return cleaned
 
@@ -219,7 +232,7 @@ def run_mode(client, conn, cur, limit):
         validated = validate_lines(lines)
         if validated is None:
             total_discarded += 1
-            logger.info("[%s] 모델 응답이 3줄 형식이 아니어서 버림: %r", row["id"], lines)
+            logger.info("[%s] 형식 오류 또는 비정상 패턴(태그 조각 등)이 섞여 버림: %r", row["id"], lines)
             continue
 
         save_summary(cur, row["id"], validated)
@@ -227,7 +240,7 @@ def run_mode(client, conn, cur, limit):
         total_saved += 1
         logger.info("[%s] 저장: %s", row["id"], " / ".join(validated))
 
-    logger.info("종료: 처리 %d건, 저장 %d건, 버림(형식 오류) %d건", len(rows), total_saved, total_discarded)
+    logger.info("종료: 처리 %d건, 저장 %d건, 버림(형식 오류/비정상 패턴) %d건", len(rows), total_saved, total_discarded)
     logger.info("실측 토큰: 입력 %s, 출력 %s", f"{total_input_tokens:,}", f"{total_output_tokens:,}")
 
 
