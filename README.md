@@ -33,6 +33,17 @@
 - 규칙 엔진 (5단계)
 - 프론트엔드 (6단계) — 지금은 JSON API만 존재
 
+## 미결 과제 (Known Limitations)
+
+- **HWP/HWPX 표 내용 추출 미지원**: `pyhwp`(HWP)/`hwp-hwpx-parser`(HWPX)가 표 셀
+  내용을 뽑지 못해 `<표>` 플레이스홀더로만 남음 (첨부파일 253건 중 131건, 약
+  52%에 영향). 현재는 화면에 "규칙 기반" 배지 + 경고 툴팁으로 한계를 투명하게
+  표시하는 것으로 완화 중.
+- **해결 방향(검토 필요, 아직 미착수)**: LibreOffice headless로 HWP/HWPX → PDF
+  변환 후, 이미 구현된 pdfplumber 표 추출(`analyzer/run_extraction.py`) 재사용.
+  단 변환 품질 편차, Render 배포 시 LibreOffice 포함 필요 등 추가 검토 필요.
+- **우선순위**: 전체 기능 완성 후 재검토 예정.
+
 ## 로컬 실행
 
 ### 1. 인프라 (Postgres + MinIO)
