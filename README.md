@@ -36,12 +36,21 @@
 ## 미결 과제 (Known Limitations)
 
 - **HWP/HWPX 표 내용 추출 미지원**: `pyhwp`(HWP)/`hwp-hwpx-parser`(HWPX)가 표 셀
-  내용을 뽑지 못해 `<표>` 플레이스홀더로만 남음 (첨부파일 253건 중 131건, 약
-  52%에 영향). 현재는 화면에 "규칙 기반" 배지 + 경고 툴팁으로 한계를 투명하게
-  표시하는 것으로 완화 중.
-- **해결 방향(검토 필요, 아직 미착수)**: LibreOffice headless로 HWP/HWPX → PDF
-  변환 후, 이미 구현된 pdfplumber 표 추출(`analyzer/run_extraction.py`) 재사용.
-  단 변환 품질 편차, Render 배포 시 LibreOffice 포함 필요 등 추가 검토 필요.
+  내용을 뽑지 못함. HWP는 `<표>` 플레이스홀더로 남지만(102건 중 98건), **HWPX는
+  마커조차 남기지 않고 표 내용이 그대로 사라짐**(71건 중 0건에 마커) — 실제로는
+  HWPX 쪽이 더 심각하다. 첨부파일 253건 중 131건, 약 52%에 영향. 현재는 화면에
+  "규칙 기반" 배지 + 경고 툴팁으로 한계를 투명하게 표시하고, AI 보완(2차,
+  `analyzer/ai_extract.py`)으로 일부 완화 중.
+- **LibreOffice headless 변환 방향 조사 결과 — 폐기**: LibreOffice 26.2.5로 실제
+  첨부파일 20건(HWP 10 + HWPX 10) 표본을 `soffice --headless --convert-to pdf`로
+  변환 테스트. HWP 성공률 10%(1/10, 그마저 표 없는 문서라 표 추출 검증은 못 함),
+  HWPX 성공률 0%(0/10) — 나머지는 전부 `Error: source file could not be loaded`.
+  표준 LibreOffice의 HWP/HWPX 임포트 필터가 실제 나라장터 문서를 거의 열지
+  못해서 이 방향은 폐기한다.
+- **다음으로 검토할 대안**: 한글과컴퓨터 공식 API/SDK(유료, 라이선스 필요) 또는
+  상용 변환 API(외부로 입찰문서 전송 필요 — 민감정보 우려). 다만 AI 보완(2차)이
+  이미 review_required 항목을 상당 부분 커버하고 있어, 변환 경로를 새로 뚫기보다
+  AI 보완 커버리지를 넓히는 쪽이 더 현실적일 수 있다.
 - **우선순위**: 전체 기능 완성 후 재검토 예정.
 
 ## 로컬 실행
