@@ -858,6 +858,18 @@
     margin-bottom: 1.25rem; background: var(--bg-soft);
   }
   .license-confirm-form h4 { margin: 0 0 0.75rem; }
+
+  /* ---------- 기업 프로필 탭(기본정보/재무정보/수행실적/인력정보) ---------- */
+  .profile-tabs {
+    display: flex; gap: 0.4rem; margin: 1rem 0 1.5rem; border-bottom: 1px solid var(--border);
+  }
+  .profile-tab-btn {
+    padding: 0.6rem 1rem; border: none; background: none; cursor: pointer;
+    font-weight: 600; font-size: 0.9rem; color: var(--ink-soft);
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .profile-tab-btn:hover { color: var(--ink); }
+  .profile-tab-btn.is-active { color: var(--navy); border-bottom-color: var(--navy); }
 </style>
 </head>
 <body>
@@ -1938,8 +1950,38 @@ async function renderProfile(container) {
 
   container.innerHTML = '';
   container.appendChild(h(`
+    <h2>기업 프로필</h2>
+    <div class="profile-tabs">
+      <button type="button" class="profile-tab-btn is-active" data-tab="basic">기본 정보</button>
+      <button type="button" class="profile-tab-btn" data-tab="financials">재무정보</button>
+      <button type="button" class="profile-tab-btn" data-tab="track-records">수행실적</button>
+      <button type="button" class="profile-tab-btn" data-tab="personnel">인력정보</button>
+    </div>
+    <div id="profile-tab-content"></div>
+  `));
+
+  const tabContent = document.getElementById('profile-tab-content');
+  const tabRenderers = {
+    basic: () => renderProfileBasicTab(tabContent),
+    financials: () => renderFinancialsTab(tabContent),
+    'track-records': () => renderTrackRecordsTab(tabContent),
+    personnel: () => renderPersonnelTab(tabContent),
+  };
+  tabRenderers.basic();
+
+  container.querySelectorAll('.profile-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.profile-tab-btn').forEach(b => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      tabRenderers[btn.dataset.tab]();
+    });
+  });
+}
+
+function renderProfileBasicTab(container) {
+  container.innerHTML = '';
+  container.appendChild(h(`
     <div class="detail-card">
-      <h2>기업 프로필</h2>
       <form id="profile-form" class="profile-form">
         <label>업태 (쉼표로 구분, 겸업 시 여러 개 등록 가능)<input type="text" name="businessType"></label>
         <label>지역<input type="text" name="region"></label>
@@ -1998,6 +2040,429 @@ async function renderProfile(container) {
       currentProfile = data.companyProfile;
       successBox.textContent = '저장되었습니다.';
       successBox.style.display = 'block';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+// uploadCompanyRecordDocument는 면허·인증 업로드와 같은 raw fetch(멀티파트라
+// apiRequest의 JSON 강제 인코딩을 못 씀) 패턴을 재무/실적/인력 3곳이 공유한다.
+async function uploadCompanyRecordDocument(uploadPath, file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(uploadPath, { method: 'POST', body: fd });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const code = data && data.error;
+    const err = new Error((code && ERROR_MESSAGES[code]) || ('요청 실패 (' + res.status + ')'));
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+// ---------- 재무정보 ----------
+function financialCardHtml(item) {
+  const parts = [];
+  if (item.revenue != null) parts.push('매출액 ' + formatBudget(item.revenue));
+  if (item.operatingProfit != null) parts.push('영업이익 ' + formatBudget(item.operatingProfit));
+  if (item.creditRating) parts.push('신용등급 ' + escapeHtml(item.creditRating));
+  if (item.taxDelinquent === true) parts.push('<span class="status-badge status-badge--warn">세금체납 있음</span>');
+  if (item.capitalImpairment === true) parts.push('<span class="status-badge status-badge--warn">자본잠식 있음</span>');
+  return `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(String(item.fiscalYear))}년도 재무정보</div>
+        <div class="license-card-meta">${parts.join(' · ')}</div>
+      </div>
+      <div class="license-card-side">${confidenceBadgeHtml(item.confidence)}</div>
+    </div>
+  `;
+}
+
+async function renderFinancialsTab(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/me/financials');
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <p class="license-card-meta">연도별 재무정보를 등록합니다. 재무제표를 업로드하면 AI가 자동으로 수치를 읽어드립니다.</p>
+    <div class="license-toolbar">
+      <button type="button" id="financial-upload-btn">증빙서류 업로드(재무제표)</button>
+      <button type="button" id="financial-manual-btn" class="secondary">직접 입력</button>
+    </div>
+    <input type="file" id="financial-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+    <div id="financial-form-slot"></div>
+    <div class="license-list" id="financial-list"></div>
+  `));
+
+  renderLicenseListInto(document.getElementById('financial-list'), data.items, '아직 등록한 재무정보가 없습니다.', financialCardHtml);
+
+  const formSlot = document.getElementById('financial-form-slot');
+  const fileInput = document.getElementById('financial-file-input');
+  document.getElementById('financial-upload-btn').addEventListener('click', () => fileInput.click());
+  document.getElementById('financial-manual-btn').addEventListener('click', () => {
+    renderFinancialForm(formSlot, null, null, () => renderFinancialsTab(container));
+  });
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    formSlot.innerHTML = '';
+    formSlot.appendChild(h('<div class="loading">문서를 분석하는 중...</div>'));
+    let uploadData;
+    try {
+      uploadData = await uploadCompanyRecordDocument('/api/me/financials/documents', file);
+    } catch (err) {
+      formSlot.innerHTML = '';
+      formSlot.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+      return;
+    }
+    formSlot.innerHTML = '';
+    renderFinancialForm(formSlot, uploadData.candidate, uploadData.documentId, () => renderFinancialsTab(container));
+  });
+}
+
+const TRI_STATE_OPTIONS = [
+  { value: '', label: '선택 안 함' },
+  { value: '예', label: '예' },
+  { value: '아니오', label: '아니오' },
+  { value: '확인불가', label: '확인불가' },
+];
+
+function triStateSelectHtml(name, selected) {
+  return `<select name="${name}">${TRI_STATE_OPTIONS.map(o =>
+    `<option value="${escapeAttr(o.value)}" ${o.value === (selected || '') ? 'selected' : ''}>${escapeHtml(o.label)}</option>`
+  ).join('')}</select>`;
+}
+
+function renderFinancialForm(formSlot, candidate, documentId, onSaved) {
+  const c = candidate || {};
+  formSlot.innerHTML = '';
+  formSlot.appendChild(h(`
+    <div class="license-confirm-form">
+      <h4>${documentId ? 'AI가 읽은 내용을 확인해주세요' : '직접 입력'}</h4>
+      <form id="financial-confirm-form" class="profile-form">
+        <label>회계연도<input type="number" name="fiscalYear" value="${escapeAttr(c.fiscalYear || '')}" required></label>
+        <label>매출액(원)<input type="text" name="revenue" value="${escapeAttr(c.revenue || '')}"></label>
+        <label>영업이익(원)<input type="text" name="operatingProfit" value="${escapeAttr(c.operatingProfit || '')}"></label>
+        <label>당기순이익(원)<input type="text" name="netIncome" value="${escapeAttr(c.netIncome || '')}"></label>
+        <label>자본금(원)<input type="text" name="capital" value="${escapeAttr(c.capital || '')}"></label>
+        <label>자산총계(원)<input type="text" name="totalAssets" value="${escapeAttr(c.totalAssets || '')}"></label>
+        <label>부채총계(원)<input type="text" name="totalLiabilities" value="${escapeAttr(c.totalLiabilities || '')}"></label>
+        <label>부채비율(%)<input type="text" name="debtRatio" value="${escapeAttr(c.debtRatio || '')}"></label>
+        <label>유동비율(%)<input type="text" name="currentRatio" value="${escapeAttr(c.currentRatio || '')}"></label>
+        <label>신용등급<input type="text" name="creditRating" value="${escapeAttr(c.creditRating || '')}"></label>
+        <label>세금체납 여부${triStateSelectHtml('taxDelinquent', c.taxDelinquent)}</label>
+        <label>자본잠식 여부${triStateSelectHtml('capitalImpairment', c.capitalImpairment)}</label>
+        <div id="financial-confirm-error" class="error" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="submit">저장</button>
+          <button type="button" id="financial-confirm-cancel" class="secondary">취소</button>
+        </div>
+      </form>
+    </div>
+  `));
+
+  const form = document.getElementById('financial-confirm-form');
+  const errorBox = document.getElementById('financial-confirm-error');
+  document.getElementById('financial-confirm-cancel').addEventListener('click', () => { formSlot.innerHTML = ''; });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    const payload = {
+      fiscalYear: Number(fd.get('fiscalYear')),
+      revenue: fd.get('revenue') || null,
+      operatingProfit: fd.get('operatingProfit') || null,
+      netIncome: fd.get('netIncome') || null,
+      capital: fd.get('capital') || null,
+      totalAssets: fd.get('totalAssets') || null,
+      totalLiabilities: fd.get('totalLiabilities') || null,
+      debtRatio: fd.get('debtRatio') || null,
+      currentRatio: fd.get('currentRatio') || null,
+      creditRating: fd.get('creditRating') || null,
+      taxDelinquent: fd.get('taxDelinquent') || null,
+      capitalImpairment: fd.get('capitalImpairment') || null,
+      sourceDocumentId: documentId || null,
+    };
+    try {
+      await apiRequest('POST', '/api/me/financials', payload);
+      formSlot.innerHTML = '';
+      onSaved();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+// ---------- 수행실적 ----------
+function trackRecordCardHtml(item) {
+  const parts = [];
+  if (item.clientName) parts.push(escapeHtml(item.clientName));
+  if (item.contractAmount != null) parts.push(formatBudget(item.contractAmount));
+  if (item.periodStart || item.periodEnd) parts.push(`${escapeHtml(item.periodStart || '?')} ~ ${escapeHtml(item.periodEnd || '?')}`);
+  if (item.isJointVenture === true) parts.push('공동수급' + (item.shareRatio != null ? `(지분 ${item.shareRatio}%)` : ''));
+  return `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(item.projectName)}</div>
+        <div class="license-card-meta">${parts.join(' · ')}</div>
+      </div>
+      <div class="license-card-side">${confidenceBadgeHtml(item.confidence)}</div>
+    </div>
+  `;
+}
+
+async function renderTrackRecordsTab(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/me/track-records');
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <p class="license-card-meta">수행실적을 건별로 등록합니다. 실적증명서를 업로드하면 AI가 자동으로 정보를 읽어드립니다.</p>
+    <div class="license-toolbar">
+      <button type="button" id="track-record-upload-btn">증빙서류 업로드(실적증명서)</button>
+      <button type="button" id="track-record-manual-btn" class="secondary">직접 입력</button>
+    </div>
+    <input type="file" id="track-record-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+    <div id="track-record-form-slot"></div>
+    <div class="license-list" id="track-record-list"></div>
+  `));
+
+  renderLicenseListInto(document.getElementById('track-record-list'), data.items, '아직 등록한 수행실적이 없습니다.', trackRecordCardHtml);
+
+  const formSlot = document.getElementById('track-record-form-slot');
+  const fileInput = document.getElementById('track-record-file-input');
+  document.getElementById('track-record-upload-btn').addEventListener('click', () => fileInput.click());
+  document.getElementById('track-record-manual-btn').addEventListener('click', () => {
+    renderTrackRecordForm(formSlot, null, null, () => renderTrackRecordsTab(container));
+  });
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    formSlot.innerHTML = '';
+    formSlot.appendChild(h('<div class="loading">문서를 분석하는 중...</div>'));
+    let uploadData;
+    try {
+      uploadData = await uploadCompanyRecordDocument('/api/me/track-records/documents', file);
+    } catch (err) {
+      formSlot.innerHTML = '';
+      formSlot.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+      return;
+    }
+    formSlot.innerHTML = '';
+    renderTrackRecordForm(formSlot, uploadData.candidate, uploadData.documentId, () => renderTrackRecordsTab(container));
+  });
+}
+
+function renderTrackRecordForm(formSlot, candidate, documentId, onSaved) {
+  const c = candidate || {};
+  formSlot.innerHTML = '';
+  formSlot.appendChild(h(`
+    <div class="license-confirm-form">
+      <h4>${documentId ? 'AI가 읽은 내용을 확인해주세요' : '직접 입력'}</h4>
+      <form id="track-record-confirm-form" class="profile-form">
+        <label>사업명<input type="text" name="projectName" value="${escapeAttr(c.projectName || '')}" required></label>
+        <label>발주기관/고객사<input type="text" name="clientName" value="${escapeAttr(c.clientName || '')}"></label>
+        <label>계약일<input type="date" name="contractDate" value="${escapeAttr(c.contractDate || '')}"></label>
+        <label>수행기간 시작<input type="date" name="periodStart" value="${escapeAttr(c.periodStart || '')}"></label>
+        <label>수행기간 종료<input type="date" name="periodEnd" value="${escapeAttr(c.periodEnd || '')}"></label>
+        <label>계약금액(원)<input type="text" name="contractAmount" value="${escapeAttr(c.contractAmount || '')}"></label>
+        <label>사업유형<input type="text" name="projectType" value="${escapeAttr(c.projectType || '')}"></label>
+        <label>산업분야<input type="text" name="industryField" value="${escapeAttr(c.industryField || '')}"></label>
+        <label>수행지역<input type="text" name="region" value="${escapeAttr(c.region || '')}"></label>
+        <label>공동수급 여부${triStateSelectHtml('isJointVenture', c.isJointVenture)}</label>
+        <label>지분율(%)<input type="text" name="shareRatio" value="${escapeAttr(c.shareRatio || '')}"></label>
+        <label>수행범위<input type="text" name="scope" value="${escapeAttr(c.scope || '')}"></label>
+        <label>핵심기술<input type="text" name="coreTechnology" value="${escapeAttr(c.coreTechnology || '')}"></label>
+        <label>완료 여부${triStateSelectHtml('isCompleted', c.isCompleted)}</label>
+        <div id="track-record-confirm-error" class="error" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="submit">저장</button>
+          <button type="button" id="track-record-confirm-cancel" class="secondary">취소</button>
+        </div>
+      </form>
+    </div>
+  `));
+
+  const form = document.getElementById('track-record-confirm-form');
+  const errorBox = document.getElementById('track-record-confirm-error');
+  document.getElementById('track-record-confirm-cancel').addEventListener('click', () => { formSlot.innerHTML = ''; });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    const payload = {
+      projectName: fd.get('projectName'),
+      clientName: fd.get('clientName') || null,
+      contractDate: fd.get('contractDate') || null,
+      periodStart: fd.get('periodStart') || null,
+      periodEnd: fd.get('periodEnd') || null,
+      contractAmount: fd.get('contractAmount') || null,
+      projectType: fd.get('projectType') || null,
+      industryField: fd.get('industryField') || null,
+      region: fd.get('region') || null,
+      isJointVenture: fd.get('isJointVenture') || null,
+      shareRatio: fd.get('shareRatio') || null,
+      scope: fd.get('scope') || null,
+      coreTechnology: fd.get('coreTechnology') || null,
+      isCompleted: fd.get('isCompleted') || null,
+      sourceDocumentId: documentId || null,
+    };
+    try {
+      await apiRequest('POST', '/api/me/track-records', payload);
+      formSlot.innerHTML = '';
+      onSaved();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+// ---------- 인력정보 ----------
+// 개인정보 최소화: 이름/연락처는 목록/폼 어디에도 없다 — 매칭에 필요한
+// 직무/기술분야/경력/등급/자격까지만 다룬다.
+function personnelCardHtml(item) {
+  const parts = [];
+  if (item.techField) parts.push(escapeHtml(item.techField));
+  if (item.careerYears != null) parts.push('경력 ' + item.careerYears + '년');
+  if (item.techGrade) parts.push(escapeHtml(item.techGrade));
+  if (item.qualifications && item.qualifications.length) parts.push(item.qualifications.map(escapeHtml).join(', '));
+  return `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(item.role || '직무 미상')}</div>
+        <div class="license-card-meta">${parts.join(' · ')}</div>
+      </div>
+      <div class="license-card-side">${confidenceBadgeHtml(item.confidence)}</div>
+    </div>
+  `;
+}
+
+async function renderPersonnelTab(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/me/personnel');
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <p class="license-card-meta">보유 기술인력을 등록합니다(개인식별정보는 저장하지 않습니다). 기술인력현황표를 업로드하면 AI가 자동으로 정보를 읽어드립니다.</p>
+    <div class="license-toolbar">
+      <button type="button" id="personnel-upload-btn">증빙서류 업로드(기술인력현황표)</button>
+      <button type="button" id="personnel-manual-btn" class="secondary">직접 입력</button>
+    </div>
+    <input type="file" id="personnel-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+    <div id="personnel-form-slot"></div>
+    <div class="license-list" id="personnel-list"></div>
+  `));
+
+  renderLicenseListInto(document.getElementById('personnel-list'), data.items, '아직 등록한 인력정보가 없습니다.', personnelCardHtml);
+
+  const formSlot = document.getElementById('personnel-form-slot');
+  const fileInput = document.getElementById('personnel-file-input');
+  document.getElementById('personnel-upload-btn').addEventListener('click', () => fileInput.click());
+  document.getElementById('personnel-manual-btn').addEventListener('click', () => {
+    renderPersonnelForm(formSlot, null, null, () => renderPersonnelTab(container));
+  });
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    formSlot.innerHTML = '';
+    formSlot.appendChild(h('<div class="loading">문서를 분석하는 중...</div>'));
+    let uploadData;
+    try {
+      uploadData = await uploadCompanyRecordDocument('/api/me/personnel/documents', file);
+    } catch (err) {
+      formSlot.innerHTML = '';
+      formSlot.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+      return;
+    }
+    formSlot.innerHTML = '';
+    renderPersonnelForm(formSlot, uploadData.candidate, uploadData.documentId, () => renderPersonnelTab(container));
+  });
+}
+
+function renderPersonnelForm(formSlot, candidate, documentId, onSaved) {
+  const c = candidate || {};
+  formSlot.innerHTML = '';
+  formSlot.appendChild(h(`
+    <div class="license-confirm-form">
+      <h4>${documentId ? 'AI가 읽은 내용을 확인해주세요(이름·연락처는 저장하지 않습니다)' : '직접 입력'}</h4>
+      <form id="personnel-confirm-form" class="profile-form">
+        <label>직무<input type="text" name="role" value="${escapeAttr(c.role || '')}"></label>
+        <label>기술분야<input type="text" name="techField" value="${escapeAttr(c.techField || '')}"></label>
+        <label>경력연수<input type="text" name="careerYears" value="${escapeAttr(c.careerYears || '')}"></label>
+        <label>기술등급<input type="text" name="techGrade" value="${escapeAttr(c.techGrade || '')}"></label>
+        <label>보유자격 (쉼표로 구분)<input type="text" name="qualifications" value="${escapeAttr(c.qualifications || '')}"></label>
+        <label>최근수행실적<input type="text" name="recentProject" value="${escapeAttr(c.recentProject || '')}"></label>
+        <label>투입가능일<input type="date" name="availableFrom" value="${escapeAttr(c.availableFrom || '')}"></label>
+        <div id="personnel-confirm-error" class="error" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="submit">저장</button>
+          <button type="button" id="personnel-confirm-cancel" class="secondary">취소</button>
+        </div>
+      </form>
+    </div>
+  `));
+
+  const form = document.getElementById('personnel-confirm-form');
+  const errorBox = document.getElementById('personnel-confirm-error');
+  document.getElementById('personnel-confirm-cancel').addEventListener('click', () => { formSlot.innerHTML = ''; });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    const toList = (v) => (v || '').split(',').map(s => s.trim()).filter(Boolean);
+    const payload = {
+      role: fd.get('role') || null,
+      techField: fd.get('techField') || null,
+      careerYears: fd.get('careerYears') || null,
+      techGrade: fd.get('techGrade') || null,
+      qualifications: toList(fd.get('qualifications')),
+      recentProject: fd.get('recentProject') || null,
+      availableFrom: fd.get('availableFrom') || null,
+      sourceDocumentId: documentId || null,
+    };
+    try {
+      await apiRequest('POST', '/api/me/personnel', payload);
+      formSlot.innerHTML = '';
+      onSaved();
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -2120,13 +2585,13 @@ async function renderLicenses(container) {
   });
 }
 
-function renderLicenseListInto(listEl, items, emptyMessage) {
+function renderLicenseListInto(listEl, items, emptyMessage, cardHtmlFn) {
   listEl.innerHTML = '';
   if (!items.length) {
     listEl.appendChild(h(`<p class="empty">${escapeHtml(emptyMessage)}</p>`));
     return;
   }
-  listEl.appendChild(h(items.map(licenseCardHtml).join('')));
+  listEl.appendChild(h(items.map(cardHtmlFn || licenseCardHtml).join('')));
 }
 
 // renderLicenseConfirmForm shows the AI candidate (or a blank form for

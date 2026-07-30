@@ -56,73 +56,8 @@ type licenseCandidate struct {
 }
 
 func (s *Server) handleUploadCompanyDocument(w http.ResponseWriter, r *http.Request) {
-	userID, ok := s.currentUserID(r)
+	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r)
 	if !ok {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-		return
-	}
-	profile, err := s.getCompanyProfile(r, userID)
-	if err != nil {
-		s.logger.Error("upload-document: profile lookup failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
-	}
-	if profile == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
-		return
-	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, maxCompanyDocumentBytes+(1<<20)) // 멀티파트 오버헤드 여유 1MB
-	if err := r.ParseMultipartForm(maxCompanyDocumentBytes); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_too_large_or_invalid"})
-		return
-	}
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_required"})
-		return
-	}
-	defer file.Close()
-
-	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(header.Filename), "."))
-	mediaType, isAllowedType := allowedCompanyDocumentTypes[ext]
-	if !isAllowedType {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported_file_type"})
-		return
-	}
-
-	body, err := io.ReadAll(file)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_read_failed"})
-		return
-	}
-	if len(body) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_empty"})
-		return
-	}
-	if len(body) > maxCompanyDocumentBytes {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_too_large"})
-		return
-	}
-
-	sum := sha256.Sum256(body)
-	hash := hex.EncodeToString(sum[:])
-	storedKey := hash + "." + ext
-	if err := s.writeCompanyDocumentFile(storedKey, body); err != nil {
-		s.logger.Error("upload-document: write to disk failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "storage_failed"})
-		return
-	}
-
-	var documentID string
-	err = s.db.QueryRowContext(r.Context(), `
-		INSERT INTO company_documents (company_profile_id, original_filename, stored_filename, file_type, file_size_bytes, file_hash)
-		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		profile.ID, header.Filename, storedKey, ext, int64(len(body)), hash,
-	).Scan(&documentID)
-	if err != nil {
-		s.logger.Error("upload-document: insert failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
 
@@ -137,6 +72,89 @@ func (s *Server) handleUploadCompanyDocument(w http.ResponseWriter, r *http.Requ
 		"documentId": documentID,
 		"candidate":  candidate,
 	})
+}
+
+// receiveCompanyDocument handles the part of "증빙서류 업로드" that's
+// identical across every category (license/certification/financial/
+// track-record/personnel): auth, company-profile check, multipart parsing,
+// file-type/size validation, hash-based disk storage, and the
+// company_documents row insert. Each category's upload handler calls this
+// first, then runs its own AI extraction with its own tool schema.
+//
+// On failure this already writes the JSON error response and returns
+// ok=false — callers should just `if !ok { return }`.
+func (s *Server) receiveCompanyDocument(w http.ResponseWriter, r *http.Request) (profile *companyProfileDTO, documentID string, body []byte, ext string, mediaType string, ok bool) {
+	userID, authed := s.currentUserID(r)
+	if !authed {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return nil, "", nil, "", "", false
+	}
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("upload-document: profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return nil, "", nil, "", "", false
+	}
+	if profile == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
+		return nil, "", nil, "", "", false
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxCompanyDocumentBytes+(1<<20)) // 멀티파트 오버헤드 여유 1MB
+	if err := r.ParseMultipartForm(maxCompanyDocumentBytes); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_too_large_or_invalid"})
+		return nil, "", nil, "", "", false
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_required"})
+		return nil, "", nil, "", "", false
+	}
+	defer file.Close()
+
+	ext = strings.ToLower(strings.TrimPrefix(filepath.Ext(header.Filename), "."))
+	var isAllowedType bool
+	mediaType, isAllowedType = allowedCompanyDocumentTypes[ext]
+	if !isAllowedType {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported_file_type"})
+		return nil, "", nil, "", "", false
+	}
+
+	body, err = io.ReadAll(file)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_read_failed"})
+		return nil, "", nil, "", "", false
+	}
+	if len(body) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_empty"})
+		return nil, "", nil, "", "", false
+	}
+	if len(body) > maxCompanyDocumentBytes {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_too_large"})
+		return nil, "", nil, "", "", false
+	}
+
+	sum := sha256.Sum256(body)
+	hash := hex.EncodeToString(sum[:])
+	storedKey := hash + "." + ext
+	if err := s.writeCompanyDocumentFile(storedKey, body); err != nil {
+		s.logger.Error("upload-document: write to disk failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "storage_failed"})
+		return nil, "", nil, "", "", false
+	}
+
+	err = s.db.QueryRowContext(r.Context(), `
+		INSERT INTO company_documents (company_profile_id, original_filename, stored_filename, file_type, file_size_bytes, file_hash)
+		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+		profile.ID, header.Filename, storedKey, ext, int64(len(body)), hash,
+	).Scan(&documentID)
+	if err != nil {
+		s.logger.Error("upload-document: insert failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return nil, "", nil, "", "", false
+	}
+
+	return profile, documentID, body, ext, mediaType, true
 }
 
 // writeCompanyDocumentFile writes body under attachmentDir/company-documents/storedKey,

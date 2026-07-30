@@ -63,7 +63,87 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureCompanyLicenseTables(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_documents/licenses/certifications tables: %w", err)
 	}
+	if err := ensureCompanyFinancialTables(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_financials/track_records/personnel tables: %w", err)
+	}
 	return nil
+}
+
+// ensureCompanyFinancialTables adds company_financials/company_track_records/
+// company_personnel for any DB created before this migration existed — same
+// CREATE TABLE IF NOT EXISTS pattern as ensureCompanyLicenseTables. These
+// tables have no status column (unlike company_licenses/certifications) —
+// there's no "보유/미보유" concept for a financial figure or a track record,
+// just a value that's known or NULL.
+func ensureCompanyFinancialTables(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS company_financials (
+			id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+			fiscal_year         INTEGER NOT NULL,
+			revenue             BIGINT,
+			operating_profit    BIGINT,
+			net_income          BIGINT,
+			capital             BIGINT,
+			total_assets        BIGINT,
+			total_liabilities   BIGINT,
+			debt_ratio          NUMERIC(6,2),
+			current_ratio       NUMERIC(6,2),
+			credit_rating       TEXT,
+			tax_delinquent      BOOLEAN,
+			capital_impairment  BOOLEAN,
+			source_document_id  UUID REFERENCES company_documents(id),
+			confidence          TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+			verified_at         TIMESTAMPTZ,
+			created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (company_profile_id, fiscal_year)
+		);
+
+		CREATE TABLE IF NOT EXISTS company_track_records (
+			id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+			project_name        TEXT NOT NULL,
+			client_name         TEXT,
+			contract_date       DATE,
+			period_start        DATE,
+			period_end          DATE,
+			contract_amount     BIGINT,
+			project_type        TEXT,
+			industry_field      TEXT,
+			region              TEXT,
+			is_joint_venture    BOOLEAN,
+			share_ratio         NUMERIC(5,2),
+			scope               TEXT,
+			core_technology     TEXT,
+			is_completed        BOOLEAN,
+			source_document_id  UUID REFERENCES company_documents(id),
+			confidence          TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+			verified_at         TIMESTAMPTZ,
+			created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_company_track_records_profile ON company_track_records(company_profile_id);
+
+		CREATE TABLE IF NOT EXISTS company_personnel (
+			id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+			role                TEXT,
+			tech_field          TEXT,
+			career_years        NUMERIC(4,1),
+			tech_grade          TEXT,
+			qualifications      TEXT[],
+			recent_project      TEXT,
+			available_from      DATE,
+			source_document_id  UUID REFERENCES company_documents(id),
+			confidence          TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+			verified_at         TIMESTAMPTZ,
+			created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_company_personnel_profile ON company_personnel(company_profile_id);
+	`)
+	return err
 }
 
 // ensureCompanyLicenseTables adds company_documents/company_licenses/

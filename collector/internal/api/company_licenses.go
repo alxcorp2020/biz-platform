@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -225,4 +226,53 @@ func parseOptionalDate(s *string) (*time.Time, error) {
 		return nil, err
 	}
 	return &t, nil
+}
+
+// parseOptionalInt64/parseOptionalFloat64/parseTriStateBool are shared by
+// company_financials.go/company_track_records.go/company_personnel.go for
+// parsing AI-extracted candidate fields (always plain strings — same
+// sanitize-then-parse approach as license candidates' date fields) and
+// user-submitted form values alike. An empty string means "정보 없음",
+// not zero/false — callers must not coerce a missing value into 0/false.
+func parseOptionalInt64(s string) (*int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseInt(strings.ReplaceAll(s, ",", ""), 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func parseOptionalFloat64(s string) (*float64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseFloat(strings.ReplaceAll(s, ",", ""), 64)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// parseTriStateBool maps the AI/manual-entry tri-state string ("예"/
+// "아니오"/"확인불가" or empty) to a nullable bool — nil means "확인 안
+// 됨", never silently false. Any other value is an error (caller should
+// discard/blank the field rather than guess).
+func parseTriStateBool(s string) (*bool, error) {
+	switch strings.TrimSpace(s) {
+	case "", "확인불가":
+		return nil, nil
+	case "예":
+		v := true
+		return &v, nil
+	case "아니오":
+		v := false
+		return &v, nil
+	default:
+		return nil, fmt.Errorf("invalid tri-state value: %q", s)
+	}
 }

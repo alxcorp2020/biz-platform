@@ -376,6 +376,84 @@ CREATE TABLE company_certifications (
 CREATE INDEX idx_company_certifications_profile ON company_certifications(company_profile_id);
 
 -- ------------------------------------------------------------
+-- 재무정보 / 수행실적 / 인력정보 — company_licenses/certifications와
+-- 같은 패턴(출처+신뢰도 A~D+증빙연결). 이 3개 테이블엔 면허/인증의
+-- status(보유/미보유/확인되지않음) 개념이 없다 — "보유 여부"가 아니라
+-- "값 자체"가 있거나 없는 데이터라서, 없는 값은 그냥 NULL이다.
+-- 불리언성 필드(tax_delinquent 등)도 NULL=확인 안 됨을 구분하기 위해
+-- nullable로 둔다(NOT NULL DEFAULT false로 두면 "확인 안 됨"이 "아니오"로
+-- 둔갑함 — 같은 이유로 면허 status를 tri-state로 만든 원칙과 동일).
+-- ------------------------------------------------------------
+CREATE TABLE company_financials (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+    fiscal_year         INTEGER NOT NULL,
+    revenue             BIGINT,
+    operating_profit    BIGINT,
+    net_income          BIGINT,
+    capital             BIGINT,
+    total_assets        BIGINT,
+    total_liabilities   BIGINT,
+    debt_ratio          NUMERIC(6,2),
+    current_ratio       NUMERIC(6,2),
+    credit_rating       TEXT,
+    tax_delinquent      BOOLEAN,
+    capital_impairment  BOOLEAN,
+    source_document_id  UUID REFERENCES company_documents(id),
+    confidence          TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+    verified_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (company_profile_id, fiscal_year)
+);
+
+CREATE TABLE company_track_records (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+    project_name        TEXT NOT NULL,
+    client_name         TEXT,
+    contract_date       DATE,
+    period_start        DATE,
+    period_end          DATE,
+    contract_amount     BIGINT,
+    project_type        TEXT,
+    industry_field      TEXT,
+    region              TEXT,
+    is_joint_venture    BOOLEAN,
+    share_ratio         NUMERIC(5,2),
+    scope               TEXT,
+    core_technology     TEXT,
+    is_completed        BOOLEAN,
+    source_document_id  UUID REFERENCES company_documents(id),
+    confidence          TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+    verified_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_company_track_records_profile ON company_track_records(company_profile_id);
+
+-- 개인정보 최소화: 이름/연락처 등 개인식별정보 컬럼을 두지 않는다 —
+-- 증빙서류(기술인력현황표 등)에 이름이 있어도 AI 추출 프롬프트에서
+-- 명시적으로 제외하고 매칭에 필요한 수준(직무/기술분야/경력/등급)까지만 저장한다.
+CREATE TABLE company_personnel (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+    role                TEXT,
+    tech_field          TEXT,
+    career_years        NUMERIC(4,1),
+    tech_grade          TEXT,
+    qualifications      TEXT[],
+    recent_project      TEXT,
+    available_from      DATE,
+    source_document_id  UUID REFERENCES company_documents(id),
+    confidence          TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+    verified_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_company_personnel_profile ON company_personnel(company_profile_id);
+
+-- ------------------------------------------------------------
 -- 관심공고(북마크) — 로그인 사용자가 공고를 찜해두고 마이페이지에서
 -- 모아본다. 기업 프로필과 무관하게 user_id에만 연결된다.
 -- ------------------------------------------------------------
