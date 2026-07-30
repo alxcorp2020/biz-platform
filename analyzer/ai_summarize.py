@@ -18,6 +18,7 @@ eligibility_conditions/required_documents)로 좁히고, 프롬프트로 "주어
     venv/bin/python ai_summarize.py --estimate            # 비용 추정만 (API 호출 없음)
     venv/bin/python ai_summarize.py --limit 10             # 소규모 테스트 실행
     venv/bin/python ai_summarize.py --all --confirm-full-run   # 전체 미요약 공고 처리 (승인 필요)
+    venv/bin/python ai_summarize.py --audit                # 이미 저장된 요약 grounding 재검사 (읽기 전용, 비용 없음)
 
 환경변수:
     DATABASE_URL, ANTHROPIC_API_KEY
@@ -74,6 +75,7 @@ PROMPT_TEMPLATE = (
     "핵심 3줄로 요약하세요.\n\n"
     "중요한 규칙:\n"
     "- 아래 정보에 없는 내용이나 구체적인 수치를 절대 만들어내지 마세요.\n"
+    "- 발주기관명을 언급할 때는 아래 정보의 발주기관 표기와 정확히 동일하게 쓰세요.\n"
     "- 정보가 부족한 항목은 억지로 채우지 말고, 그 사실을 짧게 언급하거나 생략하세요.\n"
     "- 각 줄은 80자 이내로 간결하게 작성하세요.\n\n"
     "공고 정보:\n---\n{context}\n---"
@@ -102,6 +104,37 @@ def fetch_summary_targets(cur, limit=None):
             "id": r[0], "title": r[1], "organization_name": r[2], "region": r[3],
             "industry": r[4], "budget_amount": r[5], "application_end_at": r[6],
             "condition_names": r[7], "document_names": r[8],
+        }
+        for r in cur.fetchall()
+    ]
+
+
+def fetch_summarized_rows(cur):
+    """이미 요약이 저장된 행을 전부 가져온다(--audit 전용). 대상 필드는
+    fetch_summary_targets와 동일하되 ai_summary_lines를 함께 가져와 재검증에
+    쓴다. condition_names/document_names는 "지금 시점" 값이라, 요약 생성
+    이후 조건이 반려(review_status='rejected')되는 등 변경됐다면 원래
+    지어낸 게 아니었어도 재검사에서 걸릴 수 있다 — 감사 결과 보고 시 이 점을
+    함께 밝힌다."""
+    cur.execute("""
+        SELECT nv.id,
+               n.title, n.organization_name, n.region, n.industry, n.budget_amount, n.application_end_at,
+               COALESCE(array_agg(DISTINCT ec.condition_name) FILTER (WHERE ec.condition_name IS NOT NULL), '{}') AS condition_names,
+               COALESCE(array_agg(DISTINCT rd.document_name) FILTER (WHERE rd.document_name IS NOT NULL), '{}') AS document_names,
+               nv.ai_summary_lines
+        FROM notice_versions nv
+        JOIN notices n ON n.id = nv.notice_id
+        LEFT JOIN eligibility_conditions ec ON ec.notice_version_id = nv.id AND ec.review_status != 'rejected'
+        LEFT JOIN required_documents rd ON rd.notice_version_id = nv.id AND rd.review_status != 'rejected'
+        WHERE nv.ai_summary_lines IS NOT NULL
+        GROUP BY nv.id, n.title, n.organization_name, n.region, n.industry, n.budget_amount, n.application_end_at, nv.ai_summary_lines
+        ORDER BY nv.collected_at
+    """)
+    return [
+        {
+            "id": r[0], "title": r[1], "organization_name": r[2], "region": r[3],
+            "industry": r[4], "budget_amount": r[5], "application_end_at": r[6],
+            "condition_names": r[7], "document_names": r[8], "ai_summary_lines": r[9],
         }
         for r in cur.fetchall()
     ]
@@ -154,6 +187,149 @@ def call_claude(client, context):
         if block.type == "tool_use":
             lines = [block.input.get("line1"), block.input.get("line2"), block.input.get("line3")]
     return lines, response.usage
+
+
+# ---------- 원문 근거 검증(grounding) ----------
+# ai_extract.py는 quoted_text가 원문에 실제로 존재하는 문자열인지 검증하지만,
+# 요약은 patiphrase(자기 말로 요약)라 같은 방식의 "문자열이 그대로 있는가"
+# 검증을 쓸 수 없다 — 모델이 "150,000,000원"을 "1억 5천만원"으로, "2026-08-13"을
+# "2026년 8월 13일"로 자연스럽게 바꿔 쓰는 게 정상이기 때문이다(실제 운영
+# 데이터에서 흔히 관측됨). 그래서 표기가 아니라 "값"이 같은지로 검증한다:
+# 요약에 나온 숫자/날짜를 실제 값으로 환산해서, 모델에게 넘긴 입력(build_context
+# 결과)에 그 값이 존재하는지 대조한다. 하나라도 입력에 없는 값이면 그 항목
+# 자체를 지어낸 것으로 보고 버린다.
+
+# 콤마 구분 숫자("150,000,000") 또는 순수 자릿수("2026","13","30")를 찾는다.
+# 날짜는 extract_dates가 먼저 걷어가므로(연/월/일을 개별 숫자로 쪼개면 안 됨),
+# 이 정규식이 보는 시점엔 날짜 표현이 이미 마스킹되어 있다.
+_PLAIN_NUMBER_RE = re.compile(r"\d[\d,]*\d|\d")
+
+# 한글 단위 복합 숫자("1억5천만", "5천만원", "3천만" 등). 단위 문자열 순서는
+# 정규식 대체(alternation) 매칭이 항상 가장 긴 단위부터 시도하도록
+# "천만/백만/십만"을 "천/만"보다 먼저 둔다.
+_HANGUL_UNITS = [
+    ("조", 10**12),
+    ("억", 10**8),
+    ("천만", 10**7),
+    ("백만", 10**6),
+    ("십만", 10**5),
+    ("만", 10**4),
+    ("천", 10**3),
+    ("백", 10**2),
+    ("십", 10**1),
+]
+_UNIT_VALUE = dict(_HANGUL_UNITS)
+_UNIT_ALT = "|".join(re.escape(u) for u, _ in _HANGUL_UNITS)
+# 단위 앞 숫자에 콤마가 낄 수 있다("21억 5,790만원") — \d+만 쓰면 콤마에서
+# 매칭이 끊겨 "5," 대신 "790"만 읽히는 버그가 있었다(실제 감사에서 정상
+# 요약이 오탐으로 폐기되는 사례로 발견됨). \d[\d,]*\d|\d로 콤마 포함 숫자를
+# 통째로 잡고, 값 변환 시 콤마를 제거한다.
+#
+# 단위 뒤에 오는 문자도 제한한다: "2026 천안중앙고"의 "천안"처럼 지명이
+# 단위 글자로 시작하는 경우 "천"을 단위 千으로 잘못 인식해 2026을
+# 2026000으로 둔갑시키는 버그가 실제 감사에서 발견됐다(제목에 흔한
+# 패턴 — 천안/백석/만수 등). 단위 뒤에 "원"이 오거나, 한글이 아닌 문자
+# (공백/숫자/문장부호)가 오거나, 문자열이 끝나는 경우만 진짜 단위로
+# 인정한다 — 그 외(단위 뒤 다른 한글 음절이 바로 이어짐)는 단어의 일부로
+# 보고 매칭하지 않는다.
+_HANGUL_TOKEN_RE = re.compile(rf"(\d[\d,]*\d|\d)\s*({_UNIT_ALT})(?=$|원|[^가-힣])")
+
+_ISO_DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+# 연도 생략("8월 13일")도 허용 — 원문에 이미 연도가 있으니 요약이 생략한
+# 것뿐이지 지어낸 게 아니다. dates_grounded에서 이 경우 (월,일)만 대조한다.
+_KOREAN_DATE_RE = re.compile(r"(?:(\d{4})년\s*)?(\d{1,2})월\s*(\d{1,2})일")
+
+
+def extract_dates(text):
+    """텍스트에서 날짜를 찾아 (연도 또는 None, 월, 일) 튜플 집합으로 반환."""
+    dates = set()
+    for m in _ISO_DATE_RE.finditer(text):
+        dates.add((int(m.group(1)), int(m.group(2)), int(m.group(3))))
+    for m in _KOREAN_DATE_RE.finditer(text):
+        year = int(m.group(1)) if m.group(1) else None
+        dates.add((year, int(m.group(2)), int(m.group(3))))
+    return dates
+
+
+def _mask_dates(text):
+    """숫자 추출 전에 날짜 표현을 지운다 — 안 지우면 연/월/일이 무관한
+    개별 숫자로 잘못 집계된다."""
+    text = _ISO_DATE_RE.sub(" ", text)
+    text = _KOREAN_DATE_RE.sub(" ", text)
+    return text
+
+
+def _parse_hangul_compound(text):
+    """text에서 한글 단위 복합 숫자를 찾아 (환산값 리스트, 소비한 구간 리스트)를
+    반환한다. 인접한 (숫자+단위) 토큰들("1억" 다음에 공백만 두고 오는 "5천만"
+    등)은 하나의 복합 숫자로 합산한다 — 그래야 "1억5천만"이 150000000으로
+    올바르게 계산된다."""
+    matches = list(_HANGUL_TOKEN_RE.finditer(text))
+    values, spans = [], []
+    i = 0
+    while i < len(matches):
+        start, end = matches[i].span()
+        total = int(matches[i].group(1).replace(",", "")) * _UNIT_VALUE[matches[i].group(2)]
+        j = i + 1
+        while j < len(matches) and text[end:matches[j].start()].strip() == "":
+            end = matches[j].end()
+            total += int(matches[j].group(1).replace(",", "")) * _UNIT_VALUE[matches[j].group(2)]
+            j += 1
+        values.append(total)
+        spans.append((start, end))
+        i = j
+    return values, spans
+
+
+def extract_numbers(text):
+    """텍스트에서 숫자를 추출해 정수 값 집합으로 반환한다(한글 단위 표현은
+    실제 값으로 환산, 콤마 구분 숫자는 콤마 제거). 날짜는 여기서 다루지
+    않는다(extract_dates 참고) — 마스킹만 하고 넘어간다."""
+    text = _mask_dates(text)
+    hangul_values, spans = _parse_hangul_compound(text)
+    numbers = set(hangul_values)
+
+    masked = list(text)
+    for s, e in spans:
+        for k in range(s, e):
+            masked[k] = " "
+    remainder = "".join(masked)
+    for m in _PLAIN_NUMBER_RE.finditer(remainder):
+        cleaned = m.group(0).replace(",", "")
+        if cleaned:
+            numbers.add(int(cleaned))
+    return numbers
+
+
+def dates_grounded(summary_dates, context_dates):
+    """요약에 나온 날짜가 전부 원문 날짜 중 하나와 일치하는지 확인. 연도를
+    생략한 요약 날짜는 원문의 (월,일) 조합 중 하나와만 맞으면 통과시킨다."""
+    context_full = {(y, m, d) for (y, m, d) in context_dates if y is not None}
+    context_md = {(m, d) for (_, m, d) in context_dates}
+    for (y, m, d) in summary_dates:
+        if y is None:
+            if (m, d) not in context_md:
+                return False
+        elif (y, m, d) not in context_full:
+            return False
+    return True
+
+
+def numbers_grounded(summary_numbers, context_numbers):
+    return summary_numbers.issubset(context_numbers)
+
+
+def check_grounding(cleaned_lines, context):
+    """요약 3줄에서 나온 숫자/날짜가 전부 모델에게 넘긴 입력(context)에 실제로
+    존재하는 값인지 확인한다. 값 기준 비교라 "150,000,000원"->"1억 5천만원",
+    "2026-08-13"->"2026년 8월 13일" 같은 정상적인 재표기는 통과하고, 원문에
+    없는 값을 새로 지어낸 경우만 걸러낸다."""
+    summary_text = " ".join(cleaned_lines)
+    if not numbers_grounded(extract_numbers(summary_text), extract_numbers(context)):
+        return False
+    if not dates_grounded(extract_dates(summary_text), extract_dates(context)):
+        return False
+    return True
 
 
 # 실제 운영 실행 중 발견된 사례: 모델이 '<...', '</antml>', '</anT>' 같은
@@ -216,11 +392,42 @@ def estimate_mode(client, cur):
     )
 
 
+# --audit는 이미 저장된 요약을 새 grounding 검증(check_grounding)으로
+# 다시 훑어보는 읽기 전용 모드다 — Claude를 다시 호출하지 않으니(순수 DB
+# 조회 + 정규식 대조) 비용이 전혀 들지 않는다. 실패 목록만 보여주고 DB는
+# 건드리지 않는다 — 지우거나 되돌리는 건 결과를 보고 사용자가 정한다.
+def audit_mode(cur):
+    rows = fetch_summarized_rows(cur)
+    logger.info("재검사 대상(이미 요약 저장됨): %d건", len(rows))
+
+    failures = []
+    for row in rows:
+        context = build_context(row)
+        lines = list(row["ai_summary_lines"] or [])
+        if not check_grounding(lines, context):
+            failures.append((row, lines))
+
+    logger.info("재검사 결과: %d건 중 %d건이 grounding 검증 실패", len(rows), len(failures))
+    if not failures:
+        return
+
+    logger.info("--- 검증 실패 목록 (DB는 변경하지 않음) ---")
+    for row, lines in failures:
+        logger.info(
+            "[%s] %s\n  요약: %s\n  입력에 없는 숫자: %s / 입력에 없는 날짜: %s",
+            row["id"], row["title"], " / ".join(lines),
+            sorted(extract_numbers(" ".join(lines)) - extract_numbers(build_context(row))),
+            sorted(extract_dates(" ".join(lines)) - extract_dates(build_context(row))),
+        )
+
+
 def run_mode(client, conn, cur, limit):
     rows = fetch_summary_targets(cur, limit=limit)
     logger.info("처리 대상: %d건", len(rows))
 
-    total_saved, total_discarded = 0, 0
+    total_saved = 0
+    total_discarded_format = 0
+    total_discarded_grounding = 0
     total_input_tokens, total_output_tokens = 0, 0
 
     for row in rows:
@@ -231,8 +438,13 @@ def run_mode(client, conn, cur, limit):
 
         validated = validate_lines(lines)
         if validated is None:
-            total_discarded += 1
+            total_discarded_format += 1
             logger.info("[%s] 형식 오류 또는 비정상 패턴(태그 조각 등)이 섞여 버림: %r", row["id"], lines)
+            continue
+
+        if not check_grounding(validated, context):
+            total_discarded_grounding += 1
+            logger.info("[%s] 입력에 없는 숫자/날짜가 포함되어 버림: %r", row["id"], validated)
             continue
 
         save_summary(cur, row["id"], validated)
@@ -240,7 +452,10 @@ def run_mode(client, conn, cur, limit):
         total_saved += 1
         logger.info("[%s] 저장: %s", row["id"], " / ".join(validated))
 
-    logger.info("종료: 처리 %d건, 저장 %d건, 버림(형식 오류/비정상 패턴) %d건", len(rows), total_saved, total_discarded)
+    logger.info(
+        "종료: 처리 %d건, 저장 %d건, 버림(형식/비정상 패턴) %d건, 버림(원문에 없는 숫자·날짜) %d건",
+        len(rows), total_saved, total_discarded_format, total_discarded_grounding,
+    )
     logger.info("실측 토큰: 입력 %s, 출력 %s", f"{total_input_tokens:,}", f"{total_output_tokens:,}")
 
 
@@ -250,34 +465,42 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="처리할 최대 건수")
     parser.add_argument("--all", action="store_true", help="미요약 공고 전체 처리")
     parser.add_argument("--confirm-full-run", action="store_true", help="--all 실행에 필요한 명시적 승인 플래그")
+    parser.add_argument(
+        "--audit", action="store_true",
+        help="이미 저장된 요약을 새 grounding 검증으로 재검사(읽기 전용, API 호출/비용 없음, DB 변경 없음)",
+    )
     args = parser.parse_args()
 
     dsn = os.environ.get("DATABASE_URL")
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not dsn:
         logger.error("DATABASE_URL 환경변수가 설정되어 있지 않습니다")
-        raise SystemExit(1)
-    if not api_key:
-        logger.error("ANTHROPIC_API_KEY 환경변수가 설정되어 있지 않습니다")
         raise SystemExit(1)
     if args.all and not args.confirm_full_run:
         logger.error("--all은 --confirm-full-run과 함께 사용해야 합니다 (전체 실행은 사용자 승인 후에만)")
         raise SystemExit(1)
 
-    client = anthropic.Anthropic(api_key=api_key)
+    # --audit는 Claude를 호출하지 않으므로 ANTHROPIC_API_KEY가 필요 없다.
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not args.audit and not api_key:
+        logger.error("ANTHROPIC_API_KEY 환경변수가 설정되어 있지 않습니다")
+        raise SystemExit(1)
+
+    client = anthropic.Anthropic(api_key=api_key) if not args.audit else None
     conn = psycopg2.connect(dsn)
     conn.autocommit = False
 
     try:
         with conn.cursor() as cur:
-            if args.estimate:
+            if args.audit:
+                audit_mode(cur)
+            elif args.estimate:
                 estimate_mode(client, cur)
             elif args.all:
                 run_mode(client, conn, cur, limit=None)
             elif args.limit:
                 run_mode(client, conn, cur, limit=args.limit)
             else:
-                logger.error("--estimate, --limit N, --all --confirm-full-run 중 하나를 지정하세요")
+                logger.error("--estimate, --limit N, --all --confirm-full-run, --audit 중 하나를 지정하세요")
                 raise SystemExit(1)
     finally:
         conn.close()
