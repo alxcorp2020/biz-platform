@@ -1099,6 +1099,19 @@
   .profile-tab-btn:hover { color: var(--ink); }
   .profile-tab-btn.is-active { color: var(--navy); border-bottom-color: var(--navy); }
 
+  /* ---------- 프로필 요약(읽기 전용) + 수정 모달 ---------- */
+  .profile-summary-list { display: flex; flex-direction: column; gap: var(--space-sm); margin-bottom: var(--space-lg); }
+  .profile-summary-row {
+    display: flex; justify-content: space-between; gap: var(--space-md);
+    padding: 0.6rem 0; border-bottom: 1px solid var(--border);
+  }
+  .profile-summary-row:last-child { border-bottom: none; }
+  .profile-summary-label { font-size: var(--text-caption); color: var(--ink-soft); flex-shrink: 0; }
+  .profile-summary-value { font-size: var(--text-body); font-weight: 600; color: var(--ink); text-align: right; }
+  .wizard-step-indicator { display: flex; justify-content: center; margin-bottom: var(--space-lg); }
+  .wizard-nav { display: flex; gap: var(--space-sm); margin-top: var(--space-md); }
+  .wizard-nav #wizard-next, .wizard-nav #wizard-submit { margin-left: auto; }
+
   /* ---------- 프로필 완성도/신뢰도 요약 카드 ---------- */
   .profile-completeness-card { padding: 1.25rem 1.5rem; }
   .completeness-summary {
@@ -1773,20 +1786,26 @@ const CHECKLIST_STATUS_LIST = ['보유', '갱신필요', '신규작성', '발급
 const PIPELINE_MAIN_STEPS = ['검토전', '참여검토', '승인대기', '준비중', '제출완료'];
 const PIPELINE_TERMINAL_BADGE_TONE = { '낙찰': 'badge--success', '탈락': 'badge--danger', '보류': 'badge--warn', '제외': 'badge--gray' };
 
+// stepIndicatorHtml — 점+선 스텝 인디케이터 공용 헬퍼. 파이프라인 상태
+// 표시와 프로필 수정 모달의 단계 표시 양쪽에서 재사용한다.
+function stepIndicatorHtml(currentIdx, total, label) {
+  const dots = Array.from({ length: total }).map((_, i) => {
+    const dotCls = i < currentIdx ? 'is-done' : (i === currentIdx ? 'is-current' : '');
+    const lineCls = i < currentIdx ? 'is-done' : '';
+    const dot = `<span class="step-indicator-dot ${dotCls}"></span>`;
+    const line = i < total - 1 ? `<span class="step-indicator-line ${lineCls}"></span>` : '';
+    return dot + line;
+  }).join('');
+  return `<span class="step-indicator">${dots}<span class="step-indicator-label">${escapeHtml(label)}</span></span>`;
+}
+
 function pipelineStepIndicatorHtml(status) {
   const terminalTone = PIPELINE_TERMINAL_BADGE_TONE[status];
   if (terminalTone) {
     return `<span class="badge ${terminalTone}">${escapeHtml(status)}</span>`;
   }
   const idx = PIPELINE_MAIN_STEPS.indexOf(status);
-  const dots = PIPELINE_MAIN_STEPS.map((step, i) => {
-    const dotCls = i < idx ? 'is-done' : (i === idx ? 'is-current' : '');
-    const lineCls = i < idx ? 'is-done' : '';
-    const dot = `<span class="step-indicator-dot ${dotCls}"></span>`;
-    const line = i < PIPELINE_MAIN_STEPS.length - 1 ? `<span class="step-indicator-line ${lineCls}"></span>` : '';
-    return dot + line;
-  }).join('');
-  return `<span class="step-indicator">${dots}<span class="step-indicator-label">${escapeHtml(status)}</span></span>`;
+  return stepIndicatorHtml(idx, PIPELINE_MAIN_STEPS.length, status);
 }
 
 // renderDashboard — "오늘 할 일" 홈 화면. data는 handleDashboard(신규 응답
@@ -2892,38 +2911,7 @@ function renderProfileBasicTab(container) {
       </label>
       <span id="email-notifications-status" class="license-card-meta"></span>
     </div>
-    <div class="detail-card">
-      <form id="profile-form" class="profile-form">
-        <label>업태 (쉼표로 구분, 겸업 시 여러 개 등록 가능)<input type="text" name="businessType"></label>
-        <label>지역<input type="text" name="region"></label>
-        <div class="field-group">
-          <span class="field-group-label">업종 (겸업 시 여러 개 선택 가능 — 하나라도 일치하면 적합 판정)</span>
-          <div class="checkbox-grid">
-            ${INDUSTRY_GROUPS.map(g => `
-              <label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}"> ${escapeHtml(g)}</label>
-            `).join('')}
-          </div>
-        </div>
-        <label>업력(년)<input type="number" step="0.1" name="businessAgeYears"></label>
-        <label>매출액(원)<input type="number" name="revenueAmount"></label>
-        <label>직원 수<input type="number" name="employeeCount"></label>
-        <div class="field-verify-row">
-          <button type="button" id="employee-count-verify-btn" class="field-verify-btn">4대보험 가입자명부로 확인</button>
-          <span id="employee-count-confidence-badge"></span>
-        </div>
-        <input type="file" id="employee-count-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
-        <div id="employee-count-confirm-slot"></div>
-        <label>기업 규모<input type="text" name="companySize" placeholder="소기업/소상공인/중기업 등"></label>
-        <label>보유 면허 (쉼표로 구분)<input type="text" name="licenses"></label>
-        <label>보유 인증 (쉼표로 구분)<input type="text" name="certifications"></label>
-        <label class="checkbox-label"><input type="checkbox" name="directProductionCert"> ${glossaryHtml('직접생산확인', '직접생산확인증명 보유')}</label>
-        <label>최근 3년 최대 실적(원)<input type="number" name="maxPerformanceAmount"></label>
-        <label>신용등급<input type="text" name="creditRating"></label>
-        <div id="profile-error" class="error" style="display:none"></div>
-        <div id="profile-success" class="success" style="display:none"></div>
-        <button type="submit">저장</button>
-      </form>
-    </div>
+    <div id="profile-summary-section"></div>
   `));
 
   const notificationsToggle = document.getElementById('email-notifications-toggle');
@@ -2943,11 +2931,119 @@ function renderProfileBasicTab(container) {
     }
   });
 
+  renderProfileSummaryCard(document.getElementById('profile-summary-section'));
+}
+
+// renderProfileSummaryCard — 12개 필드를 한 화면에 몰아두던 기존 폼을
+// 읽기 전용 요약(제목:값 목록) + 강조 버튼 1개("정보 수정")로 바꾼다.
+// 실제 수정은 openProfileEditModal의 3단계 모달 폼에서 이뤄진다.
+function renderProfileSummaryCard(container) {
+  const p = currentProfile || {};
+  const fmtMoney = (v) => (v == null ? '-' : `${Number(v).toLocaleString()}원`);
+  const fmtList = (v) => ((v || []).length ? v.join(', ') : '-');
+  const rows = [
+    ['업태', fmtList(p.businessType)],
+    ['지역', p.region || '-'],
+    ['업종', fmtList(p.industry)],
+    ['업력', p.businessAgeYears != null ? `${p.businessAgeYears}년` : '-'],
+    ['기업 규모', p.companySize || '-'],
+    ['매출액', fmtMoney(p.revenueAmount)],
+    ['직원 수', p.employeeCount != null ? `${p.employeeCount}명` : '-'],
+    ['최근 3년 최대 실적', fmtMoney(p.maxPerformanceAmount)],
+    ['신용등급', p.creditRating || '-'],
+    ['보유 면허', fmtList(p.licenses)],
+    ['보유 인증', fmtList(p.certifications)],
+    ['직접생산확인', p.directProductionCert ? '보유' : '-'],
+  ];
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="detail-card">
+      <div class="profile-summary-list">
+        ${rows.map(([label, value]) => `
+          <div class="profile-summary-row">
+            <span class="profile-summary-label">${escapeHtml(label)}</span>
+            <span class="profile-summary-value">${escapeHtml(value)}</span>
+          </div>
+        `).join('')}
+      </div>
+      <button type="button" class="btn btn-primary btn-block" id="profile-edit-btn">정보 수정</button>
+    </div>
+  `));
+  document.getElementById('profile-edit-btn').addEventListener('click', () => openProfileEditModal(container));
+}
+
+// openProfileEditModal — 12개 필드를 3단계(기본정보/재무·실적/면허·인증)로
+// 쪼갠 모달 폼. 필드는 전부 같은 <form> 안에 있고 wizard-step으로 보이는
+// 것만 CSS로 바꾸므로(display:none), FormData는 어느 단계에 있든 항상
+// 전체 값을 담는다 — 기존 제출 로직을 그대로 재사용할 수 있는 이유.
+function openProfileEditModal(summaryContainer) {
+  const stepLabels = ['기본 정보', '재무·실적정보', '면허·인증'];
+  const bodyHtml = `
+    <div id="wizard-step-indicator" class="wizard-step-indicator"></div>
+    <form id="profile-form" class="profile-form">
+      <div class="wizard-step" data-step="0">
+        <label>업태 (쉼표로 구분, 겸업 시 여러 개 등록 가능)<input type="text" name="businessType"></label>
+        <label>지역<input type="text" name="region"></label>
+        <div class="field-group">
+          <span class="field-group-label">업종 (겸업 시 여러 개 선택 가능 — 하나라도 일치하면 적합 판정)</span>
+          <div class="checkbox-grid">
+            ${INDUSTRY_GROUPS.map(g => `
+              <label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}"> ${escapeHtml(g)}</label>
+            `).join('')}
+          </div>
+        </div>
+        <label>업력(년)<input type="number" step="0.1" name="businessAgeYears"></label>
+        <label>기업 규모<input type="text" name="companySize" placeholder="소기업/소상공인/중기업 등"></label>
+      </div>
+      <div class="wizard-step" data-step="1">
+        <label>매출액(원)<input type="number" name="revenueAmount"></label>
+        <label>직원 수<input type="number" name="employeeCount"></label>
+        <div class="field-verify-row">
+          <button type="button" id="employee-count-verify-btn" class="field-verify-btn">4대보험 가입자명부로 확인</button>
+          <span id="employee-count-confidence-badge"></span>
+        </div>
+        <input type="file" id="employee-count-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+        <div id="employee-count-confirm-slot"></div>
+        <label>최근 3년 최대 실적(원)<input type="number" name="maxPerformanceAmount"></label>
+        <label>신용등급<input type="text" name="creditRating"></label>
+      </div>
+      <div class="wizard-step" data-step="2">
+        <label>보유 면허 (쉼표로 구분)<input type="text" name="licenses"></label>
+        <label>보유 인증 (쉼표로 구분)<input type="text" name="certifications"></label>
+        <label class="checkbox-label"><input type="checkbox" name="directProductionCert"> ${glossaryHtml('직접생산확인', '직접생산확인증명 보유')}</label>
+        <div id="profile-error" class="error" style="display:none"></div>
+        <div id="profile-success" class="success" style="display:none"></div>
+      </div>
+      <div class="wizard-nav">
+        <button type="button" class="btn btn-secondary" id="wizard-prev">이전</button>
+        <button type="button" class="btn btn-primary" id="wizard-next">다음</button>
+        <button type="submit" class="btn btn-primary" id="wizard-submit" style="display:none">저장</button>
+      </div>
+    </form>
+  `;
+  openModal('기업 프로필 수정', bodyHtml);
+
   const form = document.getElementById('profile-form');
-  const errorBox = document.getElementById('profile-error');
-  const successBox = document.getElementById('profile-success');
   fillProfileForm(form, currentProfile);
   renderEmployeeCountBadge();
+
+  let wizardStep = 0;
+  const steps = Array.from(form.querySelectorAll('.wizard-step'));
+  const indicatorEl = document.getElementById('wizard-step-indicator');
+  const prevBtn = document.getElementById('wizard-prev');
+  const nextBtn = document.getElementById('wizard-next');
+  const submitBtn = document.getElementById('wizard-submit');
+
+  function updateWizardStep() {
+    steps.forEach((el, i) => { el.style.display = i === wizardStep ? '' : 'none'; });
+    indicatorEl.innerHTML = stepIndicatorHtml(wizardStep, steps.length, stepLabels[wizardStep]);
+    prevBtn.style.display = wizardStep === 0 ? 'none' : '';
+    nextBtn.style.display = wizardStep === steps.length - 1 ? 'none' : '';
+    submitBtn.style.display = wizardStep === steps.length - 1 ? '' : 'none';
+  }
+  prevBtn.addEventListener('click', () => { wizardStep -= 1; updateWizardStep(); });
+  nextBtn.addEventListener('click', () => { wizardStep += 1; updateWizardStep(); });
+  updateWizardStep();
 
   const employeeCountFileInput = document.getElementById('employee-count-file-input');
   const employeeCountConfirmSlot = document.getElementById('employee-count-confirm-slot');
@@ -2969,6 +3065,8 @@ function renderProfileBasicTab(container) {
     renderEmployeeCountConfirmForm(employeeCountConfirmSlot, uploadData.candidate, uploadData.documentId, form);
   });
 
+  const errorBox = document.getElementById('profile-error');
+  const successBox = document.getElementById('profile-success');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errorBox.style.display = 'none';
@@ -2993,8 +3091,8 @@ function renderProfileBasicTab(container) {
     try {
       const data = await apiRequest('PUT', '/api/me/company-profile', payload);
       currentProfile = data.companyProfile;
-      successBox.textContent = '저장되었습니다.';
-      successBox.style.display = 'block';
+      closeModal();
+      renderProfileSummaryCard(summaryContainer);
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
