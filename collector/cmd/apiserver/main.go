@@ -125,6 +125,13 @@ func startBackgroundNotifications(srv *api.Server, logger *slog.Logger) {
 		for {
 			wait := time.Until(notify.NextDailyRun(time.Now(), loc, dailyNotificationHour, dailyNotificationMinute))
 			time.Sleep(wait)
+			// 자동전환을 알림보다 먼저 실행 — 오늘 막 자동 제외된 건이
+			// 같은 배치에서 쓸모없는 마감 리마인더를 한 번 더 받지 않도록.
+			if deadlinePassed, noticeClosed, err := srv.RunPipelineAutoTransitions(ctx); err != nil {
+				logger.Error("pipeline auto-transition batch failed", "error", err)
+			} else if deadlinePassed > 0 || noticeClosed > 0 {
+				logger.Info("pipeline auto-transition batch completed", "deadlinePassed", deadlinePassed, "noticeClosed", noticeClosed)
+			}
 			srv.RunDailyNotifications(ctx)
 		}
 	}()

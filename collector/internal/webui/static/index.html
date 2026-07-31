@@ -1779,6 +1779,37 @@ const CHECKLIST_STATUS_LIST = ['보유', '갱신필요', '신규작성', '발급
 const PIPELINE_MAIN_STEPS = ['검토전', '참여검토', '승인대기', '준비중', '제출완료'];
 const PIPELINE_TERMINAL_BADGE_TONE = { '낙찰': 'badge--success', '탈락': 'badge--danger', '보류': 'badge--warn', '제외': 'badge--gray' };
 
+// 상태 단순화: select에 9개를 평평하게 늘어놓으면 매번 어디를 눌러야
+// 할지 고민해야 한다 — 현재 상태에서 실제로 갈 만한 "다음 단계"만 먼저
+// 보여주고, 나머지는 <optgroup>으로 접어 뒤에 둔다(값 자체는 그대로
+// 9개 다 선택 가능 — 잘못 바꾼 상태를 되돌리는 것까지 막지는 않는다).
+const PIPELINE_NEXT_STATUS_MAP = {
+  '검토전': ['참여검토', '보류', '제외'],
+  '참여검토': ['승인대기', '준비중', '보류', '제외'],
+  '승인대기': ['준비중', '보류', '제외'],
+  '준비중': ['제출완료', '보류', '제외'],
+  '제출완료': ['낙찰', '탈락'],
+  '보류': ['검토전', '참여검토', '준비중', '제외'],
+  '낙찰': [],
+  '탈락': [],
+  '제외': [],
+};
+
+function pipelineStatusSelectHtml(currentStatus) {
+  const nextOptions = (PIPELINE_NEXT_STATUS_MAP[currentStatus] || []).filter(s => s !== currentStatus);
+  const otherOptions = PIPELINE_STATUS_LIST.filter(s => s !== currentStatus && !nextOptions.includes(s));
+  const optionHtml = (s) => `<option value="${escapeAttr(s)}" ${s === currentStatus ? 'selected' : ''}>${escapeHtml(s)}</option>`;
+  const groups = [];
+  groups.push(`<optgroup label="현재 상태">${optionHtml(currentStatus)}</optgroup>`);
+  if (nextOptions.length) {
+    groups.push(`<optgroup label="다음 단계">${nextOptions.map(optionHtml).join('')}</optgroup>`);
+  }
+  if (otherOptions.length) {
+    groups.push(`<optgroup label="기타">${otherOptions.map(optionHtml).join('')}</optgroup>`);
+  }
+  return `<select name="status">${groups.join('')}</select>`;
+}
+
 // stepIndicatorHtml — 점+선 스텝 인디케이터 공용 헬퍼. 파이프라인 상태
 // 표시와 프로필 수정 모달의 단계 표시 양쪽에서 재사용한다.
 function stepIndicatorHtml(currentIdx, total, label) {
@@ -1968,11 +1999,7 @@ async function renderPipelineDetail(container, id) {
       <div class="pipeline-step-summary">${pipelineStepIndicatorHtml(entry.status)}</div>
       <a class="calendar-add-link" href="/api/pipeline/${escapeAttr(entry.id)}/calendar.ics" download>&#128197; 캘린더에 추가 (.ics)</a>
       <form id="pipeline-entry-form" class="profile-form">
-        <label>상태
-          <select name="status">
-            ${PIPELINE_STATUS_LIST.map(s => `<option value="${escapeAttr(s)}" ${s === entry.status ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
-          </select>
-        </label>
+        <label>상태${pipelineStatusSelectHtml(entry.status)}</label>
         <label>담당자<input type="text" name="assigneeName" value="${escapeAttr(entry.assigneeName || '')}" placeholder="담당자 이름"></label>
         <label>담당자 이메일<input type="email" name="assigneeEmail" value="${escapeAttr(entry.assigneeEmail || '')}" placeholder="상태 변경 시 이 주소로 알림이 발송됩니다"></label>
         <label>담당자 전화번호<input type="tel" name="assigneePhone" value="${escapeAttr(entry.assigneePhone || '')}" placeholder="상태 변경 시 이 번호로 SMS가 발송됩니다"></label>
