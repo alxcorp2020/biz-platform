@@ -45,6 +45,19 @@ var allowedCompanyDocumentTypes = map[string]string{
 	"png":  "image/png",
 }
 
+// companyDocumentContentMatchesType compares http.DetectContentType's result
+// against the media type the file extension claims. DetectContentType can
+// append parameters (e.g. "text/plain; charset=utf-8") for text-ish content,
+// so only the base type before ';' is compared — the binary signatures we
+// care about (PDF/JPEG/PNG) never carry parameters, but stripping defensively
+// costs nothing.
+func companyDocumentContentMatchesType(detectedType, expectedType string) bool {
+	if i := strings.Index(detectedType, ";"); i >= 0 {
+		detectedType = detectedType[:i]
+	}
+	return strings.TrimSpace(detectedType) == expectedType
+}
+
 type licenseCandidate struct {
 	DocumentType       string `json:"documentType"`
 	Name               string `json:"name"`
@@ -140,6 +153,16 @@ func (s *Server) receiveCompanyDocument(w http.ResponseWriter, r *http.Request) 
 	}
 	if len(body) > maxCompanyDocumentBytes {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_too_large"})
+		return nil, "", nil, "", "", false
+	}
+
+	// 확장자만 보고 통과시키면 파일명을 속여(예: 악성 실행파일에 .pdf를
+	// 붙이는 식으로) 검증을 우회할 수 있다 — 실제 내용의 매직바이트까지
+	// 확인해 확장자가 주장하는 타입과 일치하는지 대조한다. http.DetectContentType은
+	// 표준 라이브러리의 WHATWG MIME sniffing 구현이라 PDF(%PDF-)/JPEG(FF D8 FF)/
+	// PNG(89 50 4E 47 ...) 시그니처를 이미 인식하므로 별도 의존성이 필요 없다.
+	if detected := http.DetectContentType(body); !companyDocumentContentMatchesType(detected, mediaType) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_content_mismatch"})
 		return nil, "", nil, "", "", false
 	}
 
