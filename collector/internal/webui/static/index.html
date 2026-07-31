@@ -1555,12 +1555,12 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeAllGlossary();
 });
 
-// 실제 데이터가 오기 전 화면 형태만 미리 보여주는 스켈레톤. 개수는 고정
-// (실제 결과 건수를 알 수 없으므로) — 목록/상세/적합성 확인 모두 공용.
+// 실제 데이터가 오기 전 화면 형태만 미리 보여주는 스켈레톤(공고 목록
+// 전용 — row-card 모양에 맞춘 자리표시자).
 function skeletonListHtml(count) {
   const card = `
-    <div class="notice-card skeleton-row">
-      <div class="notice-card-main">
+    <div class="row-card skeleton-row">
+      <div class="row-card-main">
         <span class="skeleton-block skeleton-line skeleton-line--eyebrow"></span>
         <span class="skeleton-block skeleton-line skeleton-line--title"></span>
         <span class="skeleton-block skeleton-line skeleton-line--meta"></span>
@@ -2053,31 +2053,31 @@ function renderList(container) {
         listBody.textContent = '조건에 맞는 공고가 없습니다.';
         return;
       }
-      const rows = data.items.map(n => `
-        <div class="notice-card" data-id="${n.id}">
-          <div class="notice-card-main">
-            <div class="notice-org">${escapeHtml(n.organizationName || '-')}</div>
-            <div class="notice-title">${escapeHtml(n.title)}</div>
-            <div class="notice-meta">
-              <span>${escapeHtml(n.region || '-')}</span>
-              <span class="dot">·</span>
-              <span>${escapeHtml(n.industry || '-')}</span>
-              <span class="dot">·</span>
-              <span class="mono">${formatBudget(n.budgetAmount)}</span>
-              <span class="dot">·</span>
-              ${statusBadgeHtml(n.status)}
+      const rows = data.items.map(n => {
+        const dday = ddayInfo(n.applicationEndAt);
+        const valueClass = dday.cls.includes('danger') ? 'row-card-value--danger'
+          : (dday.label === '-' ? 'row-card-value--muted' : '');
+        return `
+        <div class="row-card notice-row" data-id="${n.id}">
+          <div class="row-card-main">
+            <div class="row-card-title">${escapeHtml(n.title)}</div>
+            <div class="row-card-subtitle">
+              ${escapeHtml(n.organizationName || '-')} · ${escapeHtml(n.region || '-')} · ${escapeHtml(n.industry || '-')} ·
+              <span class="mono">${formatBudget(n.budgetAmount)}</span> · ${statusBadgeHtml(n.status)}
             </div>
           </div>
-          <div class="notice-card-side">
+          <div class="row-card-side">
             ${bookmarkButtonHtml(n.id, n.isBookmarked)}
-            ${ddayBadgeHtml(n.applicationEndAt)}
+            <span class="row-card-value ${valueClass}">${escapeHtml(dday.label)}</span>
+            <span class="row-card-arrow">›</span>
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
       listBody.className = '';
       listBody.innerHTML = '';
       listBody.appendChild(h(`<div class="notice-list">${rows}</div>`));
-      listBody.querySelectorAll('.notice-card').forEach(row => {
+      listBody.querySelectorAll('.notice-row').forEach(row => {
         row.addEventListener('click', () => {
           location.hash = '#/notices/' + row.dataset.id;
         });
