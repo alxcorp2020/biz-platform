@@ -100,6 +100,15 @@ func (s *Server) receiveCompanyDocument(w http.ResponseWriter, r *http.Request) 
 		return nil, "", nil, "", "", false
 	}
 
+	if quotaOK, limit, err := s.checkAIAnalysisQuota(r.Context(), profile.ID); err != nil {
+		s.logger.Error("upload-document: AI quota check failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return nil, "", nil, "", "", false
+	} else if !quotaOK {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "ai_analysis_quota_exceeded", "limit": limit})
+		return nil, "", nil, "", "", false
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxCompanyDocumentBytes+(1<<20)) // 멀티파트 오버헤드 여유 1MB
 	if err := r.ParseMultipartForm(maxCompanyDocumentBytes); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_too_large_or_invalid"})

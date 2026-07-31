@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://js.tosspayments.com/v2"></script>
 <style>
   :root {
     --navy: #14213D;
@@ -977,6 +978,34 @@
   }
   .field-verify-btn:hover { background: var(--bg-soft); }
 
+  /* ---------- 요금제 / 결제 ---------- */
+  .plan-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.25rem;
+    margin: 1.5rem 0 2rem;
+  }
+  .plan-card {
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    gap: 0.5rem; padding: 1.75rem 1.5rem; border: 1px solid var(--border);
+    border-radius: 12px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .plan-card--current { border-color: var(--accent-blue); border-width: 2px; }
+  .plan-card-name { margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--navy); }
+  .plan-card-price { margin: 0; font-size: 1.4rem; font-weight: 700; color: var(--ink); }
+  .plan-card-features { list-style: none; margin: 0.5rem 0 1rem; padding: 0; font-size: 0.88rem; color: var(--ink-soft); }
+  .plan-card-features li { padding: 0.35rem 0; }
+  .plan-current-badge {
+    display: inline-block; padding: 0.35rem 0.9rem; border-radius: 999px;
+    background: rgba(46,90,172,0.10); color: var(--accent-blue); font-size: 0.85rem; font-weight: 700;
+  }
+  .plan-subscribe-btn {
+    padding: 0.65rem 1.4rem; border: 1px solid var(--navy); background: var(--navy);
+    color: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.9rem;
+  }
+  .plan-subscribe-btn:hover { background: var(--navy-deep); border-color: var(--navy-deep); }
+  #toss-payment-method, #toss-agreement { margin-top: 1.25rem; }
+
   /* ---------- 모바일 반응형 최소 대응 ----------
      그리드류(dash-tiles/checkbox-grid/detail-meta 등)는 이미
      auto-fit/auto-fill이라 미디어쿼리 없이도 좁은 화면에서 알아서
@@ -1018,7 +1047,7 @@
     .license-toolbar button, .review-btn, .priority-action-btn,
     .pipeline-review-btn, .field-verify-btn, .home-cta-primary,
     .home-cta-secondary, .calendar-add-link, .checklist-status-select,
-    #logout-btn {
+    .plan-subscribe-btn, #checkout-pay-btn, #logout-btn {
       min-height: 44px;
     }
     .bookmark-btn {
@@ -1350,6 +1379,8 @@ function renderHeader() {
       <a href="#/me/bookmarks">관심공고</a>
       <a href="#/me/profile">내 프로필</a>
       <a href="#/me/licenses">면허·인증</a>
+      <a href="#/me/subscription">내 구독</a>
+      <a href="#/billing/plans">요금제</a>
       <button type="button" id="logout-btn" class="link-btn">로그아웃</button>
     `));
     document.getElementById('logout-btn').addEventListener('click', async () => {
@@ -1362,6 +1393,7 @@ function renderHeader() {
   } else {
     nav.innerHTML = '';
     nav.appendChild(h(`
+      <a href="#/billing/plans">요금제</a>
       <a href="#/auth/login">로그인</a>
       <a href="#/auth/signup">회원가입</a>
     `));
@@ -3440,6 +3472,237 @@ function renderReviewList(listEl, items) {
   });
 }
 
+// ---------- 요금제 / 결제 (토스페이먼츠 결제위젯, OAuth 없는 최소버전) ----------
+const PLAN_DISPLAY_NAMES = { free: 'Free', basic: 'Basic', pro: 'Pro', business: 'Business' };
+const PLAN_STATUS_LABELS = { active: '이용 중', pending: '결제 대기', cancelled: '해지됨', expired: '만료됨' };
+// 백엔드(GET /api/billing/config)는 가격/한도 숫자만 주고, 마케팅 문구
+// (기획서 기준 기능 bullet)는 여기서 따로 관리한다.
+const PLAN_FEATURES = {
+  free: ['파이프라인 3건', 'AI 정밀분석 없음'],
+  basic: ['파이프라인 무제한', 'AI 분석 월 5건'],
+  pro: ['AI 분석 월 20건', '실적매칭 가능'],
+  business: ['사용자 3명', 'AI 분석 월 60건'],
+};
+
+async function renderPricingPlans(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let config;
+  try {
+    config = await apiRequest('GET', '/api/billing/config');
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  let currentPlan = null;
+  if (currentUser) {
+    try {
+      const sub = await apiRequest('GET', '/api/me/subscription');
+      currentPlan = sub.plan;
+    } catch (err) { /* 프로필 미등록 등 - 현재 플랜 강조 없이 진행 */ }
+  }
+
+  const cards = config.plans.map(p => {
+    const isCurrent = currentPlan === p.plan;
+    const features = (PLAN_FEATURES[p.plan] || []).map(f => `<li>${escapeHtml(f)}</li>`).join('');
+    let actionHtml;
+    if (isCurrent) {
+      actionHtml = '<span class="plan-current-badge">현재 플랜</span>';
+    } else if (!p.purchasable) {
+      actionHtml = currentUser ? '' : '<a href="#/auth/signup" class="home-cta-secondary">무료로 시작하기</a>';
+    } else {
+      actionHtml = `<button type="button" class="plan-subscribe-btn" data-plan="${escapeAttr(p.plan)}">구독하기</button>`;
+    }
+    return `
+      <div class="plan-card${isCurrent ? ' plan-card--current' : ''}">
+        <h3 class="plan-card-name">${escapeHtml(p.name)}</h3>
+        <p class="plan-card-price">${p.amount > 0 ? formatBudget(p.amount) + '/월' : '무료'}</p>
+        <ul class="plan-card-features">${features}</ul>
+        ${actionHtml}
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = '';
+  container.appendChild(h(`<h2>요금제</h2><div class="plan-grid">${cards}</div>`));
+
+  container.querySelectorAll('.plan-subscribe-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!currentUser) { location.hash = '#/auth/login'; return; }
+      location.hash = '#/billing/checkout?plan=' + encodeURIComponent(btn.dataset.plan);
+    });
+  });
+}
+
+async function renderBillingCheckout(container) {
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const plan = params.get('plan');
+
+  if (!currentUser) { location.hash = '#/auth/login'; return; }
+  if (!['basic', 'pro', 'business'].includes(plan)) {
+    container.innerHTML = '';
+    container.appendChild(h('<p class="error">잘못된 요금제입니다. <a href="#/billing/plans">요금제로 돌아가기</a></p>'));
+    return;
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">결제 준비 중...</div>'));
+
+  let config, checkout;
+  try {
+    config = await apiRequest('GET', '/api/billing/config');
+    checkout = await apiRequest('POST', '/api/billing/checkout', { plan });
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  if (!config.tossClientKey) {
+    container.innerHTML = '';
+    container.appendChild(h('<p class="error">결제 기능은 테스트 키 발급 후 이용 가능합니다.</p>'));
+    return;
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/billing/plans" class="back-link">&larr; 요금제로 돌아가기</a>
+    <div class="detail-card">
+      <p class="detail-eyebrow">${escapeHtml(checkout.orderName)}</p>
+      <h2>${formatBudget(checkout.amount)} / 월</h2>
+      <div id="toss-payment-method"></div>
+      <div id="toss-agreement"></div>
+      <div id="checkout-error" class="error" style="display:none"></div>
+      <button type="button" id="checkout-pay-btn" class="home-cta-primary" disabled>결제 위젯 불러오는 중...</button>
+    </div>
+  `));
+
+  const errorBox = document.getElementById('checkout-error');
+  const payBtn = document.getElementById('checkout-pay-btn');
+
+  try {
+    const tossPayments = TossPayments(config.tossClientKey);
+    const widgets = tossPayments.widgets({ customerKey: checkout.customerKey });
+    await widgets.setAmount({ currency: 'KRW', value: checkout.amount });
+    await Promise.all([
+      widgets.renderPaymentMethods({ selector: '#toss-payment-method', variantKey: 'DEFAULT' }),
+      widgets.renderAgreement({ selector: '#toss-agreement', variantKey: 'AGREEMENT' }),
+    ]);
+    payBtn.disabled = false;
+    payBtn.textContent = '결제하기';
+    payBtn.addEventListener('click', async () => {
+      errorBox.style.display = 'none';
+      payBtn.disabled = true;
+      try {
+        // 토스가 successUrl/failUrl에 쿼리를 붙일 때 이미 우리 URL에 '#'이
+        // 있으면(해시 라우팅) 그 쿼리는 location.search가 아니라
+        // location.hash 뒤에 붙는다 — renderBillingSuccess/Fail이 그렇게
+        // 파싱한다(route()의 hash.split('?') 관례와 동일).
+        await widgets.requestPayment({
+          orderId: checkout.orderId,
+          orderName: checkout.orderName,
+          successUrl: location.origin + location.pathname + '#/billing/success',
+          failUrl: location.origin + location.pathname + '#/billing/fail',
+          customerEmail: currentUser.email,
+        });
+      } catch (err) {
+        payBtn.disabled = false;
+        errorBox.textContent = err.message || '결제 요청 중 오류가 발생했습니다.';
+        errorBox.style.display = 'block';
+      }
+    });
+  } catch (err) {
+    errorBox.textContent = '결제 위젯을 불러오지 못했습니다: ' + (err.message || '');
+    errorBox.style.display = 'block';
+    payBtn.style.display = 'none';
+  }
+}
+
+async function renderBillingSuccess(container) {
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const paymentKey = params.get('paymentKey');
+  const orderId = params.get('orderId');
+  const amount = params.get('amount');
+
+  container.innerHTML = '';
+  if (!paymentKey || !orderId || !amount) {
+    container.appendChild(h('<p class="error">결제 정보가 올바르지 않습니다. <a href="#/billing/plans">요금제로 돌아가기</a></p>'));
+    return;
+  }
+  container.appendChild(h('<div class="loading">결제 승인 처리 중...</div>'));
+
+  try {
+    const result = await apiRequest('POST', '/api/billing/confirm', { paymentKey, orderId, amount: Number(amount) });
+    container.innerHTML = '';
+    container.appendChild(h(`
+      <div class="detail-card" style="text-align:center">
+        <p class="detail-eyebrow">결제 완료</p>
+        <h2>${escapeHtml(PLAN_DISPLAY_NAMES[result.plan] || result.plan)} 플랜 구독이 시작되었습니다</h2>
+        <p class="ai-participation-subtitle">다음 결제 예정일: ${escapeHtml(formatDateTime(result.expiresAt))}</p>
+        <a href="#/me/subscription" class="home-cta-primary">내 구독 확인하기</a>
+      </div>
+    `));
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">결제 승인에 실패했습니다: ${escapeHtml(err.message)}</p><a href="#/billing/plans">요금제로 돌아가기</a>`));
+  }
+}
+
+function renderBillingFail(container) {
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const message = params.get('message') || '결제가 취소되었거나 실패했습니다.';
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="detail-card" style="text-align:center">
+      <p class="detail-eyebrow">결제 실패</p>
+      <h2>${escapeHtml(message)}</h2>
+      <a href="#/billing/plans" class="home-cta-primary">요금제로 돌아가기</a>
+    </div>
+  `));
+}
+
+async function renderMySubscription(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/me/subscription');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    if (err.status === 400) {
+      container.appendChild(h('<p class="empty">회사 프로필을 먼저 등록해주세요. <a href="#/me/profile">프로필 등록하기</a></p>'));
+      return;
+    }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const statusLabel = PLAN_STATUS_LABELS[data.status] || data.status;
+  const planName = PLAN_DISPLAY_NAMES[data.plan] || data.plan;
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <h2>내 구독</h2>
+    <div class="detail-card">
+      <p class="detail-eyebrow">${escapeHtml(statusLabel)}</p>
+      <h2>${escapeHtml(planName)} 플랜</h2>
+      <dl class="detail-meta">
+        <div><dt>시작일</dt><dd>${data.startedAt ? escapeHtml(formatDateTime(data.startedAt)) : '-'}</dd></div>
+        <div><dt>다음 결제/만료일</dt><dd>${data.expiresAt ? escapeHtml(formatDateTime(data.expiresAt)) : '-'}</dd></div>
+        <div><dt>파이프라인 한도</dt><dd>${data.maxPipelineEntries < 0 ? '무제한' : data.maxPipelineEntries + '건'}</dd></div>
+        <div><dt>AI 분석 월 한도</dt><dd>${data.maxAIAnalysisPerMonth < 0 ? '무제한' : data.maxAIAnalysisPerMonth + '건'}</dd></div>
+      </dl>
+      <a href="#/billing/plans" class="home-cta-secondary" style="margin-top:1rem;display:inline-block">요금제 변경</a>
+    </div>
+  `));
+}
+
 function route() {
   const hash = location.hash || '#/';
   const path = hash.split('?')[0];
@@ -3451,6 +3714,11 @@ function route() {
   if (path === '#/review') { renderReviewQueue(app); return; }
   if (path === '#/notices') { renderList(app); return; }
   if (path === '#/pipeline') { renderPipelineList(app); return; }
+  if (path === '#/billing/plans') { renderPricingPlans(app); return; }
+  if (path === '#/billing/checkout') { renderBillingCheckout(app); return; }
+  if (path === '#/billing/success') { renderBillingSuccess(app); return; }
+  if (path === '#/billing/fail') { renderBillingFail(app); return; }
+  if (path === '#/me/subscription') { renderMySubscription(app); return; }
   const pipelineDetailMatch = path.match(/^#\/pipeline\/(.+)$/);
   if (pipelineDetailMatch) {
     renderPipelineDetail(app, decodeURIComponent(pipelineDetailMatch[1]));

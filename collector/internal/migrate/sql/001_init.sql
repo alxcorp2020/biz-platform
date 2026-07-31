@@ -575,6 +575,51 @@ CREATE TABLE audit_logs (
 CREATE INDEX idx_audit_logs_actor ON audit_logs(actor_user_id, created_at);
 
 -- ------------------------------------------------------------
+-- 결제/구독 (토스페이먼츠, OAuth 없는 결제위젯 방식 — billing.go 참고)
+--
+-- subscriptions는 company_profile_id당 1행(UNIQUE)만 유지하고, 결제
+-- 성공/실패와 무관하게 checkout 시점에 status='pending'으로 먼저
+-- upsert해둔다 — payment_log.subscription_id가 NOT NULL이라 confirm이
+-- 실패해도(Toss 승인 거절 등) 로그를 남길 대상 row가 항상 있어야
+-- 하기 때문. status='pending'인 동안은 기능 제한 로직(billing.go)이
+-- free 플랜과 동일하게 취급한다 — 결제가 실제로 완료(active)되기
+-- 전까지는 어떤 플랜도 부여하지 않는다.
+-- ------------------------------------------------------------
+CREATE TABLE subscriptions (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+    plan                TEXT NOT NULL DEFAULT 'free'
+                            CHECK (plan IN ('free','basic','pro','business')),
+    status              TEXT NOT NULL DEFAULT 'pending'
+                            CHECK (status IN ('active','cancelled','expired','pending')),
+    billing_key         TEXT, -- 정기결제(다음 단계) 전까지는 항상 NULL
+    started_at          TIMESTAMPTZ,
+    expires_at          TIMESTAMPTZ,
+    amount              BIGINT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (company_profile_id)
+);
+
+-- status: '승인'/'실패'/'취소' 3가지뿐 — "요청됨/대기" 상태는 이 표에
+-- 남기지 않는다(체크아웃 시점엔 아직 Toss에 아무것도 요청 안 함, 주문
+-- 식별자만 그때그때 생성). confirm 핸들러가 Toss 승인 API를 호출한
+-- 결과가 나온 뒤에만 이 표에 행이 생긴다.
+CREATE TABLE payment_log (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    subscription_id    UUID NOT NULL REFERENCES subscriptions(id),
+    toss_payment_key   TEXT NOT NULL,
+    toss_order_id      TEXT NOT NULL,
+    amount             BIGINT NOT NULL,
+    status             TEXT NOT NULL CHECK (status IN ('승인','실패','취소')),
+    requested_at       TIMESTAMPTZ NOT NULL,
+    approved_at        TIMESTAMPTZ,
+    raw_response       JSONB,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_payment_log_subscription ON payment_log(subscription_id);
+
+-- ------------------------------------------------------------
 -- updated_at 자동 갱신 트리거
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
@@ -589,4 +634,6 @@ CREATE TRIGGER trg_notices_updated_at BEFORE UPDATE ON notices
 CREATE TRIGGER trg_data_sources_updated_at BEFORE UPDATE ON data_sources
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_company_profiles_updated_at BEFORE UPDATE ON company_profiles
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER trg_subscriptions_updated_at BEFORE UPDATE ON subscriptions
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();

@@ -14,6 +14,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/lib/pq"
 
+	"biz-platform/collector/internal/billing"
 	"biz-platform/collector/internal/notify"
 	"biz-platform/collector/internal/webui"
 )
@@ -25,9 +26,11 @@ type Server struct {
 	attachmentDir   string
 	anthropicClient *anthropic.Client
 	notify          *notify.Client
+	toss            *billing.TossClient
+	tossClientKey   string
 }
 
-func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client) *Server {
+func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, tossClient *billing.TossClient, tossClientKey string) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -38,6 +41,8 @@ func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir st
 		attachmentDir:   attachmentDir,
 		anthropicClient: anthropicClient,
 		notify:          notifyClient,
+		toss:            tossClient,
+		tossClientKey:   tossClientKey,
 	}
 }
 
@@ -84,6 +89,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/pipeline/{id}/calendar.ics", s.handleGetPipelineCalendar)
 	mux.HandleFunc("PATCH /api/me/notification-settings", s.handleUpdateNotificationSettings)
 	mux.HandleFunc("POST /api/admin/run-notifications", s.handleRunNotifications)
+	mux.HandleFunc("GET /api/me/subscription", s.handleGetSubscription)
+	mux.HandleFunc("GET /api/billing/config", s.handleGetBillingConfig)
+	mux.HandleFunc("POST /api/billing/checkout", s.handleBillingCheckout)
+	mux.HandleFunc("POST /api/billing/confirm", s.handleBillingConfirm)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }

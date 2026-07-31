@@ -78,6 +78,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureNotificationLogTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate notification_log table: %w", err)
 	}
+	if err := ensureBillingTables(ctx, db); err != nil {
+		return fmt.Errorf("migrate subscriptions/payment_log tables: %w", err)
+	}
 	return nil
 }
 
@@ -435,4 +438,60 @@ func ensureNotificationLogTable(ctx context.Context, db *sql.DB) error {
 			ON notification_log(event_type, pipeline_entry_id, notice_id, user_id);
 	`)
 	return err
+}
+
+// ensureBillingTables adds subscriptions/payment_log for any DB created
+// before this migration existed — same CREATE TABLE IF NOT EXISTS pattern
+// as ensurePipelineTables. The updated_at trigger is created conditionally
+// since CREATE TRIGGER has no IF NOT EXISTS form.
+func ensureBillingTables(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS subscriptions (
+			id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+			plan                TEXT NOT NULL DEFAULT 'free'
+			                        CHECK (plan IN ('free','basic','pro','business')),
+			status              TEXT NOT NULL DEFAULT 'pending'
+			                        CHECK (status IN ('active','cancelled','expired','pending')),
+			billing_key         TEXT,
+			started_at          TIMESTAMPTZ,
+			expires_at          TIMESTAMPTZ,
+			amount              BIGINT,
+			created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (company_profile_id)
+		);
+
+		CREATE TABLE IF NOT EXISTS payment_log (
+			id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			subscription_id    UUID NOT NULL REFERENCES subscriptions(id),
+			toss_payment_key   TEXT NOT NULL,
+			toss_order_id      TEXT NOT NULL,
+			amount             BIGINT NOT NULL,
+			status             TEXT NOT NULL CHECK (status IN ('승인','실패','취소')),
+			requested_at       TIMESTAMPTZ NOT NULL,
+			approved_at        TIMESTAMPTZ,
+			raw_response       JSONB,
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_payment_log_subscription ON payment_log(subscription_id);
+	`); err != nil {
+		return err
+	}
+
+	var triggerExists bool
+	if err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_subscriptions_updated_at')`,
+	).Scan(&triggerExists); err != nil {
+		return err
+	}
+	if !triggerExists {
+		if _, err := db.ExecContext(ctx, `
+			CREATE TRIGGER trg_subscriptions_updated_at BEFORE UPDATE ON subscriptions
+				FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+		`); err != nil {
+			return err
+		}
+	}
+	return nil
 }

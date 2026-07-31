@@ -16,6 +16,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"biz-platform/collector/internal/api"
+	"biz-platform/collector/internal/billing"
 	"biz-platform/collector/internal/collector"
 	"biz-platform/collector/internal/collector/pgstore"
 	"biz-platform/collector/internal/collector/runner"
@@ -77,7 +78,16 @@ func main() {
 		logger.Warn("RESEND_API_KEY is not set; 이메일 알림(마감 리마인더/추천 다이제스트/담당자 알림)은 발송되지 않습니다")
 	}
 
-	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient)
+	tossClient := billing.NewTossClient(os.Getenv("TOSS_SECRET_KEY"))
+	if !tossClient.Configured() {
+		logger.Warn("TOSS_SECRET_KEY is not set; 결제 승인(POST /api/billing/confirm)은 요청 시 실패합니다 (테스트 키 발급 전)")
+	}
+	tossClientKey := os.Getenv("TOSS_CLIENT_KEY")
+	if tossClientKey == "" {
+		logger.Warn("TOSS_CLIENT_KEY is not set; 결제위젯이 뜨지 않습니다 (테스트 키 발급 전)")
+	}
+
+	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, tossClient, tossClientKey)
 	startBackgroundNotifications(srv, logger)
 
 	logger.Info("api server starting", "port", port)

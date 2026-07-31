@@ -141,6 +141,15 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if quotaOK, limit, err := s.checkPipelineEntryQuota(ctx, profile.ID); err != nil {
+		s.logger.Error("create-pipeline: quota check failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	} else if !quotaOK {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "pipeline_quota_exceeded", "limit": limit})
+		return
+	}
+
 	var currentVersion int
 	var deadline sql.NullTime
 	err = s.db.QueryRowContext(ctx,
