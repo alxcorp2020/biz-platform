@@ -203,6 +203,24 @@
     .tabbar-label { font-size: 0.68rem; font-weight: 600; }
   }
 
+  /* 맨 위로 올라가기 버튼 — 페이지를 일정 이상 스크롤했을 때만 보인다
+     (JS가 .is-visible을 토글). 모바일에서는 하단 탭바에 가리지 않도록
+     bottom을 탭바 높이만큼 띄운다. */
+  .scroll-top-btn {
+    position: fixed; right: var(--space-md); bottom: 24px;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--accent-blue); color: #fff; border: none;
+    font-size: 1.1rem; line-height: 1; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    opacity: 0; pointer-events: none; transform: translateY(8px);
+    transition: opacity 0.15s, transform 0.15s;
+    z-index: 40;
+  }
+  .scroll-top-btn.is-visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
+  @media (max-width: 899px) {
+    .scroll-top-btn { bottom: calc(60px + env(safe-area-inset-bottom, 0px) + 16px); }
+  }
+
   /* ---------- Header ---------- */
   .site-header {
     background: var(--bg);
@@ -1256,6 +1274,7 @@
      사이드바와 같은 라우트 목록을 씀(홈/검색/진행중/관심공고/내정보). -->
 <nav class="tabbar" id="tabbar"></nav>
 <main id="app"></main>
+<button type="button" id="scroll-top-btn" class="scroll-top-btn" aria-label="맨 위로">↑</button>
 
 <script>
 const app = document.getElementById('app');
@@ -5122,6 +5141,18 @@ function route() {
   }
   renderHome(app);
 }
+
+// 맨 위로 올라가기 — #app 밖에 고정 배치된 버튼이라 route()가 매번
+// #app.innerHTML을 갈아끼워도 그대로 살아있다(라우트 변경 시 새로
+// 만들 필요 없음). 300px 이상 스크롤됐을 때만 보인다.
+const SCROLL_TOP_THRESHOLD = 300;
+const scrollTopBtn = document.getElementById('scroll-top-btn');
+window.addEventListener('scroll', () => {
+  scrollTopBtn.classList.toggle('is-visible', window.scrollY > SCROLL_TOP_THRESHOLD);
+});
+scrollTopBtn.addEventListener('click', () => {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
 
 window.addEventListener('hashchange', route);
 loadMe();
