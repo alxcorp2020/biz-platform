@@ -81,6 +81,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/pipeline/{id}/checklist/{itemId}", s.handleUpdateChecklistItem)
 	mux.HandleFunc("GET /api/pipeline", s.handleListPipeline)
 	mux.HandleFunc("GET /api/pipeline/{id}", s.handleGetPipelineEntry)
+	mux.HandleFunc("GET /api/pipeline/{id}/calendar.ics", s.handleGetPipelineCalendar)
 	mux.HandleFunc("PATCH /api/me/notification-settings", s.handleUpdateNotificationSettings)
 	mux.HandleFunc("POST /api/admin/run-notifications", s.handleRunNotifications)
 	mux.Handle("/", webui.Handler())

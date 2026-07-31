@@ -469,6 +469,18 @@
     line-height: 1.4;
     color: var(--ink);
   }
+  .calendar-add-link {
+    display: inline-block;
+    margin-top: 0.85rem;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .calendar-add-link:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
   .detail-meta {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -1551,6 +1563,7 @@ async function renderPipelineDetail(container, id) {
     <div class="detail-card">
       <p class="detail-eyebrow">${escapeHtml(entry.organizationName || '-')}</p>
       <h2><a href="#/notices/${escapeAttr(entry.noticeId)}">${escapeHtml(entry.noticeTitle)}</a></h2>
+      <a class="calendar-add-link" href="/api/pipeline/${escapeAttr(entry.id)}/calendar.ics" download>&#128197; 캘린더에 추가 (.ics)</a>
       <form id="pipeline-entry-form" class="profile-form">
         <label>상태
           <select name="status">
