@@ -575,15 +575,20 @@ CREATE TABLE audit_logs (
 CREATE INDEX idx_audit_logs_actor ON audit_logs(actor_user_id, created_at);
 
 -- ------------------------------------------------------------
--- 결제/구독 (토스페이먼츠, OAuth 없는 결제위젯 방식 — billing.go 참고)
+-- 결제/구독 (토스페이먼츠, OAuth 없는 결제창 API 개별연동 방식 — billing.go 참고)
 --
--- subscriptions는 company_profile_id당 1행(UNIQUE)만 유지하고, 결제
--- 성공/실패와 무관하게 checkout 시점에 status='pending'으로 먼저
--- upsert해둔다 — payment_log.subscription_id가 NOT NULL이라 confirm이
--- 실패해도(Toss 승인 거절 등) 로그를 남길 대상 row가 항상 있어야
--- 하기 때문. status='pending'인 동안은 기능 제한 로직(billing.go)이
--- free 플랜과 동일하게 취급한다 — 결제가 실제로 완료(active)되기
--- 전까지는 어떤 플랜도 부여하지 않는다.
+-- subscriptions는 company_profile_id당 1행(UNIQUE)만 유지한다.
+-- checkout(POST /api/billing/checkout)은 이 row가 존재하지 않을 때만
+-- (최초 가입 직후 등) status='pending'으로 하나 만들어둔다 —
+-- payment_log.subscription_id가 NOT NULL이라 confirm이 실패해도 로그를
+-- 남길 대상 row가 항상 있어야 하기 때문. **이미 row가 있으면(과거에
+-- active였든 뭐든) checkout은 절대 건드리지 않는다** — 그렇지 않으면
+-- 이미 결제를 완료한 사용자가 다른 플랜의 "구독하기"만 눌러도(새 결제가
+-- 완료되기도 전에) 기존 유료 구독이 즉시 pending으로 떨어지는 회귀가
+-- 생긴다(실제로 발생했던 버그). plan/status 전환은 오직
+-- handleBillingConfirm이 토스 승인 API에서 성공 응답을 받았을 때만
+-- 일어난다. status='pending'/'cancelled'/'expired'인 동안은 기능 제한
+-- 로직(billing.go의 effectivePlan)이 free 플랜과 동일하게 취급한다.
 -- ------------------------------------------------------------
 CREATE TABLE subscriptions (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),

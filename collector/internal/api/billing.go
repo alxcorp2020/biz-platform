@@ -54,24 +54,34 @@ func (s *Server) currentSubscription(ctx context.Context, profileID string) (
 	return billing.Plan(planStr), statusStr, startedAt, expiresAt, amount, nil
 }
 
-// effectivePlan is the single choke point every feature-limit check
-// (pipeline count, AI quota) goes through — only an 'active' subscription
-// that hasn't passed its expires_at counts; pending/cancelled/expired all
-// fall back to Free. handleGetSubscription shows the raw persisted status
-// instead (a user should see "결제 대기중"/"만료됨" as what it is, not have
-// it silently collapsed to Free).
+// effectivePlanFromRow is the single source of truth for "which plan
+// actually governs feature limits right now", given an already-fetched
+// subscription row — only an 'active' subscription that hasn't passed its
+// expires_at counts; pending/cancelled/expired all fall back to Free. Split
+// out from effectivePlan so handleGetSubscription (which already has the
+// row) doesn't need a second query just to compute the same thing.
+func effectivePlanFromRow(plan billing.Plan, status string, expiresAt *time.Time) billing.Plan {
+	if status != "active" {
+		return billing.PlanFree
+	}
+	if expiresAt != nil && expiresAt.Before(time.Now()) {
+		return billing.PlanFree
+	}
+	return plan
+}
+
+// effectivePlan is the choke point checkPipelineEntryQuota/
+// checkAIAnalysisQuota go through. handleGetSubscription shows the raw
+// persisted plan/status instead (a user should see "Business 결제 대기중" as
+// what it is), but must still report *limits* from the effective plan —
+// otherwise a checked-out-but-unpaid subscription would display paid-tier
+// limits it doesn't actually get (see effectivePlanFromRow above).
 func (s *Server) effectivePlan(ctx context.Context, profileID string) (billing.Plan, error) {
 	plan, status, _, expiresAt, _, err := s.currentSubscription(ctx, profileID)
 	if err != nil {
 		return "", err
 	}
-	if status != "active" {
-		return billing.PlanFree, nil
-	}
-	if expiresAt != nil && expiresAt.Before(time.Now()) {
-		return billing.PlanFree, nil
-	}
-	return plan, nil
+	return effectivePlanFromRow(plan, status, expiresAt), nil
 }
 
 // checkPipelineEntryQuota enforces plan.MaxPipelineEntries before a NEW
@@ -183,6 +193,13 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info := billing.Plans[plan]
+	// 한도는 raw plan이 아니라 effective plan 기준 — status='pending'인
+	// 동안(체크아웃만 하고 결제를 완료하지 않은 상태) 유료 플랜의 한도를
+	// 그대로 노출하면 실제로는 Free로 막히는 기능을 이용 가능한 것처럼
+	// 잘못 보여주게 된다(실제 차단 로직 자체는 이 버그의 영향을 받지
+	// 않았음 — effectivePlan을 직접 쓰는 checkPipelineEntryQuota/
+	// checkAIAnalysisQuota는 원래도 정확했다).
+	limits := billing.Plans[effectivePlanFromRow(plan, status, expiresAt)]
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"plan":                  string(plan),
@@ -191,8 +208,8 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 		"startedAt":             startedAt,
 		"expiresAt":             expiresAt,
 		"amount":                amount,
-		"maxPipelineEntries":    info.MaxPipelineEntries,
-		"maxAIAnalysisPerMonth": info.MaxAIAnalysisPerMonth,
+		"maxPipelineEntries":    limits.MaxPipelineEntries,
+		"maxAIAnalysisPerMonth": limits.MaxAIAnalysisPerMonth,
 	})
 }
 
@@ -201,11 +218,14 @@ type billingCheckoutRequest struct {
 }
 
 // handleBillingCheckout generates the order identity Toss's requestPayment()
-// needs (orderId/orderName/amount) and upserts a status='pending' row on
-// subscriptions so payment_log has something to attach to no matter how the
-// confirm attempt turns out (see the schema comment in 001_init.sql). The
-// amount always comes from the server-side plan table — never trust a
-// client-supplied price.
+// needs (orderId/orderName/amount) and, only if the caller has never
+// subscribed before, inserts a placeholder status='pending' row so
+// payment_log has something to attach to no matter how the confirm attempt
+// turns out. It never touches an existing row — see the note further down
+// on why overwriting status here caused an already-active subscription to
+// drop to 'pending' the instant the user clicked "구독하기" on a different
+// plan, before any new payment even happened. The amount always comes from
+// the server-side plan table — never trust a client-supplied price.
 func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {
@@ -242,13 +262,31 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.db.ExecContext(r.Context(), `
-		INSERT INTO subscriptions (company_profile_id, plan, status, amount)
-		VALUES ($1, $2, 'pending', $3)
-		ON CONFLICT (company_profile_id) DO UPDATE SET plan = $2, status = 'pending', amount = $3`,
-		profile.ID, string(plan), info.AmountKRW,
-	); err != nil {
-		s.logger.Error("billing-checkout: pending subscription upsert failed", "error", err)
+	// checkout이 할 일은 딱 하나 — payment_log.subscription_id(NOT NULL)가
+	// 가리킬 row가 존재하도록 보장하는 것뿐이다. 이미 row가 있으면(구독
+	// 이력이 있는 사용자 — active든 pending이든 뭐든) 절대 건드리지 않는다.
+	//
+	// 예전엔 여기서 매번 status='pending'으로 덮어썼는데, 그러면 이미
+	// 결제를 완료해 status='active'인 사용자가 다른 플랜의 "구독하기"만
+	// 눌러도(새 결제가 완료되기도 전에) 기존 유료 구독이 즉시 pending으로
+	// 떨어지는 회귀가 생긴다 — 실제로 발생한 버그. 플랜/상태 전환은
+	// 오직 handleBillingConfirm이 토스 승인에 성공했을 때만 일어난다.
+	var existingID string
+	err = s.db.QueryRowContext(r.Context(),
+		`SELECT id FROM subscriptions WHERE company_profile_id = $1`, profile.ID,
+	).Scan(&existingID)
+	if err == sql.ErrNoRows {
+		if _, err := s.db.ExecContext(r.Context(), `
+			INSERT INTO subscriptions (company_profile_id, plan, status, amount)
+			VALUES ($1, $2, 'pending', $3)`,
+			profile.ID, string(plan), info.AmountKRW,
+		); err != nil {
+			s.logger.Error("billing-checkout: initial subscription insert failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+	} else if err != nil {
+		s.logger.Error("billing-checkout: subscription lookup failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}

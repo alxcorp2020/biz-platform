@@ -3500,7 +3500,10 @@ async function renderPricingPlans(container) {
   if (currentUser) {
     try {
       const sub = await apiRequest('GET', '/api/me/subscription');
-      currentPlan = sub.plan;
+      // status가 active일 때만 "현재 플랜"으로 표시 — pending(체크아웃만
+      // 하고 결제 미완료)인 동안 badge를 보여주면 마치 이미 구독 중인
+      // 것처럼 착각하게 된다.
+      if (sub.status === 'active') currentPlan = sub.plan;
     } catch (err) { /* 프로필 미등록 등 - 현재 플랜 강조 없이 진행 */ }
   }
 
@@ -3699,6 +3702,13 @@ async function renderMySubscription(container) {
 
   const statusLabel = PLAN_STATUS_LABELS[data.status] || data.status;
   const planName = PLAN_DISPLAY_NAMES[data.plan] || data.plan;
+  // status가 active가 아니면(결제 대기/해지/만료) 아래 한도는 이미 Free
+  // 기준으로 내려온다(백엔드가 effective plan으로 계산) — 그런데 heading엔
+  // 여전히 선택했던(또는 예전) plan 이름이 나오므로, 착각하지 않도록
+  // "아직 적용 안 됨"을 명시적으로 붙인다.
+  const notActiveNote = data.status !== 'active'
+    ? `<p class="ai-minimal-profile-notice">아직 결제가 완료되지 않아 적용되지 않았습니다 — 아래 한도는 현재 실제로 적용 중인 Free 기준입니다.</p>`
+    : '';
 
   container.innerHTML = '';
   container.appendChild(h(`
@@ -3706,6 +3716,7 @@ async function renderMySubscription(container) {
     <div class="detail-card">
       <p class="detail-eyebrow">${escapeHtml(statusLabel)}</p>
       <h2>${escapeHtml(planName)} 플랜</h2>
+      ${notActiveNote}
       <dl class="detail-meta">
         <div><dt>시작일</dt><dd>${data.startedAt ? escapeHtml(formatDateTime(data.startedAt)) : '-'}</dd></div>
         <div><dt>다음 결제/만료일</dt><dd>${data.expiresAt ? escapeHtml(formatDateTime(data.expiresAt)) : '-'}</dd></div>
