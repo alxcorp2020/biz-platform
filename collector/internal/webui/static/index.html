@@ -1183,6 +1183,39 @@
     }
     input[type="checkbox"] { width: 1.3rem; height: 1.3rem; }
   }
+
+  /* ---------- 참여판단 보고서(인쇄/PDF 저장용) ----------
+     별도 PDF 라이브러리 없이 브라우저 인쇄 대화상자의 "PDF로 저장"을
+     이용한다 — @media print가 사이드바/탭바/헤더/.no-print 요소를
+     숨기고 .report-page만 종이 한 장처럼 보이게 만든다. */
+  .report-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-lg); gap: var(--space-sm); flex-wrap: wrap; }
+  .report-page {
+    max-width: 760px; margin: 0 auto; background: #fff; border: 1px solid var(--border);
+    border-radius: var(--radius-card); padding: var(--space-xl); box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .report-doc-title { margin: 0; font-size: var(--text-caption); font-weight: 700; color: var(--accent-blue); letter-spacing: 0.05em; }
+  .report-notice-title { margin: 0.3rem 0 var(--space-lg); font-size: 1.4rem; font-weight: 700; color: var(--navy); line-height: 1.4; }
+  .report-section { margin-top: var(--space-xl); padding-top: var(--space-lg); border-top: 1px solid var(--border); }
+  .report-section-title { margin: 0 0 var(--space-sm); font-size: 1rem; font-weight: 700; color: var(--ink); }
+  .report-grade-head { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }
+  .report-grade-score { font-size: var(--text-caption); color: var(--ink-soft); }
+  .report-grade-reason { margin: 0.6rem 0 0; font-size: var(--text-caption); color: var(--ink-soft); }
+  .report-table { width: 100%; border-collapse: collapse; margin-top: var(--space-md); font-size: var(--text-caption); }
+  .report-table th, .report-table td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .report-table th { color: var(--ink-soft); font-weight: 600; }
+  .report-summary-list { margin: 0; padding-left: 1.2rem; }
+  .report-summary-list li { margin-bottom: 0.4rem; }
+  .report-meta-caption { margin: var(--space-sm) 0 0; font-size: 0.78rem; color: var(--ink-soft); }
+  .report-condition-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-md); }
+  .report-condition-name { margin: 0 0 0.35rem; font-size: 0.92rem; color: var(--ink); }
+  .report-footer-note { margin-top: var(--space-xl); padding-top: var(--space-md); border-top: 1px solid var(--border); font-size: 0.78rem; color: var(--ink-soft); }
+
+  @media print {
+    .sidebar, .tabbar, .site-header, .no-print { display: none !important; }
+    body { background: #fff; }
+    main { max-width: none !important; margin: 0 !important; padding: 0 !important; }
+    .report-page { border: none; box-shadow: none; padding: 0; max-width: none; }
+  }
 </style>
 </head>
 <body>
@@ -2135,6 +2168,7 @@ function renderDetail(container, id) {
             <div><dt>버전</dt><dd class="mono">v${n.currentVersion}</dd></div>
           </dl>
           ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 &rarr;</a>` : ''}
+          <a class="official-link" href="#/notices/${escapeAttr(n.id)}/report">참여판단 보고서 보기 &rarr;</a>
         </div>
         <h3>공고 상세정보</h3>
         <div id="notice-detail-info-section"></div>
@@ -2207,6 +2241,116 @@ function renderPipelineReviewAction(container, noticeId) {
       errEl.style.display = 'block';
     }
   });
+}
+
+// renderNoticeReport — 등급/AI 요약/자격조건처럼 이미 계산·저장되어 있는
+// 데이터를 인쇄용 한 페이지로 조합한 "참여판단 보고서". 새로 계산하는
+// 값은 없다 — GET /api/notices/{id}가 이미 내려주는 것을 재구성만 한다.
+// PDF 파일 자체는 서버가 만들지 않고 브라우저 인쇄 대화상자의 "PDF로
+// 저장"을 이용한다(@media print로 사이드바/탭바/버튼만 숨김) — 새 Go
+// 의존성이나 한글 폰트 임베딩 없이 화면과 동일한 결과물을 얻기 위함.
+async function renderNoticeReport(container, id) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/notices/' + encodeURIComponent(id));
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const n = data.notice;
+  const score = data.participationScore;
+  const summary = data.aiSummary;
+  const conditions = data.eligibilityConditions || [];
+
+  const gradeSectionHtml = score ? `
+    <section class="report-section">
+      <h3 class="report-section-title">종합 판정</h3>
+      <div class="report-grade-head">
+        ${gradeBadgeHtml(score.grade, GRADE_LABELS[score.grade] || score.grade)}
+        <span class="report-grade-score">${score.totalCount}개 중 ${score.metCount}개 충족</span>
+      </div>
+      ${score.gradeReason ? `<p class="report-grade-reason">${escapeHtml(score.gradeReason)}</p>` : ''}
+      <table class="report-table">
+        <thead><tr><th>항목</th><th>결과</th><th>사유</th></tr></thead>
+        <tbody>
+          ${score.categories.map(c => `
+            <tr>
+              <td>${escapeHtml(c.category)}</td>
+              <td>${escapeHtml(ELIGIBILITY_RESULT_LABELS[c.result] || c.result)}</td>
+              <td>${escapeHtml(c.reason)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </section>
+  ` : `
+    <section class="report-section">
+      <h3 class="report-section-title">종합 판정</h3>
+      <p class="section-empty">로그인 후 회사 프로필을 등록하면 이 공고에 대한 등급 분석이 포함됩니다.</p>
+    </section>
+  `;
+
+  const summaryHtml = (summary && summary.lines && summary.lines.length) ? `
+    <section class="report-section">
+      <h3 class="report-section-title">핵심 요약</h3>
+      <ul class="report-summary-list">${summary.lines.map(l => `<li>${escapeHtml(l)}</li>`).join('')}</ul>
+      <p class="report-meta-caption">AI 요약 · ${escapeHtml(summary.model || '')} · ${formatDateTime(summary.generatedAt)}</p>
+    </section>
+  ` : `
+    <section class="report-section">
+      <h3 class="report-section-title">핵심 요약</h3>
+      <p class="section-empty">아직 요약이 생성되지 않았습니다.</p>
+    </section>
+  `;
+
+  const conditionsHtml = conditions.length ? `
+    <section class="report-section">
+      <h3 class="report-section-title">참가자격 요건 (문서 기반)</h3>
+      <ul class="report-condition-list">
+        ${conditions.map(it => `
+          <li class="report-condition-item">
+            <p class="report-condition-name"><strong>${escapeHtml(CONDITION_CATEGORY_LABELS[it.category] || it.category)}</strong> — ${escapeHtml(it.conditionName)}</p>
+            <blockquote class="source-quote">${escapeHtml(it.sourceText)}</blockquote>
+          </li>
+        `).join('')}
+      </ul>
+    </section>
+  ` : `
+    <section class="report-section">
+      <h3 class="report-section-title">참가자격 요건 (문서 기반)</h3>
+      <p class="section-empty">문서에서 추출된 참가자격 요건이 없습니다.</p>
+    </section>
+  `;
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="no-print report-actions">
+      <a href="#/notices/${escapeAttr(id)}" class="back-link">&larr; 공고 상세로 돌아가기</a>
+      <button type="button" class="btn btn-primary" id="report-print-btn">인쇄 / PDF로 저장</button>
+    </div>
+    <div class="report-page">
+      <p class="report-doc-title">참여판단 보고서</p>
+      <h2 class="report-notice-title">${escapeHtml(n.title)}</h2>
+      <dl class="detail-meta">
+        <div><dt>발주기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
+        <div><dt>지역</dt><dd>${escapeHtml(n.region || '-')}</dd></div>
+        <div><dt>업종</dt><dd>${escapeHtml(n.industry || '-')}</dd></div>
+        <div><dt>예산</dt><dd class="mono">${formatBudget(n.budgetAmount)}</dd></div>
+        <div><dt>마감일</dt><dd class="mono">${formatDate(n.applicationEndAt)}</dd></div>
+      </dl>
+      ${gradeSectionHtml}
+      ${summaryHtml}
+      ${conditionsHtml}
+      <p class="report-footer-note">⚠ 이 보고서는 등록된 회사 정보와 공고 정보만으로 계산한 참고용 자료입니다. 최종 참여 여부는 원문 공고를 직접 확인한 후 결정하세요. 생성일시: ${formatDateTime(new Date().toISOString())}</p>
+    </div>
+  `));
+
+  document.getElementById('report-print-btn').addEventListener('click', () => window.print());
 }
 
 // g2b 원문 JSON(raw_documents.raw_content)에서 그때그때 파싱한 상세 필드.
@@ -4120,6 +4264,11 @@ function route() {
   const pipelineDetailMatch = path.match(/^#\/pipeline\/(.+)$/);
   if (pipelineDetailMatch) {
     renderPipelineDetail(app, decodeURIComponent(pipelineDetailMatch[1]));
+    return;
+  }
+  const reportMatch = path.match(/^#\/notices\/(.+)\/report$/);
+  if (reportMatch) {
+    renderNoticeReport(app, decodeURIComponent(reportMatch[1]));
     return;
   }
   const detailMatch = path.match(/^#\/notices\/(.+)$/);
