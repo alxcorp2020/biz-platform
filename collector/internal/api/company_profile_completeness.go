@@ -113,6 +113,23 @@ func capCompleteness(count, target int) int {
 	return count * 100 / target
 }
 
+// profileHasNoOptionalData reports whether a profile has zero rows across
+// every optional category (면허/인증/재무/실적/인력) — used by
+// handleGetNotice to flag a 3분 온보딩 minimal profile's participation
+// judgement as "간이 판정" (region/industry/budget only, same as any other
+// judgement — see scoring.go — but the user hasn't gone past the signup
+// minimum yet, so the UI nudges them to fill in more).
+func (s *Server) profileHasNoOptionalData(ctx context.Context, profileID string) (bool, error) {
+	query := "SELECT NOT EXISTS (" + "SELECT 1 FROM " + completenessConfidenceTables[0] + " WHERE company_profile_id = $1"
+	for _, table := range completenessConfidenceTables[1:] {
+		query += " UNION ALL SELECT 1 FROM " + table + " WHERE company_profile_id = $1"
+	}
+	query += ")"
+	var noData bool
+	err := s.db.QueryRowContext(ctx, query, profileID).Scan(&noData)
+	return noData, err
+}
+
 // countConfidenceBucket returns (total row count, count with confidence
 // A or B) for a company profile's rows in the given table. table is always
 // a literal from completenessConfidenceTables, never request input — same

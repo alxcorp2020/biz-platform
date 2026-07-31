@@ -228,6 +228,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	var profileID string
 	var score *participationScore
 	var company companyScoringInput
+	var isMinimalProfile bool
 	if loggedIn {
 		var companyRegion, companySize sql.NullString
 		var companyIndustry pq.StringArray
@@ -251,6 +252,11 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 				company,
 			)
 			score = &computed
+
+			isMinimalProfile, err = s.profileHasNoOptionalData(r.Context(), profileID)
+			if err != nil {
+				s.logger.Error("get notice: minimal-profile check failed", "error", err)
+			}
 		}
 	}
 
@@ -311,6 +317,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"attachments":           attachments,
 		"detail":                rawDetail,
 		"participationScore":    score,
+		"isMinimalProfile":      isMinimalProfile,
 		"aiSummary":             aiSummary,
 		"changeImpact":          impact,
 	})
