@@ -129,6 +129,7 @@ func (s *Server) Routes() http.Handler {
 
 type noticeListItem struct {
 	ID               string     `json:"id"`
+	NoticeType       string     `json:"noticeType"` // "procurement" | "support_program"
 	Title            string     `json:"title"`
 	OrganizationName string     `json:"organizationName"`
 	Region           string     `json:"region"`
@@ -196,7 +197,7 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	// COUNT(*) OVER()로 전체 매칭 건수를 같은 쿼리 안에서 함께 받는다 — 운영
 	// 규모(2천건 미만)에서는 페이지당 별도 COUNT 쿼리를 또 날릴 필요가 없다.
 	query := `
-		SELECT n.id, n.title, n.organization_name, n.region, n.industry, n.status,
+		SELECT n.id, n.notice_type, n.title, n.organization_name, n.region, n.industry, n.status,
 		       n.application_end_at, n.budget_amount, n.official_url, n.current_version,
 		       (nb.id IS NOT NULL) AS is_bookmarked,
 		       COUNT(*) OVER() AS total_count
@@ -230,7 +231,7 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		var budget sql.NullInt64
 		var deadline sql.NullTime
 		var totalCount int
-		if err := rows.Scan(&it.ID, &it.Title, &org, &region, &industry, &it.Status,
+		if err := rows.Scan(&it.ID, &it.NoticeType, &it.Title, &org, &region, &industry, &it.Status,
 			&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &totalCount); err != nil {
 			s.logger.Error("scan notice row failed", "error", err)
 			continue
@@ -266,13 +267,13 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	var deadline sql.NullTime
 
 	err := s.db.QueryRowContext(r.Context(), `
-		SELECT n.id, n.title, n.organization_name, n.region, n.industry, n.status,
+		SELECT n.id, n.notice_type, n.title, n.organization_name, n.region, n.industry, n.status,
 		       n.application_end_at, n.budget_amount, n.official_url, n.current_version,
 		       (nb.id IS NOT NULL) AS is_bookmarked, n.department_name
 		FROM notices n
 		LEFT JOIN notice_bookmarks nb ON nb.notice_id = n.id AND nb.user_id = $2
 		WHERE n.id = $1`, id, sql.NullString{String: userID, Valid: loggedIn},
-	).Scan(&it.ID, &it.Title, &org, &region, &industry, &it.Status,
+	).Scan(&it.ID, &it.NoticeType, &it.Title, &org, &region, &industry, &it.Status,
 		&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &department)
 
 	if err == sql.ErrNoRows {

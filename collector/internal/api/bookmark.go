@@ -67,7 +67,7 @@ func (s *Server) handleListBookmarks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := s.db.QueryContext(r.Context(), `
-		SELECT n.id, n.title, n.organization_name, n.region, n.industry, n.status,
+		SELECT n.id, n.notice_type, n.title, n.organization_name, n.region, n.industry, n.status,
 		       n.application_end_at, n.budget_amount, n.official_url, n.current_version
 		FROM notice_bookmarks nb
 		JOIN notices n ON n.id = nb.notice_id
@@ -86,7 +86,7 @@ func (s *Server) handleListBookmarks(w http.ResponseWriter, r *http.Request) {
 		var org, region, industry, officialURL sql.NullString
 		var budget sql.NullInt64
 		var deadline sql.NullTime
-		if err := rows.Scan(&it.ID, &it.Title, &org, &region, &industry, &it.Status,
+		if err := rows.Scan(&it.ID, &it.NoticeType, &it.Title, &org, &region, &industry, &it.Status,
 			&deadline, &budget, &officialURL, &it.CurrentVersion); err != nil {
 			s.logger.Error("scan bookmark row failed", "error", err)
 			continue

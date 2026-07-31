@@ -30,6 +30,8 @@ services:
         generateValue: true
       - key: G2B_SERVICE_KEY
         sync: false
+      - key: BIZINFO_API_KEY
+        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM_EMAIL

@@ -20,6 +20,7 @@ import (
 	"biz-platform/collector/internal/collector"
 	"biz-platform/collector/internal/collector/pgstore"
 	"biz-platform/collector/internal/collector/runner"
+	"biz-platform/collector/internal/collector/sources/bizinfo"
 	"biz-platform/collector/internal/collector/sources/demo"
 	"biz-platform/collector/internal/collector/sources/g2b"
 	"biz-platform/collector/internal/collector/sources/scsbid"
@@ -60,6 +61,7 @@ func main() {
 	}
 
 	startBackgroundCollection(dsn, logger)
+	startBackgroundBizinfoCollection(dsn, logger)
 
 	attachmentDir := os.Getenv("ATTACHMENT_DIR")
 	if attachmentDir == "" {
@@ -198,6 +200,44 @@ func startBackgroundCollection(dsn string, logger *slog.Logger) {
 		runOnce := func() {
 			res := rn.RunIncremental(ctx, time.Time{})
 			logger.Info("background collection cycle finished",
+				"status", res.Status, "processed", res.ProcessedCount, "success", res.SuccessCount)
+		}
+
+		runOnce()
+		ticker := time.NewTicker(60 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			runOnce()
+		}
+	}()
+}
+
+// startBackgroundBizinfoCollection mirrors startBackgroundCollection but runs
+// a second, independent runner for bizinfo(기업마당/지자체 지원사업) —
+// notices.notice_type='support_program', a completely separate stream from
+// g2b's 'procurement' notices, so this is a second ticker+store rather than
+// folding into the existing one. If BIZINFO_API_KEY isn't set, this
+// batch is skipped entirely(no demo fallback — g2b/demo already provides
+// baseline content, an empty support_program stream isn't broken).
+func startBackgroundBizinfoCollection(dsn string, logger *slog.Logger) {
+	key := os.Getenv("BIZINFO_API_KEY")
+	if key == "" {
+		logger.Warn("BIZINFO_API_KEY is not set; 기업마당/지자체 지원사업 수집이 비활성화됩니다")
+		return
+	}
+	go func() {
+		ctx := context.Background()
+		src := bizinfo.New(key)
+		st, err := pgstore.Open(ctx, dsn, src.SourceCode(), "중소벤처기업부_기업마당", "support_program", "https://www.bizinfo.go.kr/uss/rss/bizinfoApi.do")
+		if err != nil {
+			logger.Error("background bizinfo collection: failed to open store", "error", err)
+			return
+		}
+		rn := runner.New(src, st, logger)
+
+		runOnce := func() {
+			res := rn.RunIncremental(ctx, time.Time{})
+			logger.Info("background bizinfo collection cycle finished",
 				"status", res.Status, "processed", res.ProcessedCount, "success", res.SuccessCount)
 		}
 
