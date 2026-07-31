@@ -281,9 +281,10 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var email, role, plan string
+	var emailNotificationsEnabled bool
 	err := s.db.QueryRowContext(r.Context(),
-		`SELECT email, role, plan FROM users WHERE id = $1`, userID,
-	).Scan(&email, &role, &plan)
+		`SELECT email, role, plan, email_notifications_enabled FROM users WHERE id = $1`, userID,
+	).Scan(&email, &role, &plan, &emailNotificationsEnabled)
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
@@ -300,8 +301,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user": map[string]string{
+		"user": map[string]any{
 			"id": userID, "email": email, "role": role, "plan": plan,
+			"emailNotificationsEnabled": emailNotificationsEnabled,
 		},
 		"companyProfile": profile,
 	})

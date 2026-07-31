@@ -72,6 +72,12 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensurePipelineTables(ctx, db); err != nil {
 		return fmt.Errorf("migrate notice_pipeline_entries/pipeline_checklist_items tables: %w", err)
 	}
+	if err := ensureNotificationColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate notification columns: %w", err)
+	}
+	if err := ensureNotificationLogTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate notification_log table: %w", err)
+	}
 	return nil
 }
 
@@ -389,6 +395,44 @@ func ensurePipelineTables(ctx context.Context, db *sql.DB) error {
 			created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
 		CREATE INDEX IF NOT EXISTS idx_pipeline_checklist_entry ON pipeline_checklist_items(pipeline_entry_id);
+	`)
+	return err
+}
+
+// ensureNotificationColumns adds users.email_notifications_enabled and
+// notice_pipeline_entries.assignee_email for any DB created before this
+// migration existed. ADD COLUMN IF NOT EXISTS makes it idempotent — same
+// pattern as ensureEmployeeCountVerificationColumns.
+func ensureNotificationColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notifications_enabled BOOLEAN NOT NULL DEFAULT true;
+		ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS assignee_email TEXT;
+	`)
+	return err
+}
+
+// ensureNotificationLogTable adds notification_log for any DB created before
+// this migration existed — same CREATE TABLE IF NOT EXISTS pattern as
+// ensurePipelineTables. Dedup lookups (skip already-sent notifications) key
+// off (event_type, pipeline_entry_id, notice_id, user_id) depending on the
+// event, so the index covers all four.
+func ensureNotificationLogTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS notification_log (
+			id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			event_type         TEXT NOT NULL CHECK (event_type IN
+			                       ('deadline_d3','deadline_d1','recommendation_digest','assignee_status_change')),
+			recipient_email    TEXT NOT NULL,
+			user_id            UUID REFERENCES users(id),
+			pipeline_entry_id  UUID REFERENCES notice_pipeline_entries(id),
+			notice_id          UUID REFERENCES notices(id),
+			subject            TEXT NOT NULL,
+			status             TEXT NOT NULL CHECK (status IN ('sent','failed')),
+			error_message      TEXT,
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_notification_log_dedup
+			ON notification_log(event_type, pipeline_entry_id, notice_id, user_id);
 	`)
 	return err
 }

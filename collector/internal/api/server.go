@@ -14,6 +14,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/lib/pq"
 
+	"biz-platform/collector/internal/notify"
 	"biz-platform/collector/internal/webui"
 )
 
@@ -23,9 +24,10 @@ type Server struct {
 	sessionSecret   []byte
 	attachmentDir   string
 	anthropicClient *anthropic.Client
+	notify          *notify.Client
 }
 
-func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client) *Server {
+func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -35,6 +37,7 @@ func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir st
 		sessionSecret:   sessionSecret,
 		attachmentDir:   attachmentDir,
 		anthropicClient: anthropicClient,
+		notify:          notifyClient,
 	}
 }
 
@@ -78,6 +81,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/pipeline/{id}/checklist/{itemId}", s.handleUpdateChecklistItem)
 	mux.HandleFunc("GET /api/pipeline", s.handleListPipeline)
 	mux.HandleFunc("GET /api/pipeline/{id}", s.handleGetPipelineEntry)
+	mux.HandleFunc("PATCH /api/me/notification-settings", s.handleUpdateNotificationSettings)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }

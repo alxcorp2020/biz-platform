@@ -22,6 +22,7 @@ import (
 	"biz-platform/collector/internal/collector/sources/demo"
 	"biz-platform/collector/internal/collector/sources/g2b"
 	"biz-platform/collector/internal/migrate"
+	"biz-platform/collector/internal/notify"
 )
 
 func main() {
@@ -67,12 +68,51 @@ func main() {
 	}
 	anthropicClient := anthropic.NewClient()
 
-	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient)
+	resendFrom := os.Getenv("RESEND_FROM_EMAIL")
+	if resendFrom == "" {
+		resendFrom = "알림 <onboarding@resend.dev>"
+	}
+	notifyClient := notify.NewClient(os.Getenv("RESEND_API_KEY"), resendFrom)
+	if !notifyClient.Configured() {
+		logger.Warn("RESEND_API_KEY is not set; 이메일 알림(마감 리마인더/추천 다이제스트/담당자 알림)은 발송되지 않습니다")
+	}
+
+	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient)
+	startBackgroundNotifications(srv, logger)
+
 	logger.Info("api server starting", "port", port)
 	if err := http.ListenAndServe(":"+port, srv.Routes()); err != nil {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+// dailyNotificationHour/Minute: 이메일 알림 배치(마감 D-3/D-1, 추천공고
+// 다이제스트)를 매일 이 시각(KST)에 1회 실행한다. 특별한 근거가 있는
+// 시각은 아니고 "업무 시작 직후 확인 가능하게"라는 상식적 기본값 —
+// 필요하면 나중에 조정.
+const (
+	dailyNotificationHour   = 9
+	dailyNotificationMinute = 0
+)
+
+// startBackgroundNotifications runs api.Server.RunDailyNotifications once a
+// day, same in-process-goroutine workaround as startBackgroundCollection
+// (Render 무료 플랜은 별도 Background Worker를 지원하지 않음).
+func startBackgroundNotifications(srv *api.Server, logger *slog.Logger) {
+	loc, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		logger.Error("background notifications: failed to load Asia/Seoul timezone, notifications disabled", "error", err)
+		return
+	}
+	go func() {
+		ctx := context.Background()
+		for {
+			wait := time.Until(notify.NextDailyRun(time.Now(), loc, dailyNotificationHour, dailyNotificationMinute))
+			time.Sleep(wait)
+			srv.RunDailyNotifications(ctx)
+		}
+	}()
 }
 
 // loadSessionSecret reads SESSION_SECRET, or generates a random one if unset.

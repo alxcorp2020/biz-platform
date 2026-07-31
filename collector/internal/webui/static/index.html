@@ -1551,6 +1551,7 @@ async function renderPipelineDetail(container, id) {
           </select>
         </label>
         <label>담당자<input type="text" name="assigneeName" value="${escapeAttr(entry.assigneeName || '')}" placeholder="담당자 이름"></label>
+        <label>담당자 이메일<input type="email" name="assigneeEmail" value="${escapeAttr(entry.assigneeEmail || '')}" placeholder="상태 변경 시 이 주소로 알림이 발송됩니다"></label>
         <label>메모<textarea name="memo" rows="3">${escapeHtml(entry.memo || '')}</textarea></label>
         <p class="license-card-meta">제출 마감: ${entry.submissionDeadline ? escapeHtml(entry.submissionDeadline) : '확인 안 됨'}</p>
         <div id="pipeline-entry-error" class="error" style="display:none"></div>
@@ -1573,6 +1574,7 @@ async function renderPipelineDetail(container, id) {
     const payload = {
       status: fd.get('status'),
       assigneeName: fd.get('assigneeName') || '',
+      assigneeEmail: fd.get('assigneeEmail') || '',
       memo: fd.get('memo') || '',
     };
     try {
@@ -2404,6 +2406,13 @@ function renderProfileBasicTab(container) {
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="detail-card">
+      <label class="checkbox-label">
+        <input type="checkbox" id="email-notifications-toggle" ${currentUser && currentUser.emailNotificationsEnabled ? 'checked' : ''}>
+        이메일 알림 받기 (제출마감 D-3/D-1, 추천 공고 다이제스트, 담당자 상태변경)
+      </label>
+      <span id="email-notifications-status" class="license-card-meta"></span>
+    </div>
+    <div class="detail-card">
       <form id="profile-form" class="profile-form">
         <label>업태 (쉼표로 구분, 겸업 시 여러 개 등록 가능)<input type="text" name="businessType"></label>
         <label>지역<input type="text" name="region"></label>
@@ -2436,6 +2445,23 @@ function renderProfileBasicTab(container) {
       </form>
     </div>
   `));
+
+  const notificationsToggle = document.getElementById('email-notifications-toggle');
+  const notificationsStatus = document.getElementById('email-notifications-status');
+  notificationsToggle.addEventListener('change', async () => {
+    const enabled = notificationsToggle.checked;
+    notificationsToggle.disabled = true;
+    try {
+      await apiRequest('PATCH', '/api/me/notification-settings', { emailNotificationsEnabled: enabled });
+      if (currentUser) currentUser.emailNotificationsEnabled = enabled;
+      notificationsStatus.textContent = '저장되었습니다.';
+    } catch (err) {
+      notificationsToggle.checked = !enabled;
+      notificationsStatus.textContent = err.message;
+    } finally {
+      notificationsToggle.disabled = false;
+    }
+  });
 
   const form = document.getElementById('profile-form');
   const errorBox = document.getElementById('profile-error');
