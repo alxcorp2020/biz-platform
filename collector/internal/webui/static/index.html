@@ -1059,6 +1059,11 @@
   .license-card-main { display: flex; flex-direction: column; gap: 0.3rem; }
   .license-card-name { font-weight: 600; color: var(--ink); }
   .license-card-meta { font-size: 0.82rem; color: var(--ink-soft); display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .upload-guide { margin-bottom: 0.75rem; }
+  .upload-guide-tips {
+    font-size: 0.82rem; color: var(--ink-soft); margin: 0.3rem 0 0.5rem;
+    padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.15rem;
+  }
   .license-card-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0.35rem; }
   .confidence-badge {
     display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
@@ -1531,6 +1536,7 @@ const GLOSSARY = {
   '확인 필요': '정보가 부족하거나 애매해서 단정할 수 없는 상태입니다. 원문을 직접 확인해주세요.',
   '자료 부족': '공고나 기업 프로필에 해당 정보 자체가 없어서 판정할 수 없는 상태입니다.',
   '업종 판정': '업종은 대분류 그룹 단위로 비교합니다. 기업이 선택한 그룹 중 하나라도 공고 업종과 일치하면 충족으로 판정합니다.',
+  'AI 분석': 'AI 분석은 업로드하신 문서를 읽어 상호명, 사업자번호, 발급일 등 항목을 자동으로 구조화하는 기능입니다. 실제로 AI 모델을 호출하는 작업이라 월 한도가 있으며, 결과는 저장 전 반드시 확인 후 승인해야 반영됩니다.',
 };
 
 let tooltipCounter = 0;
@@ -1551,6 +1557,25 @@ function glossaryHtml(term, label) {
 // 표 근처라 규칙 기반 추출이 불완전할 수 있는 참가자격 항목에 붙는 경고 아이콘.
 function reviewRequiredWarningHtml() {
   return tooltipIconHtml('!', '표 안에 있어 자동 추출이 불완전할 수 있습니다.', '표 인접 주의', 'glossary-btn--warn');
+}
+
+// uploadGuideHtml — 증빙서류 업로드 버튼 위에 붙는 공용 안내. docExamples는
+// 이 카테고리에 올릴 수 있는 문서 종류 예시(카테고리마다 다름), 인식률
+// 팁/허용형식·용량/AI 분석 설명은 6개 업로드 화면 전부 공통이라 한
+// 함수로 묶었다. 인식률 팁은 실제로 알려진 한계(표 많은 문서 등)를
+// 정직하게 적는다 — 과장된 보장 문구는 쓰지 않는다.
+function uploadGuideHtml(docExamples) {
+  return `
+    <div class="upload-guide">
+      <p class="license-card-meta">${escapeHtml(docExamples)}</p>
+      <ul class="upload-guide-tips">
+        <li>스캔 또는 사진이 선명하고, 문서 전체가 잘리지 않게 촬영해주세요.</li>
+        <li>표가 많은 문서는 인식률이 낮을 수 있습니다 — 추출된 내용을 꼼꼼히 확인 후 저장해주세요.</li>
+        <li>PDF, JPG, PNG 형식 / 10MB 이하만 업로드할 수 있습니다.</li>
+      </ul>
+      <p class="license-card-meta">${glossaryHtml('AI 분석')}이 문서를 자동으로 읽어 항목을 채워드립니다.</p>
+    </div>
+  `;
 }
 
 function closeAllGlossary() {
@@ -1911,6 +1936,7 @@ function renderDashboard(container, data) {
       <h2 class="dash-greeting-title">오늘 확인할 업무입니다.</h2>
     </div>
     <div class="dash-tiles">${tilesHtml}</div>
+    <p class="license-card-meta">${glossaryHtml('AI 분석')} 카드는 이번달 AI 자동분석 사용 현황입니다.</p>
     <h3 class="dash-section-title">오늘의 우선 업무</h3>
     ${itemsHtml}
   `));
@@ -2115,7 +2141,7 @@ async function renderAIUsage(container) {
   container.innerHTML = '';
   container.appendChild(h(`
     <h2>AI 분석 사용내역</h2>
-    <p class="license-card-meta">이번달 사용량: ${escapeHtml(limitLabel)}</p>
+    <p class="license-card-meta">${glossaryHtml('AI 분석')} 이번달 사용량: ${escapeHtml(limitLabel)}</p>
     <div class="license-list">${rowsHtml}</div>
   `));
 }
@@ -3728,7 +3754,8 @@ async function renderFinancialsTab(container) {
 
   container.innerHTML = '';
   container.appendChild(h(`
-    <p class="license-card-meta">연도별 재무정보를 등록합니다. 재무제표/신용평가서/표준재무제표증명/부가가치세과세표준증명을 업로드하면 AI가 자동으로 수치를 읽어드립니다.</p>
+    <p class="license-card-meta">연도별 재무정보를 등록합니다.</p>
+    ${uploadGuideHtml('재무상태표, 손익계산서, 신용평가서, 표준재무제표증명원, 부가가치세 과세표준증명원 등을 올려주세요.')}
     <div class="license-toolbar">
       <button type="button" id="financial-upload-btn">증빙서류 업로드(재무제표 등)</button>
       <button type="button" id="financial-manual-btn" class="secondary">직접 입력</button>
@@ -3904,7 +3931,8 @@ async function renderTrackRecordsTab(container) {
 
   container.innerHTML = '';
   container.appendChild(h(`
-    <p class="license-card-meta">수행실적을 건별로 등록합니다. 실적증명서/계약서/세금계산서를 업로드하면 AI가 자동으로 정보를 읽어드립니다.</p>
+    <p class="license-card-meta">수행실적을 건별로 등록합니다.</p>
+    ${uploadGuideHtml('수행실적증명서, 계약서, 세금계산서 등을 올려주세요.')}
     <div class="license-toolbar">
       <button type="button" id="track-record-upload-btn">증빙서류 업로드(실적증명서·계약서·세금계산서)</button>
       <button type="button" id="track-record-manual-btn" class="secondary">직접 입력</button>
@@ -4045,7 +4073,8 @@ async function renderPersonnelTab(container) {
 
   container.innerHTML = '';
   container.appendChild(h(`
-    <p class="license-card-meta">보유 기술인력을 등록합니다(개인식별정보는 저장하지 않습니다). 기술인력현황표를 업로드하면 AI가 자동으로 정보를 읽어드립니다.</p>
+    <p class="license-card-meta">보유 기술인력을 등록합니다(개인식별정보는 저장하지 않습니다).</p>
+    ${uploadGuideHtml('기술인력현황표, 경력증명서 등을 올려주세요.')}
     <div class="license-toolbar">
       <button type="button" id="personnel-upload-btn">증빙서류 업로드(기술인력현황표)</button>
       <button type="button" id="personnel-manual-btn" class="secondary">직접 입력</button>
@@ -4334,7 +4363,8 @@ async function renderLicenses(container) {
   container.appendChild(h(`
     <div class="detail-card">
       <h2>면허·인증</h2>
-      <p class="license-card-meta">사업 참여에 필요한 면허·신고·등록, 인증 현황을 관리합니다. 증빙서류를 업로드하면 AI가 자동으로 정보를 읽어드립니다.</p>
+      <p class="license-card-meta">사업 참여에 필요한 면허·신고·등록, 인증 현황을 관리합니다.</p>
+      ${uploadGuideHtml('사업자등록증, 중소기업확인서, 직접생산확인증명서, 각종 면허증·인증서, 법인등기사항증명서, 경쟁입찰참가자격등록증, 기업부설연구소 인정서 등을 올려주세요.')}
       <div class="license-toolbar">
         <button type="button" id="license-upload-btn" class="btn btn-primary">증빙서류 업로드</button>
         <button type="button" id="license-manual-btn" class="btn btn-secondary">직접 입력</button>
@@ -4351,7 +4381,8 @@ async function renderLicenses(container) {
       </div>
       <div class="license-section">
         <h3>지식재산권</h3>
-        <p class="license-card-meta">특허·상표·디자인·실용신안의 출원~등록 현황을 관리합니다. 등록증/출원서를 업로드하면 AI가 자동으로 정보를 읽어드립니다.</p>
+        <p class="license-card-meta">특허·상표·디자인·실용신안의 출원~등록 현황을 관리합니다.</p>
+        ${uploadGuideHtml('특허증, 상표등록증, 디자인등록증, 실용신안등록증 또는 그 출원서를 올려주세요.')}
         <div class="license-toolbar">
           <button type="button" id="ip-upload-btn" class="btn btn-primary">증빙서류 업로드(특허·상표 등)</button>
           <button type="button" id="ip-manual-btn" class="btn btn-secondary">직접 입력</button>
