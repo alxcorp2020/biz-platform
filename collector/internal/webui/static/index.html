@@ -3705,9 +3705,15 @@ async function renderMySubscription(container) {
   // status가 active가 아니면(결제 대기/해지/만료) 아래 한도는 이미 Free
   // 기준으로 내려온다(백엔드가 effective plan으로 계산) — 그런데 heading엔
   // 여전히 선택했던(또는 예전) plan 이름이 나오므로, 착각하지 않도록
-  // "아직 적용 안 됨"을 명시적으로 붙인다.
-  const notActiveNote = data.status !== 'active'
-    ? `<p class="ai-minimal-profile-notice">아직 결제가 완료되지 않아 적용되지 않았습니다 — 아래 한도는 현재 실제로 적용 중인 Free 기준입니다.</p>`
+  // 상태별로 정확한 안내를 붙인다("결제 대기"와 "만료"는 원인이 다르므로
+  // 문구도 다르게).
+  const notActiveReason = {
+    pending: '아직 결제가 완료되지 않아',
+    expired: '구독 기간이 만료되어',
+    cancelled: '구독이 해지되어',
+  }[data.status];
+  const notActiveNote = notActiveReason
+    ? `<p class="ai-minimal-profile-notice">${escapeHtml(notActiveReason)} 적용되지 않았습니다 — 아래 한도는 현재 실제로 적용 중인 Free 기준입니다.</p>`
     : '';
 
   container.innerHTML = '';

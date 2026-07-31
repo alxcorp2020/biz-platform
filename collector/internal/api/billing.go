@@ -70,6 +70,20 @@ func effectivePlanFromRow(plan billing.Plan, status string, expiresAt *time.Time
 	return plan
 }
 
+// displayStatus adjusts the raw persisted status for API responses only: an
+// 'active' row whose expires_at has already passed is reported as 'expired'
+// even though nothing has rewritten the DB row yet — there's no cron job
+// that flips status on a schedule, since effectivePlanFromRow already
+// treats a past-expiry row as Free at every enforcement check, in real
+// time. This function exists purely so GET /api/me/subscription doesn't
+// keep telling the user "active" once that stops being true.
+func displayStatus(status string, expiresAt *time.Time) string {
+	if status == "active" && expiresAt != nil && expiresAt.Before(time.Now()) {
+		return "expired"
+	}
+	return status
+}
+
 // effectivePlan is the choke point checkPipelineEntryQuota/
 // checkAIAnalysisQuota go through. handleGetSubscription shows the raw
 // persisted plan/status instead (a user should see "Business 결제 대기중" as
@@ -204,7 +218,7 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"plan":                  string(plan),
 		"planName":              info.Name,
-		"status":                status,
+		"status":                displayStatus(status, expiresAt),
 		"startedAt":             startedAt,
 		"expiresAt":             expiresAt,
 		"amount":                amount,
