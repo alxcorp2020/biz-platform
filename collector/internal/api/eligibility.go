@@ -275,14 +275,19 @@ func (s *Server) evaluateRegion(ctx context.Context, versionID, profileID string
 // 사업자등록증에 마케팅업 + 통신판매업 둘 다 등록된 경우), so it's "met" the
 // moment the notice's industry group is any one of them — not "met" only if
 // every selected group matches.
-func scoreIndustry(noticeIndustry sql.NullString, companyGroups []string) (result, reason string) {
+// scoreIndustry의 세 번째 반환값(dataGapSide)은 scoreRegion과 같은 원칙:
+// "notice"는 공고 자체에 업종 정보가 없는 경우(사용자가 고칠 수 없음),
+// "company"는 기업 프로필에 업종 정보가 없는 경우(사용자가 "내 프로필"에서
+// 채우면 해결됨). insufficient_data가 아닌 경우(met/needs_confirmation)엔
+// 항상 빈 문자열.
+func scoreIndustry(noticeIndustry sql.NullString, companyGroups []string) (result, reason, dataGapSide string) {
 	noticeRaw := strings.TrimSpace(noticeIndustry.String)
 
 	switch {
 	case !noticeIndustry.Valid || noticeRaw == "":
-		return "insufficient_data", "공고에 업종 정보가 없어 업종 조건을 판정할 수 없습니다."
+		return "insufficient_data", "공고에 업종 정보가 없어 업종 조건을 판정할 수 없습니다.", "notice"
 	case len(companyGroups) == 0:
-		return "insufficient_data", "기업 프로필에 업종 정보가 없어 판정할 수 없습니다."
+		return "insufficient_data", "기업 프로필에 업종 정보가 없어 판정할 수 없습니다.", "company"
 	default:
 		noticeGroup, known := industryRawToGroup[noticeRaw]
 		switch {
@@ -290,21 +295,21 @@ func scoreIndustry(noticeIndustry sql.NullString, companyGroups []string) (resul
 			return "needs_confirmation", fmt.Sprintf(
 				"공고 업종(%s)이 자동 분류 목록에 없는 새로운 값입니다. 기업이 선택한 업종(%s)과 "+
 					"일치하는지 원문에서 직접 확인하세요.",
-				noticeRaw, strings.Join(companyGroups, ", "))
+				noticeRaw, strings.Join(companyGroups, ", ")), ""
 		case containsString(companyGroups, noticeGroup):
-			return "met", fmt.Sprintf("공고 업종(%s, %s 분류)이 기업이 선택한 업종과 일치합니다.", noticeRaw, noticeGroup)
+			return "met", fmt.Sprintf("공고 업종(%s, %s 분류)이 기업이 선택한 업종과 일치합니다.", noticeRaw, noticeGroup), ""
 		default:
 			return "needs_confirmation", fmt.Sprintf(
 				"공고 업종(%s, %s 분류)이 기업이 선택한 업종(%s)과 다릅니다. 업종 분류가 정확한 표준 "+
 					"산업분류가 아니므로 실제로는 겹칠 수 있으니 원문에서 직접 확인하세요.",
-				noticeRaw, noticeGroup, strings.Join(companyGroups, ", "))
+				noticeRaw, noticeGroup, strings.Join(companyGroups, ", ")), ""
 		}
 	}
 }
 
 func (s *Server) evaluateIndustry(ctx context.Context, versionID, profileID string, noticeIndustry sql.NullString, companyGroups []string) (eligibilityItem, error) {
 	noticeRaw := strings.TrimSpace(noticeIndustry.String)
-	result, reason := scoreIndustry(noticeIndustry, companyGroups)
+	result, reason, _ := scoreIndustry(noticeIndustry, companyGroups)
 
 	conditionID, err := s.findOrCreateAutoCondition(ctx, versionID,
 		"업종", "auto:industry", "eq", noticeRaw,
@@ -328,22 +333,28 @@ func containsString(list []string, v string) bool {
 }
 
 // scoreBudgetSize is the pure decision logic behind evaluateBudgetSize.
-func scoreBudgetSize(budgetAmount sql.NullInt64, companySize sql.NullString) (result, reason string) {
+// 세 번째 반환값(dataGapSide)은 scoreIndustry/scoreRegion과 같은 원칙 —
+// 예전엔 "예산 없음"과 "기업 규모 없음"을 한 case로 합쳐놔서 어느 쪽
+// 데이터가 빈 건지 구분이 아예 불가능했다. budgetAmount는 공고쪽(notice),
+// companySize는 회사쪽(company) 데이터라 순서대로 나눠 확인한다.
+func scoreBudgetSize(budgetAmount sql.NullInt64, companySize sql.NullString) (result, reason, dataGapSide string) {
 	switch {
-	case !companySize.Valid || companySize.String == "" || !budgetAmount.Valid:
-		return "insufficient_data", "기업 규모 또는 공고 예산 정보가 없어 예산 규모 조건을 판정할 수 없습니다."
+	case !budgetAmount.Valid:
+		return "insufficient_data", "공고에 예산 정보가 없어 예산 규모 조건을 판정할 수 없습니다.", "notice"
+	case !companySize.Valid || companySize.String == "":
+		return "insufficient_data", "기업 프로필에 기업 규모 정보가 없어 판정할 수 없습니다.", "company"
 	case companySize.String == smallBusinessSize && budgetAmount.Int64 >= smallBusinessBudgetCap:
 		return "needs_confirmation", fmt.Sprintf(
 			"기업 규모가 %s인데 공고 예산(%d원)이 %d원 이상으로 큽니다. "+
 				"실제 참가자격 규정을 확인하지 않은 예시 기준이니, 공고문에서 참가자격을 직접 확인하세요.",
-			smallBusinessSize, budgetAmount.Int64, smallBusinessBudgetCap)
+			smallBusinessSize, budgetAmount.Int64, smallBusinessBudgetCap), ""
 	default:
-		return "met", "예산 규모 관련 확인된 제한 사항이 없습니다."
+		return "met", "예산 규모 관련 확인된 제한 사항이 없습니다.", ""
 	}
 }
 
 func (s *Server) evaluateBudgetSize(ctx context.Context, versionID, profileID string, budgetAmount sql.NullInt64, companySize sql.NullString) (eligibilityItem, error) {
-	result, reason := scoreBudgetSize(budgetAmount, companySize)
+	result, reason, _ := scoreBudgetSize(budgetAmount, companySize)
 
 	conditionID, err := s.findOrCreateAutoCondition(ctx, versionID,
 		"예산규모", "auto:budget_size", "gte", fmt.Sprintf("%d", smallBusinessBudgetCap),

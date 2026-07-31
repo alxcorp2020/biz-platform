@@ -70,6 +70,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/me/personnel/documents", s.handleUploadPersonnelDocument)
 	mux.HandleFunc("POST /api/me/personnel", s.handleCreatePersonnel)
 	mux.HandleFunc("GET /api/me/personnel", s.handleListPersonnel)
+	mux.HandleFunc("GET /api/me/profile-completeness", s.handleGetProfileCompleteness)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }

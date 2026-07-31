@@ -882,6 +882,27 @@
   }
   .profile-tab-btn:hover { color: var(--ink); }
   .profile-tab-btn.is-active { color: var(--navy); border-bottom-color: var(--navy); }
+
+  /* ---------- 프로필 완성도/신뢰도 요약 카드 ---------- */
+  .profile-completeness-card { padding: 1.25rem 1.5rem; }
+  .completeness-summary {
+    display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1.1rem;
+    padding-bottom: 1.1rem; border-bottom: 1px solid var(--border);
+  }
+  .completeness-summary-item { display: flex; flex-direction: column; }
+  .completeness-summary-value { font-size: 1.4rem; font-weight: 700; color: var(--navy); }
+  .completeness-summary-label { font-size: 0.8rem; color: var(--ink-soft); }
+  .completeness-rows { display: flex; flex-direction: column; gap: 0.5rem; }
+  .completeness-row { display: flex; align-items: center; gap: 0.75rem; }
+  .completeness-label { flex: 0 0 4.5rem; font-size: 0.85rem; color: var(--ink-soft); }
+  .completeness-bar {
+    flex: 1; height: 8px; border-radius: 999px; background: var(--bg-soft); overflow: hidden;
+  }
+  .completeness-bar-fill { height: 100%; background: var(--accent-blue); border-radius: 999px; }
+  .completeness-pct { flex: 0 0 2.5rem; text-align: right; font-size: 0.82rem; font-weight: 600; color: var(--ink); }
+
+  .elig-hint { margin: 0.4rem 0 0; font-size: 0.82rem; color: var(--ink-soft); }
+  .elig-hint a { font-weight: 600; }
 </style>
 </head>
 <body>
@@ -1735,6 +1756,12 @@ function renderParticipationSection(container, score) {
     ? `<ul class="ai-missing-list">${missing.map(c => {
         const isNoticeGap = c.dataGapSide === 'notice';
         const resultLabel = isNoticeGap ? '정보 없음' : eligResultHtml(c.result);
+        // 동적 질문 힌트(최소 버전): 회사 쪽 정보 공백(dataGapSide==='company')이라
+        // 판정이 애매한 경우에만 "채우면 해결됨" 안내+링크를 붙인다 — 공고 쪽
+        // 데이터 공백(notice)은 프로필을 채워도 해결되지 않으므로 보여주지 않는다.
+        const hintHtml = c.result === 'insufficient_data' && c.dataGapSide === 'company'
+          ? '<p class="elig-hint">이 정보가 있으면 더 정확히 판정됩니다. <a href="#/me/profile">기업 프로필에서 채우기 &rarr;</a></p>'
+          : '';
         return `
         <li class="elig-item${isNoticeGap ? ' elig-item--notice-gap' : ''}">
           <div class="elig-head">
@@ -1742,6 +1769,7 @@ function renderParticipationSection(container, score) {
             <span class="elig-result elig-result--${escapeHtml(c.result)}">${resultLabel}</span>
           </div>
           <p class="elig-reason">${escapeHtml(c.reason)}</p>
+          ${hintHtml}
         </li>`;
       }).join('')}</ul>`
     : '<p class="ai-missing-empty">확인된 조건이 모두 충족되었습니다.</p>';
@@ -1957,6 +1985,54 @@ async function renderBookmarks(container) {
   });
 }
 
+// renderProfileCompletenessCard — 기업 프로필 화면 상단 요약 카드.
+// 프로필이 아직 없는 신규 사용자는 /api/me/profile-completeness가
+// company_profile_required(400)를 반환하므로 조용히 카드를 생략한다
+// (에러 박스를 보여주면 "기본 정보" 탭이 처음 방문하는 화면이라는 사실과
+// 안 맞음 — 아직 아무것도 등록 안 한 게 에러는 아니다).
+async function renderProfileCompletenessCard(container) {
+  container.innerHTML = '';
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/me/profile-completeness');
+  } catch (err) {
+    return;
+  }
+
+  const order = ['basic', 'industry', 'licenses', 'certifications', 'financials', 'trackRecords', 'personnel'];
+  const rowsHtml = order.map(key => {
+    const c = data.categories[key];
+    if (!c) return '';
+    return `
+      <div class="completeness-row">
+        <span class="completeness-label">${escapeHtml(c.label)}</span>
+        <div class="completeness-bar"><div class="completeness-bar-fill" style="width:${c.completeness}%"></div></div>
+        <span class="completeness-pct">${c.completeness}%</span>
+      </div>
+    `;
+  }).join('');
+
+  container.appendChild(h(`
+    <div class="detail-card profile-completeness-card">
+      <div class="completeness-summary">
+        <div class="completeness-summary-item">
+          <span class="completeness-summary-value">${data.overallCompleteness}%</span>
+          <span class="completeness-summary-label">전체 완성도</span>
+        </div>
+        <div class="completeness-summary-item">
+          <span class="completeness-summary-value">${data.matchConfidence}%</span>
+          <span class="completeness-summary-label">매칭 신뢰도</span>
+        </div>
+        <div class="completeness-summary-item">
+          <span class="completeness-summary-value">${data.needsVerificationCount}건</span>
+          <span class="completeness-summary-label">검증 필요 항목</span>
+        </div>
+      </div>
+      <div class="completeness-rows">${rowsHtml}</div>
+    </div>
+  `));
+}
+
 async function renderProfile(container) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
@@ -1975,6 +2051,7 @@ async function renderProfile(container) {
   container.innerHTML = '';
   container.appendChild(h(`
     <h2>기업 프로필</h2>
+    <div id="profile-completeness-section"></div>
     <div class="profile-tabs">
       <button type="button" class="profile-tab-btn is-active" data-tab="basic">기본 정보</button>
       <button type="button" class="profile-tab-btn" data-tab="financials">재무정보</button>
@@ -1983,6 +2060,8 @@ async function renderProfile(container) {
     </div>
     <div id="profile-tab-content"></div>
   `));
+
+  renderProfileCompletenessCard(document.getElementById('profile-completeness-section'));
 
   const tabContent = document.getElementById('profile-tab-content');
   const tabRenderers = {

@@ -54,13 +54,13 @@ type participationScore struct {
 
 func scoreNoticeForCompany(notice noticeScoringInput, company companyScoringInput) participationScore {
 	regionResult, regionReason, regionGapSide := scoreRegion(notice.Region, company.Region)
-	industryResult, industryReason := scoreIndustry(notice.Industry, company.Industry)
-	budgetResult, budgetReason := scoreBudgetSize(notice.BudgetAmount, company.Size)
+	industryResult, industryReason, industryGapSide := scoreIndustry(notice.Industry, company.Industry)
+	budgetResult, budgetReason, budgetGapSide := scoreBudgetSize(notice.BudgetAmount, company.Size)
 
 	categories := []categoryScore{
 		{Category: "지역", Result: regionResult, Reason: regionReason, DataGapSide: regionGapSide},
-		{Category: "업종", Result: industryResult, Reason: industryReason},
-		{Category: "예산 규모", Result: budgetResult, Reason: budgetReason},
+		{Category: "업종", Result: industryResult, Reason: industryReason, DataGapSide: industryGapSide},
+		{Category: "예산 규모", Result: budgetResult, Reason: budgetReason, DataGapSide: budgetGapSide},
 	}
 
 	metCount := 0
