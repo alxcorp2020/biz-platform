@@ -1,6 +1,11 @@
-// billing.go — 토스페이먼츠 결제위젯 기반 구독 결제. 정기결제(빌링키
-// 자동결제)는 별도 승인이 필요해 이번 범위에서 제외하고, 1회성 결제로
-// 매달 사용자가 직접 갱신하는 흐름만 구현한다.
+// billing.go — 토스페이먼츠 API 개별 연동(결제창) 기반 구독 결제.
+// 결제위젯 연동 키는 별도 승인이 필요해 발급 전까지 API 개별 연동 키로
+// 대체했다 — 서버 승인(confirm) 절차는 두 방식이 완전히 동일해 이 파일은
+// 변경 없이 그대로 재사용된다(클라이언트 쪽만 tossPayments.widgets(...)
+// 대신 tossPayments.requestPayment(...)를 직접 호출하도록 바뀜 —
+// index.html의 renderBillingCheckout 참고). 정기결제(빌링키 자동결제)는
+// 별도 승인이 필요해 이번 범위에서 제외하고, 1회성 결제로 매달 사용자가
+// 직접 갱신하는 흐름만 구현한다.
 //
 // 승인은 반드시 서버(여기)에서 토스 결제승인 API를 호출해 확정한다 —
 // 클라이언트가 결제창에서 받은 값만으로 구독을 활성화하지 않는다(보안
@@ -249,10 +254,9 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"orderId":     orderID,
-		"orderName":   info.Name + " 플랜 구독",
-		"amount":      info.AmountKRW,
-		"customerKey": profile.ID, // 불투명 UUID라 토스 customerKey로 그대로 사용해도 안전
+		"orderId":   orderID,
+		"orderName": info.Name + " 플랜 구독",
+		"amount":    info.AmountKRW,
 	})
 }
 

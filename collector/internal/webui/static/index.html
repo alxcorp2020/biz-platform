@@ -1004,7 +1004,6 @@
     color: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.9rem;
   }
   .plan-subscribe-btn:hover { background: var(--navy-deep); border-color: var(--navy-deep); }
-  #toss-payment-method, #toss-agreement { margin-top: 1.25rem; }
 
   /* ---------- 모바일 반응형 최소 대응 ----------
      그리드류(dash-tiles/checkbox-grid/detail-meta 등)는 이미
@@ -3574,52 +3573,44 @@ async function renderBillingCheckout(container) {
     <div class="detail-card">
       <p class="detail-eyebrow">${escapeHtml(checkout.orderName)}</p>
       <h2>${formatBudget(checkout.amount)} / 월</h2>
-      <div id="toss-payment-method"></div>
-      <div id="toss-agreement"></div>
       <div id="checkout-error" class="error" style="display:none"></div>
-      <button type="button" id="checkout-pay-btn" class="home-cta-primary" disabled>결제 위젯 불러오는 중...</button>
+      <button type="button" id="checkout-pay-btn" class="home-cta-primary">결제하기</button>
     </div>
   `));
 
   const errorBox = document.getElementById('checkout-error');
   const payBtn = document.getElementById('checkout-pay-btn');
+  const tossPayments = TossPayments(config.tossClientKey);
 
-  try {
-    const tossPayments = TossPayments(config.tossClientKey);
-    const widgets = tossPayments.widgets({ customerKey: checkout.customerKey });
-    await widgets.setAmount({ currency: 'KRW', value: checkout.amount });
-    await Promise.all([
-      widgets.renderPaymentMethods({ selector: '#toss-payment-method', variantKey: 'DEFAULT' }),
-      widgets.renderAgreement({ selector: '#toss-agreement', variantKey: 'AGREEMENT' }),
-    ]);
-    payBtn.disabled = false;
-    payBtn.textContent = '결제하기';
-    payBtn.addEventListener('click', async () => {
-      errorBox.style.display = 'none';
-      payBtn.disabled = true;
-      try {
-        // 토스가 successUrl/failUrl에 쿼리를 붙일 때 이미 우리 URL에 '#'이
-        // 있으면(해시 라우팅) 그 쿼리는 location.search가 아니라
-        // location.hash 뒤에 붙는다 — renderBillingSuccess/Fail이 그렇게
-        // 파싱한다(route()의 hash.split('?') 관례와 동일).
-        await widgets.requestPayment({
-          orderId: checkout.orderId,
-          orderName: checkout.orderName,
-          successUrl: location.origin + location.pathname + '#/billing/success',
-          failUrl: location.origin + location.pathname + '#/billing/fail',
-          customerEmail: currentUser.email,
-        });
-      } catch (err) {
-        payBtn.disabled = false;
-        errorBox.textContent = err.message || '결제 요청 중 오류가 발생했습니다.';
-        errorBox.style.display = 'block';
-      }
-    });
-  } catch (err) {
-    errorBox.textContent = '결제 위젯을 불러오지 못했습니다: ' + (err.message || '');
-    errorBox.style.display = 'block';
-    payBtn.style.display = 'none';
-  }
+  payBtn.addEventListener('click', async () => {
+    errorBox.style.display = 'none';
+    payBtn.disabled = true;
+    try {
+      // API 개별 연동(결제창) — 결제위젯 연동 키가 나오기 전까지는 이
+      // 방식을 쓴다. 위젯과 달리 페이지 안에 결제수단 UI를 그리지 않고
+      // 토스가 직접 띄우는 결제창으로 이동한다. 승인 절차(서버가
+      // paymentKey/orderId/amount로 confirm 호출)는 위젯 방식과 완전히
+      // 동일 — POST /v1/payments/confirm 하나뿐이라 백엔드는 그대로 재사용.
+      //
+      // 토스가 successUrl/failUrl에 쿼리를 붙일 때 이미 우리 URL에 '#'이
+      // 있으면(해시 라우팅) 그 쿼리는 location.search가 아니라
+      // location.hash 뒤에 붙는다 — renderBillingSuccess/Fail이 그렇게
+      // 파싱한다(route()의 hash.split('?') 관례와 동일).
+      await tossPayments.requestPayment({
+        method: 'CARD',
+        amount: checkout.amount,
+        orderId: checkout.orderId,
+        orderName: checkout.orderName,
+        customerName: currentUser.email,
+        successUrl: location.origin + location.pathname + '#/billing/success',
+        failUrl: location.origin + location.pathname + '#/billing/fail',
+      });
+    } catch (err) {
+      payBtn.disabled = false;
+      errorBox.textContent = err.message || '결제 요청 중 오류가 발생했습니다.';
+      errorBox.style.display = 'block';
+    }
+  });
 }
 
 async function renderBillingSuccess(container) {
