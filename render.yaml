@@ -44,4 +44,6 @@ services:
         sync: false
       - key: TOSS_SECRET_KEY
         sync: false
+      - key: APP_BASE_URL
+        sync: false
     healthCheckPath: /healthz

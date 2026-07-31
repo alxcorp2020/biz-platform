@@ -130,21 +130,25 @@ func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	noticeID := r.PathValue("id")
 
-	var profileID string
-	var companyRegion, companySize sql.NullString
-	var companyIndustry pq.StringArray
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, region, industry, company_size FROM company_profiles WHERE user_id = $1`, userID,
-	).Scan(&profileID, &companyRegion, &companyIndustry, &companySize)
-	if err == sql.ErrNoRows {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
-		return
-	}
+	profile, err := s.getCompanyProfile(r, userID)
 	if err != nil {
 		s.logger.Error("evaluate: profile lookup failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
+	if profile == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
+		return
+	}
+	profileID := profile.ID
+	var companyRegion, companySize sql.NullString
+	if profile.Region != nil {
+		companyRegion = sql.NullString{String: *profile.Region, Valid: true}
+	}
+	if profile.CompanySize != nil {
+		companySize = sql.NullString{String: *profile.CompanySize, Valid: true}
+	}
+	companyIndustry := pq.StringArray(profile.Industry)
 
 	var noticeRegion, noticeIndustry sql.NullString
 	var budgetAmount sql.NullInt64

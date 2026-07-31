@@ -92,7 +92,13 @@ func main() {
 		logger.Warn("TOSS_CLIENT_KEY is not set; 결제위젯이 뜨지 않습니다 (테스트 키 발급 전)")
 	}
 
-	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, smsNotifyClient, tossClient, tossClientKey)
+	appBaseURL := os.Getenv("APP_BASE_URL")
+	if appBaseURL == "" {
+		appBaseURL = "http://localhost:" + port
+		logger.Warn("APP_BASE_URL is not set; 팀 초대 이메일 링크가 localhost를 가리킵니다 (운영 배포 시 반드시 설정)")
+	}
+
+	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, smsNotifyClient, tossClient, tossClientKey, appBaseURL)
 	startBackgroundNotifications(srv, logger)
 
 	logger.Info("api server starting", "port", port)

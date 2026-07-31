@@ -54,22 +54,26 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
-	var profileID string
-	var region, size sql.NullString
-	var industryArr pq.StringArray
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, region, industry, company_size FROM company_profiles WHERE user_id = $1`, userID,
-	).Scan(&profileID, &region, &industryArr, &size)
-	if err == sql.ErrNoRows {
-		// 프로필이 없는 것은 에러가 아니다 — 프론트가 온보딩 화면으로 분기한다.
-		writeJSON(w, http.StatusOK, map[string]any{"hasProfile": false})
-		return
-	}
+	profile, err := s.getCompanyProfile(r, userID)
 	if err != nil {
 		s.logger.Error("dashboard: profile lookup failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
+	if profile == nil {
+		// 프로필이 없는 것은 에러가 아니다 — 프론트가 온보딩 화면으로 분기한다.
+		writeJSON(w, http.StatusOK, map[string]any{"hasProfile": false})
+		return
+	}
+	profileID := profile.ID
+	var region, size sql.NullString
+	if profile.Region != nil {
+		region = sql.NullString{String: *profile.Region, Valid: true}
+	}
+	if profile.CompanySize != nil {
+		size = sql.NullString{String: *profile.CompanySize, Valid: true}
+	}
+	industryArr := pq.StringArray(profile.Industry)
 	trackRecordMax, err := s.fetchTrackRecordMaxAmount(ctx, profileID)
 	if err != nil {
 		s.logger.Error("dashboard: track record max amount query failed", "error", err)

@@ -195,7 +195,13 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 type companyProfileDTO struct {
-	ID                   string   `json:"id"`
+	ID   string `json:"id"`
+	// Role — 팀기능: 이 조직에서 호출자의 역할(owner/member). owner만
+	// 프로필/재무/실적/인력/면허/지식재산권/구독을 쓸 수 있고, member는
+	// 파이프라인만 쓸 수 있다(company_pipeline.go는 이 필드를 안 봄 —
+	// 애초에 두 역할 다 허용). 각 owner-only 핸들러가 이 값으로 403을
+	// 판단한다.
+	Role                 string   `json:"role"`
 	BusinessType         []string `json:"businessType"`
 	Region               *string  `json:"region"`
 	Industry             []string `json:"industry"`
@@ -212,26 +218,44 @@ type companyProfileDTO struct {
 	// employee_count를 확인했을 때만 채워진다(company_employee_verification.go).
 	EmployeeCountConfidence *string    `json:"employeeCountConfidence"`
 	EmployeeCountVerifiedAt *time.Time `json:"employeeCountVerifiedAt"`
+	// 알림 설정(email/phone/sms)은 팀기능 이전엔 users에 있었으나 "조직
+	// 단위로 공유"하기로 해 company_profiles로 옮겨왔다 — 이 응답이
+	// 그 값의 유일한 출처다(currentUser.emailNotificationsEnabled 등은
+	// 더 이상 없음, currentProfile 쪽에서 읽어야 함).
+	EmailNotificationsEnabled bool    `json:"emailNotificationsEnabled"`
+	PhoneNumber               *string `json:"phoneNumber"`
+	SMSNotificationsEnabled   bool    `json:"smsNotificationsEnabled"`
 }
 
+// getCompanyProfile resolves "which organization does this user belong to"
+// via company_members — the single chokepoint for the whole multi-user-per-
+// org model (팀기능). Every other handler that needs a company profile goes
+// through this function, so redirecting the JOIN here (company_members →
+// company_profiles) instead of the old direct company_profiles.user_id
+// lookup is what makes every one of those ~15 call sites work correctly for
+// both owners and members without individually touching them.
 func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProfileDTO, error) {
 	var p companyProfileDTO
-	var region, companySize, creditRating, employeeCountConfidence sql.NullString
+	var region, companySize, creditRating, employeeCountConfidence, phoneNumber sql.NullString
 	var businessAgeYears sql.NullFloat64
 	var revenueAmount, employeeCount, maxPerformanceAmount sql.NullInt64
 	var employeeCountVerifiedAt sql.NullTime
 	var businessType, industry, licenses, certs pq.StringArray
 
 	err := s.db.QueryRowContext(r.Context(), `
-		SELECT id, business_type, region, industry, business_age_years, revenue_amount,
-		       employee_count, company_size, licenses, certifications,
-		       direct_production_cert, max_performance_amount, credit_rating,
-		       employee_count_confidence, employee_count_verified_at
-		FROM company_profiles WHERE user_id = $1`, userID,
-	).Scan(&p.ID, &businessType, &region, &industry, &businessAgeYears, &revenueAmount,
+		SELECT cp.id, cm.role, cp.business_type, cp.region, cp.industry, cp.business_age_years, cp.revenue_amount,
+		       cp.employee_count, cp.company_size, cp.licenses, cp.certifications,
+		       cp.direct_production_cert, cp.max_performance_amount, cp.credit_rating,
+		       cp.employee_count_confidence, cp.employee_count_verified_at,
+		       cp.email_notifications_enabled, cp.phone_number, cp.sms_notifications_enabled
+		FROM company_members cm
+		JOIN company_profiles cp ON cp.id = cm.company_profile_id
+		WHERE cm.user_id = $1`, userID,
+	).Scan(&p.ID, &p.Role, &businessType, &region, &industry, &businessAgeYears, &revenueAmount,
 		&employeeCount, &companySize, &licenses, &certs,
 		&p.DirectProductionCert, &maxPerformanceAmount, &creditRating,
-		&employeeCountConfidence, &employeeCountVerifiedAt)
+		&employeeCountConfidence, &employeeCountVerifiedAt,
+		&p.EmailNotificationsEnabled, &phoneNumber, &p.SMSNotificationsEnabled)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -256,6 +280,7 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 	if employeeCountVerifiedAt.Valid {
 		p.EmployeeCountVerifiedAt = &employeeCountVerifiedAt.Time
 	}
+	p.PhoneNumber = nullStringPtr(phoneNumber)
 	return &p, nil
 }
 
@@ -281,11 +306,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var email, role, plan string
-	var emailNotificationsEnabled, smsNotificationsEnabled bool
-	var phoneNumber sql.NullString
 	err := s.db.QueryRowContext(r.Context(),
-		`SELECT email, role, plan, email_notifications_enabled, phone_number, sms_notifications_enabled FROM users WHERE id = $1`, userID,
-	).Scan(&email, &role, &plan, &emailNotificationsEnabled, &phoneNumber, &smsNotificationsEnabled)
+		`SELECT email, role, plan FROM users WHERE id = $1`, userID,
+	).Scan(&email, &role, &plan)
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
@@ -296,6 +319,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 알림 설정(email/phone/sms)은 팀기능으로 조직 단위(company_profiles)로
+	// 옮겨졌다 — currentUser에는 더 이상 없고 companyProfile 쪽에서 읽는다
+	// (조직이 아직 없으면 프로필 자체가 null이라 자연히 알림 설정도 없음).
 	profile, err := s.getCompanyProfile(r, userID)
 	if err != nil {
 		s.logger.Error("me: profile query failed", "error", err)
@@ -304,9 +330,6 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": map[string]any{
 			"id": userID, "email": email, "role": role, "plan": plan,
-			"emailNotificationsEnabled": emailNotificationsEnabled,
-			"phoneNumber":               nullStringPtr(phoneNumber),
-			"smsNotificationsEnabled":   smsNotificationsEnabled,
 		},
 		"companyProfile": profile,
 	})
@@ -327,6 +350,11 @@ type companyProfileRequest struct {
 	CreditRating         *string  `json:"creditRating"`
 }
 
+// handleUpsertCompanyProfile creates the org on first call(문서상 "회사
+// 정보 등록") — 그 순간 호출자를 owner로 company_members에 함께 등록한다
+// (두 INSERT를 한 트랜잭션으로 묶어 "프로필은 있는데 멤버십이 없는" 반쪽
+// 상태를 방지). 이미 조직이 있으면 owner만 수정 가능(member는 403 —
+// "member(파이프라인 조회+참여만)" 스펙).
 func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {
@@ -351,42 +379,71 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 	licenses := pq.Array(req.Licenses)
 	certifications := pq.Array(req.Certifications)
 
-	var existingID string
-	err := s.db.QueryRowContext(r.Context(),
-		`SELECT id FROM company_profiles WHERE user_id = $1`, userID,
-	).Scan(&existingID)
+	existing, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("company-profile: lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
 
-	switch {
-	case err == sql.ErrNoRows:
-		_, err = s.db.ExecContext(r.Context(), `
+	if existing == nil {
+		tx, err := s.db.BeginTx(r.Context(), nil)
+		if err != nil {
+			s.logger.Error("company-profile: begin tx failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		defer tx.Rollback()
+
+		var newID string
+		if err := tx.QueryRowContext(r.Context(), `
 			INSERT INTO company_profiles (
 				user_id, business_type, region, industry, business_age_years,
 				revenue_amount, employee_count, company_size, licenses, certifications,
 				direct_production_cert, max_performance_amount, credit_rating
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			RETURNING id`,
 			userID, businessType, req.Region, industry, req.BusinessAgeYears,
 			req.RevenueAmount, req.EmployeeCount, req.CompanySize, licenses, certifications,
-			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating)
-	case err != nil:
-		s.logger.Error("company-profile: lookup failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
-	default:
+			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating,
+		).Scan(&newID); err != nil {
+			s.logger.Error("company-profile: insert failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		if _, err := tx.ExecContext(r.Context(),
+			`INSERT INTO company_members (company_profile_id, user_id, role) VALUES ($1,$2,'owner')`,
+			newID, userID,
+		); err != nil {
+			s.logger.Error("company-profile: owner membership insert failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			s.logger.Error("company-profile: commit failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+	} else {
+		if existing.Role != "owner" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_only"})
+			return
+		}
 		_, err = s.db.ExecContext(r.Context(), `
 			UPDATE company_profiles SET
 				business_type = $2, region = $3, industry = $4, business_age_years = $5,
 				revenue_amount = $6, employee_count = $7, company_size = $8, licenses = $9,
 				certifications = $10, direct_production_cert = $11,
 				max_performance_amount = $12, credit_rating = $13
-			WHERE user_id = $1`,
-			userID, businessType, req.Region, industry, req.BusinessAgeYears,
+			WHERE id = $1`,
+			existing.ID, businessType, req.Region, industry, req.BusinessAgeYears,
 			req.RevenueAmount, req.EmployeeCount, req.CompanySize, licenses, certifications,
 			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating)
-	}
-	if err != nil {
-		s.logger.Error("company-profile: upsert failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
+		if err != nil {
+			s.logger.Error("company-profile: update failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
 	}
 
 	profile, err := s.getCompanyProfile(r, userID)

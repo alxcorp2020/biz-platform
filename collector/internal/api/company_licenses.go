@@ -89,6 +89,10 @@ func (s *Server) handleCreateLicenseOrCertification(w http.ResponseWriter, r *ht
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
 		return
 	}
+	if profile.Role != "owner" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_only"})
+		return
+	}
 
 	var req licenseRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

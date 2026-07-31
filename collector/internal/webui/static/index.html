@@ -1617,6 +1617,16 @@ const ERROR_MESSAGES = {
   invalid_expires_at: '유효기간 형식이 올바르지 않습니다(YYYY-MM-DD).',
   invalid_source_document: '연결할 증빙서류를 찾을 수 없습니다.',
   total_subscriber_count_required: '총 가입자 수를 입력해주세요.',
+  owner_only: '이 작업은 팀 관리자만 할 수 있습니다.',
+  team_size_limit_exceeded: '현재 요금제의 팀 인원 한도를 초과했습니다.',
+  already_member: '이미 팀에 속한 이메일입니다.',
+  member_not_found: '구성원을 찾을 수 없습니다.',
+  cannot_remove_owner: '관리자는 제거할 수 없습니다.',
+  already_in_organization: '이미 다른 팀에 속해 있어 합류할 수 없습니다.',
+  email_mismatch: '초대받은 이메일 계정으로 로그인해주세요.',
+  invitation_not_pending: '이미 처리된 초대입니다.',
+  invitation_expired: '만료된 초대입니다.',
+  invitation_not_found: '초대를 찾을 수 없습니다.',
 };
 
 const ELIGIBILITY_RESULT_LABELS = {
@@ -2816,6 +2826,27 @@ function renderChangeImpact(container, impact) {
 // 필수 입력 -> 저장 즉시 홈(추천 리스트)으로 이동. 나머지 상세 프로필
 // (면허/인증/재무/실적/인력)은 여기서 다루지 않고 "회사 정보" 화면의
 // 완성도 카드에서 나중에 채우도록 유도한다(#/me/profile은 그대로 유지).
+// pendingInviteToken — 로그인/가입 전에 팀 초대 링크(#/invite?token=...)로
+// 들어온 경우 그 토큰을 잠깐 담아둔다. 가입/로그인 성공 직후 이 값이
+// 있으면 자동으로 초대를 수락한다("받은 사람이 가입/로그인하면 자동
+// 합류" 스펙) — 가입이면 회사 정보 등록(2단계)도 건너뛴다(이미 있는
+// 회사에 합류하는 것이지 새로 만드는 게 아니므로).
+let pendingInviteToken = null;
+
+async function acceptPendingInviteIfAny() {
+  if (!pendingInviteToken) return;
+  const token = pendingInviteToken;
+  pendingInviteToken = null;
+  try {
+    await apiRequest('POST', '/api/invitations/' + encodeURIComponent(token) + '/accept', {});
+    await loadMe();
+  } catch (err) {
+    // 실패해도(예: 자리 다 참, 이메일 불일치) 로그인/가입 자체는 이미
+    // 성공했으니 홈으로는 보낸다 — 에러는 콘솔에만 남긴다.
+    console.error('초대 자동 수락 실패:', err.message);
+  }
+}
+
 function renderSignup(container) {
   container.innerHTML = '';
   container.appendChild(h(`
@@ -2844,7 +2875,12 @@ function renderSignup(container) {
       currentUser = { id: data.id, email: data.email, role: 'user', plan: 'free' };
       currentProfile = null;
       renderHeader();
-      renderSignupProfileStep(container);
+      if (pendingInviteToken) {
+        await acceptPendingInviteIfAny();
+        location.hash = '#/';
+      } else {
+        renderSignupProfileStep(container);
+      }
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -2930,6 +2966,7 @@ function renderLogin(container) {
       currentUser = { id: data.id, email: data.email };
       renderHeader();
       await loadMe();
+      await acceptPendingInviteIfAny();
       location.hash = '#/';
     } catch (err) {
       errorBox.textContent = err.message;
@@ -3125,79 +3162,91 @@ async function renderProfile(container) {
   });
 }
 
+// 알림 설정(email/phone/sms)은 팀기능으로 조직 단위(currentProfile)로
+// 옮겨졌다 — currentUser엔 더 이상 없다. owner만 바꿀 수 있어 member면
+// 토글/입력을 읽기 전용으로 보여준다(서버도 owner_only로 막지만, 프론트에서
+// 미리 disabled 처리해 "저장 눌렀다가 403 보는" 경험을 없앤다).
 function renderProfileBasicTab(container) {
+  const p = currentProfile || {};
+  const isOwner = p.role === 'owner';
+  const disabledAttr = isOwner ? '' : 'disabled';
+  const orgNote = isOwner ? '' : '<p class="license-card-meta">알림 설정은 팀 관리자만 변경할 수 있습니다.</p>';
+
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="detail-card">
       <label class="checkbox-label">
-        <input type="checkbox" id="email-notifications-toggle" ${currentUser && currentUser.emailNotificationsEnabled ? 'checked' : ''}>
+        <input type="checkbox" id="email-notifications-toggle" ${p.emailNotificationsEnabled ? 'checked' : ''} ${disabledAttr}>
         이메일 알림 받기 (제출마감 D-3/D-1, 추천 공고 다이제스트, 담당자 상태변경)
       </label>
       <span id="email-notifications-status" class="license-card-meta"></span>
     </div>
     <div class="detail-card">
-      <label>휴대폰 번호 (SMS 수신용)
-        <input type="tel" id="phone-number-input" value="${escapeAttr((currentUser && currentUser.phoneNumber) || '')}" placeholder="01012345678">
+      <label>휴대폰 번호 (SMS 수신용, 조직 공용)
+        <input type="tel" id="phone-number-input" value="${escapeAttr(p.phoneNumber || '')}" placeholder="01012345678" ${disabledAttr}>
       </label>
-      <button type="button" class="btn btn-secondary btn-sm" id="phone-number-save-btn">번호 저장</button>
+      ${isOwner ? '<button type="button" class="btn btn-secondary btn-sm" id="phone-number-save-btn">번호 저장</button>' : ''}
       <label class="checkbox-label" style="margin-top:0.75rem">
-        <input type="checkbox" id="sms-notifications-toggle" ${currentUser && currentUser.smsNotificationsEnabled ? 'checked' : ''}>
+        <input type="checkbox" id="sms-notifications-toggle" ${p.smsNotificationsEnabled ? 'checked' : ''} ${disabledAttr}>
         SMS 알림 받기 (제출마감 D-3/D-1, 담당자 상태변경 — 추천 공고 다이제스트는 이메일에서만 제공됩니다)
       </label>
       <span id="sms-notifications-status" class="license-card-meta"></span>
+      ${orgNote}
     </div>
     <div id="profile-summary-section"></div>
   `));
 
   const notificationsToggle = document.getElementById('email-notifications-toggle');
   const notificationsStatus = document.getElementById('email-notifications-status');
-  notificationsToggle.addEventListener('change', async () => {
-    const enabled = notificationsToggle.checked;
-    notificationsToggle.disabled = true;
-    try {
-      await apiRequest('PATCH', '/api/me/notification-settings', { emailNotificationsEnabled: enabled });
-      if (currentUser) currentUser.emailNotificationsEnabled = enabled;
-      notificationsStatus.textContent = '저장되었습니다.';
-    } catch (err) {
-      notificationsToggle.checked = !enabled;
-      notificationsStatus.textContent = err.message;
-    } finally {
-      notificationsToggle.disabled = false;
-    }
-  });
+  if (isOwner) {
+    notificationsToggle.addEventListener('change', async () => {
+      const enabled = notificationsToggle.checked;
+      notificationsToggle.disabled = true;
+      try {
+        await apiRequest('PATCH', '/api/me/notification-settings', { emailNotificationsEnabled: enabled });
+        currentProfile.emailNotificationsEnabled = enabled;
+        notificationsStatus.textContent = '저장되었습니다.';
+      } catch (err) {
+        notificationsToggle.checked = !enabled;
+        notificationsStatus.textContent = err.message;
+      } finally {
+        notificationsToggle.disabled = false;
+      }
+    });
 
-  const phoneInput = document.getElementById('phone-number-input');
-  const phoneSaveBtn = document.getElementById('phone-number-save-btn');
-  const smsToggle = document.getElementById('sms-notifications-toggle');
-  const smsStatus = document.getElementById('sms-notifications-status');
-  phoneSaveBtn.addEventListener('click', async () => {
-    smsStatus.textContent = '';
-    phoneSaveBtn.disabled = true;
-    const phone = phoneInput.value.trim();
-    try {
-      await apiRequest('PATCH', '/api/me/notification-settings', { phoneNumber: phone });
-      if (currentUser) currentUser.phoneNumber = phone;
-      smsStatus.textContent = '전화번호가 저장되었습니다.';
-    } catch (err) {
-      smsStatus.textContent = err.message;
-    } finally {
-      phoneSaveBtn.disabled = false;
-    }
-  });
-  smsToggle.addEventListener('change', async () => {
-    const enabled = smsToggle.checked;
-    smsToggle.disabled = true;
-    try {
-      await apiRequest('PATCH', '/api/me/notification-settings', { smsNotificationsEnabled: enabled });
-      if (currentUser) currentUser.smsNotificationsEnabled = enabled;
-      smsStatus.textContent = '저장되었습니다.';
-    } catch (err) {
-      smsToggle.checked = !enabled;
-      smsStatus.textContent = err.message;
-    } finally {
-      smsToggle.disabled = false;
-    }
-  });
+    const phoneInput = document.getElementById('phone-number-input');
+    const phoneSaveBtn = document.getElementById('phone-number-save-btn');
+    const smsToggle = document.getElementById('sms-notifications-toggle');
+    const smsStatus = document.getElementById('sms-notifications-status');
+    phoneSaveBtn.addEventListener('click', async () => {
+      smsStatus.textContent = '';
+      phoneSaveBtn.disabled = true;
+      const phone = phoneInput.value.trim();
+      try {
+        await apiRequest('PATCH', '/api/me/notification-settings', { phoneNumber: phone });
+        currentProfile.phoneNumber = phone;
+        smsStatus.textContent = '전화번호가 저장되었습니다.';
+      } catch (err) {
+        smsStatus.textContent = err.message;
+      } finally {
+        phoneSaveBtn.disabled = false;
+      }
+    });
+    smsToggle.addEventListener('change', async () => {
+      const enabled = smsToggle.checked;
+      smsToggle.disabled = true;
+      try {
+        await apiRequest('PATCH', '/api/me/notification-settings', { smsNotificationsEnabled: enabled });
+        currentProfile.smsNotificationsEnabled = enabled;
+        smsStatus.textContent = '저장되었습니다.';
+      } catch (err) {
+        smsToggle.checked = !enabled;
+        smsStatus.textContent = err.message;
+      } finally {
+        smsToggle.disabled = false;
+      }
+    });
+  }
 
   renderProfileSummaryCard(document.getElementById('profile-summary-section'));
 }
@@ -3223,6 +3272,7 @@ function renderProfileSummaryCard(container) {
     ['보유 인증', fmtList(p.certifications)],
     ['직접생산확인', p.directProductionCert ? '보유' : '-'],
   ];
+  const isOwner = p.role === 'owner';
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="detail-card">
@@ -3234,10 +3284,14 @@ function renderProfileSummaryCard(container) {
           </div>
         `).join('')}
       </div>
-      <button type="button" class="btn btn-primary btn-block" id="profile-edit-btn">정보 수정</button>
+      ${isOwner
+        ? '<button type="button" class="btn btn-primary btn-block" id="profile-edit-btn">정보 수정</button>'
+        : '<p class="license-card-meta">기업 정보 수정은 팀 관리자만 할 수 있습니다.</p>'}
     </div>
   `));
-  document.getElementById('profile-edit-btn').addEventListener('click', () => openProfileEditModal(container));
+  if (isOwner) {
+    document.getElementById('profile-edit-btn').addEventListener('click', () => openProfileEditModal(container));
+  }
 }
 
 // openProfileEditModal — 12개 필드를 3단계(기본정보/재무·실적/면허·인증)로
@@ -3515,6 +3569,7 @@ async function renderFinancialsTab(container) {
     formSlot.innerHTML = '';
     renderFinancialForm(formSlot, uploadData.candidate, uploadData.documentId, () => renderFinancialsTab(container));
   });
+  disableOwnerOnlyButtons(container);
 }
 
 const TRI_STATE_OPTIONS = [
@@ -3528,6 +3583,18 @@ function triStateSelectHtml(name, selected) {
   return `<select name="${name}">${TRI_STATE_OPTIONS.map(o =>
     `<option value="${escapeAttr(o.value)}" ${o.value === (selected || '') ? 'selected' : ''}>${escapeHtml(o.label)}</option>`
   ).join('')}</select>`;
+}
+
+// disableOwnerOnlyButtons — 팀기능: member는 재무/실적/인력/면허/지식재산권
+// 탭에서 읽기만 가능(쓰기는 서버가 이미 owner_only로 막지만, "눌렀다가
+// 403 보는" 경험을 피하려고 버튼 자체를 비활성화하고 이유를 title로
+// 알려준다). 각 탭 렌더 함수 끝에서 한 줄로 호출한다.
+function disableOwnerOnlyButtons(container) {
+  if (currentProfile && currentProfile.role === 'owner') return;
+  container.querySelectorAll('button[id$="-upload-btn"], button[id$="-manual-btn"]').forEach(btn => {
+    btn.disabled = true;
+    btn.title = '팀 관리자만 등록/수정할 수 있습니다.';
+  });
 }
 
 // plainSelectHtml — 값 목록 하나로 <select>를 만드는 공용 헬퍼(증빙서류
@@ -3675,6 +3742,7 @@ async function renderTrackRecordsTab(container) {
     formSlot.innerHTML = '';
     renderTrackRecordForm(formSlot, uploadData.candidate, uploadData.documentId, () => renderTrackRecordsTab(container));
   });
+  disableOwnerOnlyButtons(container);
 }
 
 function renderTrackRecordForm(formSlot, candidate, documentId, onSaved) {
@@ -3815,6 +3883,7 @@ async function renderPersonnelTab(container) {
     formSlot.innerHTML = '';
     renderPersonnelForm(formSlot, uploadData.candidate, uploadData.documentId, () => renderPersonnelTab(container));
   });
+  disableOwnerOnlyButtons(container);
 }
 
 function renderPersonnelForm(formSlot, candidate, documentId, onSaved) {
@@ -4022,6 +4091,7 @@ async function renderLicenses(container) {
     ipFormSlot.innerHTML = '';
     renderIPConfirmForm(ipFormSlot, uploadData.candidate, uploadData.documentId, () => renderLicenses(container));
   });
+  disableOwnerOnlyButtons(container);
 }
 
 const IP_TYPES = ['특허', '상표', '디자인', '실용신안'];
@@ -4546,7 +4616,153 @@ async function renderMySubscription(container) {
       </dl>
       <a href="#/billing/plans" class="home-cta-secondary" style="margin-top:1rem;display:inline-block">요금제 변경</a>
     </div>
+    <div class="detail-card" id="team-section"></div>
   `));
+
+  // effectivePlanFromRow와 같은 판단: status가 active이고 plan이 business일
+  // 때만 팀 3명 — 그 외(pending/expired/cancelled 또는 다른 플랜)는 본인 1명뿐.
+  const isEffectiveBusiness = data.plan === 'business' && data.status === 'active';
+  renderTeamSection(document.getElementById('team-section'), isEffectiveBusiness ? 3 : 1);
+}
+
+// renderTeamSection — 팀 관리(구성원 목록 + owner면 초대 폼/제거 버튼).
+// 별도 최상위 메뉴를 추가하지 않고 "구독관리" 화면에 통합했다(플랜에 따라
+// 팀 정원이 달라지므로 맥락상 여기가 자연스럽고, 사이드바 메뉴 5개 이내
+// 제약도 그대로 유지된다).
+async function renderTeamSection(container, maxMembers) {
+  container.innerHTML = '<div class="loading">불러오는 중...</div>';
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/me/company/members');
+  } catch (err) {
+    container.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+    return;
+  }
+  const items = data.items || [];
+  const isOwner = currentProfile && currentProfile.role === 'owner';
+
+  const rows = items.map(m => `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(m.email)}</div>
+        <div class="license-card-meta">${m.role === 'owner' ? '관리자' : '구성원'} · ${escapeHtml(formatDate(m.createdAt))} 합류</div>
+      </div>
+      ${isOwner && m.role !== 'owner' ? `<div class="license-card-side"><button type="button" class="btn btn-secondary btn-sm team-remove-btn" data-id="${escapeAttr(m.id)}">제거</button></div>` : ''}
+    </div>
+  `).join('');
+
+  container.innerHTML = `
+    <h3>팀 관리</h3>
+    <p class="license-card-meta">최대 ${maxMembers}명까지 함께 사용할 수 있습니다 (현재 ${items.length}명).</p>
+    <div class="license-list">${rows}</div>
+    ${isOwner ? `
+      <form id="invite-form" class="profile-form" style="margin-top:1rem">
+        <label>초대할 이메일<input type="email" name="email" required placeholder="team@example.com"></label>
+        <div id="invite-error" class="error" style="display:none"></div>
+        <div id="invite-success" class="success" style="display:none"></div>
+        <button type="submit" class="btn btn-primary">초대 링크 보내기</button>
+      </form>
+    ` : ''}
+  `;
+
+  container.querySelectorAll('.team-remove-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('이 구성원을 팀에서 제거하시겠습니까?')) return;
+      try {
+        await apiRequest('DELETE', '/api/me/company/members/' + encodeURIComponent(btn.dataset.id));
+        renderTeamSection(container, maxMembers);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  const inviteForm = document.getElementById('invite-form');
+  if (inviteForm) {
+    const errorBox = document.getElementById('invite-error');
+    const successBox = document.getElementById('invite-success');
+    inviteForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorBox.style.display = 'none';
+      successBox.style.display = 'none';
+      const fd = new FormData(inviteForm);
+      try {
+        await apiRequest('POST', '/api/me/company/invitations', { email: fd.get('email') });
+        successBox.textContent = '초대 이메일을 보냈습니다.';
+        successBox.style.display = 'block';
+        inviteForm.reset();
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.style.display = 'block';
+      }
+    });
+  }
+}
+
+// renderInviteAccept — #/invite?token=... 공개 페이지(로그인 안 해도
+// 초대 내용은 볼 수 있음). 이미 로그인 상태면 "참여하기" 버튼으로 바로
+// 수락, 아직이면 pendingInviteToken에 담아뒀다가 로그인/가입 성공 시
+// acceptPendingInviteIfAny()가 자동으로 처리한다.
+async function renderInviteAccept(container) {
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const token = params.get('token');
+  container.innerHTML = '';
+  if (!token) {
+    container.appendChild(h('<p class="error">잘못된 초대 링크입니다.</p>'));
+    return;
+  }
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let inv;
+  try {
+    inv = await fetchJSON('/api/invitations/' + encodeURIComponent(token));
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  container.innerHTML = '';
+  if (inv.status !== 'pending' || inv.expired) {
+    container.appendChild(h(`<p class="error">${inv.expired ? '만료된' : '이미 처리된'} 초대 링크입니다.</p>`));
+    return;
+  }
+
+  const industryText = (inv.companyIndustry || []).join(', ') || '-';
+  const introText = `${escapeHtml(inv.inviterEmail)}님이 회사 팀(지역: ${escapeHtml(inv.companyRegion || '-')}, 업종: ${escapeHtml(industryText)})에 초대했습니다.`;
+
+  if (currentUser) {
+    container.appendChild(h(`
+      <div class="auth-card">
+        <h2>팀 초대</h2>
+        <p class="auth-step-hint">${introText}</p>
+        <div id="invite-accept-error" class="error" style="display:none"></div>
+        <button type="button" class="btn btn-primary btn-block" id="invite-accept-btn">참여하기</button>
+      </div>
+    `));
+    document.getElementById('invite-accept-btn').addEventListener('click', async () => {
+      const errBox = document.getElementById('invite-accept-error');
+      errBox.style.display = 'none';
+      try {
+        await apiRequest('POST', '/api/invitations/' + encodeURIComponent(token) + '/accept', {});
+        await loadMe();
+        location.hash = '#/';
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.style.display = 'block';
+      }
+    });
+  } else {
+    pendingInviteToken = token;
+    container.appendChild(h(`
+      <div class="auth-card">
+        <h2>팀 초대</h2>
+        <p class="auth-step-hint">${introText} ${escapeHtml(inv.email)} 계정으로 로그인하거나 가입하면 자동으로 합류됩니다.</p>
+        <a href="#/auth/login" class="official-link">로그인하기 &rarr;</a><br>
+        <a href="#/auth/signup" class="official-link">회원가입하기 &rarr;</a>
+      </div>
+    `));
+  }
 }
 
 function route() {
@@ -4567,6 +4783,7 @@ function route() {
   if (path === '#/billing/success') { renderBillingSuccess(app); return; }
   if (path === '#/billing/fail') { renderBillingFail(app); return; }
   if (path === '#/me/subscription') { renderMySubscription(app); return; }
+  if (path === '#/invite') { renderInviteAccept(app); return; }
   const pipelineDetailMatch = path.match(/^#\/pipeline\/(.+)$/);
   if (pipelineDetailMatch) {
     renderPipelineDetail(app, decodeURIComponent(pipelineDetailMatch[1]));

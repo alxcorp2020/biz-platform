@@ -112,6 +112,14 @@ func (s *Server) receiveCompanyDocument(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
 		return nil, "", nil, "", "", false
 	}
+	// 팀기능: 증빙서류 업로드는 전부 "전체데이터" 쓰기 권한이 있는
+	// owner만 — member는 파이프라인 조회+참여만 가능. 이 함수 하나가
+	// 면허/인증/재무/실적/인력/지식재산권/4대보험 업로드 전부의 공용
+	// 진입점이라 여기 한 곳만 막으면 모든 업로드 엔드포인트에 적용된다.
+	if profile.Role != "owner" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_only"})
+		return nil, "", nil, "", "", false
+	}
 
 	if quotaOK, limit, err := s.checkAIAnalysisQuota(r.Context(), profile.ID); err != nil {
 		s.logger.Error("upload-document: AI quota check failed", "error", err)

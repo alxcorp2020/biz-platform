@@ -29,9 +29,14 @@ type Server struct {
 	smsNotify       *notify.SMSClient
 	toss            *billing.TossClient
 	tossClientKey   string
+	// appBaseURL — 팀 초대 이메일 링크 생성에만 쓰인다(company_team.go).
+	// 프론트의 다른 리다이렉트(Toss 성공/실패 URL 등)는 location.origin을
+	// 클라이언트에서 직접 쓰므로 이 값이 필요 없다 — 서버가 직접 링크
+	// 문자열을 만들어야 하는 유일한 경우가 이메일 발송이라 여기만 필요.
+	appBaseURL string
 }
 
-func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, smsNotifyClient *notify.SMSClient, tossClient *billing.TossClient, tossClientKey string) *Server {
+func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, smsNotifyClient *notify.SMSClient, tossClient *billing.TossClient, tossClientKey string, appBaseURL string) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -45,6 +50,7 @@ func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir st
 		smsNotify:       smsNotifyClient,
 		toss:            tossClient,
 		tossClientKey:   tossClientKey,
+		appBaseURL:      appBaseURL,
 	}
 }
 
@@ -58,6 +64,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("PUT /api/me/company-profile", s.handleUpsertCompanyProfile)
+	mux.HandleFunc("GET /api/me/company/members", s.handleListCompanyMembers)
+	mux.HandleFunc("DELETE /api/me/company/members/{id}", s.handleRemoveCompanyMember)
+	mux.HandleFunc("POST /api/me/company/invitations", s.handleCreateInvitation)
+	mux.HandleFunc("GET /api/invitations/{token}", s.handleGetInvitation)
+	mux.HandleFunc("POST /api/invitations/{token}/accept", s.handleAcceptInvitation)
 	mux.HandleFunc("GET /api/dashboard", s.handleDashboard)
 	mux.HandleFunc("POST /api/notices/{id}/evaluate", s.handleEvaluateNotice)
 	mux.HandleFunc("PUT /api/notices/{noticeId}/documents/{documentId}/checklist", s.handleToggleChecklistItem)
@@ -282,15 +293,20 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	var company companyScoringInput
 	var isMinimalProfile bool
 	if loggedIn {
-		var companyRegion, companySize sql.NullString
-		var companyIndustry pq.StringArray
-		err := s.db.QueryRowContext(r.Context(),
-			`SELECT id, region, industry, company_size FROM company_profiles WHERE user_id = $1`, userID,
-		).Scan(&profileID, &companyRegion, &companyIndustry, &companySize)
-		if err != nil && err != sql.ErrNoRows {
+		companyProfile, err := s.getCompanyProfile(r, userID)
+		if err != nil {
 			s.logger.Error("get notice: profile lookup failed", "error", err)
 		}
-		if err == nil {
+		if err == nil && companyProfile != nil {
+			profileID = companyProfile.ID
+			var companyRegion, companySize sql.NullString
+			if companyProfile.Region != nil {
+				companyRegion = sql.NullString{String: *companyProfile.Region, Valid: true}
+			}
+			if companyProfile.CompanySize != nil {
+				companySize = sql.NullString{String: *companyProfile.CompanySize, Valid: true}
+			}
+			companyIndustry := pq.StringArray(companyProfile.Industry)
 			trackRecordMax, err := s.fetchTrackRecordMaxAmount(r.Context(), profileID)
 			if err != nil {
 				s.logger.Error("get notice: track record max amount query failed", "error", err)

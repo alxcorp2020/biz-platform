@@ -87,6 +87,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureBillingTables(ctx, db); err != nil {
 		return fmt.Errorf("migrate subscriptions/payment_log tables: %w", err)
 	}
+	if err := ensureTeamTables(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_members/company_invitations tables: %w", err)
+	}
 	return nil
 }
 
@@ -567,4 +570,74 @@ func ensureBillingTables(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// ensureTeamTables adds the team-feature schema for any DB created before
+// this migration existed: company_profiles gains org-level notification
+// settings(email/phone/sms — 팀기능 스펙: "알림설정은 조직 단위로 공유,
+// 로그인 계정은 개별 유지"라 users에 있던 것과 별개로 여기 새로 만든다 —
+// users의 동일 이름 컬럼은 지우지 않고 그냥 더 이상 안 쓴다, 히스토리
+// 보존 목적), company_members(조직 소속), company_invitations(이메일
+// 초대) 테이블을 추가한다.
+//
+// 데이터 마이그레이션(기존 실사용자 → 조직 자동 이관): 지금까지는
+// company_profiles 1건당 소유자 user_id가 정확히 하나였다(1:1 관례,
+// DB 제약은 아니었지만 애플리케이션이 항상 그렇게 다뤘음) — 그 user_id를
+// company_members에 role='owner'로 그대로 옮기고, 그 사용자가 users에
+// 갖고 있던 알림 설정 값을 company_profiles로 복사한다(값 유실 없이
+// 그대로 승계). WITH ... RETURNING으로 "이번에 새로 옮겨진 행"만 골라
+// 알림 설정을 복사하므로, 재실행해도 이미 옮겨진 행을 다시 건드리지
+// 않는다(예: 그 사이 owner가 company_profiles의 알림 설정을 직접 바꿨어도
+// 두 번째 실행이 users 쪽 옛값으로 덮어쓰지 않음 — ON CONFLICT (user_id)
+// DO NOTHING이 이미 옮겨진 프로필을 RETURNING에서 제외시킨다).
+func ensureTeamTables(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS email_notifications_enabled BOOLEAN NOT NULL DEFAULT true;
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS phone_number TEXT;
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false;
+
+		CREATE TABLE IF NOT EXISTS company_members (
+			id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+			user_id             UUID NOT NULL REFERENCES users(id),
+			role                TEXT NOT NULL CHECK (role IN ('owner','member')),
+			created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (user_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_company_members_profile ON company_members(company_profile_id);
+
+		CREATE TABLE IF NOT EXISTS company_invitations (
+			id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+			email               TEXT NOT NULL,
+			token               TEXT NOT NULL UNIQUE,
+			invited_by_user_id  UUID NOT NULL REFERENCES users(id),
+			status              TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','expired','cancelled')),
+			expires_at          TIMESTAMPTZ NOT NULL,
+			created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			accepted_at         TIMESTAMPTZ
+		);
+		CREATE INDEX IF NOT EXISTS idx_company_invitations_token ON company_invitations(token);
+		CREATE INDEX IF NOT EXISTS idx_company_invitations_profile ON company_invitations(company_profile_id);
+	`); err != nil {
+		return err
+	}
+
+	_, err := db.ExecContext(ctx, `
+		WITH newly_migrated AS (
+			INSERT INTO company_members (company_profile_id, user_id, role)
+			SELECT cp.id, cp.user_id, 'owner'
+			FROM company_profiles cp
+			ON CONFLICT (user_id) DO NOTHING
+			RETURNING company_profile_id, user_id
+		)
+		UPDATE company_profiles cp
+		SET email_notifications_enabled = u.email_notifications_enabled,
+		    phone_number = u.phone_number,
+		    sms_notifications_enabled = u.sms_notifications_enabled
+		FROM newly_migrated nm
+		JOIN users u ON u.id = nm.user_id
+		WHERE cp.id = nm.company_profile_id;
+	`)
+	return err
 }

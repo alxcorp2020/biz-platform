@@ -3,7 +3,6 @@
 package api
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 )
@@ -28,17 +27,17 @@ func (s *Server) handleToggleChecklistItem(w http.ResponseWriter, r *http.Reques
 	}
 
 	ctx := r.Context()
-	var profileID string
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM company_profiles WHERE user_id = $1`, userID).Scan(&profileID)
-	if err == sql.ErrNoRows {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
-		return
-	}
+	profile, err := s.getCompanyProfile(r, userID)
 	if err != nil {
 		s.logger.Error("checklist: profile lookup failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
+	if profile == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
+		return
+	}
+	profileID := profile.ID
 
 	// documentID가 실제로 이 공고의 현재 버전 소속인지 확인 — 다른 공고의
 	// required_document_id를 임의로 넘기는 것을 막는다.

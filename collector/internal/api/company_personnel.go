@@ -150,6 +150,10 @@ func (s *Server) handleCreatePersonnel(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
 		return
 	}
+	if profile.Role != "owner" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_only"})
+		return
+	}
 
 	var req personnelRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

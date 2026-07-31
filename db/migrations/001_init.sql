@@ -270,6 +270,12 @@ CREATE TABLE users (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- user_id는 최초 생성자 참조로만 남는다(과거 호환) — 실제 "누가 이
+-- 프로필에 접근 가능한가"는 아래 company_members가 단일 진실 공급원이다
+-- (팀기능: 회사=company_profiles 1건에 여러 users가 소속). 알림 설정
+-- 3개(email/phone/sms)는 팀기능 이전엔 users에 있었으나 "조직 단위로
+-- 공유"하기로 해 여기로 옮겼다(팀기능 스펙) — users의 동일 이름 컬럼은
+-- 옛 값이 남아있을 뿐 더 이상 읽히지 않는다.
 CREATE TABLE company_profiles (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id             UUID NOT NULL REFERENCES users(id),
@@ -285,9 +291,47 @@ CREATE TABLE company_profiles (
     direct_production_cert BOOLEAN NOT NULL DEFAULT false,
     max_performance_amount  BIGINT, -- 최근 3년 최대 실적
     credit_rating           TEXT,
+    email_notifications_enabled BOOLEAN NOT NULL DEFAULT true,
+    phone_number            TEXT,
+    sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ------------------------------------------------------------
+-- 팀기능: 한 company_profiles(조직)에 여러 users가 소속. owner는 프로필
+-- 생성자(팀원관리/구독관리/전체데이터 쓰기 권한), member는 초대로
+-- 합류한 사람(파이프라인 조회+참여만 — 프로필/재무/실적/인력/면허/
+-- 지식재산권/구독은 읽기 전용, company_pipeline.go 쪽 핸들러만 그대로
+-- 씀). UNIQUE(user_id) — 한 로그인 계정은 항상 조직 하나에만 속한다
+-- (여러 회사에 동시 소속되는 시나리오는 이번 범위 밖).
+CREATE TABLE company_members (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+    user_id             UUID NOT NULL REFERENCES users(id),
+    role                TEXT NOT NULL CHECK (role IN ('owner','member')),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id)
+);
+CREATE INDEX idx_company_members_profile ON company_members(company_profile_id);
+
+-- 이메일 초대 링크(Resend 재사용) — token은 URL에 그대로 노출되므로
+-- 추측 불가능한 무작위 값이어야 한다(company_team.go에서 crypto/rand로
+-- 생성). expires_at 지나면 accept 시점에 거부(상태를 별도 배치로 미리
+-- 'expired'로 돌리지 않음 — displayStatus 패턴처럼 판정 시점에 계산).
+CREATE TABLE company_invitations (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+    email               TEXT NOT NULL,
+    token               TEXT NOT NULL UNIQUE,
+    invited_by_user_id  UUID NOT NULL REFERENCES users(id),
+    status              TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','expired','cancelled')),
+    expires_at          TIMESTAMPTZ NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    accepted_at         TIMESTAMPTZ
+);
+CREATE INDEX idx_company_invitations_token ON company_invitations(token);
+CREATE INDEX idx_company_invitations_profile ON company_invitations(company_profile_id);
 
 -- ------------------------------------------------------------
 -- 5.x 적합성 판정 결과 (규칙 엔진 산출물, 근거·재현성 확보)

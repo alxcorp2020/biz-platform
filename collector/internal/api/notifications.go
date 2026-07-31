@@ -66,21 +66,19 @@ func (s *Server) RunDailyNotifications(ctx context.Context) {
 
 // sendDeadlineReminders notifies (email and/or SMS) every pipeline entry
 // (not yet closed out) whose submission_deadline is exactly offsetDays from
-// today, to the profile owner. 이메일/SMS는 서로 독립적으로 중복발송
-// 여부를 판단한다 — 한쪽 채널이 이미 성공(status='sent')했어도 다른
-// 채널은 별도로 시도해야 하므로, 후보 조회 자체는 "이메일 또는 SMS 중
-// 하나라도 켜져 있으면" 넓게 가져오고, 채널별 이미-발송 여부를 각각
-// EXISTS로 계산해 함께 내려받는다.
+// today. 팀기능: 알림 on/off와 전화번호는 이제 조직(company_profiles) 단위
+// 설정이다 — SMS는 조직에 등록된 전화번호 하나로 한 번만 보내고(멤버 수만큼
+// 중복 발송하지 않음), 이메일은 조직에 속한 모든 멤버 각자에게 보낸다(각자
+// 자기 이메일로 확인해야 하므로) — 그래서 이메일 발송 대상은 파이프라인
+// 엔트리별로 company_members를 다시 조회해 펼친다. 이메일/SMS는 서로
+// 독립적으로 중복발송 여부를 판단한다(한쪽 채널이 이미 성공해도 다른
+// 채널은 별도로 시도) — 이메일은 (event_type, pipeline_entry_id, channel,
+// user_id)로, SMS는 조직 단위라 user_id 없이 (event_type,
+// pipeline_entry_id, channel)로 dedup한다.
 func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, eventType string) error {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status,
-		       u.id, u.email, u.email_notifications_enabled,
-		       u.phone_number, u.sms_notifications_enabled,
-		       EXISTS (
-		           SELECT 1 FROM notification_log nl
-		           WHERE nl.event_type = $2 AND nl.pipeline_entry_id = pe.id
-		             AND nl.channel = 'email' AND nl.status = 'sent'
-		       ) AS email_already_sent,
+		SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status, pe.company_profile_id,
+		       cp.email_notifications_enabled, cp.phone_number, cp.sms_notifications_enabled,
 		       EXISTS (
 		           SELECT 1 FROM notification_log nl
 		           WHERE nl.event_type = $2 AND nl.pipeline_entry_id = pe.id
@@ -88,30 +86,28 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 		       ) AS sms_already_sent
 		FROM notice_pipeline_entries pe
 		JOIN company_profiles cp ON cp.id = pe.company_profile_id
-		JOIN users u ON u.id = cp.user_id
 		JOIN notices n ON n.id = pe.notice_id
 		WHERE pe.submission_deadline = CURRENT_DATE + ($1 * INTERVAL '1 day')
-		  AND (u.email_notifications_enabled = true
-		       OR (u.sms_notifications_enabled = true AND u.phone_number IS NOT NULL AND u.phone_number != ''))
+		  AND (cp.email_notifications_enabled = true
+		       OR (cp.sms_notifications_enabled = true AND cp.phone_number IS NOT NULL AND cp.phone_number != ''))
 		`, offsetDays, eventType)
 	if err != nil {
 		return err
 	}
 
 	type row struct {
-		entryID, noticeID, title, status, userID, email string
-		org                                              sql.NullString
-		emailEnabled                                     bool
-		phone                                            sql.NullString
-		smsEnabled                                       bool
-		emailAlreadySent, smsAlreadySent                 bool
+		entryID, noticeID, title, status, profileID string
+		org                                          sql.NullString
+		emailEnabled                                 bool
+		phone                                        sql.NullString
+		smsEnabled                                   bool
+		smsAlreadySent                               bool
 	}
 	var targets []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.entryID, &r.noticeID, &r.title, &r.org, &r.status,
-			&r.userID, &r.email, &r.emailEnabled, &r.phone, &r.smsEnabled,
-			&r.emailAlreadySent, &r.smsAlreadySent); err != nil {
+		if err := rows.Scan(&r.entryID, &r.noticeID, &r.title, &r.org, &r.status, &r.profileID,
+			&r.emailEnabled, &r.phone, &r.smsEnabled, &r.smsAlreadySent); err != nil {
 			continue
 		}
 		if !pipelineActiveForNotification[r.status] {
@@ -126,48 +122,93 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 	rows.Close()
 
 	for _, t := range targets {
-		userID, entryID, noticeID := t.userID, t.entryID, t.noticeID
-		if t.emailEnabled && !t.emailAlreadySent {
-			subject := fmt.Sprintf("[제출마감 D-%d] %s", offsetDays, t.title)
-			body := fmt.Sprintf(
-				"<p>제출마감이 D-%d 남은 참여 건이 있습니다.</p><p><b>%s</b></p><p>발주기관: %s</p>",
-				offsetDays, html.EscapeString(t.title), html.EscapeString(t.org.String),
-			)
-			s.sendNotificationEmail(ctx, eventType, t.email, &userID, &entryID, &noticeID, subject, body)
+		entryID, noticeID := t.entryID, t.noticeID
+		if t.emailEnabled {
+			members, err := s.fetchCompanyMembersForNotification(ctx, t.profileID, eventType, notifyChannelEmail, entryID)
+			if err != nil {
+				s.logger.Error("notify: member lookup failed", "error", err)
+			}
+			for _, m := range members {
+				if m.alreadySent {
+					continue
+				}
+				userID := m.userID
+				subject := fmt.Sprintf("[제출마감 D-%d] %s", offsetDays, t.title)
+				body := fmt.Sprintf(
+					"<p>제출마감이 D-%d 남은 참여 건이 있습니다.</p><p><b>%s</b></p><p>발주기관: %s</p>",
+					offsetDays, html.EscapeString(t.title), html.EscapeString(t.org.String),
+				)
+				s.sendNotificationEmail(ctx, eventType, m.email, &userID, &entryID, &noticeID, subject, body)
+			}
 		}
 		if t.smsEnabled && t.phone.Valid && t.phone.String != "" && !t.smsAlreadySent {
 			msg := fmt.Sprintf("[제출마감 D-%d] %s 제출마감이 D-%d일 남았습니다.", offsetDays, truncateForSMS(t.title, 25), offsetDays)
-			s.sendNotificationSMS(ctx, eventType, t.phone.String, &userID, &entryID, &noticeID, msg)
+			s.sendNotificationSMS(ctx, eventType, t.phone.String, nil, &entryID, &noticeID, msg)
 		}
 	}
 	return nil
 }
 
-// sendRecommendationDigest sends, per company profile with notifications
-// enabled, one email listing today's newly-recommended notices (grade ==
-// gradeRecommended) that aren't already in that profile's pipeline and
-// haven't been digested before. One notification_log row is written per
-// (user, notice) pair even though they're bundled into a single email, so
-// each notice is only ever digested once — same dedup granularity as the
-// other two events.
+type memberNotifyTarget struct {
+	userID, email string
+	alreadySent   bool
+}
+
+// fetchCompanyMembersForNotification lists every member of an org along with
+// whether *that specific member* already has a 'sent' row for this exact
+// (event_type, pipeline_entry_id, channel) — email dedup is per-member
+// (unlike SMS, which is per-org since there's only one shared phone number).
+func (s *Server) fetchCompanyMembersForNotification(ctx context.Context, profileID, eventType, channel, pipelineEntryID string) ([]memberNotifyTarget, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT cm.user_id, u.email,
+		       EXISTS (
+		           SELECT 1 FROM notification_log nl
+		           WHERE nl.event_type = $2 AND nl.pipeline_entry_id = $3
+		             AND nl.channel = $4 AND nl.status = 'sent' AND nl.user_id = cm.user_id
+		       ) AS already_sent
+		FROM company_members cm
+		JOIN users u ON u.id = cm.user_id
+		WHERE cm.company_profile_id = $1`, profileID, eventType, pipelineEntryID, channel)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []memberNotifyTarget
+	for rows.Next() {
+		var m memberNotifyTarget
+		if err := rows.Scan(&m.userID, &m.email, &m.alreadySent); err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// sendRecommendationDigest sends, per organization with notifications
+// enabled, one email per member listing today's newly-recommended notices
+// (grade == gradeRecommended) that aren't already in that org's pipeline.
+// 후보 공고 계산(지역/업종/규모 매칭)은 조직 단위로 한 번만 하고 — 이 셋은
+// company_profiles의 조직 속성이라 멤버마다 다르지 않다 — "이미 다이제스트
+// 받은 적 있는지"만 멤버별로 따로 걸러서 각자에게 보낸다(한 멤버가 이미
+// 본 공고를 다른 신규 멤버는 여전히 처음 보는 것일 수 있으므로).
 func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 	profileRows, err := s.db.QueryContext(ctx, `
-		SELECT cp.id, u.id, u.email, cp.region, cp.industry, cp.company_size
+		SELECT cp.id, cp.region, cp.industry, cp.company_size
 		FROM company_profiles cp
-		JOIN users u ON u.id = cp.user_id
-		WHERE u.email_notifications_enabled = true`)
+		WHERE cp.email_notifications_enabled = true`)
 	if err != nil {
 		return err
 	}
 	type profileRow struct {
-		profileID, userID, email string
-		region, size             sql.NullString
-		industry                 pq.StringArray
+		profileID    string
+		region, size sql.NullString
+		industry     pq.StringArray
 	}
 	var profiles []profileRow
 	for profileRows.Next() {
 		var p profileRow
-		if err := profileRows.Scan(&p.profileID, &p.userID, &p.email, &p.region, &p.industry, &p.size); err != nil {
+		if err := profileRows.Scan(&p.profileID, &p.region, &p.industry, &p.size); err != nil {
 			continue
 		}
 		profiles = append(profiles, p)
@@ -215,11 +256,6 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 			s.logger.Error("notify: pipelined notice ids query failed", "error", err)
 			continue
 		}
-		digestedIDs, err := s.fetchDigestedNoticeIDs(ctx, p.userID)
-		if err != nil {
-			s.logger.Error("notify: digested notice ids query failed", "error", err)
-			continue
-		}
 		trackRecordMax, err := s.fetchTrackRecordMaxAmount(ctx, p.profileID)
 		if err != nil {
 			s.logger.Error("notify: track record max amount query failed", "error", err)
@@ -229,9 +265,12 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 			TrackRecordMaxAmount: trackRecordMax,
 		}
 
-		var matched []noticeRow
+		// 조직 속성(지역/업종/규모)만으로 판정하는 등급 계산은 멤버와
+		// 무관하게 한 번만 — pipelinedIDs만 여기서 걸러내고, "이미
+		// 다이제스트 받았는지"는 멤버별로 아래에서 따로 거른다.
+		var orgRecommended []noticeRow
 		for _, n := range notices {
-			if pipelinedIDs[n.id] || digestedIDs[n.id] {
+			if pipelinedIDs[n.id] {
 				continue
 			}
 			score := scoreNoticeForCompany(
@@ -240,37 +279,83 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 			if score.Grade != gradeRecommended {
 				continue
 			}
-			matched = append(matched, n)
+			orgRecommended = append(orgRecommended, n)
 		}
-		if len(matched) == 0 {
+		if len(orgRecommended) == 0 {
 			continue
 		}
 
-		subject := fmt.Sprintf("오늘의 추천 공고 %d건", len(matched))
-		var itemsHTML string
-		for _, n := range matched {
-			itemsHTML += fmt.Sprintf("<li><b>%s</b> (%s)</li>", html.EscapeString(n.title), html.EscapeString(n.org.String))
+		members, err := s.fetchCompanyMemberEmails(ctx, p.profileID)
+		if err != nil {
+			s.logger.Error("notify: member lookup failed", "error", err)
+			continue
 		}
-		body := fmt.Sprintf("<p>참여를 권장하는 신규 공고 %d건이 발견되었습니다.</p><ul>%s</ul>", len(matched), itemsHTML)
+		for _, m := range members {
+			digestedIDs, err := s.fetchDigestedNoticeIDs(ctx, m.userID)
+			if err != nil {
+				s.logger.Error("notify: digested notice ids query failed", "error", err)
+				continue
+			}
+			var matched []noticeRow
+			for _, n := range orgRecommended {
+				if !digestedIDs[n.id] {
+					matched = append(matched, n)
+				}
+			}
+			if len(matched) == 0 {
+				continue
+			}
 
-		sendErr := s.notify.Send(ctx, p.email, subject, body)
-		status, errMsg := "sent", sql.NullString{}
-		if sendErr != nil {
-			status = "failed"
-			errMsg = sql.NullString{String: sendErr.Error(), Valid: true}
-			s.logger.Error("notify: digest send failed", "recipient", p.email, "error", sendErr)
-		}
-		for _, n := range matched {
-			if _, logErr := s.db.ExecContext(ctx, `
-				INSERT INTO notification_log (event_type, recipient_email, user_id, notice_id, subject, status, error_message)
-				VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-				notifyEventRecommendationDigest, p.email, p.userID, n.id, subject, status, errMsg,
-			); logErr != nil {
-				s.logger.Error("notify: digest log insert failed", "error", logErr)
+			subject := fmt.Sprintf("오늘의 추천 공고 %d건", len(matched))
+			var itemsHTML string
+			for _, n := range matched {
+				itemsHTML += fmt.Sprintf("<li><b>%s</b> (%s)</li>", html.EscapeString(n.title), html.EscapeString(n.org.String))
+			}
+			body := fmt.Sprintf("<p>참여를 권장하는 신규 공고 %d건이 발견되었습니다.</p><ul>%s</ul>", len(matched), itemsHTML)
+
+			sendErr := s.notify.Send(ctx, m.email, subject, body)
+			status, errMsg := "sent", sql.NullString{}
+			if sendErr != nil {
+				status = "failed"
+				errMsg = sql.NullString{String: sendErr.Error(), Valid: true}
+				s.logger.Error("notify: digest send failed", "recipient", m.email, "error", sendErr)
+			}
+			for _, n := range matched {
+				if _, logErr := s.db.ExecContext(ctx, `
+					INSERT INTO notification_log (event_type, channel, recipient_email, user_id, notice_id, subject, status, error_message)
+					VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+					notifyEventRecommendationDigest, notifyChannelEmail, m.email, m.userID, n.id, subject, status, errMsg,
+				); logErr != nil {
+					s.logger.Error("notify: digest log insert failed", "error", logErr)
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// fetchCompanyMemberEmails lists every member's (user_id, email) for an org
+// — used by both sendRecommendationDigest and (indirectly, via
+// fetchCompanyMembersForNotification) sendDeadlineReminders.
+func (s *Server) fetchCompanyMemberEmails(ctx context.Context, profileID string) ([]memberNotifyTarget, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT cm.user_id, u.email FROM company_members cm
+		JOIN users u ON u.id = cm.user_id
+		WHERE cm.company_profile_id = $1`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []memberNotifyTarget
+	for rows.Next() {
+		var m memberNotifyTarget
+		if err := rows.Scan(&m.userID, &m.email); err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 func (s *Server) fetchPipelinedNoticeIDs(ctx context.Context, profileID string) (map[string]bool, error) {
@@ -364,9 +449,11 @@ func (s *Server) handleRunNotifications(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "completed"})
 }
 
-// handleUpdateNotificationSettings toggles the caller's email/SMS
-// notification preferences — "이메일 알림 전체 on/off"에 이어 SMS
-// on/off + 전화번호를 같은 엔드포인트에서 부분 업데이트로 처리한다
+// handleUpdateNotificationSettings toggles the organization's email/SMS
+// notification preferences — 팀기능 스펙("알림설정은 조직 단위로 공유")에
+// 따라 users가 아니라 company_profiles를 갱신하고, owner만 바꿀 수 있다
+// (member는 "파이프라인 조회+참여만"). "이메일 알림 전체 on/off"에 이어
+// SMS on/off + 전화번호를 같은 엔드포인트에서 부분 업데이트로 처리한다
 // (company_pipeline.go의 PATCH 핸들러와 같은 "raw map + present 체크"
 // 패턴 — 프론트가 필드 일부만 보내도 나머지 설정을 건드리지 않음).
 // Deadline reminders and the recommendation digest both check
@@ -377,6 +464,20 @@ func (s *Server) handleUpdateNotificationSettings(w http.ResponseWriter, r *http
 	userID, ok := s.currentUserID(r)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("notification-settings: profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if profile == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
+		return
+	}
+	if profile.Role != "owner" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_only"})
 		return
 	}
 
@@ -432,8 +533,8 @@ func (s *Server) handleUpdateNotificationSettings(w http.ResponseWriter, r *http
 		return
 	}
 
-	args = append(args, userID)
-	query := "UPDATE users SET " + strings.Join(sets, ", ") + fmt.Sprintf(" WHERE id = $%d", len(args))
+	args = append(args, profile.ID)
+	query := "UPDATE company_profiles SET " + strings.Join(sets, ", ") + fmt.Sprintf(" WHERE id = $%d", len(args))
 	if _, err := s.db.ExecContext(r.Context(), query, args...); err != nil {
 		s.logger.Error("notification-settings: update failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
