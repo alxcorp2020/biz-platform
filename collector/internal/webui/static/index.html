@@ -308,6 +308,7 @@
 
   /* ---------- Notice card list ---------- */
   .notice-list { display: flex; flex-direction: column; gap: var(--space-md); }
+  .notice-list-sentinel { text-align: center; padding: var(--space-md) 0; color: var(--ink-soft); font-size: var(--text-caption); min-height: 1.5rem; }
 
   /* ---------- 관심공고(북마크) ---------- */
   .bookmark-btn {
@@ -2050,8 +2051,30 @@ function renderPipelineChecklist(container, entryId, items) {
   });
 }
 
+// noticeListState — #/notices 무한스크롤 상태 캐시(모듈 레벨 변수, 서버/
+// sessionStorage 아님). 해시 라우팅 SPA라 상세 화면으로 이동했다가 브라우저
+// "뒤로가기"로 돌아와도 페이지 전체가 리로드되지 않고 location.hash만
+// 바뀐다 — 그래서 이 변수가 JS 메모리에 그대로 남아있는 것만으로 "지금까지
+// 불러온 항목 + 스크롤 위치"를 그대로 복원할 수 있다. key가 현재 검색
+// 조건(q/region/industry)과 다르면 새 검색으로 보고 캐시를 버린다.
+let noticeListState = null;
+
+function noticeListKey(params) {
+  return [params.get('q') || '', params.get('region') || '', params.get('industry') || ''].join('|');
+}
+
+function noticeListApiParams(filterParams) {
+  const apiParams = new URLSearchParams();
+  if (filterParams.get('q')) apiParams.set('q', filterParams.get('q'));
+  if (filterParams.get('region')) apiParams.set('region', filterParams.get('region'));
+  if (filterParams.get('industry')) apiParams.set('industry', filterParams.get('industry'));
+  return apiParams;
+}
+
 function renderList(container) {
   const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const key = noticeListKey(params);
+
   container.innerHTML = '';
   container.appendChild(h(`
     <form class="filters" id="filter-form">
@@ -2068,57 +2091,124 @@ function renderList(container) {
     const fd = new FormData(e.target);
     const p = new URLSearchParams();
     for (const [k, v] of fd.entries()) if (v) p.set(k, v);
+    noticeListState = null; // 새 검색 — 이전 무한스크롤 캐시는 폐기
     location.hash = '#/notices?' + p.toString();
   });
 
   const listBody = document.getElementById('list-body');
-  const apiParams = new URLSearchParams();
-  if (params.get('q')) apiParams.set('q', params.get('q'));
-  if (params.get('region')) apiParams.set('region', params.get('region'));
-  if (params.get('industry')) apiParams.set('industry', params.get('industry'));
 
-  fetchJSON('/api/notices?' + apiParams.toString())
-    .then(data => {
-      if (!data.items || data.items.length === 0) {
-        listBody.className = 'empty';
-        listBody.textContent = '조건에 맞는 공고가 없습니다.';
-        return;
-      }
-      const rows = data.items.map(n => {
-        const dday = ddayInfo(n.applicationEndAt);
-        const valueClass = dday.cls.includes('danger') ? 'row-card-value--danger'
-          : (dday.label === '-' ? 'row-card-value--muted' : '');
-        return `
-        <div class="row-card notice-row" data-id="${n.id}">
-          <div class="row-card-main">
-            <div class="row-card-title">${escapeHtml(n.title)}</div>
-            <div class="row-card-subtitle">
-              ${escapeHtml(n.organizationName || '-')} · ${escapeHtml(n.region || '-')} · ${escapeHtml(n.industry || '-')} ·
-              <span class="mono">${formatBudget(n.budgetAmount)}</span> · ${statusBadgeHtml(n.status)}
-            </div>
-          </div>
-          <div class="row-card-side">
-            ${bookmarkButtonHtml(n.id, n.isBookmarked)}
-            <span class="row-card-value ${valueClass}">${escapeHtml(dday.label)}</span>
-            <span class="row-card-arrow">›</span>
-          </div>
-        </div>
-      `;
-      }).join('');
-      listBody.className = '';
-      listBody.innerHTML = '';
-      listBody.appendChild(h(`<div class="notice-list">${rows}</div>`));
-      listBody.querySelectorAll('.notice-row').forEach(row => {
-        row.addEventListener('click', () => {
-          location.hash = '#/notices/' + row.dataset.id;
-        });
-      });
-      wireBookmarkButtons(listBody);
-    })
-    .catch(err => {
+  // 캐시 적중 = 같은 검색 조건으로 돌아온 것(전형적으로 상세→뒤로가기).
+  // 새로 fetch하지 않고 이미 불러온 항목을 그대로 다시 그린 뒤 저장해둔
+  // 스크롤 위치로 복원한다.
+  if (noticeListState && noticeListState.key === key) {
+    renderNoticeListItems(listBody, noticeListState.items);
+    wireNoticeListLoadMore(listBody, key);
+    const savedScrollY = noticeListState.scrollY || 0;
+    requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, savedScrollY)));
+    return;
+  }
+
+  noticeListState = { key, items: [], offset: 0, limit: 20, total: 0, hasMore: true, loading: false, scrollY: 0 };
+  loadMoreNotices(listBody, key, params, true);
+}
+
+// loadMoreNotices fetches the next page(offset=noticeListState.offset) and
+// appends to the cached item list. isFirstPage만 실패 시 전체 에러 화면으로
+// 바꾸고, 이후 페이지 실패는 sentinel에 에러 문구만 남겨 이미 불러온 목록은
+// 그대로 유지한다.
+async function loadMoreNotices(listBody, key, filterParams, isFirstPage) {
+  if (!noticeListState || noticeListState.key !== key || noticeListState.loading || !noticeListState.hasMore) return;
+  noticeListState.loading = true;
+
+  const apiParams = noticeListApiParams(filterParams);
+  apiParams.set('offset', String(noticeListState.offset));
+  apiParams.set('limit', String(noticeListState.limit));
+
+  try {
+    const data = await fetchJSON('/api/notices?' + apiParams.toString());
+    if (!noticeListState || noticeListState.key !== key) return; // 그 사이 다른 검색으로 전환됨 — 결과 버림
+    noticeListState.items = noticeListState.items.concat(data.items || []);
+    noticeListState.offset = noticeListState.offset + (data.items ? data.items.length : 0);
+    noticeListState.total = data.total || 0;
+    noticeListState.hasMore = !!data.hasMore;
+    noticeListState.loading = false;
+    renderNoticeListItems(listBody, noticeListState.items);
+    wireNoticeListLoadMore(listBody, key);
+  } catch (err) {
+    if (noticeListState) noticeListState.loading = false;
+    if (isFirstPage) {
       listBody.className = 'error';
+      listBody.innerHTML = '';
       listBody.textContent = err.message;
+    } else {
+      const sentinel = listBody.querySelector('#notice-list-sentinel');
+      if (sentinel) sentinel.textContent = '더 불러오지 못했습니다: ' + err.message;
+    }
+  }
+}
+
+function renderNoticeListItems(listBody, items) {
+  if (!items.length) {
+    listBody.className = 'empty';
+    listBody.innerHTML = '';
+    listBody.textContent = '조건에 맞는 공고가 없습니다.';
+    return;
+  }
+  const rows = items.map(n => {
+    const dday = ddayInfo(n.applicationEndAt);
+    const valueClass = dday.cls.includes('danger') ? 'row-card-value--danger'
+      : (dday.label === '-' ? 'row-card-value--muted' : '');
+    return `
+    <div class="row-card notice-row" data-id="${escapeAttr(n.id)}">
+      <div class="row-card-main">
+        <div class="row-card-title">${escapeHtml(n.title)}</div>
+        <div class="row-card-subtitle">
+          ${escapeHtml(n.organizationName || '-')} · ${escapeHtml(n.region || '-')} · ${escapeHtml(n.industry || '-')} ·
+          <span class="mono">${formatBudget(n.budgetAmount)}</span> · ${statusBadgeHtml(n.status)}
+        </div>
+      </div>
+      <div class="row-card-side">
+        ${bookmarkButtonHtml(n.id, n.isBookmarked)}
+        <span class="row-card-value ${valueClass}">${escapeHtml(dday.label)}</span>
+        <span class="row-card-arrow">›</span>
+      </div>
+    </div>
+  `;
+  }).join('');
+  listBody.className = '';
+  listBody.innerHTML = '';
+  listBody.appendChild(h(`<div class="notice-list">${rows}</div><p id="notice-list-sentinel" class="notice-list-sentinel"></p>`));
+  listBody.querySelectorAll('.notice-row').forEach(row => {
+    row.addEventListener('click', () => {
+      // 상세로 이동하기 직전 스크롤 위치를 저장 — "뒤로가기" 시 이 값으로 복원.
+      if (noticeListState) noticeListState.scrollY = window.scrollY;
+      location.hash = '#/notices/' + row.dataset.id;
     });
+  });
+  wireBookmarkButtons(listBody);
+}
+
+// wireNoticeListLoadMore — IntersectionObserver로 목록 끝의 sentinel이
+// 화면에 걸리면(rootMargin만큼 미리) 자동으로 다음 페이지를 불러온다.
+// renderNoticeListItems가 매번 sentinel을 새로 만들기 때문에, 이 함수도
+// 호출될 때마다 새 Observer를 그 새 sentinel에 건다(이전 Observer는 옛
+// sentinel이 DOM에서 떨어져 나가면서 자연히 무의미해짐).
+function wireNoticeListLoadMore(listBody, key) {
+  const sentinel = listBody.querySelector('#notice-list-sentinel');
+  if (!sentinel || !noticeListState) return;
+  if (!noticeListState.hasMore) {
+    sentinel.textContent = noticeListState.items.length ? '모든 공고를 불러왔습니다.' : '';
+    return;
+  }
+  sentinel.textContent = '불러오는 중...';
+  const filterParams = new URLSearchParams(location.hash.split('?')[1] || '');
+  const observer = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) {
+      observer.disconnect();
+      loadMoreNotices(listBody, key, filterParams, false);
+    }
+  }, { rootMargin: '400px' });
+  observer.observe(sentinel);
 }
 
 function renderDetail(container, id) {

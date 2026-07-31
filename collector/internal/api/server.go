@@ -121,12 +121,38 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+const (
+	defaultNoticeListLimit = 20
+	maxNoticeListLimit     = 100
+)
+
+// parseListingIntParam parses an offset/limit query param, falling back to
+// def on empty/invalid/negative input — callers never see a malformed page
+// as a 400, they just get sane defaults (같은 관용: 목록 조회는 사용자 입력
+// 실수로 에러 화면을 띄우기보다 조용히 기본값으로 복구하는 쪽이 낫다).
+func parseListingIntParam(raw string, def int) int {
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return def
+	}
+	return n
+}
+
 func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	region := q.Get("region")
 	industry := q.Get("industry")
 	keyword := q.Get("q")
 	userID, loggedIn := s.currentUserID(r)
+
+	offset := parseListingIntParam(q.Get("offset"), 0)
+	limit := parseListingIntParam(q.Get("limit"), defaultNoticeListLimit)
+	if limit <= 0 || limit > maxNoticeListLimit {
+		limit = defaultNoticeListLimit
+	}
 
 	args := []any{}
 	argN := 0
@@ -139,10 +165,13 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	// LEFT JOIN + NULL 파라미터 트릭: 비로그인이면 sql.NullString{Valid:false}를
 	// 바인딩해서 "x = NULL"이 항상 거짓이 되게 만든다 — listRequiredDocuments가
 	// 이미 쓰고 있는 것과 같은 패턴(별도 인증 분기 없이 isBookmarked가 자연히 false).
+	// COUNT(*) OVER()로 전체 매칭 건수를 같은 쿼리 안에서 함께 받는다 — 운영
+	// 규모(2천건 미만)에서는 페이지당 별도 COUNT 쿼리를 또 날릴 필요가 없다.
 	query := `
 		SELECT n.id, n.title, n.organization_name, n.region, n.industry, n.status,
 		       n.application_end_at, n.budget_amount, n.official_url, n.current_version,
-		       (nb.id IS NOT NULL) AS is_bookmarked
+		       (nb.id IS NOT NULL) AS is_bookmarked,
+		       COUNT(*) OVER() AS total_count
 		FROM notices n
 		LEFT JOIN notice_bookmarks nb ON nb.notice_id = n.id AND nb.user_id = ` + addArg(sql.NullString{String: userID, Valid: loggedIn}) + `
 		WHERE 1=1`
@@ -155,7 +184,7 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	if keyword != "" {
 		query += " AND n.title ILIKE " + addArg("%"+keyword+"%")
 	}
-	query += " ORDER BY n.published_at DESC NULLS LAST LIMIT 50"
+	query += " ORDER BY n.published_at DESC NULLS LAST LIMIT " + addArg(limit) + " OFFSET " + addArg(offset)
 
 	rows, err := s.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
@@ -166,16 +195,19 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	items := []noticeListItem{}
+	total := 0
 	for rows.Next() {
 		var it noticeListItem
 		var org, region, industry, officialURL sql.NullString
 		var budget sql.NullInt64
 		var deadline sql.NullTime
+		var totalCount int
 		if err := rows.Scan(&it.ID, &it.Title, &org, &region, &industry, &it.Status,
-			&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked); err != nil {
+			&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &totalCount); err != nil {
 			s.logger.Error("scan notice row failed", "error", err)
 			continue
 		}
+		total = totalCount
 		it.OrganizationName = org.String
 		it.Region = region.String
 		it.Industry = industry.String
@@ -188,7 +220,11 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, it)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "count": len(items)})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items, "count": len(items),
+		"offset": offset, "limit": limit, "total": total,
+		"hasMore": offset+len(items) < total,
+	})
 }
 
 func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
