@@ -376,6 +376,7 @@ CREATE TABLE company_documents (
     file_type          TEXT NOT NULL,
     file_size_bytes    BIGINT NOT NULL,
     file_hash          TEXT NOT NULL,
+    document_kind       TEXT,  -- 어느 업로드 엔드포인트가 만들었는지(license_or_certification/financial/track_record/personnel/intellectual_property/employee_verification) — AI 사용내역 화면에서 "어떤 서류" 표시용
     uploaded_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -761,3 +762,22 @@ CREATE TABLE notice_award_history (
 );
 CREATE INDEX idx_award_history_org ON notice_award_history(organization_name);
 CREATE INDEX idx_award_history_industry ON notice_award_history(industry);
+
+-- ------------------------------------------------------------
+-- 담당자 관리 — 참여 검토(파이프라인 생성) 시 assignee_name/email/phone을
+-- 매번 빈칸부터 입력하지 않도록, 회사가 미리 등록해두는 담당자 목록.
+-- is_default는 "자동 채우기에 쓸 한 명"을 가리키며, 한 번에 하나만
+-- true가 되도록 애플리케이션 코드(company_contacts.go)가 트랜잭션으로
+-- 보장한다(DB 제약이 아님 — 어차피 "새로 지정하면 기존 것 해제"하는
+-- 트랜잭션이 필요해 부분 유니크 인덱스를 추가로 걸 실익이 적다).
+-- ------------------------------------------------------------
+CREATE TABLE company_contacts (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id UUID NOT NULL REFERENCES company_profiles(id),
+    name               TEXT NOT NULL,
+    email              TEXT,
+    phone              TEXT,
+    is_default         BOOLEAN NOT NULL DEFAULT false,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_company_contacts_profile ON company_contacts(company_profile_id);

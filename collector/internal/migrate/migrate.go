@@ -93,6 +93,12 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureAwardHistoryTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate notice_award_history table: %w", err)
 	}
+	if err := ensureCompanyContactsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_contacts table: %w", err)
+	}
+	if err := ensureDocumentKindColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_documents.document_kind column: %w", err)
+	}
 	return nil
 }
 
@@ -671,6 +677,38 @@ func ensureAwardHistoryTable(ctx context.Context, db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_award_history_org ON notice_award_history(organization_name);
 		CREATE INDEX IF NOT EXISTS idx_award_history_industry ON notice_award_history(industry);
+	`)
+	return err
+}
+
+// ensureCompanyContactsTable adds company_contacts — 참여 검토(파이프라인
+// 생성) 시 담당자 정보를 자동 채우기 위해 회사가 미리 등록해두는 담당자
+// 목록. is_default를 하나로 유지하는 책임은 애플리케이션 코드
+// (company_contacts.go)에 있다 — 자세한 이유는 db/migrations/001_init.sql의
+// 같은 테이블 주석 참고.
+func ensureCompanyContactsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS company_contacts (
+			id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id UUID NOT NULL REFERENCES company_profiles(id),
+			name               TEXT NOT NULL,
+			email              TEXT,
+			phone              TEXT,
+			is_default         BOOLEAN NOT NULL DEFAULT false,
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_company_contacts_profile ON company_contacts(company_profile_id);
+	`)
+	return err
+}
+
+// ensureDocumentKindColumn adds company_documents.document_kind — records
+// which of the 6 AI-extraction upload endpoints created the row, so the AI
+// 사용내역 화면(billing_ai_usage.go) can show "어떤 서류를" without a
+// separate log table. Rows uploaded before this column existed get NULL.
+func ensureDocumentKindColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_documents ADD COLUMN IF NOT EXISTS document_kind TEXT;
 	`)
 	return err
 }

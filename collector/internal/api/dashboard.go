@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"biz-platform/collector/internal/billing"
 )
 
 // dashboardNoticeScanLimit is a safety cap on how many active notices get
@@ -126,7 +128,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("dashboard: checklist counts query failed", "error", err)
 	}
 
-	reviewPendingCount, unassignedCount, needsDocumentCount := 0, 0, 0
+	reviewPendingCount, unassignedCount, needsDocumentCount, deadlineSoonCount := 0, 0, 0, 0
 	priorityItems := []dashboardPriorityItem{}
 	closeSoonCutoff := time.Now().AddDate(0, 0, dashboardPriorityCloseSoonDays)
 
@@ -139,6 +141,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			needsDocumentCount += incomplete
 			if pr.assigneeName.String == "" {
 				unassignedCount++
+			}
+			// 마감임박 요약 카드는 파이프라인 항목만 센다(추천 공고 제외) —
+			// 4개 요약 카드 전부 "#/pipeline?filter=..."로 들어갔을 때 보이는
+			// 목록과 숫자가 정확히 일치해야 하는데, 아직 파이프라인에 넣지도
+			// 않은 추천 공고는 그 목록에 나타날 수 없다. "오늘의 우선 업무"
+			// 리스트(추천 포함)는 이 집계와 별개로 그대로 유지한다.
+			if pr.deadline.Valid && pr.deadline.Time.Before(closeSoonCutoff) {
+				deadlineSoonCount++
 			}
 		}
 		if !pipelineActiveStatuses[pr.status] || (!pipelineUndecidedStatuses[pr.status] && incomplete == 0) {
@@ -213,20 +223,25 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return a.Before(*b)
 	})
 
-	deadlineSoonCount := 0
-	for _, it := range priorityItems {
-		if it.ApplicationEndAt != nil && it.ApplicationEndAt.Before(closeSoonCutoff) {
-			deadlineSoonCount++
-		}
+	plan, err := s.effectivePlan(ctx, profileID)
+	if err != nil {
+		s.logger.Error("dashboard: plan lookup failed", "error", err)
+	}
+	aiLimit := billing.Plans[plan].MaxAIAnalysisPerMonth
+	aiUsed, err := s.countAIAnalysisThisMonth(ctx, profileID)
+	if err != nil {
+		s.logger.Error("dashboard: AI usage count failed", "error", err)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"hasProfile": true,
 		"summary": map[string]int{
-			"reviewPendingCount": reviewPendingCount,
-			"deadlineSoonCount":  deadlineSoonCount,
-			"needsDocumentCount": needsDocumentCount,
-			"unassignedCount":    unassignedCount,
+			"reviewPendingCount":  reviewPendingCount,
+			"deadlineSoonCount":   deadlineSoonCount,
+			"needsDocumentCount":  needsDocumentCount,
+			"unassignedCount":     unassignedCount,
+			"aiAnalysisUsedCount": aiUsed,
+			"aiAnalysisLimit":     aiLimit, // -1 = 무제한, 0 = 이 플랜에서 이용 불가(Free)
 		},
 		"priorityItems": priorityItems,
 	})

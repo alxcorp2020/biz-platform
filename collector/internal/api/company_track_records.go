@@ -54,7 +54,7 @@ type trackRecordCandidate struct {
 }
 
 func (s *Server) handleUploadTrackRecordDocument(w http.ResponseWriter, r *http.Request) {
-	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r)
+	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r, documentKindTrackRecord)
 	if !ok {
 		return
 	}

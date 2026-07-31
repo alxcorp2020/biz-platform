@@ -44,7 +44,7 @@ type financialCandidate struct {
 }
 
 func (s *Server) handleUploadFinancialDocument(w http.ResponseWriter, r *http.Request) {
-	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r)
+	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r, documentKindFinancial)
 	if !ok {
 		return
 	}

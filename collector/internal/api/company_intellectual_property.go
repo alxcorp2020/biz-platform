@@ -37,7 +37,7 @@ type ipCandidate struct {
 }
 
 func (s *Server) handleUploadIPDocument(w http.ResponseWriter, r *http.Request) {
-	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r)
+	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r, documentKindIntellectualProperty)
 	if !ok {
 		return
 	}

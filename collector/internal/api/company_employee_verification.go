@@ -24,7 +24,7 @@ type employeeCountCandidate struct {
 }
 
 func (s *Server) handleUploadEmployeeVerificationDocument(w http.ResponseWriter, r *http.Request) {
-	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r)
+	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r, documentKindEmployeeVerification)
 	if !ok {
 		return
 	}

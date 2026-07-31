@@ -33,7 +33,7 @@ type personnelCandidate struct {
 }
 
 func (s *Server) handleUploadPersonnelDocument(w http.ResponseWriter, r *http.Request) {
-	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r)
+	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r, documentKindPersonnel)
 	if !ok {
 		return
 	}

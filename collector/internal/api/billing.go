@@ -141,15 +141,25 @@ func (s *Server) checkAIAnalysisQuota(ctx context.Context, profileID string) (ok
 	if max == 0 {
 		return false, 0, nil
 	}
-	var count int
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT count(*) FROM company_documents
-		WHERE company_profile_id = $1 AND uploaded_at >= date_trunc('month', now())`,
-		profileID,
-	).Scan(&count); err != nil {
+	count, err := s.countAIAnalysisThisMonth(ctx, profileID)
+	if err != nil {
 		return false, max, err
 	}
 	return count < max, max, nil
+}
+
+// countAIAnalysisThisMonth counts company_documents rows uploaded since the
+// start of the current calendar month — shared by checkAIAnalysisQuota
+// (billing.go), dashboard.go's "AI 분석 N/M건" summary tile, and
+// billing_ai_usage.go's usage-history screen, so all three always agree.
+func (s *Server) countAIAnalysisThisMonth(ctx context.Context, profileID string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM company_documents
+		WHERE company_profile_id = $1 AND uploaded_at >= date_trunc('month', now())`,
+		profileID,
+	).Scan(&count)
+	return count, err
 }
 
 // handleGetBillingConfig exposes the Toss *client* key (public by design —

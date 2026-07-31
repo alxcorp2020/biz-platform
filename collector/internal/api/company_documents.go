@@ -69,7 +69,7 @@ type licenseCandidate struct {
 }
 
 func (s *Server) handleUploadCompanyDocument(w http.ResponseWriter, r *http.Request) {
-	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r)
+	_, documentID, body, ext, mediaType, ok := s.receiveCompanyDocument(w, r, documentKindLicenseOrCertification)
 	if !ok {
 		return
 	}
@@ -87,16 +87,39 @@ func (s *Server) handleUploadCompanyDocument(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+// Document kind constants recorded on company_documents.document_kind — one
+// per AI-extraction upload endpoint, used only to label rows on the AI 사용
+// 내역 화면(billing_ai_usage.go)의 "어떤 서류" column.
+const (
+	documentKindLicenseOrCertification = "license_or_certification"
+	documentKindFinancial              = "financial"
+	documentKindTrackRecord            = "track_record"
+	documentKindPersonnel              = "personnel"
+	documentKindIntellectualProperty   = "intellectual_property"
+	documentKindEmployeeVerification   = "employee_verification"
+)
+
+// documentKindLabels — 사람이 읽는 한글 라벨. AI 사용내역 화면에서만 쓰인다.
+var documentKindLabels = map[string]string{
+	documentKindLicenseOrCertification: "면허/인증",
+	documentKindFinancial:              "재무제표",
+	documentKindTrackRecord:            "실적증명",
+	documentKindPersonnel:              "인력/기술등급",
+	documentKindIntellectualProperty:   "지식재산권",
+	documentKindEmployeeVerification:   "4대보험 가입자명부",
+}
+
 // receiveCompanyDocument handles the part of "증빙서류 업로드" that's
 // identical across every category (license/certification/financial/
 // track-record/personnel): auth, company-profile check, multipart parsing,
 // file-type/size validation, hash-based disk storage, and the
 // company_documents row insert. Each category's upload handler calls this
-// first, then runs its own AI extraction with its own tool schema.
+// first, then runs its own AI extraction with its own tool schema. kind is
+// one of the documentKind* constants above, recorded for the AI 사용내역 화면.
 //
 // On failure this already writes the JSON error response and returns
 // ok=false — callers should just `if !ok { return }`.
-func (s *Server) receiveCompanyDocument(w http.ResponseWriter, r *http.Request) (profile *companyProfileDTO, documentID string, body []byte, ext string, mediaType string, ok bool) {
+func (s *Server) receiveCompanyDocument(w http.ResponseWriter, r *http.Request, kind string) (profile *companyProfileDTO, documentID string, body []byte, ext string, mediaType string, ok bool) {
 	userID, authed := s.currentUserID(r)
 	if !authed {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
@@ -184,9 +207,9 @@ func (s *Server) receiveCompanyDocument(w http.ResponseWriter, r *http.Request) 
 	}
 
 	err = s.db.QueryRowContext(r.Context(), `
-		INSERT INTO company_documents (company_profile_id, original_filename, stored_filename, file_type, file_size_bytes, file_hash)
-		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		profile.ID, header.Filename, storedKey, ext, int64(len(body)), hash,
+		INSERT INTO company_documents (company_profile_id, original_filename, stored_filename, file_type, file_size_bytes, file_hash, document_kind)
+		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+		profile.ID, header.Filename, storedKey, ext, int64(len(body)), hash, kind,
 	).Scan(&documentID)
 	if err != nil {
 		s.logger.Error("upload-document: insert failed", "error", err)

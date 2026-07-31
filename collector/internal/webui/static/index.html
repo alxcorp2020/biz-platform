@@ -473,6 +473,8 @@
   .dash-tile--ready .dash-tile-count { color: var(--success); }
   .dash-tile--review .dash-tile-count { color: var(--warn); }
   .dash-tile--not-recommended .dash-tile-count { color: var(--danger); }
+  .dash-tile--clickable { cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; }
+  .dash-tile--clickable:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); transform: translateY(-1px); }
   .dash-section-title { font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 0 0 1rem; }
   .fit-score-badge {
     display: inline-block;
@@ -632,6 +634,12 @@
     display: flex; align-items: center; gap: 0.5rem;
   }
   .pipeline-status-section-count { font-size: 0.82rem; font-weight: 500; color: var(--ink-soft); }
+  .pipeline-filter-banner {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.6rem 0.9rem; margin-bottom: 1rem;
+    background: var(--surface-soft, #f5f5f7); border-radius: var(--radius-card);
+    font-size: var(--text-caption); color: var(--ink-soft);
+  }
   .checklist-list { display: flex; flex-direction: column; gap: 0.5rem; }
   .checklist-row {
     display: flex; justify-content: space-between; align-items: center; gap: 0.75rem 1rem; flex-wrap: wrap;
@@ -1850,18 +1858,28 @@ function renderDashboard(container, data) {
   container.innerHTML = '';
 
   const s = data.summary;
+  // filter는 renderPipelineList가 읽는 쿼리 파라미터 값(dashboard.go 요약
+  // 집계와 반드시 같은 정의를 쓴다 — 카드 숫자와 클릭 후 목록 건수가
+  // 어긋나면 안 됨. AI 분석 카드만 목적지가 다르다(#/ai-usage).
   const tiles = [
-    { label: '참여검토 대기', count: s.reviewPendingCount, cls: 'dash-tile--review' },
-    { label: '마감임박', count: s.deadlineSoonCount, cls: 'dash-tile--not-recommended' },
-    { label: '서류확인필요', count: s.needsDocumentCount, cls: '' },
-    { label: '담당자미지정', count: s.unassignedCount, cls: '' },
+    { label: '참여검토 대기', count: s.reviewPendingCount, cls: 'dash-tile--review', href: '#/pipeline?filter=reviewPending' },
+    { label: '마감임박', count: s.deadlineSoonCount, cls: 'dash-tile--not-recommended', href: '#/pipeline?filter=deadlineSoon' },
+    { label: '서류확인필요', count: s.needsDocumentCount, cls: '', href: '#/pipeline?filter=needsDocument' },
+    { label: '담당자미지정', count: s.unassignedCount, cls: '', href: '#/pipeline?filter=unassigned' },
   ];
+  const aiLimitLabel = s.aiAnalysisLimit < 0 ? '무제한' : s.aiAnalysisLimit;
+  const aiCountLabel = s.aiAnalysisLimit < 0 ? `${s.aiAnalysisUsedCount}건` : `${s.aiAnalysisUsedCount}/${aiLimitLabel}건`;
   const tilesHtml = tiles.map(t => `
-    <div class="dash-tile ${t.cls}">
+    <div class="dash-tile ${t.cls} dash-tile--clickable" data-href="${escapeAttr(t.href)}">
       <div class="dash-tile-count">${t.count}건</div>
       <div class="dash-tile-label">${escapeHtml(t.label)}</div>
     </div>
-  `).join('');
+  `).join('') + `
+    <div class="dash-tile dash-tile--clickable" data-href="#/ai-usage">
+      <div class="dash-tile-count">${aiCountLabel}</div>
+      <div class="dash-tile-label">AI 분석 (이번달)</div>
+    </div>
+  `;
 
   const items = data.priorityItems || [];
   const itemsHtml = items.length
@@ -1878,6 +1896,9 @@ function renderDashboard(container, data) {
     ${itemsHtml}
   `));
 
+  container.querySelectorAll('.dash-tile--clickable').forEach(tile => {
+    tile.addEventListener('click', () => { location.hash = tile.dataset.href; });
+  });
   wirePriorityItemNav(container);
 }
 
@@ -1921,6 +1942,42 @@ function wirePriorityItemNav(container) {
 }
 
 // ---------- 진행 중 사업 (#/pipeline) ----------
+// PIPELINE_LIST_FILTERS — 대시보드 요약 카드(dashboard.go의 summary 집계와
+// 정확히 같은 정의)에서 "#/pipeline?filter=키"로 들어왔을 때 적용할
+// 조건. 전부 "종결되지 않은"(PIPELINE_ACTIVE_STATUSES) 항목만 대상으로
+// 한다 — dashboard.go도 이 4개 카드 전부 active 상태만 센다.
+const PIPELINE_LIST_FILTERS = {
+  reviewPending: {
+    label: '참여검토 대기',
+    test: it => ['검토전', '참여검토', '승인대기'].includes(it.status),
+  },
+  deadlineSoon: {
+    label: '마감임박',
+    test: it => {
+      if (!PIPELINE_ACTIVE_STATUSES.includes(it.status)) return false;
+      const d = diffDaysFromToday(it.submissionDeadline);
+      return d >= 0 && d <= 7;
+    },
+  },
+  needsDocument: {
+    label: '서류확인필요',
+    test: it => PIPELINE_ACTIVE_STATUSES.includes(it.status) && (it.incompleteDocumentCount || 0) > 0,
+  },
+  unassigned: {
+    label: '담당자미지정',
+    test: it => PIPELINE_ACTIVE_STATUSES.includes(it.status) && !it.assigneeName,
+  },
+};
+
+function diffDaysFromToday(iso) {
+  if (!iso) return Infinity;
+  const d = new Date(iso);
+  if (isNaN(d)) return Infinity;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const target = new Date(d); target.setHours(0, 0, 0, 0);
+  return Math.round((target - today) / 86400000);
+}
+
 async function renderPipelineList(container) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
@@ -1937,6 +1994,29 @@ async function renderPipelineList(container) {
 
   const items = data.items || [];
   container.innerHTML = '';
+
+  const filterKey = new URLSearchParams(location.hash.split('?')[1] || '').get('filter');
+  const filter = PIPELINE_LIST_FILTERS[filterKey];
+
+  if (filter) {
+    const filtered = items.filter(filter.test);
+    const bannerHtml = `
+      <div class="pipeline-filter-banner">
+        <span>필터: ${escapeHtml(filter.label)} (${filtered.length}건)</span>
+        <a href="#/pipeline" class="official-link">전체보기 &rarr;</a>
+      </div>
+    `;
+    container.appendChild(h(`<h2>진행 중 사업</h2>${bannerHtml}`));
+    if (!filtered.length) {
+      container.appendChild(h('<p class="empty">조건에 맞는 사업이 없습니다.</p>'));
+      return;
+    }
+    container.appendChild(h(`<div class="notice-list">${filtered.map(pipelineListRowHtml).join('')}</div>`));
+    container.querySelectorAll('.pipeline-row').forEach(row => {
+      row.addEventListener('click', () => { location.hash = '#/pipeline/' + row.dataset.id; });
+    });
+    return;
+  }
 
   if (!items.length) {
     container.appendChild(h(`
@@ -1983,6 +2063,44 @@ function pipelineListRowHtml(entry) {
   `;
 }
 
+// ---------- AI 분석 사용내역 (#/ai-usage) ----------
+// 대시보드 "AI 분석 N/M건" 카드 클릭 시 이동. company_documents가 곧
+// 사용 로그다(billing_ai_usage.go 주석 참고 — 별도 로그 테이블 없음).
+async function renderAIUsage(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/me/ai-usage');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const items = data.items || [];
+  const limitLabel = data.limit < 0 ? '무제한' : `${data.usedCount}/${data.limit}건`;
+  const rowsHtml = items.length
+    ? items.map(it => `
+        <div class="license-card">
+          <div class="license-card-main">
+            <div class="license-card-name">${escapeHtml(it.documentKindName)}</div>
+            <div class="license-card-meta">${escapeHtml(it.originalFilename)} · ${escapeHtml(formatDateTime(it.uploadedAt))}</div>
+          </div>
+        </div>
+      `).join('')
+    : '<p class="empty">이번달 분석한 서류가 없습니다.</p>';
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <h2>AI 분석 사용내역</h2>
+    <p class="license-card-meta">이번달 사용량: ${escapeHtml(limitLabel)}</p>
+    <div class="license-list">${rowsHtml}</div>
+  `));
+}
+
 async function renderPipelineDetail(container, id) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
@@ -2013,6 +2131,7 @@ async function renderPipelineDetail(container, id) {
         <label>담당자<input type="text" name="assigneeName" value="${escapeAttr(entry.assigneeName || '')}" placeholder="담당자 이름"></label>
         <label>담당자 이메일<input type="email" name="assigneeEmail" value="${escapeAttr(entry.assigneeEmail || '')}" placeholder="상태 변경 시 이 주소로 알림이 발송됩니다"></label>
         <label>담당자 전화번호<input type="tel" name="assigneePhone" value="${escapeAttr(entry.assigneePhone || '')}" placeholder="상태 변경 시 이 번호로 SMS가 발송됩니다"></label>
+        <div id="pipeline-no-contact-hint"></div>
         <label>메모<textarea name="memo" rows="3">${escapeHtml(entry.memo || '')}</textarea></label>
         <p class="license-card-meta">제출 마감: ${entry.submissionDeadline ? escapeHtml(entry.submissionDeadline) : '확인 안 됨'}</p>
         <div id="pipeline-entry-error" class="error" style="display:none"></div>
@@ -2023,6 +2142,20 @@ async function renderPipelineDetail(container, id) {
     <h3>제출서류 체크리스트</h3>
     <div id="pipeline-checklist-section"></div>
   `));
+
+  // 담당자가 아직 비어 있고, 등록된 담당자도 하나도 없으면 "미리
+  // 등록해두면 편리합니다" 안내 — 매번 두 번째 API 호출을 하긴 하지만
+  // 담당자 자체가 비어 있는 경우에만(대부분 이미 채워져 있음) 호출된다.
+  if (!entry.assigneeName) {
+    apiRequest('GET', '/api/me/contacts').then(data => {
+      if ((data.items || []).length === 0) {
+        const hintEl = document.getElementById('pipeline-no-contact-hint');
+        if (hintEl) {
+          hintEl.innerHTML = `<p class="auth-step-hint"><a href="#/me/profile">담당자 관리</a>에서 미리 등록해두면 다음부터 자동으로 채워집니다.</p>`;
+        }
+      }
+    }).catch(() => {});
+  }
 
   const form = document.getElementById('pipeline-entry-form');
   const errorBox = document.getElementById('pipeline-entry-error');
@@ -3178,6 +3311,7 @@ async function renderProfile(container) {
       <button type="button" class="profile-tab-btn" data-tab="financials">재무정보</button>
       <button type="button" class="profile-tab-btn" data-tab="track-records">수행실적</button>
       <button type="button" class="profile-tab-btn" data-tab="personnel">인력정보</button>
+      <button type="button" class="profile-tab-btn" data-tab="contacts">담당자 관리</button>
     </div>
     <div id="profile-tab-content"></div>
   `));
@@ -3190,6 +3324,7 @@ async function renderProfile(container) {
     financials: () => renderFinancialsTab(tabContent),
     'track-records': () => renderTrackRecordsTab(tabContent),
     personnel: () => renderPersonnelTab(tabContent),
+    contacts: () => renderContactsTab(tabContent),
   };
   tabRenderers.basic();
 
@@ -3631,7 +3766,10 @@ function triStateSelectHtml(name, selected) {
 // 알려준다). 각 탭 렌더 함수 끝에서 한 줄로 호출한다.
 function disableOwnerOnlyButtons(container) {
   if (currentProfile && currentProfile.role === 'owner') return;
-  container.querySelectorAll('button[id$="-upload-btn"], button[id$="-manual-btn"]').forEach(btn => {
+  container.querySelectorAll(
+    'button[id$="-upload-btn"], button[id$="-manual-btn"], button[id$="-add-btn"], ' +
+    '.contact-edit-btn, .contact-delete-btn, .contact-set-default-btn'
+  ).forEach(btn => {
     btn.disabled = true;
     btn.title = '팀 관리자만 등록/수정할 수 있습니다.';
   });
@@ -3970,6 +4108,148 @@ function renderPersonnelForm(formSlot, candidate, documentId, onSaved) {
     };
     try {
       await apiRequest('POST', '/api/me/personnel', payload);
+      formSlot.innerHTML = '';
+      onSaved();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+// ---------- 담당자 관리 ----------
+// 참여 검토(파이프라인 생성) 시 assignee_name/email/phone을 자동으로
+// 채우는 데 쓰이는 기본 담당자를 여기서 지정한다. member는 읽기 전용으로
+// 본다(disableOwnerOnlyButtons가 추가/수정/삭제/기본지정 버튼을 막는다).
+async function renderContactsTab(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/me/contacts');
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+  const items = data.items || [];
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <p class="license-card-meta">여기 등록해두면 "참여 검토" 시 담당자 정보가 자동으로 채워집니다. 기본 담당자 1명을 지정할 수 있습니다.</p>
+    <div class="license-toolbar">
+      <button type="button" id="contact-add-btn" class="btn btn-secondary btn-sm">담당자 추가</button>
+    </div>
+    <div id="contact-form-slot"></div>
+    <div class="license-list" id="contact-list"></div>
+  `));
+
+  const listEl = document.getElementById('contact-list');
+  if (!items.length) {
+    listEl.appendChild(h('<p class="empty">아직 등록한 담당자가 없습니다. 등록해두면 참여 검토 시 자동으로 채워집니다.</p>'));
+  } else {
+    items.forEach(item => listEl.appendChild(h(contactCardHtml(item))));
+  }
+
+  const formSlot = document.getElementById('contact-form-slot');
+  document.getElementById('contact-add-btn').addEventListener('click', () => {
+    renderContactForm(formSlot, null, () => renderContactsTab(container));
+  });
+
+  listEl.querySelectorAll('.contact-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = items.find(i => i.id === btn.dataset.id);
+      renderContactForm(formSlot, item, () => renderContactsTab(container));
+    });
+  });
+  listEl.querySelectorAll('.contact-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('이 담당자를 삭제하시겠습니까?')) return;
+      try {
+        await apiRequest('DELETE', '/api/me/contacts/' + encodeURIComponent(btn.dataset.id));
+        renderContactsTab(container);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  listEl.querySelectorAll('.contact-set-default-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const item = items.find(i => i.id === btn.dataset.id);
+      if (!item) return;
+      try {
+        await apiRequest('PATCH', '/api/me/contacts/' + encodeURIComponent(item.id), {
+          name: item.name, email: item.email, phone: item.phone, isDefault: true,
+        });
+        renderContactsTab(container);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  disableOwnerOnlyButtons(container);
+}
+
+function contactCardHtml(item) {
+  const metaParts = [];
+  if (item.email) metaParts.push(escapeHtml(item.email));
+  if (item.phone) metaParts.push(escapeHtml(item.phone));
+  return `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(item.name)} ${item.isDefault ? '<span class="badge badge--success">기본</span>' : ''}</div>
+        <div class="license-card-meta">${metaParts.join(' · ') || '-'}</div>
+      </div>
+      <div class="license-card-side">
+        ${!item.isDefault ? `<button type="button" class="btn btn-secondary btn-sm contact-set-default-btn" data-id="${escapeAttr(item.id)}">기본으로 지정</button>` : ''}
+        <button type="button" class="btn btn-secondary btn-sm contact-edit-btn" data-id="${escapeAttr(item.id)}">수정</button>
+        <button type="button" class="btn btn-secondary btn-sm contact-delete-btn" data-id="${escapeAttr(item.id)}">삭제</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderContactForm(formSlot, item, onSaved) {
+  const c = item || {};
+  formSlot.innerHTML = '';
+  formSlot.appendChild(h(`
+    <div class="license-confirm-form">
+      <h4>${item ? '담당자 수정' : '담당자 추가'}</h4>
+      <form id="contact-form" class="profile-form">
+        <label>이름<input type="text" name="name" required value="${escapeAttr(c.name || '')}"></label>
+        <label>이메일<input type="email" name="email" value="${escapeAttr(c.email || '')}"></label>
+        <label>전화번호<input type="tel" name="phone" value="${escapeAttr(c.phone || '')}" placeholder="010-0000-0000"></label>
+        <label><input type="checkbox" name="isDefault" ${c.isDefault ? 'checked' : ''}> 기본 담당자로 지정</label>
+        <div id="contact-form-error" class="error" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="submit" class="btn btn-primary btn-sm">저장</button>
+          <button type="button" id="contact-form-cancel" class="btn btn-secondary btn-sm">취소</button>
+        </div>
+      </form>
+    </div>
+  `));
+
+  const form = document.getElementById('contact-form');
+  const errorBox = document.getElementById('contact-form-error');
+  document.getElementById('contact-form-cancel').addEventListener('click', () => { formSlot.innerHTML = ''; });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    const payload = {
+      name: fd.get('name'),
+      email: fd.get('email') || null,
+      phone: fd.get('phone') || null,
+      isDefault: fd.get('isDefault') === 'on',
+    };
+    try {
+      if (item) {
+        await apiRequest('PATCH', '/api/me/contacts/' + encodeURIComponent(item.id), payload);
+      } else {
+        await apiRequest('POST', '/api/me/contacts', payload);
+      }
       formSlot.innerHTML = '';
       onSaved();
     } catch (err) {
@@ -4818,6 +5098,7 @@ function route() {
   if (path === '#/review') { renderReviewQueue(app); return; }
   if (path === '#/notices') { renderList(app); return; }
   if (path === '#/pipeline') { renderPipelineList(app); return; }
+  if (path === '#/ai-usage') { renderAIUsage(app); return; }
   if (path === '#/billing/plans') { renderPricingPlans(app); return; }
   if (path === '#/billing/checkout') { renderBillingCheckout(app); return; }
   if (path === '#/billing/success') { renderBillingSuccess(app); return; }

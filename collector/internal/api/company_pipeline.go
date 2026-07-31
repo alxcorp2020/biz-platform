@@ -32,19 +32,20 @@ type pipelineChecklistItem struct {
 }
 
 type pipelineEntry struct {
-	ID                 string     `json:"id"`
-	NoticeID           string     `json:"noticeId"`
-	NoticeTitle        string     `json:"noticeTitle"`
-	OrganizationName   *string    `json:"organizationName"`
-	Status             string     `json:"status"`
-	AssigneeName       *string    `json:"assigneeName"`
-	AssigneeEmail      *string    `json:"assigneeEmail"`
-	AssigneePhone      *string    `json:"assigneePhone"`
-	DecidedAt          *time.Time `json:"decidedAt"`
-	SubmissionDeadline *string    `json:"submissionDeadline"`
-	Memo               *string    `json:"memo"`
-	CreatedAt          time.Time  `json:"createdAt"`
-	UpdatedAt          time.Time  `json:"updatedAt"`
+	ID                      string     `json:"id"`
+	NoticeID                string     `json:"noticeId"`
+	NoticeTitle             string     `json:"noticeTitle"`
+	OrganizationName        *string    `json:"organizationName"`
+	Status                  string     `json:"status"`
+	AssigneeName            *string    `json:"assigneeName"`
+	AssigneeEmail           *string    `json:"assigneeEmail"`
+	AssigneePhone           *string    `json:"assigneePhone"`
+	DecidedAt               *time.Time `json:"decidedAt"`
+	SubmissionDeadline      *string    `json:"submissionDeadline"`
+	Memo                    *string    `json:"memo"`
+	CreatedAt               time.Time  `json:"createdAt"`
+	UpdatedAt               time.Time  `json:"updatedAt"`
+	IncompleteDocumentCount int        `json:"incompleteDocumentCount"` // handleListPipeline만 채움(대시보드 카드 클릭 → 서류확인필요 필터용) — handleGetPipelineEntry는 체크리스트 원본을 따로 내려주므로 항상 0
 }
 
 // pipelineEntryRowScanner is satisfied by both *sql.Row (QueryRowContext)
@@ -167,11 +168,24 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// 기본 담당자가 등록돼 있으면 assignee_*를 자동으로 채운다 — 강제가
+	// 아니라 출발점일 뿐, 사용자가 상세화면에서 바로 수정할 수 있다.
+	// 등록된 담당자가 하나도 없으면 그냥 NULL로 남고, 프론트가 "담당자
+	// 관리에서 미리 등록해두면 편리합니다" 안내를 보여준다.
+	defaultContact, err := s.fetchDefaultContact(ctx, profile.ID)
+	if err != nil {
+		s.logger.Error("create-pipeline: default contact lookup failed", "error", err)
+	}
+	var assigneeName, assigneeEmail, assigneePhone *string
+	if defaultContact != nil {
+		assigneeName, assigneeEmail, assigneePhone = &defaultContact.Name, defaultContact.Email, defaultContact.Phone
+	}
+
 	var entryID string
 	err = s.db.QueryRowContext(ctx, `
-		INSERT INTO notice_pipeline_entries (company_profile_id, notice_id, status, submission_deadline)
-		VALUES ($1, $2, '검토전', $3) RETURNING id`,
-		profile.ID, noticeID, deadline,
+		INSERT INTO notice_pipeline_entries (company_profile_id, notice_id, status, submission_deadline, assignee_name, assignee_email, assignee_phone)
+		VALUES ($1, $2, '검토전', $3, $4, $5, $6) RETURNING id`,
+		profile.ID, noticeID, deadline, assigneeName, assigneeEmail, assigneePhone,
 	).Scan(&entryID)
 	if err != nil {
 		s.logger.Error("create-pipeline: insert failed", "error", err)
@@ -532,6 +546,11 @@ func (s *Server) handleListPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	incompleteDocCounts, err := s.fetchIncompleteChecklistCounts(r.Context(), profile.ID)
+	if err != nil {
+		s.logger.Error("list-pipeline: checklist counts query failed", "error", err)
+	}
+
 	items := []pipelineEntry{}
 	for rows.Next() {
 		entry, err := scanPipelineEntry(rows)
@@ -539,6 +558,7 @@ func (s *Server) handleListPipeline(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("list-pipeline: scan failed", "error", err)
 			continue
 		}
+		entry.IncompleteDocumentCount = incompleteDocCounts[entry.ID]
 		items = append(items, *entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
