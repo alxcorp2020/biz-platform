@@ -254,9 +254,10 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"orderId":   orderID,
-		"orderName": info.Name + " 플랜 구독",
-		"amount":    info.AmountKRW,
+		"orderId":     orderID,
+		"orderName":   info.Name + " 플랜 구독",
+		"amount":      info.AmountKRW,
+		"customerKey": profile.ID, // tossPayments.payment({customerKey})가 요구 — 유추 가능한 값(이메일 등) 대신 불투명 UUID 사용
 	})
 }
 

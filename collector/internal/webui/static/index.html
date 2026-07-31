@@ -3580,30 +3580,37 @@ async function renderBillingCheckout(container) {
 
   const errorBox = document.getElementById('checkout-error');
   const payBtn = document.getElementById('checkout-pay-btn');
+  // API 개별 연동(결제창) — 결제위젯 연동 키가 나오기 전까지는 이 방식을
+  // 쓴다. tossPayments 자체엔 requestPayment가 없고, .payment({customerKey})가
+  // 반환하는 객체에 있다(공식 샘플: tosspayments/tosspayments-sample,
+  // go-react/frontend/src/pages/payment/PaymentCheckout.jsx 확인).
+  // customerKey는 이메일처럼 유추 가능한 값이면 안 되므로 불투명 UUID(회사
+  // 프로필 id)를 쓴다 — checkout 응답에 이미 포함되어 있음.
   const tossPayments = TossPayments(config.tossClientKey);
+  const payment = tossPayments.payment({ customerKey: checkout.customerKey });
 
   payBtn.addEventListener('click', async () => {
     errorBox.style.display = 'none';
     payBtn.disabled = true;
     try {
-      // API 개별 연동(결제창) — 결제위젯 연동 키가 나오기 전까지는 이
-      // 방식을 쓴다. 위젯과 달리 페이지 안에 결제수단 UI를 그리지 않고
-      // 토스가 직접 띄우는 결제창으로 이동한다. 승인 절차(서버가
-      // paymentKey/orderId/amount로 confirm 호출)는 위젯 방식과 완전히
-      // 동일 — POST /v1/payments/confirm 하나뿐이라 백엔드는 그대로 재사용.
+      // 승인 절차(서버가 paymentKey/orderId/amount로 confirm 호출)는 위젯
+      // 방식과 완전히 동일 — POST /v1/payments/confirm 하나뿐이라 백엔드는
+      // 그대로 재사용.
       //
       // 토스가 successUrl/failUrl에 쿼리를 붙일 때 이미 우리 URL에 '#'이
       // 있으면(해시 라우팅) 그 쿼리는 location.search가 아니라
       // location.hash 뒤에 붙는다 — renderBillingSuccess/Fail이 그렇게
       // 파싱한다(route()의 hash.split('?') 관례와 동일).
-      await tossPayments.requestPayment({
+      await payment.requestPayment({
         method: 'CARD',
-        amount: checkout.amount,
+        amount: { currency: 'KRW', value: checkout.amount },
         orderId: checkout.orderId,
         orderName: checkout.orderName,
         customerName: currentUser.email,
+        customerEmail: currentUser.email,
         successUrl: location.origin + location.pathname + '#/billing/success',
         failUrl: location.origin + location.pathname + '#/billing/fail',
+        card: { useEscrow: false, flowMode: 'DEFAULT', useCardPoint: false, useAppCardOnly: false },
       });
     } catch (err) {
       payBtn.disabled = false;
