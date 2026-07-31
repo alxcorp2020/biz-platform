@@ -620,6 +620,7 @@
     line-height: 1.4;
     color: var(--ink);
   }
+  .pipeline-step-summary { margin-top: 0.85rem; }
   .calendar-add-link {
     display: inline-block;
     margin-top: 0.85rem;
@@ -1766,6 +1767,28 @@ const PIPELINE_STATUS_LIST = ['검토전', '참여검토', '승인대기', '준�
 const PIPELINE_ACTIVE_STATUSES = ['검토전', '참여검토', '승인대기', '준비중'];
 const CHECKLIST_STATUS_LIST = ['보유', '갱신필요', '신규작성', '발급필요', '확인필요'];
 
+// 진행 순서가 있는 5단계(happy path)만 스텝 인디케이터로 표시하고,
+// 낙찰/탈락/보류/제외처럼 흐름을 벗어난 종결 상태는 "N단계 중 M번째"가
+// 의미 없으므로 톤 배지로 대체 표시한다.
+const PIPELINE_MAIN_STEPS = ['검토전', '참여검토', '승인대기', '준비중', '제출완료'];
+const PIPELINE_TERMINAL_BADGE_TONE = { '낙찰': 'badge--success', '탈락': 'badge--danger', '보류': 'badge--warn', '제외': 'badge--gray' };
+
+function pipelineStepIndicatorHtml(status) {
+  const terminalTone = PIPELINE_TERMINAL_BADGE_TONE[status];
+  if (terminalTone) {
+    return `<span class="badge ${terminalTone}">${escapeHtml(status)}</span>`;
+  }
+  const idx = PIPELINE_MAIN_STEPS.indexOf(status);
+  const dots = PIPELINE_MAIN_STEPS.map((step, i) => {
+    const dotCls = i < idx ? 'is-done' : (i === idx ? 'is-current' : '');
+    const lineCls = i < idx ? 'is-done' : '';
+    const dot = `<span class="step-indicator-dot ${dotCls}"></span>`;
+    const line = i < PIPELINE_MAIN_STEPS.length - 1 ? `<span class="step-indicator-line ${lineCls}"></span>` : '';
+    return dot + line;
+  }).join('');
+  return `<span class="step-indicator">${dots}<span class="step-indicator-label">${escapeHtml(status)}</span></span>`;
+}
+
 // renderDashboard — "오늘 할 일" 홈 화면. data는 handleDashboard(신규 응답
 // 모양: summary + priorityItems)의 결과를 그대로 받는다. 예전 3버킷
 // 집계(readyCount 등)는 더 이상 없다 — 이 응답을 쓰는 화면은 여기뿐이라
@@ -1886,21 +1909,23 @@ async function renderPipelineList(container) {
 
   container.appendChild(h(`<h2>진행 중 사업</h2>${sectionsHtml}`));
 
-  container.querySelectorAll('.notice-card').forEach(row => {
+  container.querySelectorAll('.pipeline-row').forEach(row => {
     row.addEventListener('click', () => { location.hash = '#/pipeline/' + row.dataset.id; });
   });
 }
 
 function pipelineListRowHtml(entry) {
-  const assignee = entry.assigneeName ? `<span class="dot">·</span> 담당: ${escapeHtml(entry.assigneeName)}` : '';
+  const assignee = entry.assigneeName ? `담당: ${escapeHtml(entry.assigneeName)}` : '담당자 미지정';
   return `
-    <div class="notice-card" data-id="${escapeAttr(entry.id)}">
-      <div class="notice-card-main">
-        <div class="notice-org">${escapeHtml(entry.organizationName || '-')}</div>
-        <div class="notice-title">${escapeHtml(entry.noticeTitle)}</div>
-        <div class="notice-meta">${assignee}</div>
+    <div class="row-card pipeline-row" data-id="${escapeAttr(entry.id)}">
+      <div class="row-card-main">
+        <div class="row-card-title">${escapeHtml(entry.noticeTitle)}</div>
+        <div class="row-card-subtitle">${escapeHtml(entry.organizationName || '-')} · ${assignee}</div>
       </div>
-      <div class="notice-card-side">${ddayBadgeHtml(entry.applicationEndAt)}</div>
+      <div class="row-card-side">
+        ${pipelineStepIndicatorHtml(entry.status)}
+        <span class="row-card-arrow">›</span>
+      </div>
     </div>
   `;
 }
@@ -1928,6 +1953,7 @@ async function renderPipelineDetail(container, id) {
     <div class="detail-card">
       <p class="detail-eyebrow">${escapeHtml(entry.organizationName || '-')}</p>
       <h2><a href="#/notices/${escapeAttr(entry.noticeId)}">${escapeHtml(entry.noticeTitle)}</a></h2>
+      <div class="pipeline-step-summary">${pipelineStepIndicatorHtml(entry.status)}</div>
       <a class="calendar-add-link" href="/api/pipeline/${escapeAttr(entry.id)}/calendar.ics" download>&#128197; 캘린더에 추가 (.ics)</a>
       <form id="pipeline-entry-form" class="profile-form">
         <label>상태
@@ -1941,7 +1967,7 @@ async function renderPipelineDetail(container, id) {
         <p class="license-card-meta">제출 마감: ${entry.submissionDeadline ? escapeHtml(entry.submissionDeadline) : '확인 안 됨'}</p>
         <div id="pipeline-entry-error" class="error" style="display:none"></div>
         <div id="pipeline-entry-success" class="success" style="display:none"></div>
-        <button type="submit">저장</button>
+        <button type="submit" class="btn btn-primary btn-block">저장</button>
       </form>
     </div>
     <h3>제출서류 체크리스트</h3>
