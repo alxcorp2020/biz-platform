@@ -82,6 +82,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/pipeline", s.handleListPipeline)
 	mux.HandleFunc("GET /api/pipeline/{id}", s.handleGetPipelineEntry)
 	mux.HandleFunc("PATCH /api/me/notification-settings", s.handleUpdateNotificationSettings)
+	mux.HandleFunc("POST /api/admin/run-notifications", s.handleRunNotifications)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }

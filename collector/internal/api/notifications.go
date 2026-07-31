@@ -291,6 +291,30 @@ func (s *Server) notifyAssigneeStatusChange(ctx context.Context, email, pipeline
 	s.sendNotificationEmail(ctx, notifyEventAssigneeStatusChange, email, nil, &pipelineEntryID, &noticeID, subject, body)
 }
 
+// handleRunNotifications manually fires the daily notification batch
+// (D-3/D-1 deadline reminders + recommendation digest) on demand — the only
+// other trigger is the 09:00 KST ticker in cmd/apiserver. system_admin-only:
+// this sends real email to real recipients, same as the scheduled run.
+func (s *Server) handleRunNotifications(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	role, err := s.userRole(r.Context(), userID)
+	if err != nil {
+		s.logger.Error("run-notifications: role lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if role != "system_admin" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	s.RunDailyNotifications(r.Context())
+	writeJSON(w, http.StatusOK, map[string]string{"status": "completed"})
+}
+
 // handleUpdateNotificationSettings toggles the caller's
 // users.email_notifications_enabled — the "이메일 알림 전체 on/off" the
 // user asked for. Deadline reminders and the recommendation digest both
