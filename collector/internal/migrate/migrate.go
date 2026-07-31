@@ -81,6 +81,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureSMSNotificationColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate SMS notification columns: %w", err)
 	}
+	if err := ensureDocumentCategoryExpansion(ctx, db); err != nil {
+		return fmt.Errorf("migrate document category expansion (source_document_type/intellectual property): %w", err)
+	}
 	if err := ensureBillingTables(ctx, db); err != nil {
 		return fmt.Errorf("migrate subscriptions/payment_log tables: %w", err)
 	}
@@ -468,6 +471,44 @@ func ensureSMSNotificationColumns(ctx context.Context, db *sql.DB) error {
 		DROP INDEX IF EXISTS idx_notification_log_dedup;
 		CREATE INDEX IF NOT EXISTS idx_notification_log_dedup
 			ON notification_log(event_type, pipeline_entry_id, notice_id, user_id, channel);
+	`)
+	return err
+}
+
+// ensureDocumentCategoryExpansion adds 증빙서류 17종 확대: source_document_type
+// on company_financials/company_track_records (어느 문서로 검증됐는지 구분 —
+// 신용평가서/표준재무제표증명/부가가치세과세표준증명은 financials로, 계약서/
+// 세금계산서는 track_records로 흡수) + 신규 테이블 company_intellectual_property
+// (특허·상표·디자인·실용신안 — 면허/인증의 "보유 여부"와 달리 출원~등록~소멸
+// 단계가 이어지는 별개 개념이라 새 테이블로 분리). 두 ALTER는 신규 컬럼 +
+// 인라인 CHECK라 ADD COLUMN IF NOT EXISTS만으로 이미 멱등적이다(제약도 컬럼과
+// 함께 생기므로 노티피케이션 로그 때처럼 별도 DROP/재ADD가 필요 없음).
+func ensureDocumentCategoryExpansion(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_financials ADD COLUMN IF NOT EXISTS source_document_type TEXT
+			CHECK (source_document_type IN ('재무제표','신용평가서','표준재무제표증명','부가가치세과세표준증명','기타'));
+		ALTER TABLE company_track_records ADD COLUMN IF NOT EXISTS source_document_type TEXT
+			CHECK (source_document_type IN ('수행실적증명서','계약서','세금계산서','기타'));
+
+		CREATE TABLE IF NOT EXISTS company_intellectual_property (
+			id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id    UUID NOT NULL REFERENCES company_profiles(id),
+			ip_type               TEXT NOT NULL CHECK (ip_type IN ('특허','상표','디자인','실용신안')),
+			title                 TEXT NOT NULL,
+			application_number    TEXT,
+			registration_number   TEXT,
+			applicant_name        TEXT,
+			application_date      DATE,
+			registration_date     DATE,
+			expires_at            DATE,
+			status                TEXT NOT NULL CHECK (status IN ('등록','출원중','거절','소멸','확인필요')),
+			source_document_id    UUID REFERENCES company_documents(id),
+			confidence            TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+			verified_at           TIMESTAMPTZ,
+			created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_company_ip_profile ON company_intellectual_property(company_profile_id);
 	`)
 	return err
 }

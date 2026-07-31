@@ -20,7 +20,15 @@ import (
 
 var numericLikePattern = regexp.MustCompile(`^-?[\d,]+(\.\d+)?$`)
 
+// financialDocumentTypes — 이 표가 흡수하는 증빙서류 종류. 재무제표
+// 외에 신용평가서/표준재무제표증명/부가가치세과세표준증명도 여기 담긴다
+// (증빙서류 17종 확대) — 값 자체(매출액/신용등급 등)를 담는 필드는
+// 문서 종류와 무관하게 동일하고, source_document_type은 "어느 문서로
+// 검증됐는지"만 구분한다.
+var financialDocumentTypes = []string{"재무제표", "신용평가서", "표준재무제표증명", "부가가치세과세표준증명", "기타"}
+
 type financialCandidate struct {
+	DocumentType      string `json:"documentType"`
 	FiscalYear        string `json:"fiscalYear"`
 	Revenue           string `json:"revenue"`
 	OperatingProfit   string `json:"operatingProfit"`
@@ -68,6 +76,7 @@ func (s *Server) extractFinancialCandidate(ctx context.Context, body []byte, ext
 		),
 		InputSchema: anthropic.ToolInputSchemaParam{
 			Properties: map[string]any{
+				"documentType":      map[string]any{"type": "string", "description": "증빙서류 종류", "enum": financialDocumentTypes},
 				"fiscalYear":        map[string]any{"type": "string", "description": "회계연도(YYYY). 없으면 빈 문자열"},
 				"revenue":           map[string]any{"type": "string", "description": "매출액(숫자만, 원 단위). 없으면 빈 문자열"},
 				"operatingProfit":   map[string]any{"type": "string", "description": "영업이익(숫자만, 음수 가능). 없으면 빈 문자열"},
@@ -82,7 +91,7 @@ func (s *Server) extractFinancialCandidate(ctx context.Context, body []byte, ext
 				"capitalImpairment": map[string]any{"type": "string", "description": "자본잠식 여부", "enum": triStateEnum},
 			},
 			Required: []string{
-				"fiscalYear", "revenue", "operatingProfit", "netIncome", "capital", "totalAssets",
+				"documentType", "fiscalYear", "revenue", "operatingProfit", "netIncome", "capital", "totalAssets",
 				"totalLiabilities", "debtRatio", "currentRatio", "creditRating", "taxDelinquent", "capitalImpairment",
 			},
 			ExtraFields: map[string]any{"additionalProperties": false},
@@ -121,6 +130,9 @@ func (s *Server) extractFinancialCandidate(ctx context.Context, body []byte, ext
 }
 
 func sanitizeFinancialCandidate(c *financialCandidate) {
+	if c.DocumentType != "" && !containsString(financialDocumentTypes, c.DocumentType) {
+		c.DocumentType = ""
+	}
 	if c.FiscalYear != "" && !regexp.MustCompile(`^\d{4}$`).MatchString(c.FiscalYear) {
 		c.FiscalYear = ""
 	}
@@ -144,6 +156,7 @@ func sanitizeFinancialCandidate(c *financialCandidate) {
 }
 
 type financialRequest struct {
+	DocumentType      *string `json:"documentType"`
 	FiscalYear        int     `json:"fiscalYear"`
 	Revenue           *string `json:"revenue"`
 	OperatingProfit   *string `json:"operatingProfit"`
@@ -164,6 +177,16 @@ func strOrEmpty(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// nullIfEmpty turns a possibly-nil *string request field into a nil pointer
+// when nil or empty, so it binds as SQL NULL instead of an empty string —
+// shared by company_financials.go/company_track_records.go's source_document_type.
+func nullIfEmpty(s *string) *string {
+	if s == nil || *s == "" {
+		return nil
+	}
+	return s
 }
 
 func (s *Server) handleCreateFinancial(w http.ResponseWriter, r *http.Request) {
@@ -190,6 +213,10 @@ func (s *Server) handleCreateFinancial(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.FiscalYear < 1900 || req.FiscalYear > 2200 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_fiscal_year"})
+		return
+	}
+	if req.DocumentType != nil && *req.DocumentType != "" && !containsString(financialDocumentTypes, *req.DocumentType) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_document_type"})
 		return
 	}
 
@@ -233,17 +260,17 @@ func (s *Server) handleCreateFinancial(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO company_financials (
 			company_profile_id, fiscal_year, revenue, operating_profit, net_income, capital,
 			total_assets, total_liabilities, debt_ratio, current_ratio, credit_rating,
-			tax_delinquent, capital_impairment, source_document_id, confidence, verified_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now())
+			tax_delinquent, capital_impairment, source_document_id, confidence, verified_at, source_document_type
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now(), $16)
 		ON CONFLICT (company_profile_id, fiscal_year) DO UPDATE SET
 			revenue = $3, operating_profit = $4, net_income = $5, capital = $6,
 			total_assets = $7, total_liabilities = $8, debt_ratio = $9, current_ratio = $10,
 			credit_rating = $11, tax_delinquent = $12, capital_impairment = $13,
-			source_document_id = $14, confidence = $15, verified_at = now(), updated_at = now()
+			source_document_id = $14, confidence = $15, verified_at = now(), updated_at = now(), source_document_type = $16
 		RETURNING id`,
 		profile.ID, req.FiscalYear, revenue, operatingProfit, netIncome, capital,
 		totalAssets, totalLiabilities, debtRatio, currentRatio, req.CreditRating,
-		taxDelinquent, capitalImpairment, req.SourceDocumentID, confidence,
+		taxDelinquent, capitalImpairment, req.SourceDocumentID, confidence, nullIfEmpty(req.DocumentType),
 	).Scan(&id)
 	if err != nil {
 		s.logger.Error("create-financial: upsert failed", "error", err)
@@ -256,6 +283,7 @@ func (s *Server) handleCreateFinancial(w http.ResponseWriter, r *http.Request) {
 
 type financialItem struct {
 	ID                string     `json:"id"`
+	DocumentType      *string    `json:"documentType"`
 	FiscalYear        int        `json:"fiscalYear"`
 	Revenue           *int64     `json:"revenue"`
 	OperatingProfit   *int64     `json:"operatingProfit"`
@@ -295,7 +323,8 @@ func (s *Server) handleListFinancials(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.QueryContext(r.Context(), `
 		SELECT id, fiscal_year, revenue, operating_profit, net_income, capital, total_assets,
 		       total_liabilities, debt_ratio, current_ratio, credit_rating, tax_delinquent,
-		       capital_impairment, source_document_id, confidence, verified_at, created_at, updated_at
+		       capital_impairment, source_document_id, confidence, verified_at, created_at, updated_at,
+		       source_document_type
 		FROM company_financials WHERE company_profile_id = $1 ORDER BY fiscal_year DESC`, profile.ID)
 	if err != nil {
 		s.logger.Error("list-financials: query failed", "error", err)
@@ -309,15 +338,17 @@ func (s *Server) handleListFinancials(w http.ResponseWriter, r *http.Request) {
 		var it financialItem
 		var revenue, operatingProfit, netIncome, capital, totalAssets, totalLiabilities sql.NullInt64
 		var debtRatio, currentRatio sql.NullFloat64
-		var creditRating, sourceDocID sql.NullString
+		var creditRating, sourceDocID, sourceDocType sql.NullString
 		var taxDelinquent, capitalImpairment sql.NullBool
 		var verifiedAt sql.NullTime
 		if err := rows.Scan(&it.ID, &it.FiscalYear, &revenue, &operatingProfit, &netIncome, &capital,
 			&totalAssets, &totalLiabilities, &debtRatio, &currentRatio, &creditRating, &taxDelinquent,
-			&capitalImpairment, &sourceDocID, &it.Confidence, &verifiedAt, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			&capitalImpairment, &sourceDocID, &it.Confidence, &verifiedAt, &it.CreatedAt, &it.UpdatedAt,
+			&sourceDocType); err != nil {
 			s.logger.Error("list-financials: scan failed", "error", err)
 			continue
 		}
+		it.DocumentType = nullStringPtr(sourceDocType)
 		it.Revenue = nullInt64Ptr(revenue)
 		it.OperatingProfit = nullInt64Ptr(operatingProfit)
 		it.NetIncome = nullInt64Ptr(netIncome)

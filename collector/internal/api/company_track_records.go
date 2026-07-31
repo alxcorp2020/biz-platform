@@ -30,7 +30,13 @@ func (s *Server) fetchTrackRecordMaxAmount(ctx context.Context, profileID string
 	return maxAmount, err
 }
 
+// trackRecordDocumentTypes — 이 표가 흡수하는 증빙서류 종류. 수행실적증명서
+// 외에 계약서/세금계산서도 여기 담긴다(증빙서류 17종 확대) — source_document_type은
+// "어느 문서로 검증됐는지"만 구분하고, 실제 값 필드는 문서 종류와 무관하게 동일하다.
+var trackRecordDocumentTypes = []string{"수행실적증명서", "계약서", "세금계산서", "기타"}
+
 type trackRecordCandidate struct {
+	DocumentType   string `json:"documentType"`
 	ProjectName    string `json:"projectName"`
 	ClientName     string `json:"clientName"`
 	ContractDate   string `json:"contractDate"`
@@ -80,6 +86,7 @@ func (s *Server) extractTrackRecordCandidate(ctx context.Context, body []byte, e
 		),
 		InputSchema: anthropic.ToolInputSchemaParam{
 			Properties: map[string]any{
+				"documentType":   map[string]any{"type": "string", "description": "증빙서류 종류", "enum": trackRecordDocumentTypes},
 				"projectName":    map[string]any{"type": "string", "description": "사업명. 없으면 빈 문자열"},
 				"clientName":     map[string]any{"type": "string", "description": "발주기관/고객사. 없으면 빈 문자열"},
 				"contractDate":   map[string]any{"type": "string", "description": "계약일(YYYY-MM-DD). 없으면 빈 문자열"},
@@ -96,7 +103,7 @@ func (s *Server) extractTrackRecordCandidate(ctx context.Context, body []byte, e
 				"isCompleted":    map[string]any{"type": "string", "description": "완료 여부", "enum": triStateEnum},
 			},
 			Required: []string{
-				"projectName", "clientName", "contractDate", "periodStart", "periodEnd", "contractAmount",
+				"documentType", "projectName", "clientName", "contractDate", "periodStart", "periodEnd", "contractAmount",
 				"projectType", "industryField", "region", "isJointVenture", "shareRatio", "scope",
 				"coreTechnology", "isCompleted",
 			},
@@ -136,6 +143,9 @@ func (s *Server) extractTrackRecordCandidate(ctx context.Context, body []byte, e
 }
 
 func sanitizeTrackRecordCandidate(c *trackRecordCandidate) {
+	if c.DocumentType != "" && !containsString(trackRecordDocumentTypes, c.DocumentType) {
+		c.DocumentType = ""
+	}
 	for _, f := range []*string{&c.ContractDate, &c.PeriodStart, &c.PeriodEnd} {
 		if *f != "" && !isBlankOrValidDate(*f) {
 			*f = ""
@@ -163,6 +173,7 @@ func sanitizeTrackRecordCandidate(c *trackRecordCandidate) {
 }
 
 type trackRecordRequest struct {
+	DocumentType     *string `json:"documentType"`
 	ProjectName      string  `json:"projectName"`
 	ClientName       *string `json:"clientName"`
 	ContractDate     *string `json:"contractDate"`
@@ -206,6 +217,10 @@ func (s *Server) handleCreateTrackRecord(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "project_name_required"})
 		return
 	}
+	if req.DocumentType != nil && *req.DocumentType != "" && !containsString(trackRecordDocumentTypes, *req.DocumentType) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_document_type"})
+		return
+	}
 
 	contractDate, err1 := parseOptionalDate(req.ContractDate)
 	periodStart, err2 := parseOptionalDate(req.PeriodStart)
@@ -243,12 +258,12 @@ func (s *Server) handleCreateTrackRecord(w http.ResponseWriter, r *http.Request)
 		INSERT INTO company_track_records (
 			company_profile_id, project_name, client_name, contract_date, period_start, period_end,
 			contract_amount, project_type, industry_field, region, is_joint_venture, share_ratio,
-			scope, core_technology, is_completed, source_document_id, confidence, verified_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17, now())
+			scope, core_technology, is_completed, source_document_id, confidence, verified_at, source_document_type
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17, now(), $18)
 		RETURNING id`,
 		profile.ID, req.ProjectName, req.ClientName, contractDate, periodStart, periodEnd,
 		contractAmount, req.ProjectType, req.IndustryField, req.Region, isJointVenture, shareRatio,
-		req.Scope, req.CoreTechnology, isCompleted, req.SourceDocumentID, confidence,
+		req.Scope, req.CoreTechnology, isCompleted, req.SourceDocumentID, confidence, nullIfEmpty(req.DocumentType),
 	).Scan(&id)
 	if err != nil {
 		s.logger.Error("create-track-record: insert failed", "error", err)
@@ -261,6 +276,7 @@ func (s *Server) handleCreateTrackRecord(w http.ResponseWriter, r *http.Request)
 
 type trackRecordItem struct {
 	ID               string     `json:"id"`
+	DocumentType     *string    `json:"documentType"`
 	ProjectName      string     `json:"projectName"`
 	ClientName       *string    `json:"clientName"`
 	ContractDate     *string    `json:"contractDate"`
@@ -302,7 +318,8 @@ func (s *Server) handleListTrackRecords(w http.ResponseWriter, r *http.Request) 
 	rows, err := s.db.QueryContext(r.Context(), `
 		SELECT id, project_name, client_name, contract_date, period_start, period_end, contract_amount,
 		       project_type, industry_field, region, is_joint_venture, share_ratio, scope, core_technology,
-		       is_completed, source_document_id, confidence, verified_at, created_at, updated_at
+		       is_completed, source_document_id, confidence, verified_at, created_at, updated_at,
+		       source_document_type
 		FROM company_track_records WHERE company_profile_id = $1 ORDER BY created_at DESC`, profile.ID)
 	if err != nil {
 		s.logger.Error("list-track-records: query failed", "error", err)
@@ -314,17 +331,19 @@ func (s *Server) handleListTrackRecords(w http.ResponseWriter, r *http.Request) 
 	items := []trackRecordItem{}
 	for rows.Next() {
 		var it trackRecordItem
-		var clientName, projectType, industryField, region, scope, coreTechnology, sourceDocID sql.NullString
+		var clientName, projectType, industryField, region, scope, coreTechnology, sourceDocID, sourceDocType sql.NullString
 		var contractDate, periodStart, periodEnd, verifiedAt sql.NullTime
 		var contractAmount sql.NullInt64
 		var shareRatio sql.NullFloat64
 		var isJointVenture, isCompleted sql.NullBool
 		if err := rows.Scan(&it.ID, &it.ProjectName, &clientName, &contractDate, &periodStart, &periodEnd,
 			&contractAmount, &projectType, &industryField, &region, &isJointVenture, &shareRatio, &scope,
-			&coreTechnology, &isCompleted, &sourceDocID, &it.Confidence, &verifiedAt, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			&coreTechnology, &isCompleted, &sourceDocID, &it.Confidence, &verifiedAt, &it.CreatedAt, &it.UpdatedAt,
+			&sourceDocType); err != nil {
 			s.logger.Error("list-track-records: scan failed", "error", err)
 			continue
 		}
+		it.DocumentType = nullStringPtr(sourceDocType)
 		it.ClientName = nullStringPtr(clientName)
 		it.ProjectType = nullStringPtr(projectType)
 		it.IndustryField = nullStringPtr(industryField)

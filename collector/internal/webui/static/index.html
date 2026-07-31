@@ -1611,6 +1611,9 @@ const ERROR_MESSAGES = {
   category_and_name_required: '구분과 명칭은 필수입니다.',
   invalid_status: '보유 상태 값이 올바르지 않습니다.',
   invalid_issued_at: '발급일 형식이 올바르지 않습니다(YYYY-MM-DD).',
+  invalid_document_type: '증빙서류 종류 값이 올바르지 않습니다.',
+  invalid_ip_type: '지식재산권 종류 값이 올바르지 않습니다.',
+  title_required: '명칭은 필수입니다.',
   invalid_expires_at: '유효기간 형식이 올바르지 않습니다(YYYY-MM-DD).',
   invalid_source_document: '연결할 증빙서류를 찾을 수 없습니다.',
   total_subscriber_count_required: '총 가입자 수를 입력해주세요.',
@@ -3414,8 +3417,11 @@ async function uploadCompanyRecordDocument(uploadPath, file) {
 }
 
 // ---------- 재무정보 ----------
+const FINANCIAL_DOCUMENT_TYPES = ['재무제표', '신용평가서', '표준재무제표증명', '부가가치세과세표준증명', '기타'];
+
 function financialCardHtml(item) {
   const parts = [];
+  if (item.documentType) parts.push(escapeHtml(item.documentType));
   if (item.revenue != null) parts.push('매출액 ' + formatBudget(item.revenue));
   if (item.operatingProfit != null) parts.push('영업이익 ' + formatBudget(item.operatingProfit));
   if (item.creditRating) parts.push('신용등급 ' + escapeHtml(item.creditRating));
@@ -3447,9 +3453,9 @@ async function renderFinancialsTab(container) {
 
   container.innerHTML = '';
   container.appendChild(h(`
-    <p class="license-card-meta">연도별 재무정보를 등록합니다. 재무제표를 업로드하면 AI가 자동으로 수치를 읽어드립니다.</p>
+    <p class="license-card-meta">연도별 재무정보를 등록합니다. 재무제표/신용평가서/표준재무제표증명/부가가치세과세표준증명을 업로드하면 AI가 자동으로 수치를 읽어드립니다.</p>
     <div class="license-toolbar">
-      <button type="button" id="financial-upload-btn">증빙서류 업로드(재무제표)</button>
+      <button type="button" id="financial-upload-btn">증빙서류 업로드(재무제표 등)</button>
       <button type="button" id="financial-manual-btn" class="secondary">직접 입력</button>
     </div>
     <input type="file" id="financial-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
@@ -3497,6 +3503,16 @@ function triStateSelectHtml(name, selected) {
   ).join('')}</select>`;
 }
 
+// plainSelectHtml — 값 목록 하나로 <select>를 만드는 공용 헬퍼(증빙서류
+// 종류처럼 "선택 안 함" + 고정 값 목록만 있으면 되는 경우). withEmpty가
+// true면 맨 앞에 빈 옵션을 추가한다(값 목록 자체엔 넣지 않아도 됨).
+function plainSelectHtml(name, options, selected, withEmpty) {
+  const opts = withEmpty ? ['', ...options] : options;
+  return `<select name="${name}">${opts.map(v =>
+    `<option value="${escapeAttr(v)}" ${v === (selected || '') ? 'selected' : ''}>${escapeHtml(v || '선택 안 함')}</option>`
+  ).join('')}</select>`;
+}
+
 function renderFinancialForm(formSlot, candidate, documentId, onSaved) {
   const c = candidate || {};
   formSlot.innerHTML = '';
@@ -3504,6 +3520,7 @@ function renderFinancialForm(formSlot, candidate, documentId, onSaved) {
     <div class="license-confirm-form">
       <h4>${documentId ? 'AI가 읽은 내용을 확인해주세요' : '직접 입력'}</h4>
       <form id="financial-confirm-form" class="profile-form">
+        <label>증빙서류 종류${plainSelectHtml('documentType', FINANCIAL_DOCUMENT_TYPES, c.documentType, true)}</label>
         <label>회계연도<input type="number" name="fiscalYear" value="${escapeAttr(c.fiscalYear || '')}" required></label>
         <label>매출액(원)<input type="text" name="revenue" value="${escapeAttr(c.revenue || '')}"></label>
         <label>영업이익(원)<input type="text" name="operatingProfit" value="${escapeAttr(c.operatingProfit || '')}"></label>
@@ -3534,6 +3551,7 @@ function renderFinancialForm(formSlot, candidate, documentId, onSaved) {
     errorBox.style.display = 'none';
     const fd = new FormData(form);
     const payload = {
+      documentType: fd.get('documentType') || null,
       fiscalYear: Number(fd.get('fiscalYear')),
       revenue: fd.get('revenue') || null,
       operatingProfit: fd.get('operatingProfit') || null,
@@ -3560,8 +3578,11 @@ function renderFinancialForm(formSlot, candidate, documentId, onSaved) {
 }
 
 // ---------- 수행실적 ----------
+const TRACK_RECORD_DOCUMENT_TYPES = ['수행실적증명서', '계약서', '세금계산서', '기타'];
+
 function trackRecordCardHtml(item) {
   const parts = [];
+  if (item.documentType) parts.push(escapeHtml(item.documentType));
   if (item.clientName) parts.push(escapeHtml(item.clientName));
   if (item.contractAmount != null) parts.push(formatBudget(item.contractAmount));
   if (item.periodStart || item.periodEnd) parts.push(`${escapeHtml(item.periodStart || '?')} ~ ${escapeHtml(item.periodEnd || '?')}`);
@@ -3592,9 +3613,9 @@ async function renderTrackRecordsTab(container) {
 
   container.innerHTML = '';
   container.appendChild(h(`
-    <p class="license-card-meta">수행실적을 건별로 등록합니다. 실적증명서를 업로드하면 AI가 자동으로 정보를 읽어드립니다.</p>
+    <p class="license-card-meta">수행실적을 건별로 등록합니다. 실적증명서/계약서/세금계산서를 업로드하면 AI가 자동으로 정보를 읽어드립니다.</p>
     <div class="license-toolbar">
-      <button type="button" id="track-record-upload-btn">증빙서류 업로드(실적증명서)</button>
+      <button type="button" id="track-record-upload-btn">증빙서류 업로드(실적증명서·계약서·세금계산서)</button>
       <button type="button" id="track-record-manual-btn" class="secondary">직접 입력</button>
     </div>
     <input type="file" id="track-record-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
@@ -3636,6 +3657,7 @@ function renderTrackRecordForm(formSlot, candidate, documentId, onSaved) {
     <div class="license-confirm-form">
       <h4>${documentId ? 'AI가 읽은 내용을 확인해주세요' : '직접 입력'}</h4>
       <form id="track-record-confirm-form" class="profile-form">
+        <label>증빙서류 종류${plainSelectHtml('documentType', TRACK_RECORD_DOCUMENT_TYPES, c.documentType, true)}</label>
         <label>사업명<input type="text" name="projectName" value="${escapeAttr(c.projectName || '')}" required></label>
         <label>발주기관/고객사<input type="text" name="clientName" value="${escapeAttr(c.clientName || '')}"></label>
         <label>계약일<input type="date" name="contractDate" value="${escapeAttr(c.contractDate || '')}"></label>
@@ -3668,6 +3690,7 @@ function renderTrackRecordForm(formSlot, candidate, documentId, onSaved) {
     errorBox.style.display = 'none';
     const fd = new FormData(form);
     const payload = {
+      documentType: fd.get('documentType') || null,
       projectName: fd.get('projectName'),
       clientName: fd.get('clientName') || null,
       contractDate: fd.get('contractDate') || null,
@@ -3855,11 +3878,12 @@ async function renderLicenses(container) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
 
-  let licenses, certifications;
+  let licenses, certifications, ip;
   try {
-    [licenses, certifications] = await Promise.all([
+    [licenses, certifications, ip] = await Promise.all([
       apiRequest('GET', '/api/me/licenses'),
       apiRequest('GET', '/api/me/certifications'),
+      apiRequest('GET', '/api/me/intellectual-property'),
     ]);
   } catch (err) {
     if (err.status === 401) {
@@ -3890,11 +3914,23 @@ async function renderLicenses(container) {
         <h3>인증 및 확인서</h3>
         <div class="license-list" id="certification-list"></div>
       </div>
+      <div class="license-section">
+        <h3>지식재산권</h3>
+        <p class="license-card-meta">특허·상표·디자인·실용신안의 출원~등록 현황을 관리합니다. 등록증/출원서를 업로드하면 AI가 자동으로 정보를 읽어드립니다.</p>
+        <div class="license-toolbar">
+          <button type="button" id="ip-upload-btn" class="btn btn-primary">증빙서류 업로드(특허·상표 등)</button>
+          <button type="button" id="ip-manual-btn" class="btn btn-secondary">직접 입력</button>
+        </div>
+        <input type="file" id="ip-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+        <div id="ip-form-slot"></div>
+        <div class="license-list" id="ip-list"></div>
+      </div>
     </div>
   `));
 
   renderLicenseListInto(document.getElementById('license-list'), licenses.items, '아직 등록한 면허·신고·등록 정보가 없습니다.');
   renderLicenseListInto(document.getElementById('certification-list'), certifications.items, '아직 등록한 인증 정보가 없습니다.');
+  renderLicenseListInto(document.getElementById('ip-list'), ip.items, '아직 등록한 지식재산권 정보가 없습니다.', ipCardHtml);
 
   const formSlot = document.getElementById('license-form-slot');
   const fileInput = document.getElementById('license-file-input');
@@ -3932,6 +3968,112 @@ async function renderLicenses(container) {
 
     formSlot.innerHTML = '';
     renderLicenseConfirmForm(formSlot, data.candidate, data.documentId, () => renderLicenses(container));
+  });
+
+  const ipFormSlot = document.getElementById('ip-form-slot');
+  const ipFileInput = document.getElementById('ip-file-input');
+
+  document.getElementById('ip-upload-btn').addEventListener('click', () => ipFileInput.click());
+  document.getElementById('ip-manual-btn').addEventListener('click', () => {
+    renderIPConfirmForm(ipFormSlot, null, null, () => renderLicenses(container));
+  });
+
+  ipFileInput.addEventListener('change', async () => {
+    const file = ipFileInput.files[0];
+    ipFileInput.value = '';
+    if (!file) return;
+    ipFormSlot.innerHTML = '';
+    ipFormSlot.appendChild(h('<div class="loading">문서를 분석하는 중...</div>'));
+    let uploadData;
+    try {
+      uploadData = await uploadCompanyRecordDocument('/api/me/intellectual-property/documents', file);
+    } catch (err) {
+      ipFormSlot.innerHTML = '';
+      ipFormSlot.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+      return;
+    }
+    ipFormSlot.innerHTML = '';
+    renderIPConfirmForm(ipFormSlot, uploadData.candidate, uploadData.documentId, () => renderLicenses(container));
+  });
+}
+
+const IP_TYPES = ['특허', '상표', '디자인', '실용신안'];
+const IP_STATUSES = ['등록', '출원중', '거절', '소멸', '확인필요'];
+const IP_STATUS_BADGE_TONE = { '등록': 'badge--success', '출원중': 'badge--blue', '거절': 'badge--danger', '소멸': 'badge--gray', '확인필요': 'badge--warn' };
+
+function ipCardHtml(item) {
+  const parts = [];
+  if (item.applicantName) parts.push(escapeHtml(item.applicantName));
+  if (item.registrationNumber) parts.push('등록번호 ' + escapeHtml(item.registrationNumber));
+  else if (item.applicationNumber) parts.push('출원번호 ' + escapeHtml(item.applicationNumber));
+  if (item.expiresAt) parts.push('만료 ' + escapeHtml(item.expiresAt));
+  return `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(item.title)} <span class="dot">·</span> ${escapeHtml(item.ipType)}</div>
+        <div class="license-card-meta">${parts.join(' · ')}</div>
+      </div>
+      <div class="license-card-side">
+        ${confidenceBadgeHtml(item.confidence)}
+        <span class="badge ${IP_STATUS_BADGE_TONE[item.status] || 'badge--gray'}">${escapeHtml(item.status)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderIPConfirmForm(formSlot, candidate, documentId, onSaved) {
+  const c = candidate || {};
+  formSlot.innerHTML = '';
+  formSlot.appendChild(h(`
+    <div class="license-confirm-form">
+      <h4>${documentId ? 'AI가 읽은 내용을 확인해주세요' : '직접 입력'}</h4>
+      <form id="ip-confirm-form" class="profile-form">
+        <label>종류${plainSelectHtml('ipType', IP_TYPES, c.ipType, false)}</label>
+        <label>명칭(발명의 명칭/상표명 등)<input type="text" name="title" value="${escapeAttr(c.title || '')}" required></label>
+        <label>출원번호<input type="text" name="applicationNumber" value="${escapeAttr(c.applicationNumber || '')}"></label>
+        <label>등록번호<input type="text" name="registrationNumber" value="${escapeAttr(c.registrationNumber || '')}"></label>
+        <label>출원인/권리자<input type="text" name="applicantName" value="${escapeAttr(c.applicantName || '')}"></label>
+        <label>출원일<input type="date" name="applicationDate" value="${escapeAttr(c.applicationDate || '')}"></label>
+        <label>등록일<input type="date" name="registrationDate" value="${escapeAttr(c.registrationDate || '')}"></label>
+        <label>존속기간 만료일<input type="date" name="expiresAt" value="${escapeAttr(c.expiresAt || '')}"></label>
+        <label>상태${plainSelectHtml('status', IP_STATUSES, c.status || '확인필요', false)}</label>
+        <div id="ip-confirm-error" class="error" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="submit">저장</button>
+          <button type="button" id="ip-confirm-cancel" class="secondary">취소</button>
+        </div>
+      </form>
+    </div>
+  `));
+
+  const form = document.getElementById('ip-confirm-form');
+  const errorBox = document.getElementById('ip-confirm-error');
+  document.getElementById('ip-confirm-cancel').addEventListener('click', () => { formSlot.innerHTML = ''; });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    const payload = {
+      ipType: fd.get('ipType'),
+      title: fd.get('title'),
+      applicationNumber: fd.get('applicationNumber') || null,
+      registrationNumber: fd.get('registrationNumber') || null,
+      applicantName: fd.get('applicantName') || null,
+      applicationDate: fd.get('applicationDate') || null,
+      registrationDate: fd.get('registrationDate') || null,
+      expiresAt: fd.get('expiresAt') || null,
+      status: fd.get('status'),
+      sourceDocumentId: documentId || null,
+    };
+    try {
+      await apiRequest('POST', '/api/me/intellectual-property', payload);
+      formSlot.innerHTML = '';
+      onSaved();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
   });
 }
 

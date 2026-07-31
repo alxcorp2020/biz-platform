@@ -411,6 +411,12 @@ CREATE TABLE company_financials (
     credit_rating       TEXT,
     tax_delinquent      BOOLEAN,
     capital_impairment  BOOLEAN,
+    -- 증빙서류 17종 확대: 이 표는 재무제표뿐 아니라 신용평가서/표준재무제표증명/
+    -- 부가가치세 과세표준증명도 흡수한다 — 어느 문서로 검증됐는지 구분해서
+    -- 보여주기 위한 출처 표시일 뿐, 값 자체의 신뢰도는 기존 confidence(A~D)가
+    -- 이미 담당한다(두 컬럼은 서로 다른 축).
+    source_document_type TEXT CHECK (source_document_type IN
+                            ('재무제표','신용평가서','표준재무제표증명','부가가치세과세표준증명','기타')),
     source_document_id  UUID REFERENCES company_documents(id),
     confidence          TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
     verified_at         TIMESTAMPTZ,
@@ -436,6 +442,12 @@ CREATE TABLE company_track_records (
     scope               TEXT,
     core_technology     TEXT,
     is_completed        BOOLEAN,
+    -- source_document_type: 이 표는 수행실적증명서 외에 계약서/세금계산서도
+    -- 흡수한다(같은 이유로 company_financials에도 추가) — 세금계산서/계약서는
+    -- 수행기간·공동수급여부 등 일부 필드가 문서 자체에 없는 경우가 많다는 걸
+    -- 프론트가 이 값으로 미리 안내할 수 있게 한다.
+    source_document_type TEXT CHECK (source_document_type IN
+                            ('수행실적증명서','계약서','세금계산서','기타')),
     source_document_id  UUID REFERENCES company_documents(id),
     confidence          TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
     verified_at         TIMESTAMPTZ,
@@ -443,6 +455,32 @@ CREATE TABLE company_track_records (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_company_track_records_profile ON company_track_records(company_profile_id);
+
+-- ------------------------------------------------------------
+-- 지식재산권(특허·상표·디자인·실용신안) — 면허/인증과 달리 "보유 여부"
+-- 개념이 아니라 출원~등록~소멸까지 상태가 이어지는 별개 개념이라 새
+-- 테이블로 분리한다(면허/인증 status인 보유/미보유/확인되지않음과는
+-- 어휘 자체가 다름 — 예를 들어 "출원중"은 미보유가 아니다).
+-- ------------------------------------------------------------
+CREATE TABLE company_intellectual_property (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id    UUID NOT NULL REFERENCES company_profiles(id),
+    ip_type               TEXT NOT NULL CHECK (ip_type IN ('특허','상표','디자인','실용신안')),
+    title                 TEXT NOT NULL,
+    application_number    TEXT,
+    registration_number   TEXT,
+    applicant_name        TEXT,
+    application_date      DATE,
+    registration_date     DATE,
+    expires_at            DATE,
+    status                TEXT NOT NULL CHECK (status IN ('등록','출원중','거절','소멸','확인필요')),
+    source_document_id    UUID REFERENCES company_documents(id),
+    confidence            TEXT NOT NULL CHECK (confidence IN ('A','B','C','D')),
+    verified_at           TIMESTAMPTZ,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_company_ip_profile ON company_intellectual_property(company_profile_id);
 
 -- 개인정보 최소화: 이름/연락처 등 개인식별정보 컬럼을 두지 않는다 —
 -- 증빙서류(기술인력현황표 등)에 이름이 있어도 AI 추출 프롬프트에서
