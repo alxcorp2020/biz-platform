@@ -34,6 +34,12 @@ services:
         sync: false
       - key: RESEND_FROM_EMAIL
         sync: false
+      - key: ALIGO_API_KEY
+        sync: false
+      - key: ALIGO_USER_ID
+        sync: false
+      - key: ALIGO_SENDER
+        sync: false
       - key: TOSS_CLIENT_KEY
         sync: false
       - key: TOSS_SECRET_KEY

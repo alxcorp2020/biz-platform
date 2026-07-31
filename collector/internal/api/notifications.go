@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"strings"
 
 	"github.com/lib/pq"
 )
@@ -25,6 +26,9 @@ const (
 	notifyEventDeadlineD1           = "deadline_d1"
 	notifyEventRecommendationDigest = "recommendation_digest"
 	notifyEventAssigneeStatusChange = "assignee_status_change"
+
+	notifyChannelEmail = "email"
+	notifyChannelSMS   = "sms"
 )
 
 // pipelineActiveForNotification: 종결된 건(제출완료/낙찰/탈락/보류/제외)은
@@ -36,8 +40,10 @@ var pipelineActiveForNotification = pipelineActiveStatuses
 // ticker (see notify.NextDailyRun). Each sub-batch logs its own errors and
 // keeps going — one failing batch shouldn't block the others.
 func (s *Server) RunDailyNotifications(ctx context.Context) {
-	if s.notify == nil || !s.notify.Configured() {
-		s.logger.Warn("notify: RESEND_API_KEY not configured, skipping daily notification run")
+	emailReady := s.notify != nil && s.notify.Configured()
+	smsReady := s.smsNotify != nil && s.smsNotify.Configured()
+	if !emailReady && !smsReady {
+		s.logger.Warn("notify: RESEND_API_KEY/ALIGO_API_KEY 모두 설정되지 않아 알림 배치를 건너뜁니다")
 		return
 	}
 	if err := s.sendDeadlineReminders(ctx, 3, notifyEventDeadlineD3); err != nil {
@@ -46,28 +52,48 @@ func (s *Server) RunDailyNotifications(ctx context.Context) {
 	if err := s.sendDeadlineReminders(ctx, 1, notifyEventDeadlineD1); err != nil {
 		s.logger.Error("notify: D-1 reminder batch failed", "error", err)
 	}
-	if err := s.sendRecommendationDigest(ctx); err != nil {
-		s.logger.Error("notify: recommendation digest batch failed", "error", err)
+	// 추천공고 다이제스트는 이메일 전용으로 유지한다(판단 근거): 매칭
+	// 건수가 0~N건으로 가변적이라 SMS 90바이트 예산 안에 의미 있게 요약할
+	// 방법이 없다 — 제목 나열을 자르면 "어떤 공고인지"가 사라지고,
+	// 건수만 보내면 실질 정보가 없다. 짧은 단일 이벤트인 마감 리마인더/
+	// 담당자 상태변경과 달리 이 이벤트만 원천적으로 SMS에 맞지 않는다.
+	if emailReady {
+		if err := s.sendRecommendationDigest(ctx); err != nil {
+			s.logger.Error("notify: recommendation digest batch failed", "error", err)
+		}
 	}
 }
 
-// sendDeadlineReminders emails every pipeline entry (not yet closed out)
-// whose submission_deadline is exactly offsetDays from today, to the profile
-// owner, skipping users who opted out and anything already logged as sent
-// for this exact event_type — see notification_log.
+// sendDeadlineReminders notifies (email and/or SMS) every pipeline entry
+// (not yet closed out) whose submission_deadline is exactly offsetDays from
+// today, to the profile owner. 이메일/SMS는 서로 독립적으로 중복발송
+// 여부를 판단한다 — 한쪽 채널이 이미 성공(status='sent')했어도 다른
+// 채널은 별도로 시도해야 하므로, 후보 조회 자체는 "이메일 또는 SMS 중
+// 하나라도 켜져 있으면" 넓게 가져오고, 채널별 이미-발송 여부를 각각
+// EXISTS로 계산해 함께 내려받는다.
 func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, eventType string) error {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status, u.id, u.email
+		SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status,
+		       u.id, u.email, u.email_notifications_enabled,
+		       u.phone_number, u.sms_notifications_enabled,
+		       EXISTS (
+		           SELECT 1 FROM notification_log nl
+		           WHERE nl.event_type = $2 AND nl.pipeline_entry_id = pe.id
+		             AND nl.channel = 'email' AND nl.status = 'sent'
+		       ) AS email_already_sent,
+		       EXISTS (
+		           SELECT 1 FROM notification_log nl
+		           WHERE nl.event_type = $2 AND nl.pipeline_entry_id = pe.id
+		             AND nl.channel = 'sms' AND nl.status = 'sent'
+		       ) AS sms_already_sent
 		FROM notice_pipeline_entries pe
 		JOIN company_profiles cp ON cp.id = pe.company_profile_id
 		JOIN users u ON u.id = cp.user_id
 		JOIN notices n ON n.id = pe.notice_id
 		WHERE pe.submission_deadline = CURRENT_DATE + ($1 * INTERVAL '1 day')
-		  AND u.email_notifications_enabled = true
-		  AND NOT EXISTS (
-		      SELECT 1 FROM notification_log nl
-		      WHERE nl.event_type = $2 AND nl.pipeline_entry_id = pe.id AND nl.status = 'sent'
-		  )`, offsetDays, eventType)
+		  AND (u.email_notifications_enabled = true
+		       OR (u.sms_notifications_enabled = true AND u.phone_number IS NOT NULL AND u.phone_number != ''))
+		`, offsetDays, eventType)
 	if err != nil {
 		return err
 	}
@@ -75,11 +101,17 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 	type row struct {
 		entryID, noticeID, title, status, userID, email string
 		org                                              sql.NullString
+		emailEnabled                                     bool
+		phone                                            sql.NullString
+		smsEnabled                                       bool
+		emailAlreadySent, smsAlreadySent                 bool
 	}
 	var targets []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.entryID, &r.noticeID, &r.title, &r.org, &r.status, &r.userID, &r.email); err != nil {
+		if err := rows.Scan(&r.entryID, &r.noticeID, &r.title, &r.org, &r.status,
+			&r.userID, &r.email, &r.emailEnabled, &r.phone, &r.smsEnabled,
+			&r.emailAlreadySent, &r.smsAlreadySent); err != nil {
 			continue
 		}
 		if !pipelineActiveForNotification[r.status] {
@@ -94,13 +126,19 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 	rows.Close()
 
 	for _, t := range targets {
-		subject := fmt.Sprintf("[제출마감 D-%d] %s", offsetDays, t.title)
-		body := fmt.Sprintf(
-			"<p>제출마감이 D-%d 남은 참여 건이 있습니다.</p><p><b>%s</b></p><p>발주기관: %s</p>",
-			offsetDays, html.EscapeString(t.title), html.EscapeString(t.org.String),
-		)
 		userID, entryID, noticeID := t.userID, t.entryID, t.noticeID
-		s.sendNotificationEmail(ctx, eventType, t.email, &userID, &entryID, &noticeID, subject, body)
+		if t.emailEnabled && !t.emailAlreadySent {
+			subject := fmt.Sprintf("[제출마감 D-%d] %s", offsetDays, t.title)
+			body := fmt.Sprintf(
+				"<p>제출마감이 D-%d 남은 참여 건이 있습니다.</p><p><b>%s</b></p><p>발주기관: %s</p>",
+				offsetDays, html.EscapeString(t.title), html.EscapeString(t.org.String),
+			)
+			s.sendNotificationEmail(ctx, eventType, t.email, &userID, &entryID, &noticeID, subject, body)
+		}
+		if t.smsEnabled && t.phone.Valid && t.phone.String != "" && !t.smsAlreadySent {
+			msg := fmt.Sprintf("[제출마감 D-%d] %s 제출마감이 D-%d일 남았습니다.", offsetDays, truncateForSMS(t.title, 25), offsetDays)
+			s.sendNotificationSMS(ctx, eventType, t.phone.String, &userID, &entryID, &noticeID, msg)
+		}
 	}
 	return nil
 }
@@ -278,17 +316,28 @@ func (s *Server) fetchDigestedNoticeIDs(ctx context.Context, userID string) (map
 }
 
 // notifyAssigneeStatusChange sends the third notification event: pipeline
-// status changed and an assignee_email is on file. Called as a fire-and-forget
-// goroutine from company_pipeline.go's PATCH handler — never blocks the HTTP
-// response, and uses context.Background() since the request context would
-// already be cancelled by the time the goroutine runs.
-func (s *Server) notifyAssigneeStatusChange(ctx context.Context, email, pipelineEntryID, noticeID, noticeTitle, newStatus string) {
-	subject := fmt.Sprintf("[상태변경] %s", noticeTitle)
-	body := fmt.Sprintf(
-		"<p><b>%s</b>의 참여 상태가 <b>%s</b>(으)로 변경되었습니다.</p>",
-		html.EscapeString(noticeTitle), html.EscapeString(newStatus),
-	)
-	s.sendNotificationEmail(ctx, notifyEventAssigneeStatusChange, email, nil, &pipelineEntryID, &noticeID, subject, body)
+// status changed and an assignee_email/assignee_phone is on file. Called as a
+// fire-and-forget goroutine from company_pipeline.go's PATCH handler — never
+// blocks the HTTP response, and uses context.Background() since the request
+// context would already be cancelled by the time the goroutine runs. Either
+// email or phone may be empty (담당자가 둘 중 하나만 등록했을 수 있음) — this
+// event never checks users.email_notifications_enabled/sms_notifications_enabled
+// because the recipient is an arbitrary assignee_email/assignee_phone, not
+// necessarily a system user; the pipeline owner filling in that contact info
+// is itself the opt-in.
+func (s *Server) notifyAssigneeStatusChange(ctx context.Context, email, phone, pipelineEntryID, noticeID, noticeTitle, newStatus string) {
+	if email != "" {
+		subject := fmt.Sprintf("[상태변경] %s", noticeTitle)
+		body := fmt.Sprintf(
+			"<p><b>%s</b>의 참여 상태가 <b>%s</b>(으)로 변경되었습니다.</p>",
+			html.EscapeString(noticeTitle), html.EscapeString(newStatus),
+		)
+		s.sendNotificationEmail(ctx, notifyEventAssigneeStatusChange, email, nil, &pipelineEntryID, &noticeID, subject, body)
+	}
+	if phone != "" {
+		msg := fmt.Sprintf("[상태변경] %s %s(으)로 변경", truncateForSMS(noticeTitle, 25), newStatus)
+		s.sendNotificationSMS(ctx, notifyEventAssigneeStatusChange, phone, nil, &pipelineEntryID, &noticeID, msg)
+	}
 }
 
 // handleRunNotifications manually fires the daily notification batch
@@ -315,11 +364,15 @@ func (s *Server) handleRunNotifications(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "completed"})
 }
 
-// handleUpdateNotificationSettings toggles the caller's
-// users.email_notifications_enabled — the "이메일 알림 전체 on/off" the
-// user asked for. Deadline reminders and the recommendation digest both
-// check this column; the assignee-status-change event does not (its
-// recipient is an arbitrary assignee_email, not necessarily a system user).
+// handleUpdateNotificationSettings toggles the caller's email/SMS
+// notification preferences — "이메일 알림 전체 on/off"에 이어 SMS
+// on/off + 전화번호를 같은 엔드포인트에서 부분 업데이트로 처리한다
+// (company_pipeline.go의 PATCH 핸들러와 같은 "raw map + present 체크"
+// 패턴 — 프론트가 필드 일부만 보내도 나머지 설정을 건드리지 않음).
+// Deadline reminders and the recommendation digest both check
+// email_notifications_enabled/sms_notifications_enabled; the
+// assignee-status-change event checks neither (its recipient is an
+// arbitrary assignee_email/assignee_phone, not necessarily a system user).
 func (s *Server) handleUpdateNotificationSettings(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {
@@ -327,24 +380,67 @@ func (s *Server) handleUpdateNotificationSettings(w http.ResponseWriter, r *http
 		return
 	}
 
-	var req struct {
-		EmailNotificationsEnabled bool `json:"emailNotificationsEnabled"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_body"})
 		return
 	}
 
-	if _, err := s.db.ExecContext(r.Context(),
-		`UPDATE users SET email_notifications_enabled = $1 WHERE id = $2`,
-		req.EmailNotificationsEnabled, userID,
-	); err != nil {
+	sets := []string{}
+	args := []any{}
+	addSet := func(column string, value any) {
+		args = append(args, value)
+		sets = append(sets, fmt.Sprintf("%s = $%d", column, len(args)))
+	}
+	resp := map[string]any{}
+
+	if rawVal, present := raw["emailNotificationsEnabled"]; present {
+		var enabled bool
+		if err := json.Unmarshal(rawVal, &enabled); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_body"})
+			return
+		}
+		addSet("email_notifications_enabled", enabled)
+		resp["emailNotificationsEnabled"] = enabled
+	}
+	if rawVal, present := raw["smsNotificationsEnabled"]; present {
+		var enabled bool
+		if err := json.Unmarshal(rawVal, &enabled); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_body"})
+			return
+		}
+		addSet("sms_notifications_enabled", enabled)
+		resp["smsNotificationsEnabled"] = enabled
+	}
+	if rawVal, present := raw["phoneNumber"]; present {
+		var phone string
+		if err := json.Unmarshal(rawVal, &phone); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_body"})
+			return
+		}
+		phone = strings.TrimSpace(phone)
+		if phone == "" {
+			addSet("phone_number", nil)
+			resp["phoneNumber"] = nil
+		} else {
+			addSet("phone_number", phone)
+			resp["phoneNumber"] = phone
+		}
+	}
+	if len(sets) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no_fields_to_update"})
+		return
+	}
+
+	args = append(args, userID)
+	query := "UPDATE users SET " + strings.Join(sets, ", ") + fmt.Sprintf(" WHERE id = $%d", len(args))
+	if _, err := s.db.ExecContext(r.Context(), query, args...); err != nil {
 		s.logger.Error("notification-settings: update failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"emailNotificationsEnabled": req.EmailNotificationsEnabled})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // sendNotificationEmail is the shared send+log path for the two
@@ -363,10 +459,52 @@ func (s *Server) sendNotificationEmail(ctx context.Context, eventType, recipient
 		s.logger.Error("notify: send failed", "eventType", eventType, "recipient", recipientEmail, "error", err)
 	}
 	if _, logErr := s.db.ExecContext(ctx, `
-		INSERT INTO notification_log (event_type, recipient_email, user_id, pipeline_entry_id, notice_id, subject, status, error_message)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		eventType, recipientEmail, userID, pipelineEntryID, noticeID, subject, status, errMsg,
+		INSERT INTO notification_log (event_type, channel, recipient_email, user_id, pipeline_entry_id, notice_id, subject, status, error_message)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		eventType, notifyChannelEmail, recipientEmail, userID, pipelineEntryID, noticeID, subject, status, errMsg,
 	); logErr != nil {
 		s.logger.Error("notify: log insert failed", "error", logErr)
 	}
+}
+
+// sendNotificationSMS is sendNotificationEmail's SMS counterpart — same
+// send+log pattern, channel='sms', recipient_phone instead of recipient_email.
+// notification_log.subject엔 SMS 제목 개념이 없어 실제 발송한 메시지 본문을
+// 그대로 담는다 — 이메일 쪽도 본문 전체(HTML)는 로그에 남기지 않고 subject만
+// 남기는 것과 같은 수준의 감사 기록(전체 본문 아카이브가 목적이 아니라
+// 발송 성공/실패 이력 추적이 목적)이라 SMS는 메시지 자체가 그 역할을 한다.
+// s.smsNotify가 nil이 아니기만 하면(키 미설정이어도) Send를 그대로 호출해
+// "not configured" 에러가 status='failed'로 로그에 남는다 — 실제 발송키
+// 없이도 발송대상 조회 로직이 끝까지 도는지 검증할 수 있는 이유(이메일과
+// 동일한 관례).
+func (s *Server) sendNotificationSMS(ctx context.Context, eventType, recipientPhone string, userID, pipelineEntryID, noticeID *string, msg string) {
+	if s.smsNotify == nil {
+		return
+	}
+	err := s.smsNotify.Send(ctx, recipientPhone, msg)
+	status, errMsg := "sent", sql.NullString{}
+	if err != nil {
+		status = "failed"
+		errMsg = sql.NullString{String: err.Error(), Valid: true}
+		s.logger.Error("notify: sms send failed", "eventType", eventType, "recipient", recipientPhone, "error", err)
+	}
+	if _, logErr := s.db.ExecContext(ctx, `
+		INSERT INTO notification_log (event_type, channel, recipient_phone, user_id, pipeline_entry_id, notice_id, subject, status, error_message)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		eventType, notifyChannelSMS, recipientPhone, userID, pipelineEntryID, noticeID, msg, status, errMsg,
+	); logErr != nil {
+		s.logger.Error("notify: sms log insert failed", "error", logErr)
+	}
+}
+
+// truncateForSMS shortens a title so SMS messages stay within Aligo's SMS
+// byte budget (~90바이트, 한글 기준 약 40~45자 — 자세한 계산 대신 넉넉한
+// 안전 마진으로 rune 개수를 제한). rune 단위로 잘라야 멀티바이트 한글
+// 문자가 중간에 깨지지 않는다(byte 슬라이싱 금지).
+func truncateForSMS(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes]) + "…"
 }

@@ -265,6 +265,8 @@ CREATE TABLE users (
     plan            TEXT NOT NULL DEFAULT 'free'
                         CHECK (plan IN ('free','pro','pro_promo')),
     email_notifications_enabled BOOLEAN NOT NULL DEFAULT true,
+    phone_number    TEXT,
+    sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -478,6 +480,7 @@ CREATE TABLE notice_pipeline_entries (
                             CHECK (status IN ('검토전','참여검토','승인대기','준비중','제출완료','낙찰','탈락','보류','제외')),
     assignee_name       TEXT,
     assignee_email      TEXT,
+    assignee_phone      TEXT,
     decided_at          TIMESTAMPTZ,
     submission_deadline DATE,
     memo                TEXT,
@@ -503,26 +506,33 @@ CREATE TABLE pipeline_checklist_items (
 CREATE INDEX idx_pipeline_checklist_entry ON pipeline_checklist_items(pipeline_entry_id);
 
 -- ------------------------------------------------------------
--- 이메일 알림 발송 이력 — 중복발송 방지(동일 event_type+대상에 대해
--- status='sent' 행이 이미 있으면 재발송하지 않음)와 발송 성공/실패
+-- 이메일/SMS 알림 발송 이력 — 중복발송 방지(동일 event_type+대상+channel에
+-- 대해 status='sent' 행이 이미 있으면 재발송하지 않음)와 발송 성공/실패
 -- 기록을 겸한다. pipeline_entry_id/notice_id는 이벤트 종류에 따라
 -- 둘 다, 하나만, 또는 둘 다 NULL일 수 있다(다이제스트는 notice_id만,
--- 담당자 알림은 둘 다 채워짐).
+-- 담당자 알림은 둘 다 채워짐). channel이 email/sms 중 무엇이냐에 따라
+-- recipient_email/recipient_phone 중 해당하는 쪽만 채워진다 — 이메일과
+-- SMS는 같은 (event_type, pipeline_entry_id, notice_id, user_id) 조합이라도
+-- 서로 독립적으로 중복발송 여부를 판단해야 하므로 dedup 인덱스에 channel도
+-- 포함한다(한쪽 채널만 먼저 성공해도 다른 채널이 막히면 안 됨).
 -- ------------------------------------------------------------
 CREATE TABLE notification_log (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_type         TEXT NOT NULL CHECK (event_type IN
                             ('deadline_d3','deadline_d1','recommendation_digest','assignee_status_change')),
-    recipient_email    TEXT NOT NULL,
+    channel            TEXT NOT NULL DEFAULT 'email' CHECK (channel IN ('email','sms')),
+    recipient_email    TEXT,
+    recipient_phone    TEXT,
     user_id            UUID REFERENCES users(id),
     pipeline_entry_id  UUID REFERENCES notice_pipeline_entries(id),
     notice_id          UUID REFERENCES notices(id),
     subject            TEXT NOT NULL,
     status             TEXT NOT NULL CHECK (status IN ('sent','failed')),
     error_message      TEXT,
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT notification_log_recipient_check CHECK (recipient_email IS NOT NULL OR recipient_phone IS NOT NULL)
 );
-CREATE INDEX idx_notification_log_dedup ON notification_log(event_type, pipeline_entry_id, notice_id, user_id);
+CREATE INDEX idx_notification_log_dedup ON notification_log(event_type, pipeline_entry_id, notice_id, user_id, channel);
 
 -- ------------------------------------------------------------
 -- 관심공고(북마크) — 로그인 사용자가 공고를 찜해두고 마이페이지에서

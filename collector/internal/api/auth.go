@@ -281,10 +281,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var email, role, plan string
-	var emailNotificationsEnabled bool
+	var emailNotificationsEnabled, smsNotificationsEnabled bool
+	var phoneNumber sql.NullString
 	err := s.db.QueryRowContext(r.Context(),
-		`SELECT email, role, plan, email_notifications_enabled FROM users WHERE id = $1`, userID,
-	).Scan(&email, &role, &plan, &emailNotificationsEnabled)
+		`SELECT email, role, plan, email_notifications_enabled, phone_number, sms_notifications_enabled FROM users WHERE id = $1`, userID,
+	).Scan(&email, &role, &plan, &emailNotificationsEnabled, &phoneNumber, &smsNotificationsEnabled)
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
@@ -304,6 +305,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"user": map[string]any{
 			"id": userID, "email": email, "role": role, "plan": plan,
 			"emailNotificationsEnabled": emailNotificationsEnabled,
+			"phoneNumber":               nullStringPtr(phoneNumber),
+			"smsNotificationsEnabled":   smsNotificationsEnabled,
 		},
 		"companyProfile": profile,
 	})

@@ -78,6 +78,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureNotificationLogTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate notification_log table: %w", err)
 	}
+	if err := ensureSMSNotificationColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate SMS notification columns: %w", err)
+	}
 	if err := ensureBillingTables(ctx, db); err != nil {
 		return fmt.Errorf("migrate subscriptions/payment_log tables: %w", err)
 	}
@@ -436,6 +439,35 @@ func ensureNotificationLogTable(ctx context.Context, db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_notification_log_dedup
 			ON notification_log(event_type, pipeline_entry_id, notice_id, user_id);
+	`)
+	return err
+}
+
+// ensureSMSNotificationColumns adds SMS notification support on top of the
+// existing email notification schema: users gain phone_number/
+// sms_notifications_enabled (같은 이메일 알림 on/off 패턴), notice_pipeline_entries
+// gains assignee_phone (assignee_email과 동일한 자유텍스트 패턴 — 담당자
+// 상태변경 알림의 SMS 수신처), notification_log gains channel(email/sms
+// 구분)과 recipient_phone. recipient_email은 SMS 단독 발송 행에서 비어있을
+// 수 있어 NOT NULL을 해제하고, 대신 "이메일 또는 전화번호 중 최소 하나는
+// 있어야 한다"는 테이블 CHECK로 대체한다 — DROP CONSTRAINT IF EXISTS + 재
+// ADD로 이 부분만 재실행에도 안전하게 만든다(나머지는 ADD COLUMN IF NOT
+// EXISTS/DROP NOT NULL이 이미 멱등적).
+func ensureSMSNotificationColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number TEXT;
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS assignee_phone TEXT;
+		ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT 'email'
+			CHECK (channel IN ('email','sms'));
+		ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS recipient_phone TEXT;
+		ALTER TABLE notification_log ALTER COLUMN recipient_email DROP NOT NULL;
+		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_recipient_check;
+		ALTER TABLE notification_log ADD CONSTRAINT notification_log_recipient_check
+			CHECK (recipient_email IS NOT NULL OR recipient_phone IS NOT NULL);
+		DROP INDEX IF EXISTS idx_notification_log_dedup;
+		CREATE INDEX IF NOT EXISTS idx_notification_log_dedup
+			ON notification_log(event_type, pipeline_entry_id, notice_id, user_id, channel);
 	`)
 	return err
 }

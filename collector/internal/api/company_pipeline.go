@@ -39,6 +39,7 @@ type pipelineEntry struct {
 	Status             string     `json:"status"`
 	AssigneeName       *string    `json:"assigneeName"`
 	AssigneeEmail      *string    `json:"assigneeEmail"`
+	AssigneePhone      *string    `json:"assigneePhone"`
 	DecidedAt          *time.Time `json:"decidedAt"`
 	SubmissionDeadline *string    `json:"submissionDeadline"`
 	Memo               *string    `json:"memo"`
@@ -55,9 +56,9 @@ type pipelineEntryRowScanner interface {
 
 func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 	var e pipelineEntry
-	var org, assignee, assigneeEmail, memo sql.NullString
+	var org, assignee, assigneeEmail, assigneePhone, memo sql.NullString
 	var decidedAt, deadline sql.NullTime
-	err := row.Scan(&e.ID, &e.NoticeID, &e.NoticeTitle, &org, &e.Status, &assignee, &assigneeEmail,
+	err := row.Scan(&e.ID, &e.NoticeID, &e.NoticeTitle, &org, &e.Status, &assignee, &assigneeEmail, &assigneePhone,
 		&decidedAt, &deadline, &memo, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -65,6 +66,7 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 	e.OrganizationName = nullStringPtr(org)
 	e.AssigneeName = nullStringPtr(assignee)
 	e.AssigneeEmail = nullStringPtr(assigneeEmail)
+	e.AssigneePhone = nullStringPtr(assigneePhone)
 	e.Memo = nullStringPtr(memo)
 	if decidedAt.Valid {
 		e.DecidedAt = &decidedAt.Time
@@ -77,7 +79,7 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 }
 
 const pipelineEntrySelect = `
-	SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status, pe.assignee_name, pe.assignee_email,
+	SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status, pe.assignee_name, pe.assignee_email, pe.assignee_phone,
 	       pe.decided_at, pe.submission_deadline, pe.memo, pe.created_at, pe.updated_at
 	FROM notice_pipeline_entries pe
 	JOIN notices n ON n.id = pe.notice_id`
@@ -381,6 +383,15 @@ func (s *Server) handleUpdatePipelineEntry(w http.ResponseWriter, r *http.Reques
 			addSet("assignee_email", strings.TrimSpace(email))
 		}
 	}
+	if rawAssigneePhone, present := raw["assigneePhone"]; present {
+		var phone string
+		json.Unmarshal(rawAssigneePhone, &phone)
+		if strings.TrimSpace(phone) == "" {
+			addSet("assignee_phone", nil)
+		} else {
+			addSet("assignee_phone", strings.TrimSpace(phone))
+		}
+	}
 	if rawMemo, present := raw["memo"]; present {
 		var memo string
 		json.Unmarshal(rawMemo, &memo)
@@ -411,9 +422,18 @@ func (s *Server) handleUpdatePipelineEntry(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if statusChanged && entry.AssigneeEmail != nil && *entry.AssigneeEmail != "" && s.notify != nil {
-		email, title, noticeID, status := *entry.AssigneeEmail, entry.NoticeTitle, entry.NoticeID, entry.Status
-		go s.notifyAssigneeStatusChange(context.Background(), email, entryID, noticeID, title, status)
+	hasAssigneeEmail := entry.AssigneeEmail != nil && *entry.AssigneeEmail != ""
+	hasAssigneePhone := entry.AssigneePhone != nil && *entry.AssigneePhone != ""
+	if statusChanged && (hasAssigneeEmail || hasAssigneePhone) {
+		var email, phone string
+		if hasAssigneeEmail {
+			email = *entry.AssigneeEmail
+		}
+		if hasAssigneePhone {
+			phone = *entry.AssigneePhone
+		}
+		title, noticeID, status := entry.NoticeTitle, entry.NoticeID, entry.Status
+		go s.notifyAssigneeStatusChange(context.Background(), email, phone, entryID, noticeID, title, status)
 	}
 
 	writeJSON(w, http.StatusOK, entry)

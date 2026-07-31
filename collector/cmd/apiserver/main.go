@@ -78,6 +78,11 @@ func main() {
 		logger.Warn("RESEND_API_KEY is not set; 이메일 알림(마감 리마인더/추천 다이제스트/담당자 알림)은 발송되지 않습니다")
 	}
 
+	smsNotifyClient := notify.NewSMSClient(os.Getenv("ALIGO_API_KEY"), os.Getenv("ALIGO_USER_ID"), os.Getenv("ALIGO_SENDER"))
+	if !smsNotifyClient.Configured() {
+		logger.Warn("ALIGO_API_KEY/ALIGO_USER_ID/ALIGO_SENDER is not set; SMS 알림(마감 리마인더/담당자 상태변경)은 발송되지 않습니다")
+	}
+
 	tossClient := billing.NewTossClient(os.Getenv("TOSS_SECRET_KEY"))
 	if !tossClient.Configured() {
 		logger.Warn("TOSS_SECRET_KEY is not set; 결제 승인(POST /api/billing/confirm)은 요청 시 실패합니다 (테스트 키 발급 전)")
@@ -87,7 +92,7 @@ func main() {
 		logger.Warn("TOSS_CLIENT_KEY is not set; 결제위젯이 뜨지 않습니다 (테스트 키 발급 전)")
 	}
 
-	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, tossClient, tossClientKey)
+	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, smsNotifyClient, tossClient, tossClientKey)
 	startBackgroundNotifications(srv, logger)
 
 	logger.Info("api server starting", "port", port)

@@ -26,11 +26,12 @@ type Server struct {
 	attachmentDir   string
 	anthropicClient *anthropic.Client
 	notify          *notify.Client
+	smsNotify       *notify.SMSClient
 	toss            *billing.TossClient
 	tossClientKey   string
 }
 
-func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, tossClient *billing.TossClient, tossClientKey string) *Server {
+func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, smsNotifyClient *notify.SMSClient, tossClient *billing.TossClient, tossClientKey string) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -41,6 +42,7 @@ func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir st
 		attachmentDir:   attachmentDir,
 		anthropicClient: anthropicClient,
 		notify:          notifyClient,
+		smsNotify:       smsNotifyClient,
 		toss:            tossClient,
 		tossClientKey:   tossClientKey,
 	}
