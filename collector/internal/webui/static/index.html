@@ -53,8 +53,9 @@
   /* ============================================================
      공통 컴포넌트 (디자인 리뉴얼) — 버튼/배지/row-card/스텝
      인디케이터/모달. 화면별 적용은 이후 단계에서 순서대로 진행한다.
-     기존 화면 전용 클래스(.home-cta-*, .priority-action-btn 등)는
-     아직 그대로 남아있다 — 각 화면을 이 컴포넌트로 옮길 때 정리한다.
+     기존 화면 전용 클래스(.home-cta-*, .review-btn 등)는 아직 그대로
+     남아있다 — 각 화면을 이 컴포넌트로 옮길 때 정리한다(홈 화면은
+     이미 옮겨서 .priority-action-btn류는 제거됨).
      ============================================================ */
 
   /* ---------- 버튼: 화면당 강조(primary) 1개 원칙 ---------- */
@@ -284,15 +285,15 @@
   .filters input[name="q"] { flex: 1; min-width: 200px; }
   .filters button {
     padding: 0.6rem 1.35rem;
-    border: 1px solid var(--navy);
-    background: var(--navy);
+    border: 1px solid var(--accent-blue);
+    background: var(--accent-blue);
     color: #fff;
     border-radius: 8px;
     cursor: pointer;
     font-weight: 600;
     font-size: 0.9rem;
   }
-  .filters button:hover { background: var(--navy-deep); border-color: var(--navy-deep); }
+  .filters button:hover { background: var(--accent-blue-deep); border-color: var(--accent-blue-deep); }
 
   .back-link {
     display: inline-block;
@@ -476,8 +477,8 @@
     font-size: 0.92rem;
     text-decoration: none;
   }
-  .home-cta-primary { background: var(--navy); color: #fff; border: 1px solid var(--navy); }
-  .home-cta-primary:hover { background: var(--navy-deep); border-color: var(--navy-deep); }
+  .home-cta-primary { background: var(--accent-blue); color: #fff; border: 1px solid var(--accent-blue); }
+  .home-cta-primary:hover { background: var(--accent-blue-deep); border-color: var(--accent-blue-deep); }
   .home-cta-secondary { background: #fff; color: var(--navy); border: 1px solid var(--border); }
   .home-cta-secondary:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
   .home-browse-link {
@@ -495,18 +496,18 @@
   .dash-tiles {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 1rem;
-    margin-bottom: 2.25rem;
+    gap: var(--space-md);
+    margin-bottom: var(--space-xl);
   }
   .dash-tile {
-    padding: 1.1rem 1.25rem;
+    padding: var(--space-md);
     background: #fff;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-card);
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
   }
   .dash-tile-count { font-size: 1.6rem; font-weight: 700; color: var(--ink); margin-bottom: 0.3rem; }
-  .dash-tile-label { font-size: 0.82rem; color: var(--ink-soft); font-weight: 500; }
+  .dash-tile-label { font-size: var(--text-caption); color: var(--ink-soft); font-weight: 500; }
   .dash-tile--ready .dash-tile-count { color: var(--success); }
   .dash-tile--review .dash-tile-count { color: var(--warn); }
   .dash-tile--not-recommended .dash-tile-count { color: var(--danger); }
@@ -522,22 +523,8 @@
   }
 
   /* ---------- 홈 화면 "오늘의 우선 업무" / 파이프라인 상태 배지 ---------- */
-  .pipeline-status-badge {
-    display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px;
-    background: rgba(46,90,172,0.10); color: var(--accent-blue);
-    font-size: 0.76rem; font-weight: 600;
-  }
-  .pipeline-status-badge--new { background: rgba(31,138,95,0.10); color: var(--success); }
-  .priority-item-actions { display: flex; gap: 0.4rem; margin-top: 0.4rem; flex-wrap: wrap; }
-  .priority-action-btn {
-    padding: 0.3rem 0.7rem; border: 1px solid var(--navy); background: var(--navy);
-    color: #fff; border-radius: 6px; cursor: pointer; font-size: 0.78rem; font-weight: 600;
-  }
-  .priority-action-btn:hover { background: var(--navy-deep); }
-  .priority-action-btn.secondary { background: #fff; color: var(--navy); }
-  .priority-action-btn.secondary:hover { background: var(--bg-soft); }
-  .priority-action-btn:disabled { opacity: 0.5; cursor: default; }
-  .priority-item-error { margin: 0.4rem 0 0; font-size: 0.8rem; }
+  .row-card-value--danger { color: var(--danger); }
+  .row-card-value--muted { color: var(--ink-soft); font-size: var(--text-caption); font-weight: 600; }
 
   /* ---------- AI 참여 분석 (공고 상세 첫 화면) ---------- */
   .ai-section-title { margin: 0 0 1rem; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
@@ -672,11 +659,11 @@
     gap: 0.5rem;
   }
   .pipeline-review-btn {
-    margin-top: 1rem; padding: 0.6rem 1.1rem; border: 1px solid var(--navy);
-    background: var(--navy); color: #fff; border-radius: 8px; cursor: pointer;
+    margin-top: 1rem; padding: 0.6rem 1.1rem; border: 1px solid var(--accent-blue);
+    background: var(--accent-blue); color: #fff; border-radius: 8px; cursor: pointer;
     font-weight: 600; font-size: 0.9rem;
   }
-  .pipeline-review-btn:hover { background: var(--navy-deep); }
+  .pipeline-review-btn:hover { background: var(--accent-blue-deep); }
   .pipeline-review-btn:disabled { opacity: 0.6; cursor: default; }
   .pipeline-review-link { display: inline-block; margin-top: 1rem; font-weight: 600; }
 
@@ -1049,8 +1036,8 @@
   }
   .auth-form button, .profile-form button {
     padding: 0.75rem 1rem;
-    border: 1px solid var(--navy);
-    background: var(--navy);
+    border: 1px solid var(--accent-blue);
+    background: var(--accent-blue);
     color: #fff;
     border-radius: 8px;
     cursor: pointer;
@@ -1059,8 +1046,8 @@
     margin-top: 0.5rem;
   }
   .auth-form button:hover, .profile-form button:hover {
-    background: var(--navy-deep);
-    border-color: var(--navy-deep);
+    background: var(--accent-blue-deep);
+    border-color: var(--accent-blue-deep);
   }
   .auth-switch {
     text-align: center;
@@ -1073,10 +1060,10 @@
   /* ---------- 면허·인증 ---------- */
   .license-toolbar { display: flex; gap: 0.6rem; margin: 1rem 0 1.25rem; }
   .license-toolbar button {
-    padding: 0.6rem 1rem; border: 1px solid var(--navy); background: var(--navy);
+    padding: 0.6rem 1rem; border: 1px solid var(--accent-blue); background: var(--accent-blue);
     color: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.88rem;
   }
-  .license-toolbar button:hover { background: var(--navy-deep); border-color: var(--navy-deep); }
+  .license-toolbar button:hover { background: var(--accent-blue-deep); border-color: var(--accent-blue-deep); }
   .license-toolbar button.secondary { background: #fff; color: var(--navy); }
   .license-toolbar button.secondary:hover { background: var(--bg-soft); }
   .license-section h3 { font-size: 1rem; margin: 1.5rem 0 0.75rem; color: var(--ink); }
@@ -1168,10 +1155,10 @@
     background: rgba(46,90,172,0.10); color: var(--accent-blue); font-size: 0.85rem; font-weight: 700;
   }
   .plan-subscribe-btn {
-    padding: 0.65rem 1.4rem; border: 1px solid var(--navy); background: var(--navy);
+    padding: 0.65rem 1.4rem; border: 1px solid var(--accent-blue); background: var(--accent-blue);
     color: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.9rem;
   }
-  .plan-subscribe-btn:hover { background: var(--navy-deep); border-color: var(--navy-deep); }
+  .plan-subscribe-btn:hover { background: var(--accent-blue-deep); border-color: var(--accent-blue-deep); }
 
   /* ---------- 모바일 반응형 최소 대응 ----------
      그리드류(dash-tiles/checkbox-grid/detail-meta 등)는 이미
@@ -1211,7 +1198,7 @@
      입력 요소만 대상으로 한다. */
   @media (pointer: coarse) {
     .filters button, .auth-form button, .profile-form button,
-    .license-toolbar button, .review-btn, .priority-action-btn,
+    .license-toolbar button, .review-btn, .btn,
     .pipeline-review-btn, .field-verify-btn, .home-cta-primary,
     .home-cta-secondary, .calendar-add-link, .checklist-status-select,
     .plan-subscribe-btn, #checkout-pay-btn, #logout-btn {
@@ -1820,76 +1807,44 @@ function renderDashboard(container, data) {
     ${itemsHtml}
   `));
 
-  wirePriorityItemActions(container, () => renderHome(container));
+  wirePriorityItemNav(container);
 }
 
+// priorityItemHtml — row-card 패턴(제목+부제 / D-day 값+화살표)으로
+// 통일. 예전엔 행마다 [참여검토]/[제외]/[상세보기] 버튼 3개가 있었지만,
+// "화면당 강조 버튼 1개" + "카드는 제목+큰 숫자+화살표" 원칙에 맞춰
+// 행 전체를 눌러 상세로 이동하는 방식으로 단순화했다 — 참여검토는
+// 공고 상세에, 제외(상태 변경)는 파이프라인 상세에 이미 있어 기능
+// 자체가 없어지는 건 아니다.
 function priorityItemHtml(item) {
-  const statusBadge = item.status
-    ? `<span class="pipeline-status-badge">${escapeHtml(item.status)}</span>`
-    : '<span class="pipeline-status-badge pipeline-status-badge--new">추천</span>';
-  const reviewBtn = item.kind === 'recommendation'
-    ? '<button type="button" class="priority-action-btn" data-action="review">참여검토</button>'
-    : '';
+  const org = item.organizationName || '-';
+  const subtitle = item.status ? `${org} · ${item.status}` : `${org} · 신규 추천`;
+  const dday = ddayInfo(item.applicationEndAt);
+  const valueClass = dday.cls.includes('danger') ? 'row-card-value--danger'
+    : (dday.label === '-' ? 'row-card-value--muted' : '');
   return `
-    <div class="notice-card priority-item" data-notice-id="${escapeAttr(item.noticeId)}"
-         data-entry-id="${escapeAttr(item.pipelineEntryId || '')}" data-kind="${escapeAttr(item.kind)}">
-      <div class="notice-card-main">
-        <div class="notice-org">${escapeHtml(item.organizationName || '-')}</div>
-        <div class="notice-title">${escapeHtml(item.title)}</div>
-        <div class="notice-meta">${statusBadge}</div>
-        <p class="priority-item-error error" style="display:none"></p>
+    <div class="row-card priority-item" data-notice-id="${escapeAttr(item.noticeId)}"
+         data-entry-id="${escapeAttr(item.pipelineEntryId || '')}">
+      <div class="row-card-main">
+        <div class="row-card-title">${escapeHtml(item.title)}</div>
+        <div class="row-card-subtitle">${escapeHtml(subtitle)}</div>
       </div>
-      <div class="notice-card-side">
-        ${ddayBadgeHtml(item.applicationEndAt)}
-        <div class="priority-item-actions">
-          ${reviewBtn}
-          <button type="button" class="priority-action-btn secondary" data-action="exclude">제외</button>
-          <button type="button" class="priority-action-btn secondary" data-action="detail">상세보기</button>
-        </div>
+      <div class="row-card-side">
+        <span class="row-card-value ${valueClass}">${escapeHtml(dday.label)}</span>
+        <span class="row-card-arrow">›</span>
       </div>
     </div>
   `;
 }
 
-// wirePriorityItemActions — 홈 화면 "오늘의 우선 업무" 각 행의 버튼
-// 3종을 처리한다. [참여검토]/[제외]는 POST/PATCH 후 onChanged()로 홈을
-// 통째로 재조회한다(리스트 구성 규칙이 백엔드에 있어 항목 하나만
-// 갱신하기보다 다시 불러오는 쪽이 정확함 — 예: 제외하면 우선 업무에서
-// 아예 빠져야 함).
-function wirePriorityItemActions(container, onChanged) {
-  container.querySelectorAll('.priority-action-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const card = btn.closest('.priority-item');
+// wirePriorityItemNav — 행 전체 클릭 시 파이프라인에 이미 있으면 그
+// 상세로, 아직 없으면(추천만 된 상태) 공고 상세로 이동.
+function wirePriorityItemNav(container) {
+  container.querySelectorAll('.priority-item').forEach(card => {
+    card.addEventListener('click', () => {
+      const entryId = card.dataset.entryId;
       const noticeId = card.dataset.noticeId;
-      let entryId = card.dataset.entryId;
-      const action = btn.dataset.action;
-      const errEl = card.querySelector('.priority-item-error');
-      errEl.style.display = 'none';
-
-      if (action === 'detail') {
-        location.hash = entryId ? '#/pipeline/' + entryId : '#/notices/' + noticeId;
-        return;
-      }
-
-      card.querySelectorAll('.priority-action-btn').forEach(b => b.disabled = true);
-      try {
-        if (action === 'review') {
-          await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/pipeline', {});
-        } else if (action === 'exclude') {
-          if (!entryId) {
-            const created = await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/pipeline', {});
-            entryId = created.id;
-          }
-          await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(entryId), { status: '제외' });
-        }
-        onChanged();
-      } catch (err) {
-        if (err.status === 401) { location.hash = '#/auth/login'; return; }
-        card.querySelectorAll('.priority-action-btn').forEach(b => b.disabled = false);
-        errEl.textContent = err.message;
-        errEl.style.display = 'block';
-      }
+      location.hash = entryId ? '#/pipeline/' + entryId : '#/notices/' + noticeId;
     });
   });
 }
