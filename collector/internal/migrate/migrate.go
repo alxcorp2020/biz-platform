@@ -66,6 +66,12 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureCompanyFinancialTables(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_financials/track_records/personnel tables: %w", err)
 	}
+	if err := ensureEmployeeCountVerificationColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate employee count verification columns: %w", err)
+	}
+	if err := ensurePipelineTables(ctx, db); err != nil {
+		return fmt.Errorf("migrate notice_pipeline_entries/pipeline_checklist_items tables: %w", err)
+	}
 	return nil
 }
 
@@ -337,4 +343,52 @@ func ensureCompanyProfileArrayColumns(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// ensureEmployeeCountVerificationColumns adds company_profiles.employee_count
+// verification columns (4대보험 사업장 가입자명부 증빙) for any DB created
+// before this migration existed. ADD COLUMN IF NOT EXISTS makes it
+// idempotent — same pattern as ensureAISummaryColumns.
+func ensureEmployeeCountVerificationColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS employee_count_source_document_id UUID REFERENCES company_documents(id);
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS employee_count_confidence TEXT CHECK (employee_count_confidence IN ('A','B','C','D'));
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS employee_count_verified_at TIMESTAMPTZ;
+	`)
+	return err
+}
+
+// ensurePipelineTables adds notice_pipeline_entries/pipeline_checklist_items
+// for any DB created before this migration existed — same CREATE TABLE IF
+// NOT EXISTS pattern as ensureCompanyLicenseTables.
+func ensurePipelineTables(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS notice_pipeline_entries (
+			id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+			notice_id           UUID NOT NULL REFERENCES notices(id),
+			status              TEXT NOT NULL DEFAULT '검토전'
+			                        CHECK (status IN ('검토전','참여검토','승인대기','준비중','제출완료','낙찰','탈락','보류','제외')),
+			assignee_name       TEXT,
+			decided_at          TIMESTAMPTZ,
+			submission_deadline DATE,
+			memo                TEXT,
+			created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (company_profile_id, notice_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_pipeline_entries_company ON notice_pipeline_entries(company_profile_id);
+
+		CREATE TABLE IF NOT EXISTS pipeline_checklist_items (
+			id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			pipeline_entry_id     UUID NOT NULL REFERENCES notice_pipeline_entries(id),
+			document_name         TEXT NOT NULL,
+			status                TEXT NOT NULL DEFAULT '확인필요'
+			                          CHECK (status IN ('보유','갱신필요','신규작성','발급필요','확인필요')),
+			required_document_id  UUID REFERENCES required_documents(id),
+			created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_pipeline_checklist_entry ON pipeline_checklist_items(pipeline_entry_id);
+	`)
+	return err
 }

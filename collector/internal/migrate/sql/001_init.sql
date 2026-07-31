@@ -332,6 +332,15 @@ CREATE TABLE company_documents (
     uploaded_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- 직원 수(employee_count) 검증 근거(4대보험 사업장 가입자명부 등) —
+-- company_profiles가 company_documents보다 먼저 정의되어 순환 참조가
+-- 생기므로, 이 3개 컬럼은 CREATE TABLE company_profiles 안이 아니라
+-- company_documents 생성 직후 별도 ALTER로 추가한다. 가입자 개인명단은
+-- 절대 추출하지 않고(개인정보 최소화), 총 가입자 수만 검증 대상이다.
+ALTER TABLE company_profiles ADD COLUMN employee_count_source_document_id UUID REFERENCES company_documents(id);
+ALTER TABLE company_profiles ADD COLUMN employee_count_confidence TEXT CHECK (employee_count_confidence IN ('A','B','C','D'));
+ALTER TABLE company_profiles ADD COLUMN employee_count_verified_at TIMESTAMPTZ;
+
 -- confidence: A=공식API(추후), B=증빙서류 업로드+사용자확인, C=서류없이
 -- 사용자 직접입력, D=AI추출 미확인(추후, 이번 구현엔 미사용 — 후보는
 -- 사용자 확인 전까지 DB에 저장되지 않으므로 D 상태 자체가 발생하지 않음).
@@ -452,6 +461,44 @@ CREATE TABLE company_personnel (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_company_personnel_profile ON company_personnel(company_profile_id);
+
+-- ------------------------------------------------------------
+-- 업무자동화: 참여 파이프라인 — 발견(추천)→참여결정→담당자→서류→일정을
+-- 잇는 흐름. UNIQUE(company_profile_id, notice_id)는 "참여 검토" 원클릭
+-- API의 멱등성 근거(재클릭해도 중복 생성 안 됨). assignee_name은 자유
+-- 텍스트다 — 지금 시스템엔 회사 내 여러 팀원 개념이 없어(company_profiles가
+-- user_id 1:1) FK로 만들 대상이 없다.
+-- ------------------------------------------------------------
+CREATE TABLE notice_pipeline_entries (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
+    notice_id           UUID NOT NULL REFERENCES notices(id),
+    status              TEXT NOT NULL DEFAULT '검토전'
+                            CHECK (status IN ('검토전','참여검토','승인대기','준비중','제출완료','낙찰','탈락','보류','제외')),
+    assignee_name       TEXT,
+    decided_at          TIMESTAMPTZ,
+    submission_deadline DATE,
+    memo                TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (company_profile_id, notice_id)
+);
+CREATE INDEX idx_pipeline_entries_company ON notice_pipeline_entries(company_profile_id);
+
+-- 자동매칭 규칙(company_pipeline.go): required_documents.document_name을
+-- company_licenses/certifications.name과 정확 일치로 대조해 status를
+-- 채운다. 일치 안 하면 확인필요 — "신규작성" 여부는 시스템이 판단할 수
+-- 없어 임의로 단정하지 않는다.
+CREATE TABLE pipeline_checklist_items (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pipeline_entry_id     UUID NOT NULL REFERENCES notice_pipeline_entries(id),
+    document_name         TEXT NOT NULL,
+    status                TEXT NOT NULL DEFAULT '확인필요'
+                              CHECK (status IN ('보유','갱신필요','신규작성','발급필요','확인필요')),
+    required_document_id  UUID REFERENCES required_documents(id),
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_pipeline_checklist_entry ON pipeline_checklist_items(pipeline_entry_id);
 
 -- ------------------------------------------------------------
 -- 관심공고(북마크) — 로그인 사용자가 공고를 찜해두고 마이페이지에서

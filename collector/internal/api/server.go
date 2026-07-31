@@ -71,6 +71,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/me/personnel", s.handleCreatePersonnel)
 	mux.HandleFunc("GET /api/me/personnel", s.handleListPersonnel)
 	mux.HandleFunc("GET /api/me/profile-completeness", s.handleGetProfileCompleteness)
+	mux.HandleFunc("POST /api/me/company-profile/employee-verification/documents", s.handleUploadEmployeeVerificationDocument)
+	mux.HandleFunc("POST /api/me/company-profile/employee-verification", s.handleConfirmEmployeeVerification)
+	mux.HandleFunc("POST /api/notices/{id}/pipeline", s.handleCreatePipelineEntry)
+	mux.HandleFunc("PATCH /api/pipeline/{id}", s.handleUpdatePipelineEntry)
+	mux.HandleFunc("PATCH /api/pipeline/{id}/checklist/{itemId}", s.handleUpdateChecklistItem)
+	mux.HandleFunc("GET /api/pipeline", s.handleListPipeline)
+	mux.HandleFunc("GET /api/pipeline/{id}", s.handleGetPipelineEntry)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }

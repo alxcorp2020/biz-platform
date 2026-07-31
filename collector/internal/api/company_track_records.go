@@ -74,7 +74,8 @@ func (s *Server) extractTrackRecordCandidate(ctx context.Context, body []byte, e
 	tool := anthropic.ToolParam{
 		Name: "extract_track_record_fields",
 		Description: anthropic.String(
-			"업로드된 수행실적증명서/계약서에서 실제로 문서에 적혀 있는 정보만 추출합니다. " +
+			"업로드된 수행실적증명서/계약서/세금계산서에서 실제로 문서에 적혀 있는 정보만 추출합니다. " +
+				"세금계산서처럼 수행기간·공동수급여부 등이 없는 문서 형식이면 해당 필드는 빈 문자열로 둡니다. " +
 				"문서에 없는 내용은 절대 만들어내지 마세요. 확인할 수 없는 필드는 빈 문자열로 두세요.",
 		),
 		InputSchema: anthropic.ToolInputSchemaParam{

@@ -62,7 +62,8 @@ func (s *Server) extractFinancialCandidate(ctx context.Context, body []byte, ext
 	tool := anthropic.ToolParam{
 		Name: "extract_financial_fields",
 		Description: anthropic.String(
-			"업로드된 재무제표/재무증빙서류에서 실제로 문서에 적혀 있는 수치만 추출합니다. " +
+			"업로드된 재무제표/재무증빙서류(재무제표, 신용평가서, 표준재무제표증명, 부가가치세 과세표준증명 등)에서 " +
+				"실제로 문서에 적혀 있는 수치만 추출합니다. " +
 				"문서에 없는 내용은 절대 만들어내지 마세요. 확인할 수 없는 필드는 빈 문자열로 두세요.",
 		),
 		InputSchema: anthropic.ToolInputSchemaParam{

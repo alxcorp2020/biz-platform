@@ -352,6 +352,24 @@
     font-weight: 600;
   }
 
+  /* ---------- 홈 화면 "오늘의 우선 업무" / 파이프라인 상태 배지 ---------- */
+  .pipeline-status-badge {
+    display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px;
+    background: rgba(46,90,172,0.10); color: var(--accent-blue);
+    font-size: 0.76rem; font-weight: 600;
+  }
+  .pipeline-status-badge--new { background: rgba(31,138,95,0.10); color: var(--success); }
+  .priority-item-actions { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
+  .priority-action-btn {
+    padding: 0.3rem 0.7rem; border: 1px solid var(--navy); background: var(--navy);
+    color: #fff; border-radius: 6px; cursor: pointer; font-size: 0.78rem; font-weight: 600;
+  }
+  .priority-action-btn:hover { background: var(--navy-deep); }
+  .priority-action-btn.secondary { background: #fff; color: var(--navy); }
+  .priority-action-btn.secondary:hover { background: var(--bg-soft); }
+  .priority-action-btn:disabled { opacity: 0.5; cursor: default; }
+  .priority-item-error { margin: 0.4rem 0 0; font-size: 0.8rem; }
+
   /* ---------- AI 참여 분석 (공고 상세 첫 화면) ---------- */
   .ai-section-title { margin: 0 0 1rem; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
   .ai-summary-card {
@@ -467,6 +485,29 @@
     align-items: center;
     gap: 0.5rem;
   }
+  .pipeline-review-btn {
+    margin-top: 1rem; padding: 0.6rem 1.1rem; border: 1px solid var(--navy);
+    background: var(--navy); color: #fff; border-radius: 8px; cursor: pointer;
+    font-weight: 600; font-size: 0.9rem;
+  }
+  .pipeline-review-btn:hover { background: var(--navy-deep); }
+  .pipeline-review-btn:disabled { opacity: 0.6; cursor: default; }
+  .pipeline-review-link { display: inline-block; margin-top: 1rem; font-weight: 600; }
+
+  /* ---------- 진행 중 사업(#/pipeline) ---------- */
+  .pipeline-status-section { margin-bottom: 2rem; }
+  .pipeline-status-section-title {
+    font-size: 1rem; font-weight: 700; color: var(--ink); margin: 0 0 0.75rem;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .pipeline-status-section-count { font-size: 0.82rem; font-weight: 500; color: var(--ink-soft); }
+  .checklist-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .checklist-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+    padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: 8px; background: #fff;
+  }
+  .checklist-doc-name { font-size: 0.92rem; color: var(--ink); }
+  .checklist-status-select { padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; }
   .official-link {
     display: inline-block;
     margin-top: 1rem;
@@ -903,6 +944,15 @@
 
   .elig-hint { margin: 0.4rem 0 0; font-size: 0.82rem; color: var(--ink-soft); }
   .elig-hint a { font-weight: 600; }
+
+  .field-verify-row {
+    display: flex; align-items: center; gap: 0.6rem; margin: -0.5rem 0 0.5rem;
+  }
+  .field-verify-btn {
+    padding: 0.3rem 0.7rem; border: 1px solid var(--border); background: #fff;
+    color: var(--navy); border-radius: 6px; cursor: pointer; font-size: 0.78rem; font-weight: 600;
+  }
+  .field-verify-btn:hover { background: var(--bg-soft); }
 </style>
 </head>
 <body>
@@ -1148,6 +1198,7 @@ const ERROR_MESSAGES = {
   invalid_issued_at: '발급일 형식이 올바르지 않습니다(YYYY-MM-DD).',
   invalid_expires_at: '유효기간 형식이 올바르지 않습니다(YYYY-MM-DD).',
   invalid_source_document: '연결할 증빙서류를 찾을 수 없습니다.',
+  total_subscriber_count_required: '총 가입자 수를 입력해주세요.',
 };
 
 const ELIGIBILITY_RESULT_LABELS = {
@@ -1212,6 +1263,7 @@ function renderHeader() {
     const reviewLink = REVIEWER_ROLES.includes(currentUser.role) ? '<a href="#/review">검토 대기</a>' : '';
     nav.appendChild(h(`
       ${reviewLink}
+      <a href="#/pipeline">진행 중 사업</a>
       <a href="#/me/bookmarks">관심공고</a>
       <a href="#/me/profile">내 프로필</a>
       <a href="#/me/licenses">면허·인증</a>
@@ -1292,15 +1344,25 @@ function renderOnboardingHero(container) {
   `));
 }
 
+// PIPELINE_STATUS_LIST — notice_pipeline_entries.status의 9단계, DB
+// CHECK 제약과 정확히 같은 값·순서(company_pipeline.go validPipelineStatuses).
+const PIPELINE_STATUS_LIST = ['검토전', '참여검토', '승인대기', '준비중', '제출완료', '낙찰', '탈락', '보류', '제외'];
+const PIPELINE_ACTIVE_STATUSES = ['검토전', '참여검토', '승인대기', '준비중'];
+const CHECKLIST_STATUS_LIST = ['보유', '갱신필요', '신규작성', '발급필요', '확인필요'];
+
+// renderDashboard — "오늘 할 일" 홈 화면. data는 handleDashboard(신규 응답
+// 모양: summary + priorityItems)의 결과를 그대로 받는다. 예전 3버킷
+// 집계(readyCount 등)는 더 이상 없다 — 이 응답을 쓰는 화면은 여기뿐이라
+// 하위호환을 유지할 이유가 없었다.
 function renderDashboard(container, data) {
   container.innerHTML = '';
 
+  const s = data.summary;
   const tiles = [
-    { label: '즉시 참여 가능', count: data.readyCount, cls: 'dash-tile--ready' },
-    { label: '확인 필요', count: data.needsReviewCount, cls: 'dash-tile--review' },
-    { label: '참여 비추천', count: data.notRecommendedCount, cls: 'dash-tile--not-recommended' },
-    { label: '오늘 변경된 공고', count: data.changedTodayCount, cls: '' },
-    { label: '이번주 마감', count: data.closingThisWeekCount, cls: '' },
+    { label: '참여검토 대기', count: s.reviewPendingCount, cls: 'dash-tile--review' },
+    { label: '마감임박', count: s.deadlineSoonCount, cls: 'dash-tile--not-recommended' },
+    { label: '서류확인필요', count: s.needsDocumentCount, cls: '' },
+    { label: '담당자미지정', count: s.unassignedCount, cls: '' },
   ];
   const tilesHtml = tiles.map(t => `
     <div class="dash-tile ${t.cls}">
@@ -1309,41 +1371,260 @@ function renderDashboard(container, data) {
     </div>
   `).join('');
 
-  const recs = data.recommendations || [];
-  const recHtml = recs.length
-    ? `<div class="notice-list">${recs.map(rec => `
-        <div class="notice-card" data-id="${escapeAttr(rec.noticeId)}">
-          <div class="notice-card-main">
-            <div class="notice-org">${escapeHtml(rec.organizationName || '-')}</div>
-            <div class="notice-title">${escapeHtml(rec.title)}</div>
-            <div class="notice-meta">
-              <span class="fit-score-badge">${rec.metCount}/${rec.totalCount} 조건 충족</span>
-            </div>
-          </div>
-          <div class="notice-card-side">
-            ${bookmarkButtonHtml(rec.noticeId, rec.isBookmarked)}
-            ${ddayBadgeHtml(rec.applicationEndAt)}
-          </div>
-        </div>
-      `).join('')}</div>`
-    : '<p class="empty">지금 조건에 딱 맞는 추천 사업이 없습니다. 회사 프로필을 보완하면 더 정확해집니다.</p>';
+  const items = data.priorityItems || [];
+  const itemsHtml = items.length
+    ? `<div class="notice-list">${items.map(priorityItemHtml).join('')}</div>`
+    : '<p class="empty">오늘 처리할 업무가 없습니다. 잘하고 계세요.</p>';
 
   container.appendChild(h(`
     <div class="dash-greeting">
       <p class="dash-greeting-eyebrow">안녕하세요.</p>
-      <h2 class="dash-greeting-title">오늘 AI가 분석한 결과입니다.</h2>
+      <h2 class="dash-greeting-title">오늘 확인할 업무입니다.</h2>
     </div>
     <div class="dash-tiles">${tilesHtml}</div>
-    <h3 class="dash-section-title">추천 사업</h3>
-    ${recHtml}
+    <h3 class="dash-section-title">오늘의 우선 업무</h3>
+    ${itemsHtml}
   `));
 
-  container.querySelectorAll('.notice-card').forEach(row => {
-    row.addEventListener('click', () => {
-      location.hash = '#/notices/' + row.dataset.id;
+  wirePriorityItemActions(container, () => renderHome(container));
+}
+
+function priorityItemHtml(item) {
+  const statusBadge = item.status
+    ? `<span class="pipeline-status-badge">${escapeHtml(item.status)}</span>`
+    : '<span class="pipeline-status-badge pipeline-status-badge--new">추천</span>';
+  const reviewBtn = item.kind === 'recommendation'
+    ? '<button type="button" class="priority-action-btn" data-action="review">참여검토</button>'
+    : '';
+  return `
+    <div class="notice-card priority-item" data-notice-id="${escapeAttr(item.noticeId)}"
+         data-entry-id="${escapeAttr(item.pipelineEntryId || '')}" data-kind="${escapeAttr(item.kind)}">
+      <div class="notice-card-main">
+        <div class="notice-org">${escapeHtml(item.organizationName || '-')}</div>
+        <div class="notice-title">${escapeHtml(item.title)}</div>
+        <div class="notice-meta">${statusBadge}</div>
+        <p class="priority-item-error error" style="display:none"></p>
+      </div>
+      <div class="notice-card-side">
+        ${ddayBadgeHtml(item.applicationEndAt)}
+        <div class="priority-item-actions">
+          ${reviewBtn}
+          <button type="button" class="priority-action-btn secondary" data-action="exclude">제외</button>
+          <button type="button" class="priority-action-btn secondary" data-action="detail">상세보기</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// wirePriorityItemActions — 홈 화면 "오늘의 우선 업무" 각 행의 버튼
+// 3종을 처리한다. [참여검토]/[제외]는 POST/PATCH 후 onChanged()로 홈을
+// 통째로 재조회한다(리스트 구성 규칙이 백엔드에 있어 항목 하나만
+// 갱신하기보다 다시 불러오는 쪽이 정확함 — 예: 제외하면 우선 업무에서
+// 아예 빠져야 함).
+function wirePriorityItemActions(container, onChanged) {
+  container.querySelectorAll('.priority-action-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const card = btn.closest('.priority-item');
+      const noticeId = card.dataset.noticeId;
+      let entryId = card.dataset.entryId;
+      const action = btn.dataset.action;
+      const errEl = card.querySelector('.priority-item-error');
+      errEl.style.display = 'none';
+
+      if (action === 'detail') {
+        location.hash = entryId ? '#/pipeline/' + entryId : '#/notices/' + noticeId;
+        return;
+      }
+
+      card.querySelectorAll('.priority-action-btn').forEach(b => b.disabled = true);
+      try {
+        if (action === 'review') {
+          await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/pipeline', {});
+        } else if (action === 'exclude') {
+          if (!entryId) {
+            const created = await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/pipeline', {});
+            entryId = created.id;
+          }
+          await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(entryId), { status: '제외' });
+        }
+        onChanged();
+      } catch (err) {
+        if (err.status === 401) { location.hash = '#/auth/login'; return; }
+        card.querySelectorAll('.priority-action-btn').forEach(b => b.disabled = false);
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
     });
   });
-  wireBookmarkButtons(container);
+}
+
+// ---------- 진행 중 사업 (#/pipeline) ----------
+async function renderPipelineList(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/pipeline');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const items = data.items || [];
+  container.innerHTML = '';
+
+  if (!items.length) {
+    container.appendChild(h(`
+      <h2>진행 중 사업</h2>
+      <p class="empty">아직 참여 검토 중인 사업이 없습니다. 공고 상세에서 "참여 검토"를 눌러 시작하세요.</p>
+    `));
+    return;
+  }
+
+  const grouped = {};
+  items.forEach(it => { (grouped[it.status] = grouped[it.status] || []).push(it); });
+
+  const sectionsHtml = PIPELINE_STATUS_LIST.map(status => {
+    const group = grouped[status] || [];
+    if (!group.length) return '';
+    return `
+      <div class="pipeline-status-section">
+        <h3 class="pipeline-status-section-title">${escapeHtml(status)} <span class="pipeline-status-section-count">${group.length}건</span></h3>
+        <div class="notice-list">${group.map(pipelineListRowHtml).join('')}</div>
+      </div>
+    `;
+  }).join('');
+
+  container.appendChild(h(`<h2>진행 중 사업</h2>${sectionsHtml}`));
+
+  container.querySelectorAll('.notice-card').forEach(row => {
+    row.addEventListener('click', () => { location.hash = '#/pipeline/' + row.dataset.id; });
+  });
+}
+
+function pipelineListRowHtml(entry) {
+  const assignee = entry.assigneeName ? `<span class="dot">·</span> 담당: ${escapeHtml(entry.assigneeName)}` : '';
+  return `
+    <div class="notice-card" data-id="${escapeAttr(entry.id)}">
+      <div class="notice-card-main">
+        <div class="notice-org">${escapeHtml(entry.organizationName || '-')}</div>
+        <div class="notice-title">${escapeHtml(entry.noticeTitle)}</div>
+        <div class="notice-meta">${assignee}</div>
+      </div>
+      <div class="notice-card-side">${ddayBadgeHtml(entry.applicationEndAt)}</div>
+    </div>
+  `;
+}
+
+async function renderPipelineDetail(container, id) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/pipeline/' + encodeURIComponent(id));
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const entry = data.entry;
+  const checklist = data.checklist || [];
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/pipeline" class="back-link">&larr; 진행 중 사업 목록으로</a>
+    <div class="detail-card">
+      <p class="detail-eyebrow">${escapeHtml(entry.organizationName || '-')}</p>
+      <h2><a href="#/notices/${escapeAttr(entry.noticeId)}">${escapeHtml(entry.noticeTitle)}</a></h2>
+      <form id="pipeline-entry-form" class="profile-form">
+        <label>상태
+          <select name="status">
+            ${PIPELINE_STATUS_LIST.map(s => `<option value="${escapeAttr(s)}" ${s === entry.status ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+          </select>
+        </label>
+        <label>담당자<input type="text" name="assigneeName" value="${escapeAttr(entry.assigneeName || '')}" placeholder="담당자 이름"></label>
+        <label>메모<textarea name="memo" rows="3">${escapeHtml(entry.memo || '')}</textarea></label>
+        <p class="license-card-meta">제출 마감: ${entry.submissionDeadline ? escapeHtml(entry.submissionDeadline) : '확인 안 됨'}</p>
+        <div id="pipeline-entry-error" class="error" style="display:none"></div>
+        <div id="pipeline-entry-success" class="success" style="display:none"></div>
+        <button type="submit">저장</button>
+      </form>
+    </div>
+    <h3>제출서류 체크리스트</h3>
+    <div id="pipeline-checklist-section"></div>
+  `));
+
+  const form = document.getElementById('pipeline-entry-form');
+  const errorBox = document.getElementById('pipeline-entry-error');
+  const successBox = document.getElementById('pipeline-entry-success');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    successBox.style.display = 'none';
+    const fd = new FormData(form);
+    const payload = {
+      status: fd.get('status'),
+      assigneeName: fd.get('assigneeName') || '',
+      memo: fd.get('memo') || '',
+    };
+    try {
+      await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(id), payload);
+      successBox.textContent = '저장되었습니다.';
+      successBox.style.display = 'block';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+
+  renderPipelineChecklist(document.getElementById('pipeline-checklist-section'), id, checklist);
+}
+
+// renderPipelineChecklist — 항목별 select 하나로 바로 PATCH(저장 버튼 없음,
+// select 자체가 바뀌는 즉시 반영). 실패하면 select를 원래 값으로 되돌린다
+// (wireBookmarkButtons와 같은 "실패 시 조용히 원복" 관례).
+function renderPipelineChecklist(container, entryId, items) {
+  container.innerHTML = '';
+  if (!items.length) {
+    container.appendChild(h('<p class="empty">체크리스트 항목이 없습니다(공고에 분석된 제출서류가 없거나 아직 분석되지 않았습니다).</p>'));
+    return;
+  }
+  const rows = items.map(it => `
+    <div class="checklist-row" data-item-id="${escapeAttr(it.id)}">
+      <span class="checklist-doc-name">${escapeHtml(it.documentName)}</span>
+      <select class="checklist-status-select">
+        ${CHECKLIST_STATUS_LIST.map(s => `<option value="${escapeAttr(s)}" ${s === it.status ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+      </select>
+    </div>
+  `).join('');
+  container.appendChild(h(`<div class="checklist-list">${rows}</div>`));
+
+  container.querySelectorAll('.checklist-status-select').forEach(sel => {
+    const originalValue = sel.value;
+    sel.addEventListener('change', async () => {
+      const row = sel.closest('.checklist-row');
+      const itemId = row.dataset.itemId;
+      sel.disabled = true;
+      try {
+        await apiRequest('PATCH',
+          '/api/pipeline/' + encodeURIComponent(entryId) + '/checklist/' + encodeURIComponent(itemId),
+          { status: sel.value });
+      } catch (err) {
+        sel.value = originalValue;
+        if (err.status === 401) { location.hash = '#/auth/login'; return; }
+      } finally {
+        sel.disabled = false;
+      }
+    });
+  });
 }
 
 function renderList(container) {
@@ -1456,6 +1737,7 @@ function renderDetail(container, id) {
             </div>
             ${bookmarkButtonHtml(n.id, n.isBookmarked)}
           </div>
+          <div id="pipeline-review-action"></div>
           <dl class="detail-meta">
             <div><dt>발주기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
             <div><dt>지역</dt><dd>${escapeHtml(n.region || '-')}</dd></div>
@@ -1495,12 +1777,49 @@ function renderDetail(container, id) {
       renderAttachments(document.getElementById('attachments-section'), data.attachments || []);
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || []);
       renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || [], id, data.documentReadiness);
+      renderPipelineReviewAction(document.getElementById('pipeline-review-action'), id);
       wireBookmarkButtons(body);
     })
     .catch(err => {
       body.className = 'error';
       body.textContent = err.message;
     });
+}
+
+// renderPipelineReviewAction — 공고 상세의 "참여 검토" 버튼. 클릭 시
+// POST /api/notices/{id}/pipeline(멱등 — 이미 있으면 기존 엔트리 반환)를
+// 호출하고, 성공하면 버튼을 파이프라인 상세로 가는 링크로 바꾼다. 페이지를
+// 새로 열 때마다 이미 파이프라인에 있는지 미리 조회하진 않는다(전용
+// 엔드포인트가 없어 조회 한 번을 더 만들어야 함 — 처음엔 버튼으로 보이더라도
+// 클릭하면 멱등하게 기존 엔트리로 안내되므로 기능상 문제는 없다).
+function renderPipelineReviewAction(container, noticeId) {
+  container.innerHTML = '';
+  if (!currentUser) return;
+  container.appendChild(h(`
+    <button type="button" id="pipeline-review-btn" class="pipeline-review-btn">참여 검토</button>
+    <p id="pipeline-review-error" class="error" style="display:none"></p>
+  `));
+
+  document.getElementById('pipeline-review-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('pipeline-review-btn');
+    const errEl = document.getElementById('pipeline-review-error');
+    errEl.style.display = 'none';
+    btn.disabled = true;
+    try {
+      const entry = await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/pipeline', {});
+      container.innerHTML = '';
+      container.appendChild(h(`<a href="#/pipeline/${escapeAttr(entry.id)}" class="pipeline-review-link">파이프라인에서 보기 &rarr;</a>`));
+    } catch (err) {
+      btn.disabled = false;
+      if (err.status === 401) { location.hash = '#/auth/login'; return; }
+      if (err.status === 400 && err.code === 'company_profile_required') {
+        errEl.innerHTML = '회사 정보를 등록하면 참여 검토를 시작할 수 있습니다. <a href="#/me/profile">기업 프로필 등록하기 →</a>';
+      } else {
+        errEl.textContent = err.message;
+      }
+      errEl.style.display = 'block';
+    }
+  });
 }
 
 // g2b 원문 JSON(raw_documents.raw_content)에서 그때그때 파싱한 상세 필드.
@@ -2099,6 +2418,12 @@ function renderProfileBasicTab(container) {
         <label>업력(년)<input type="number" step="0.1" name="businessAgeYears"></label>
         <label>매출액(원)<input type="number" name="revenueAmount"></label>
         <label>직원 수<input type="number" name="employeeCount"></label>
+        <div class="field-verify-row">
+          <button type="button" id="employee-count-verify-btn" class="field-verify-btn">4대보험 가입자명부로 확인</button>
+          <span id="employee-count-confidence-badge"></span>
+        </div>
+        <input type="file" id="employee-count-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+        <div id="employee-count-confirm-slot"></div>
         <label>기업 규모<input type="text" name="companySize" placeholder="소기업/소상공인/중기업 등"></label>
         <label>보유 면허 (쉼표로 구분)<input type="text" name="licenses"></label>
         <label>보유 인증 (쉼표로 구분)<input type="text" name="certifications"></label>
@@ -2116,6 +2441,27 @@ function renderProfileBasicTab(container) {
   const errorBox = document.getElementById('profile-error');
   const successBox = document.getElementById('profile-success');
   fillProfileForm(form, currentProfile);
+  renderEmployeeCountBadge();
+
+  const employeeCountFileInput = document.getElementById('employee-count-file-input');
+  const employeeCountConfirmSlot = document.getElementById('employee-count-confirm-slot');
+  document.getElementById('employee-count-verify-btn').addEventListener('click', () => employeeCountFileInput.click());
+  employeeCountFileInput.addEventListener('change', async () => {
+    const file = employeeCountFileInput.files[0];
+    employeeCountFileInput.value = '';
+    if (!file) return;
+    employeeCountConfirmSlot.innerHTML = '';
+    employeeCountConfirmSlot.appendChild(h('<div class="loading">문서를 분석하는 중...</div>'));
+    let uploadData;
+    try {
+      uploadData = await uploadCompanyRecordDocument('/api/me/company-profile/employee-verification/documents', file);
+    } catch (err) {
+      employeeCountConfirmSlot.innerHTML = '';
+      employeeCountConfirmSlot.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+      return;
+    }
+    renderEmployeeCountConfirmForm(employeeCountConfirmSlot, uploadData.candidate, uploadData.documentId, form);
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -2143,6 +2489,65 @@ function renderProfileBasicTab(container) {
       currentProfile = data.companyProfile;
       successBox.textContent = '저장되었습니다.';
       successBox.style.display = 'block';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+// renderEmployeeCountBadge — currentProfile.employeeCountConfidence가 있을
+// 때만(4대보험 가입자명부로 확인한 적 있음) confidenceBadgeHtml(면허·인증
+// 때 만든 A~D 배지 재사용)을 보여준다.
+function renderEmployeeCountBadge() {
+  const badge = document.getElementById('employee-count-confidence-badge');
+  if (!badge) return;
+  badge.innerHTML = currentProfile && currentProfile.employeeCountConfidence
+    ? confidenceBadgeHtml(currentProfile.employeeCountConfidence)
+    : '';
+}
+
+// renderEmployeeCountConfirmForm — 4대보험 가입자명부에서 AI가 읽은 총
+// 가입자 수 하나만 확인하는 최소 폼. 확인 즉시 저장되고(별도 "직원 수"
+// 저장 버튼을 또 누를 필요 없음) 기본정보 폼의 employeeCount 입력값도
+// 함께 갱신한다 — 개인명단은 애초에 응답에 없다(백엔드가 추출 안 함).
+function renderEmployeeCountConfirmForm(slot, candidate, documentId, profileForm) {
+  const c = candidate || {};
+  slot.innerHTML = '';
+  slot.appendChild(h(`
+    <div class="license-confirm-form">
+      <h4>AI가 읽은 총 가입자 수를 확인해주세요</h4>
+      <form id="employee-count-confirm-form" class="profile-form">
+        <label>총 가입자 수<input type="text" name="totalSubscriberCount" value="${escapeAttr(c.totalSubscriberCount || '')}" required></label>
+        <div id="employee-count-confirm-error" class="error" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="submit">확인 및 저장</button>
+          <button type="button" id="employee-count-confirm-cancel" class="secondary">취소</button>
+        </div>
+      </form>
+    </div>
+  `));
+
+  const form = document.getElementById('employee-count-confirm-form');
+  const errorBox = document.getElementById('employee-count-confirm-error');
+  document.getElementById('employee-count-confirm-cancel').addEventListener('click', () => { slot.innerHTML = ''; });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    const payload = {
+      totalSubscriberCount: fd.get('totalSubscriberCount'),
+      sourceDocumentId: documentId || null,
+    };
+    try {
+      const data = await apiRequest('POST', '/api/me/company-profile/employee-verification', payload);
+      currentProfile.employeeCountConfidence = data.confidence;
+      currentProfile.employeeCountVerifiedAt = new Date().toISOString();
+      const employeeCountInput = profileForm.querySelector('input[name="employeeCount"]');
+      if (employeeCountInput) employeeCountInput.value = data.employeeCount;
+      slot.innerHTML = '';
+      renderEmployeeCountBadge();
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -2705,7 +3110,7 @@ function renderLicenseListInto(listEl, items, emptyMessage, cardHtmlFn) {
 // unlike analyzer/ai_extract.py).
 function renderLicenseConfirmForm(formSlot, candidate, documentId, onSaved) {
   const c = candidate || {};
-  const isLicenseDefault = c.documentType === '면허증';
+  const isLicenseDefault = ['면허증', '법인등기사항증명서', '경쟁입찰참가자격등록증'].includes(c.documentType);
   formSlot.innerHTML = '';
   formSlot.appendChild(h(`
     <div class="license-confirm-form">
@@ -2879,6 +3284,12 @@ function route() {
   if (path === '#/me/licenses') { renderLicenses(app); return; }
   if (path === '#/review') { renderReviewQueue(app); return; }
   if (path === '#/notices') { renderList(app); return; }
+  if (path === '#/pipeline') { renderPipelineList(app); return; }
+  const pipelineDetailMatch = path.match(/^#\/pipeline\/(.+)$/);
+  if (pipelineDetailMatch) {
+    renderPipelineDetail(app, decodeURIComponent(pipelineDetailMatch[1]));
+    return;
+  }
   const detailMatch = path.match(/^#\/notices\/(.+)$/);
   if (detailMatch) {
     renderDetail(app, decodeURIComponent(detailMatch[1]));

@@ -208,23 +208,30 @@ type companyProfileDTO struct {
 	DirectProductionCert bool     `json:"directProductionCert"`
 	MaxPerformanceAmount *int64   `json:"maxPerformanceAmount"`
 	CreditRating         *string  `json:"creditRating"`
+	// EmployeeCountConfidence/VerifiedAt은 4대보험 사업장 가입자명부로
+	// employee_count를 확인했을 때만 채워진다(company_employee_verification.go).
+	EmployeeCountConfidence *string    `json:"employeeCountConfidence"`
+	EmployeeCountVerifiedAt *time.Time `json:"employeeCountVerifiedAt"`
 }
 
 func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProfileDTO, error) {
 	var p companyProfileDTO
-	var region, companySize, creditRating sql.NullString
+	var region, companySize, creditRating, employeeCountConfidence sql.NullString
 	var businessAgeYears sql.NullFloat64
 	var revenueAmount, employeeCount, maxPerformanceAmount sql.NullInt64
+	var employeeCountVerifiedAt sql.NullTime
 	var businessType, industry, licenses, certs pq.StringArray
 
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT id, business_type, region, industry, business_age_years, revenue_amount,
 		       employee_count, company_size, licenses, certifications,
-		       direct_production_cert, max_performance_amount, credit_rating
+		       direct_production_cert, max_performance_amount, credit_rating,
+		       employee_count_confidence, employee_count_verified_at
 		FROM company_profiles WHERE user_id = $1`, userID,
 	).Scan(&p.ID, &businessType, &region, &industry, &businessAgeYears, &revenueAmount,
 		&employeeCount, &companySize, &licenses, &certs,
-		&p.DirectProductionCert, &maxPerformanceAmount, &creditRating)
+		&p.DirectProductionCert, &maxPerformanceAmount, &creditRating,
+		&employeeCountConfidence, &employeeCountVerifiedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -245,6 +252,10 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 	}
 	p.Licenses = []string(licenses)
 	p.Certifications = []string(certs)
+	p.EmployeeCountConfidence = nullStringPtr(employeeCountConfidence)
+	if employeeCountVerifiedAt.Valid {
+		p.EmployeeCountVerifiedAt = &employeeCountVerifiedAt.Time
+	}
 	return &p, nil
 }
 

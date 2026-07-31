@@ -1,9 +1,9 @@
-// dashboard.go — GET /api/dashboard. "AI 비서" 1단계의 새 첫 화면 데이터:
-// 로그인한 사용자의 회사 프로필 기준으로 활성 공고를 스캔해 참여 가능성
-// 버킷별로 집계하고, 즉시 참여 가능한 공고 중 마감 임박순 추천 목록을
-// 만든다. scoring.go의 scoreNoticeForCompany는 DB에 아무것도 쓰지 않아
-// 이렇게 공고 수백 건을 매 요청마다 스캔해도 eligibility_evaluations가
-// 불어나지 않는다.
+// dashboard.go — GET /api/dashboard. 홈 화면 "오늘 할 일" 데이터: 진행 중
+// 파이프라인(notice_pipeline_entries) 중 상태 미정/서류 미비인 것과, 아직
+// 파이프라인에 없는 신규 추천 공고(grade='recommended', scoring.go의
+// scoreNoticeForCompany 재사용 — DB에 아무것도 안 씀)를 합쳐 마감일순으로
+// 보여준다. 이 응답을 쓰는 화면은 홈 하나뿐이라 예전 3버킷 집계
+// (readyCount 등)는 완전히 대체한다(하위호환 유지 대상 아님).
 package api
 
 import (
@@ -16,23 +16,33 @@ import (
 	"github.com/lib/pq"
 )
 
-// dashboardRecommendationLimit caps how many "즉시 참여 가능" notices the
-// dashboard returns — enough for a first screen, not a full list (그건
-// #/notices에서 확인).
-const dashboardRecommendationLimit = 10
-
 // dashboardNoticeScanLimit is a safety cap on how many active notices get
-// scored per dashboard request. 1차 버전이라 페이지네이션/캐싱은 없다 —
-// 활성 공고가 이 한도를 넘어서면 그때 다시 손본다.
+// scored per dashboard request (기존과 동일한 이유 — 1차 버전, 페이지네이션 없음).
 const dashboardNoticeScanLimit = 500
 
-type dashboardRecommendation struct {
+// dashboardPriorityCloseSoonDays: 이 기간 내 마감이면 "마감임박"으로 집계.
+const dashboardPriorityCloseSoonDays = 7
+
+// pipelineActivePipelineStatuses: "종결"되지 않아 여전히 챙겨야 하는
+// 파이프라인 상태 — 우선 업무 리스트/서류 카운트는 이 상태들만 대상으로 한다.
+var pipelineActiveStatuses = map[string]bool{
+	"검토전": true, "참여검토": true, "승인대기": true, "준비중": true,
+}
+
+// pipelineUndecidedStatuses: "상태가 아직 정해지지 않은" 단계 — 우선
+// 업무 리스트 포함 조건의 절반(나머지 절반은 서류 미비 여부).
+var pipelineUndecidedStatuses = map[string]bool{
+	"검토전": true, "참여검토": true, "승인대기": true,
+}
+
+type dashboardPriorityItem struct {
+	Kind             string     `json:"kind"` // "pipeline" | "recommendation"
 	NoticeID         string     `json:"noticeId"`
+	PipelineEntryID  *string    `json:"pipelineEntryId,omitempty"`
 	Title            string     `json:"title"`
 	OrganizationName string     `json:"organizationName"`
+	Status           *string    `json:"status,omitempty"` // pipeline 항목만
 	ApplicationEndAt *time.Time `json:"applicationEndAt"`
-	MetCount         int        `json:"metCount"`
-	TotalCount       int        `json:"totalCount"`
 	IsBookmarked     bool       `json:"isBookmarked"`
 }
 
@@ -74,7 +84,76 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("dashboard: bookmarked notice ids query failed", "error", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, `
+	pipelineRows, err := s.db.QueryContext(ctx, `
+		SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status,
+		       pe.assignee_name, pe.submission_deadline
+		FROM notice_pipeline_entries pe
+		JOIN notices n ON n.id = pe.notice_id
+		WHERE pe.company_profile_id = $1`, profileID)
+	if err != nil {
+		s.logger.Error("dashboard: pipeline entries query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	type pipelineRow struct {
+		id, noticeID, title, status string
+		organizationName            sql.NullString
+		assigneeName                sql.NullString
+		deadline                    sql.NullTime
+	}
+	var pipelineEntries []pipelineRow
+	pipelinedNoticeIDs := map[string]bool{}
+	for pipelineRows.Next() {
+		var pr pipelineRow
+		if err := pipelineRows.Scan(&pr.id, &pr.noticeID, &pr.title, &pr.organizationName,
+			&pr.status, &pr.assigneeName, &pr.deadline); err != nil {
+			continue
+		}
+		pipelineEntries = append(pipelineEntries, pr)
+		pipelinedNoticeIDs[pr.noticeID] = true
+	}
+	pipelineRows.Close()
+	if err := pipelineRows.Err(); err != nil {
+		s.logger.Error("dashboard: pipeline entries scan failed", "error", err)
+	}
+
+	incompleteDocCounts, err := s.fetchIncompleteChecklistCounts(ctx, profileID)
+	if err != nil {
+		s.logger.Error("dashboard: checklist counts query failed", "error", err)
+	}
+
+	reviewPendingCount, unassignedCount, needsDocumentCount := 0, 0, 0
+	priorityItems := []dashboardPriorityItem{}
+	closeSoonCutoff := time.Now().AddDate(0, 0, dashboardPriorityCloseSoonDays)
+
+	for _, pr := range pipelineEntries {
+		if pipelineUndecidedStatuses[pr.status] {
+			reviewPendingCount++
+		}
+		incomplete := incompleteDocCounts[pr.id]
+		if pipelineActiveStatuses[pr.status] {
+			needsDocumentCount += incomplete
+			if pr.assigneeName.String == "" {
+				unassignedCount++
+			}
+		}
+		if !pipelineActiveStatuses[pr.status] || (!pipelineUndecidedStatuses[pr.status] && incomplete == 0) {
+			continue // 우선 업무 대상 아님: 종결됐거나, 상태도 정해지고 서류도 다 갖춰짐
+		}
+		entryID := pr.id
+		status := pr.status
+		item := dashboardPriorityItem{
+			Kind: "pipeline", NoticeID: pr.noticeID, PipelineEntryID: &entryID,
+			Title: pr.title, OrganizationName: pr.organizationName.String, Status: &status,
+			IsBookmarked: bookmarkedIDs[pr.noticeID],
+		}
+		if pr.deadline.Valid {
+			item.ApplicationEndAt = &pr.deadline.Time
+		}
+		priorityItems = append(priorityItems, item)
+	}
+
+	noticeRows, err := s.db.QueryContext(ctx, `
 		SELECT id, title, organization_name, region, industry, budget_amount, application_end_at
 		FROM notices
 		WHERE status NOT IN ('closed','cancelled')
@@ -86,53 +165,41 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
-	defer rows.Close()
+	defer noticeRows.Close()
 
-	var readyCount, needsReviewCount, notRecommendedCount, totalScanned int
-	gradeCounts := map[string]int{
-		gradeRecommended: 0, gradeConditional: 0, gradeJointVentureReview: 0,
-		gradeNeedsConfirmation: 0, gradeNotRecommended: 0,
-	}
-	recommendations := []dashboardRecommendation{}
-	for rows.Next() {
+	for noticeRows.Next() {
 		var id, title string
 		var org, noticeRegion, noticeIndustry sql.NullString
 		var budget sql.NullInt64
 		var deadline sql.NullTime
-		if err := rows.Scan(&id, &title, &org, &noticeRegion, &noticeIndustry, &budget, &deadline); err != nil {
+		if err := noticeRows.Scan(&id, &title, &org, &noticeRegion, &noticeIndustry, &budget, &deadline); err != nil {
 			continue
 		}
-		totalScanned++
-
+		if pipelinedNoticeIDs[id] {
+			continue // 이미 파이프라인에 있음 — 위에서 이미 처리됨
+		}
 		score := scoreNoticeForCompany(
 			noticeScoringInput{Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget},
 			company,
 		)
-		gradeCounts[score.Grade]++
-		switch score.Bucket {
-		case "ready":
-			readyCount++
-			rec := dashboardRecommendation{
-				NoticeID: id, Title: title, OrganizationName: org.String,
-				MetCount: score.MetCount, TotalCount: score.TotalCount,
-				IsBookmarked: bookmarkedIDs[id],
-			}
-			if deadline.Valid {
-				rec.ApplicationEndAt = &deadline.Time
-			}
-			recommendations = append(recommendations, rec)
-		case "needs_review":
-			needsReviewCount++
-		default:
-			notRecommendedCount++
+		if score.Grade != gradeRecommended {
+			continue
 		}
+		item := dashboardPriorityItem{
+			Kind: "recommendation", NoticeID: id, Title: title, OrganizationName: org.String,
+			IsBookmarked: bookmarkedIDs[id],
+		}
+		if deadline.Valid {
+			item.ApplicationEndAt = &deadline.Time
+		}
+		priorityItems = append(priorityItems, item)
 	}
-	if err := rows.Err(); err != nil {
+	if err := noticeRows.Err(); err != nil {
 		s.logger.Error("dashboard: notices scan failed", "error", err)
 	}
 
-	sort.Slice(recommendations, func(i, j int) bool {
-		a, b := recommendations[i].ApplicationEndAt, recommendations[j].ApplicationEndAt
+	sort.Slice(priorityItems, func(i, j int) bool {
+		a, b := priorityItems[i].ApplicationEndAt, priorityItems[j].ApplicationEndAt
 		if a == nil {
 			return false
 		}
@@ -141,30 +208,52 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		return a.Before(*b)
 	})
-	if len(recommendations) > dashboardRecommendationLimit {
-		recommendations = recommendations[:dashboardRecommendationLimit]
-	}
 
-	changedTodayCount, err := s.countNoticesChangedToday(ctx)
-	if err != nil {
-		s.logger.Error("dashboard: changed-today query failed", "error", err)
-	}
-	closingThisWeekCount, err := s.countNoticesClosingThisWeek(ctx)
-	if err != nil {
-		s.logger.Error("dashboard: closing-this-week query failed", "error", err)
+	deadlineSoonCount := 0
+	for _, it := range priorityItems {
+		if it.ApplicationEndAt != nil && it.ApplicationEndAt.Before(closeSoonCutoff) {
+			deadlineSoonCount++
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"hasProfile":           true,
-		"readyCount":           readyCount,
-		"needsReviewCount":     needsReviewCount,
-		"notRecommendedCount":  notRecommendedCount,
-		"changedTodayCount":    changedTodayCount,
-		"closingThisWeekCount": closingThisWeekCount,
-		"totalScanned":         totalScanned,
-		"recommendations":      recommendations,
-		"gradeCounts":          gradeCounts,
+		"hasProfile": true,
+		"summary": map[string]int{
+			"reviewPendingCount": reviewPendingCount,
+			"deadlineSoonCount":  deadlineSoonCount,
+			"needsDocumentCount": needsDocumentCount,
+			"unassignedCount":    unassignedCount,
+		},
+		"priorityItems": priorityItems,
 	})
+}
+
+// fetchIncompleteChecklistCounts returns, per pipeline entry id, how many
+// checklist items are NOT status='보유' — used both for the
+// needsDocumentCount summary tile and for deciding which pipeline entries
+// belong in "오늘의 우선 업무" (서류 미비인 것).
+func (s *Server) fetchIncompleteChecklistCounts(ctx context.Context, profileID string) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT pe.id, count(*) FILTER (WHERE ci.status != '보유')
+		FROM notice_pipeline_entries pe
+		LEFT JOIN pipeline_checklist_items ci ON ci.pipeline_entry_id = pe.id
+		WHERE pe.company_profile_id = $1
+		GROUP BY pe.id`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := map[string]int{}
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			continue
+		}
+		counts[id] = n
+	}
+	return counts, rows.Err()
 }
 
 // fetchBookmarkedNoticeIDs는 이미 최대 500건을 스캔하는 메인 공고 쿼리에
@@ -186,22 +275,4 @@ func (s *Server) fetchBookmarkedNoticeIDs(ctx context.Context, userID string) (m
 		ids[id] = true
 	}
 	return ids, rows.Err()
-}
-
-func (s *Server) countNoticesChangedToday(ctx context.Context) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `
-		SELECT count(DISTINCT notice_id) FROM notice_changes
-		WHERE created_at >= CURRENT_DATE`).Scan(&n)
-	return n, err
-}
-
-func (s *Server) countNoticesClosingThisWeek(ctx context.Context) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `
-		SELECT count(*) FROM notices
-		WHERE application_end_at >= CURRENT_DATE
-		  AND application_end_at < CURRENT_DATE + INTERVAL '7 days'
-		  AND status NOT IN ('closed','cancelled')`).Scan(&n)
-	return n, err
 }
