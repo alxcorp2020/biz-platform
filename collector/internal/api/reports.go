@@ -54,6 +54,12 @@ type reportSummary struct {
 	DeadlinePassedCount    int                  `json:"deadlinePassedCount"`
 	AIAnalysisUsedCount    int                  `json:"aiAnalysisUsedCount"`
 	TeamActivity           []reportTeamActivity `json:"teamActivity,omitempty"`
+	// ProfileCompletenessScore — 리포트 생성 시점 스냅샷(company_profile_
+	// completeness.go의 computeProfileCompleteness와 같은 공식). growth_
+	// analytics.go가 이 필드를 시간순으로 모아 "완성도 추이"를 그린다 —
+	// 이 필드가 추가되기 전 리포트는 0으로 남아있다(추이 그래프에서
+	// 자연히 구간 시작점으로 보임, 별도 백필 없음).
+	ProfileCompletenessScore int `json:"profileCompletenessScore"`
 }
 
 type reportItem struct {
@@ -255,6 +261,13 @@ func (s *Server) computeReportSummary(
 			}
 			teamRows.Close()
 		}
+	}
+
+	completeness, err := s.computeProfileCompleteness(ctx, profileID, company.Industry)
+	if err != nil {
+		s.logger.Error("report: profile completeness query failed", "error", err)
+	} else {
+		summary.ProfileCompletenessScore = completeness.OverallCompleteness
 	}
 
 	return &summary, nil

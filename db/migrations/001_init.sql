@@ -567,6 +567,7 @@ CREATE TABLE notice_pipeline_entries (
     decided_at          TIMESTAMPTZ,
     submission_deadline DATE,
     memo                TEXT,
+    awarded_amount      BIGINT, -- 성장분석(ROI) 근거 — status='낙찰'일 때 사용자가 직접 입력하는 실제 낙찰금액(공고 budget_amount와 다를 수 있어 별도 필드)
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (company_profile_id, notice_id)

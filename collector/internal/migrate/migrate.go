@@ -105,6 +105,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureReportEventTypes(ctx, db); err != nil {
 		return fmt.Errorf("migrate notification_log report event types: %w", err)
 	}
+	if err := ensureAwardedAmountColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate notice_pipeline_entries.awarded_amount column: %w", err)
+	}
 	return nil
 }
 
@@ -754,6 +757,17 @@ func ensureReportEventTypes(ctx context.Context, db *sql.DB) error {
 func ensureDocumentKindColumn(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE company_documents ADD COLUMN IF NOT EXISTS document_kind TEXT;
+	`)
+	return err
+}
+
+// ensureAwardedAmountColumn adds notice_pipeline_entries.awarded_amount —
+// 성장분석(growth_analytics.go) ROI 계산의 근거. 사용자가 상태를 '낙찰'로
+// 바꿀 때 직접 입력한다(공고 예산액과 실제 낙찰금액은 다를 수 있어
+// notices.budget_amount로 대체하지 않는다).
+func ensureAwardedAmountColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS awarded_amount BIGINT;
 	`)
 	return err
 }

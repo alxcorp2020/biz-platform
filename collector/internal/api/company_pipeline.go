@@ -43,6 +43,7 @@ type pipelineEntry struct {
 	DecidedAt               *time.Time `json:"decidedAt"`
 	SubmissionDeadline      *string    `json:"submissionDeadline"`
 	Memo                    *string    `json:"memo"`
+	AwardedAmount           *int64     `json:"awardedAmount"` // 성장분석 ROI 근거 — status='낙찰'일 때 사용자가 직접 입력
 	CreatedAt               time.Time  `json:"createdAt"`
 	UpdatedAt               time.Time  `json:"updatedAt"`
 	IncompleteDocumentCount int        `json:"incompleteDocumentCount"` // handleListPipeline만 채움(대시보드 카드 클릭 → 서류확인필요 필터용) — handleGetPipelineEntry는 체크리스트 원본을 따로 내려주므로 항상 0
@@ -59,8 +60,9 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 	var e pipelineEntry
 	var org, assignee, assigneeEmail, assigneePhone, memo sql.NullString
 	var decidedAt, deadline sql.NullTime
+	var awardedAmount sql.NullInt64
 	err := row.Scan(&e.ID, &e.NoticeID, &e.NoticeTitle, &org, &e.Status, &assignee, &assigneeEmail, &assigneePhone,
-		&decidedAt, &deadline, &memo, &e.CreatedAt, &e.UpdatedAt)
+		&decidedAt, &deadline, &memo, &awardedAmount, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -76,12 +78,15 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 		v := deadline.Time.Format("2006-01-02")
 		e.SubmissionDeadline = &v
 	}
+	if awardedAmount.Valid {
+		e.AwardedAmount = &awardedAmount.Int64
+	}
 	return &e, nil
 }
 
 const pipelineEntrySelect = `
 	SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status, pe.assignee_name, pe.assignee_email, pe.assignee_phone,
-	       pe.decided_at, pe.submission_deadline, pe.memo, pe.created_at, pe.updated_at
+	       pe.decided_at, pe.submission_deadline, pe.memo, pe.awarded_amount, pe.created_at, pe.updated_at
 	FROM notice_pipeline_entries pe
 	JOIN notices n ON n.id = pe.notice_id`
 
@@ -414,6 +419,14 @@ func (s *Server) handleUpdatePipelineEntry(w http.ResponseWriter, r *http.Reques
 		} else {
 			addSet("memo", memo)
 		}
+	}
+	if rawAwardedAmount, present := raw["awardedAmount"]; present {
+		var amount *int64
+		if err := json.Unmarshal(rawAwardedAmount, &amount); err != nil || (amount != nil && *amount < 0) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_awarded_amount"})
+			return
+		}
+		addSet("awarded_amount", amount)
 	}
 	if len(sets) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no_fields_to_update"})

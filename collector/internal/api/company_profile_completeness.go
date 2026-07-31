@@ -47,18 +47,30 @@ func (s *Server) handleGetProfileCompleteness(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	resp, err := s.computeProfileCompleteness(r.Context(), profile.ID, profile.Industry)
+	if err != nil {
+		s.logger.Error("profile-completeness: compute failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// computeProfileCompleteness is the pure-computation core of
+// handleGetProfileCompleteness, factored out so growth_analytics.go's
+// weekly/monthly snapshot (reports.go) can reuse the exact same formula —
+// two separately-maintained completeness definitions would drift apart.
+func (s *Server) computeProfileCompleteness(ctx context.Context, profileID string, industry []string) (profileCompletenessResponse, error) {
 	counts := map[string]struct{ total, ab int }{}
 	for _, table := range completenessConfidenceTables {
-		total, ab, err := s.countConfidenceBucket(r.Context(), table, profile.ID)
+		total, ab, err := s.countConfidenceBucket(ctx, table, profileID)
 		if err != nil {
-			s.logger.Error("profile-completeness: confidence count query failed", "error", err, "table", table)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-			return
+			return profileCompletenessResponse{}, err
 		}
 		counts[table] = struct{ total, ab int }{total, ab}
 	}
 
-	industryCompleteness := len(profile.Industry) * 100 / len(industryGroups)
+	industryCompleteness := len(industry) * 100 / len(industryGroups)
 	if industryCompleteness > 100 {
 		industryCompleteness = 100
 	}
@@ -95,12 +107,12 @@ func (s *Server) handleGetProfileCompleteness(w http.ResponseWriter, r *http.Req
 	}
 	needsVerificationCount := totalItems - totalAB // CHECK 제약상 confidence는 항상 A/B/C/D 중 하나
 
-	writeJSON(w, http.StatusOK, profileCompletenessResponse{
+	return profileCompletenessResponse{
 		Categories:             categories,
 		OverallCompleteness:    overall,
 		MatchConfidence:        matchConfidence,
 		NeedsVerificationCount: needsVerificationCount,
-	})
+	}, nil
 }
 
 // capCompleteness converts a raw count into a 0~100 percentage, capped once
