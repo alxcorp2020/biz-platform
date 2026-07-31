@@ -18,9 +18,26 @@
     --bg-soft: #F5F6F8;
     --border: #E2E5EA;
     --accent-blue: #2E5AAC;
+    --accent-blue-deep: #1F4488;
     --success: #1F8A5F;
     --warn: #C4841D;
     --danger: #C0392B;
+
+    /* ---- 디자인 리뉴얼: 타이포 3단계 + 여백 스케일 ----
+       기존 화면의 세부 폰트크기는 그대로 두되, 새로 만드는 공통
+       컴포넌트(버튼/배지/row-card/모달/스텝인디케이터, 그리고 앞으로
+       화면별로 이 패턴을 적용할 때)는 이 3단계만 쓴다. */
+    --text-title: 1.15rem;
+    --text-body: 0.95rem;
+    --text-caption: 0.8rem;
+
+    --space-sm: 0.75rem;
+    --space-md: 1.25rem;
+    --space-lg: 2rem;
+    --space-xl: 3rem;
+
+    --radius-card: 16px;
+    --sidebar-width: 240px;
   }
   * { box-sizing: border-box; }
   body {
@@ -32,6 +49,102 @@
   }
   a { color: var(--accent-blue); }
   .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  /* ============================================================
+     공통 컴포넌트 (디자인 리뉴얼) — 버튼/배지/row-card/스텝
+     인디케이터/모달. 화면별 적용은 이후 단계에서 순서대로 진행한다.
+     기존 화면 전용 클래스(.home-cta-*, .priority-action-btn 등)는
+     아직 그대로 남아있다 — 각 화면을 이 컴포넌트로 옮길 때 정리한다.
+     ============================================================ */
+
+  /* ---------- 버튼: 화면당 강조(primary) 1개 원칙 ---------- */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    padding: 0.85rem 1.5rem; border-radius: 10px; font-weight: 700;
+    font-size: var(--text-body); cursor: pointer; border: 1px solid transparent;
+    text-decoration: none; line-height: 1.2;
+    transition: background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease;
+  }
+  .btn-primary { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
+  .btn-primary:hover { background: var(--accent-blue-deep); border-color: var(--accent-blue-deep); }
+  .btn-primary:disabled { opacity: 0.5; cursor: default; background: var(--accent-blue); border-color: var(--accent-blue); }
+  .btn-secondary { background: #fff; color: var(--ink); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--ink-soft); }
+  .btn-secondary:disabled { opacity: 0.5; cursor: default; }
+  .btn-ghost { background: none; border-color: transparent; color: var(--ink-soft); padding: 0.6rem 0.9rem; }
+  .btn-ghost:hover { color: var(--ink); }
+  .btn-block { display: flex; width: 100%; }
+  .btn-sm { padding: 0.5rem 1rem; font-size: var(--text-caption); border-radius: 8px; }
+
+  /* ---------- 배지: 톤 5가지로 통일 ---------- */
+  .badge {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.3rem 0.75rem; border-radius: 999px;
+    font-size: var(--text-caption); font-weight: 700; white-space: nowrap; line-height: 1.3;
+  }
+  .badge--blue { background: rgba(46,90,172,0.12); color: var(--accent-blue); }
+  .badge--success { background: rgba(31,138,95,0.12); color: var(--success); }
+  .badge--warn { background: rgba(196,132,29,0.12); color: var(--warn); }
+  .badge--danger { background: rgba(192,57,43,0.12); color: var(--danger); }
+  .badge--gray { background: var(--bg-soft); color: var(--ink-soft); }
+
+  /* ---------- row-card: "제목 + 큰 숫자/값 + 화살표" 리스트 행 ----------
+     notice-card류(텍스트 나열형)를 대체할 목적 — 각 화면 적용은 이후
+     단계에서. main(제목+부제) / value(강조 숫자·배지) / arrow 3구획. */
+  .row-card {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-md);
+    padding: var(--space-md) 1.75rem; background: #fff; border: 1px solid var(--border);
+    border-radius: var(--radius-card); cursor: pointer;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .row-card:hover { border-color: var(--accent-blue); box-shadow: 0 4px 16px rgba(20,33,61,0.08); }
+  .row-card-main { flex: 1; min-width: 0; }
+  .row-card-title {
+    font-size: var(--text-body); font-weight: 700; color: var(--ink); margin: 0 0 0.3rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .row-card-subtitle { font-size: var(--text-caption); color: var(--ink-soft); }
+  .row-card-side { display: flex; align-items: center; gap: 0.85rem; flex-shrink: 0; }
+  .row-card-value { font-size: 1.4rem; font-weight: 800; color: var(--ink); white-space: nowrap; }
+  .row-card-arrow { color: var(--border); font-size: 1.3rem; line-height: 1; }
+  .row-card:hover .row-card-arrow { color: var(--accent-blue); }
+
+  /* ---------- 스텝 인디케이터 (파이프라인 상태 등 단계형 진행 표시) ---------- */
+  .step-indicator { display: flex; align-items: center; }
+  .step-indicator-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+  .step-indicator-dot.is-done { background: var(--accent-blue); }
+  .step-indicator-dot.is-current { background: var(--accent-blue); box-shadow: 0 0 0 3px rgba(46,90,172,0.2); }
+  .step-indicator-dot.is-danger { background: var(--danger); }
+  .step-indicator-line { flex: 1; height: 2px; background: var(--border); min-width: 10px; }
+  .step-indicator-line.is-done { background: var(--accent-blue); }
+  .step-indicator-label { font-size: var(--text-caption); color: var(--ink-soft); margin-left: 0.6rem; white-space: nowrap; }
+
+  /* ---------- 모달 / 바텀시트 (공용) ----------
+     데스크톱: 중앙 모달. 좁은 화면: 하단에서 올라오는 바텀시트(같은
+     마크업, 미디어쿼리로 위치만 바뀜). openModal()/closeModal() JS
+     헬퍼와 짝을 이룬다. */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(11,21,38,0.45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; padding: 1.5rem;
+  }
+  .modal-panel {
+    background: #fff; border-radius: 18px; max-width: 520px; width: 100%;
+    max-height: 85vh; overflow-y: auto; padding: var(--space-lg);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+  }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-md); }
+  .modal-title { font-size: var(--text-title); font-weight: 700; color: var(--navy); margin: 0; }
+  .modal-close-btn {
+    background: none; border: none; font-size: 1.5rem; line-height: 1;
+    color: var(--ink-soft); cursor: pointer; padding: 0.25rem;
+  }
+  .modal-close-btn:hover { color: var(--ink); }
+  .modal-step-indicator { margin-bottom: var(--space-md); }
+  @media (max-width: 640px) {
+    .modal-overlay { align-items: flex-end; padding: 0; }
+    .modal-panel { max-width: 100%; border-radius: 18px 18px 0 0; max-height: 90vh; }
+  }
 
   /* ---------- Header ---------- */
   .site-header {
@@ -87,7 +200,7 @@
   .header-links a:hover, .auth-nav a:hover, .link-btn:hover { text-decoration: underline; }
   .link-btn { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
 
-  main { max-width: 1000px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  main { max-width: 1080px; margin: 0 auto; padding: var(--space-xl) var(--space-lg) 5rem; }
 
   /* ---------- Filters ---------- */
   .filters {
@@ -137,15 +250,15 @@
   .back-link:hover { text-decoration: underline; }
 
   /* ---------- Notice card list ---------- */
-  .notice-list { display: flex; flex-direction: column; gap: 0.85rem; }
+  .notice-list { display: flex; flex-direction: column; gap: var(--space-md); }
   .notice-card {
     display: flex;
     align-items: flex-start;
     gap: 1.25rem;
-    padding: 1.25rem 1.5rem;
+    padding: var(--space-md) 1.75rem;
     background: #fff;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-card);
     cursor: pointer;
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     transition: border-color .15s ease, box-shadow .15s ease;
@@ -452,9 +565,9 @@
   .detail-card {
     border: 1px solid var(--border);
     background: #fff;
-    border-radius: 12px;
-    padding: 1.75rem;
-    margin-bottom: 2rem;
+    border-radius: var(--radius-card);
+    padding: var(--space-lg);
+    margin-bottom: var(--space-lg);
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
   }
   .detail-eyebrow {
@@ -1094,6 +1207,44 @@ function escapeHtml(s) {
   }[c]));
 }
 function escapeAttr(s) { return escapeHtml(s); }
+
+// ---------- 모달 / 바텀시트 공용 헬퍼 ----------
+// 데스크톱에선 중앙 모달, 좁은 화면에선 하단 바텀시트로 보이는 같은
+// 컴포넌트(.modal-overlay/.modal-panel의 미디어쿼리가 위치만 바꿈).
+// openModal()이 반환하는 patternel(모달 body 컨테이너)에 호출한 쪽이
+// 폼을 채우고 이벤트를 바인딩한다 — renderXxx 함수들이 h()로 리스트를
+// 그리는 것과 같은 패턴.
+function openModal(title, bodyHtml, opts) {
+  closeModal();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'active-modal-overlay';
+  overlay.appendChild(h(`
+    <div class="modal-panel">
+      <div class="modal-header">
+        <h3 class="modal-title">${escapeHtml(title)}</h3>
+        <button type="button" class="modal-close-btn" aria-label="닫기">&times;</button>
+      </div>
+      <div class="modal-body"></div>
+    </div>
+  `));
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+  overlay.querySelector('.modal-body').appendChild(h(bodyHtml));
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+  overlay.querySelector('.modal-close-btn').addEventListener('click', closeModal);
+  window.__modalOnClose = (opts && opts.onClose) || null;
+  return overlay.querySelector('.modal-body');
+}
+function closeModal() {
+  const overlay = document.getElementById('active-modal-overlay');
+  if (!overlay) return;
+  overlay.remove();
+  document.body.style.overflow = '';
+  const onClose = window.__modalOnClose;
+  window.__modalOnClose = null;
+  if (onClose) onClose();
+}
 
 function formatDate(iso) {
   if (!iso) return '-';
