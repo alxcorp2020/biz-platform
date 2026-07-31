@@ -376,6 +376,21 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 경쟁사/낙찰이력: notice_award_history가 비어 있어도(수집기가 아직
+	// 없음) awardHistory는 count=0인 정상 응답을 내려준다 — 프론트가
+	// 이 경우 "아직 수집된 낙찰 이력이 없습니다"로 자연스럽게 표시.
+	awardHistory, err := s.fetchOrganizationAwardHistory(r.Context(), it.OrganizationName)
+	if err != nil {
+		s.logger.Error("fetch organization award history failed", "error", err)
+	}
+	var hasCompetitiveOverlap bool
+	if profileID != "" {
+		hasCompetitiveOverlap, err = s.hasTrackRecordOverlap(r.Context(), profileID, it.OrganizationName, industry.String)
+		if err != nil {
+			s.logger.Error("check track record overlap failed", "error", err)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"notice":                it,
 		"changes":               changes,
@@ -388,6 +403,8 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"isMinimalProfile":      isMinimalProfile,
 		"aiSummary":             aiSummary,
 		"changeImpact":          impact,
+		"organizationAwardHistory": awardHistory,
+		"hasCompetitiveOverlap":    hasCompetitiveOverlap,
 	})
 }
 

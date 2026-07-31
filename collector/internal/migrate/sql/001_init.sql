@@ -734,3 +734,30 @@ CREATE TRIGGER trg_company_profiles_updated_at BEFORE UPDATE ON company_profiles
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_subscriptions_updated_at BEFORE UPDATE ON subscriptions
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ------------------------------------------------------------
+-- 경쟁사/낙찰이력 — 조달청 나라장터 낙찰정보서비스(ScsbidInfoService)
+-- 연동 예정(수집기는 API 활용신청 승인 후 별도 추가 — 이 테이블/조회
+-- 로직은 데이터가 비어 있어도 "아직 수집된 낙찰 이력이 없습니다"로
+-- 정상 동작한다). notice_id로 직접 연결하지 않는다 — 낙찰이력은 우리가
+-- 수집한 공고와 무관하게 독립적으로 쌓이는 과거 데이터라(우리 notices에
+-- 없는 발주기관 이력도 있음), organization_name/industry로만 매칭한다.
+-- ------------------------------------------------------------
+CREATE TABLE notice_award_history (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source_id         UUID NOT NULL REFERENCES data_sources(id),
+    external_bid_id   TEXT NOT NULL,  -- 입찰공고번호+차수(bidNtceNo+bidNtceOrd)
+    organization_name TEXT NOT NULL,
+    industry          TEXT,
+    title             TEXT,
+    winner_name       TEXT,
+    award_amount      BIGINT,
+    award_rate        NUMERIC(6,3),  -- 낙찰률(%)
+    budget_amount     BIGINT,
+    opened_at         DATE,
+    raw_payload       TEXT,
+    collected_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (source_id, external_bid_id)
+);
+CREATE INDEX idx_award_history_org ON notice_award_history(organization_name);
+CREATE INDEX idx_award_history_industry ON notice_award_history(industry);

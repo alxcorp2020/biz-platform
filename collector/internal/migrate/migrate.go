@@ -90,6 +90,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureTeamTables(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_members/company_invitations tables: %w", err)
 	}
+	if err := ensureAwardHistoryTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate notice_award_history table: %w", err)
+	}
 	return nil
 }
 
@@ -638,6 +641,36 @@ func ensureTeamTables(ctx context.Context, db *sql.DB) error {
 		FROM newly_migrated nm
 		JOIN users u ON u.id = nm.user_id
 		WHERE cp.id = nm.company_profile_id;
+	`)
+	return err
+}
+
+// ensureAwardHistoryTable adds notice_award_history for any DB created
+// before this migration existed — same CREATE TABLE IF NOT EXISTS pattern
+// as ensurePipelineTables. 조달청 나라장터 낙찰정보서비스(ScsbidInfoService)
+// 수집기는 API 활용신청 승인 후 별도로 붙는다 — 이 테이블은 그 전까지
+// 빈 상태로 있어도 notice-detail의 "동일 발주기관 과거 낙찰 이력" 조회가
+// 정상적으로 "아직 수집된 낙찰 이력이 없습니다"를 반환하도록 미리 만들어둔다.
+func ensureAwardHistoryTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS notice_award_history (
+			id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			source_id         UUID NOT NULL REFERENCES data_sources(id),
+			external_bid_id   TEXT NOT NULL,
+			organization_name TEXT NOT NULL,
+			industry          TEXT,
+			title             TEXT,
+			winner_name       TEXT,
+			award_amount      BIGINT,
+			award_rate        NUMERIC(6,3),
+			budget_amount     BIGINT,
+			opened_at         DATE,
+			raw_payload       TEXT,
+			collected_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (source_id, external_bid_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_award_history_org ON notice_award_history(organization_name);
+		CREATE INDEX IF NOT EXISTS idx_award_history_industry ON notice_award_history(industry);
 	`)
 	return err
 }

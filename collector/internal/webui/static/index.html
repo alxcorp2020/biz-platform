@@ -2315,6 +2315,8 @@ function renderDetail(container, id) {
         <div id="eligibility-conditions-section"></div>
         <h3>제출서류</h3>
         <div id="required-documents-section"></div>
+        <h3>동일 발주기관 과거 낙찰 이력</h3>
+        <div id="award-history-section"></div>
         <h3>변경 이력</h3>
         ${changeRows
           ? `<div class="table-scroll"><table>
@@ -2331,6 +2333,7 @@ function renderDetail(container, id) {
       renderAttachments(document.getElementById('attachments-section'), data.attachments || []);
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || []);
       renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || [], id, data.documentReadiness);
+      renderAwardHistory(document.getElementById('award-history-section'), data.organizationAwardHistory, data.hasCompetitiveOverlap);
       renderPipelineReviewAction(document.getElementById('pipeline-review-action'), id);
       wireBookmarkButtons(body);
     })
@@ -2818,6 +2821,43 @@ function renderChangeImpact(container, impact) {
       ${impact.after.gradeReason ? `<p class="ai-grade-reason">${escapeHtml(impact.after.gradeReason)}</p>` : ''}
       <p class="ai-disclaimer">⚠ 등록된 회사 정보와 공고 정보만으로 계산한 참고용 분석입니다. 최종 참여 여부는 원문 공고를 직접 확인한 후 결정하세요.</p>
     </div>
+  `));
+}
+
+// renderAwardHistory — "동일 발주기관 과거 낙찰 이력". count=0(수집기
+// 미연동 또는 아직 수집된 이력이 없는 발주기관)이면 조용히 빈 상태
+// 문구만 보여준다 — data.organizationAwardHistory가 애초에 null일 수도
+// 있다(공고에 발주기관명 자체가 없는 경우).
+function renderAwardHistory(container, history, hasCompetitiveOverlap) {
+  container.innerHTML = '';
+  if (!history || history.count === 0) {
+    container.appendChild(h('<p class="empty">아직 수집된 낙찰 이력이 없습니다.</p>'));
+    return;
+  }
+
+  const avgText = history.averageRate != null
+    ? `평균 낙찰률 ${history.averageRate.toFixed(1)}%`
+    : '평균 낙찰률 정보 없음';
+  const overlapNote = hasCompetitiveOverlap
+    ? '<p class="ai-minimal-profile-notice">우리 회사의 수행실적과 겹치는 발주기관·분야입니다 — 경쟁 강도 참고.</p>'
+    : '';
+  const rows = history.items.map(it => `
+    <tr>
+      <td>${escapeHtml(it.title || '-')}</td>
+      <td>${escapeHtml(it.winnerName || '-')}</td>
+      <td class="mono">${it.awardAmount != null ? formatBudget(it.awardAmount) : '-'}</td>
+      <td class="mono">${it.awardRate != null ? it.awardRate.toFixed(1) + '%' : '-'}</td>
+      <td class="mono">${escapeHtml(it.openedAt || '-')}</td>
+    </tr>
+  `).join('');
+
+  container.appendChild(h(`
+    <p class="license-card-meta">최근 ${history.items.length}건 표시 (전체 ${history.count}건) · ${escapeHtml(avgText)}</p>
+    ${overlapNote}
+    <div class="table-scroll"><table>
+      <thead><tr><th>공고명</th><th>낙찰자</th><th>낙찰금액</th><th>낙찰률</th><th>개찰일</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
   `));
 }
 
