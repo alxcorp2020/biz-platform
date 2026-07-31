@@ -330,7 +330,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 				TrackRecordMaxAmount: trackRecordMax,
 			}
 			computed := scoreNoticeForCompany(
-				noticeScoringInput{Region: region, Industry: industry, BudgetAmount: budget},
+				noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget},
 				company,
 			)
 			score = &computed
@@ -376,7 +376,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	var impact *changeImpact
 	if score != nil && versionID != "" {
 		impact, err = s.computeLatestChangeImpact(r.Context(), versionID,
-			noticeScoringInput{Region: region, Industry: industry, BudgetAmount: budget}, company, *score)
+			noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget}, company, *score)
 		if err != nil {
 			s.logger.Error("compute change impact failed", "error", err)
 			impact = nil

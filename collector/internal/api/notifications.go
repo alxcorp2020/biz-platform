@@ -97,11 +97,11 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 
 	type row struct {
 		entryID, noticeID, title, status, profileID string
-		org                                          sql.NullString
-		emailEnabled                                 bool
-		phone                                        sql.NullString
-		smsEnabled                                   bool
-		smsAlreadySent                               bool
+		org                                         sql.NullString
+		emailEnabled                                bool
+		phone                                       sql.NullString
+		smsEnabled                                  bool
+		smsAlreadySent                              bool
 	}
 	var targets []row
 	for rows.Next() {
@@ -223,7 +223,7 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 	}
 
 	noticeRows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, organization_name, region, industry, budget_amount
+		SELECT id, notice_type, title, organization_name, region, industry, budget_amount
 		FROM notices
 		WHERE status NOT IN ('closed','cancelled')
 		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
@@ -232,14 +232,14 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 		return err
 	}
 	type noticeRow struct {
-		id, title            string
+		id, noticeType, title string
 		org, region, industry sql.NullString
-		budget               sql.NullInt64
+		budget                sql.NullInt64
 	}
 	var notices []noticeRow
 	for noticeRows.Next() {
 		var n noticeRow
-		if err := noticeRows.Scan(&n.id, &n.title, &n.org, &n.region, &n.industry, &n.budget); err != nil {
+		if err := noticeRows.Scan(&n.id, &n.noticeType, &n.title, &n.org, &n.region, &n.industry, &n.budget); err != nil {
 			continue
 		}
 		notices = append(notices, n)
@@ -274,7 +274,7 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 				continue
 			}
 			score := scoreNoticeForCompany(
-				noticeScoringInput{Region: n.region, Industry: n.industry, BudgetAmount: n.budget}, company,
+				noticeScoringInput{NoticeType: n.noticeType, Region: n.region, Industry: n.industry, BudgetAmount: n.budget}, company,
 			)
 			if score.Grade != gradeRecommended {
 				continue

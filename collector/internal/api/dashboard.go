@@ -168,7 +168,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	noticeRows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, organization_name, region, industry, budget_amount, application_end_at
+		SELECT id, notice_type, title, organization_name, region, industry, budget_amount, application_end_at
 		FROM notices
 		WHERE status NOT IN ('closed','cancelled')
 		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
@@ -182,18 +182,18 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	defer noticeRows.Close()
 
 	for noticeRows.Next() {
-		var id, title string
+		var id, title, noticeType string
 		var org, noticeRegion, noticeIndustry sql.NullString
 		var budget sql.NullInt64
 		var deadline sql.NullTime
-		if err := noticeRows.Scan(&id, &title, &org, &noticeRegion, &noticeIndustry, &budget, &deadline); err != nil {
+		if err := noticeRows.Scan(&id, &noticeType, &title, &org, &noticeRegion, &noticeIndustry, &budget, &deadline); err != nil {
 			continue
 		}
 		if pipelinedNoticeIDs[id] {
 			continue // 이미 파이프라인에 있음 — 위에서 이미 처리됨
 		}
 		score := scoreNoticeForCompany(
-			noticeScoringInput{Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget},
+			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget},
 			company,
 		)
 		if score.Grade != gradeRecommended {

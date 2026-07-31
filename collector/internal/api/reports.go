@@ -178,19 +178,20 @@ func (s *Server) computeReportSummary(
 
 	// 신규 추천공고: 기간 내 수집된 공고 중 리포트 생성 시점 기준 recommended.
 	noticeRows, err := s.db.QueryContext(ctx, `
-		SELECT region, industry, budget_amount FROM notices
+		SELECT notice_type, region, industry, budget_amount FROM notices
 		WHERE first_collected_at >= $1 AND first_collected_at < $2`,
 		periodStart, periodEndExclusive)
 	if err != nil {
 		s.logger.Error("report: new-recommended notices query failed", "error", err)
 	} else {
 		for noticeRows.Next() {
+			var noticeType string
 			var region, industry sql.NullString
 			var budget sql.NullInt64
-			if err := noticeRows.Scan(&region, &industry, &budget); err != nil {
+			if err := noticeRows.Scan(&noticeType, &region, &industry, &budget); err != nil {
 				continue
 			}
-			score := scoreNoticeForCompany(noticeScoringInput{Region: region, Industry: industry, BudgetAmount: budget}, company)
+			score := scoreNoticeForCompany(noticeScoringInput{NoticeType: noticeType, Region: region, Industry: industry, BudgetAmount: budget}, company)
 			if score.Grade == gradeRecommended {
 				summary.NewRecommendedCount++
 			}

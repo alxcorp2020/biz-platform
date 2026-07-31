@@ -46,6 +46,25 @@ const exampleResponseJSON = `{"jsonArray":{
 	}]
 }}`
 
+// TestParseReqErr verifies parsing of the real error envelope bizinfo
+// returned for a live curl against the actual endpoint on 2026-08-01 (no
+// key, then a dummy key) — see package doc comment.
+func TestParseReqErr(t *testing.T) {
+	cases := []string{
+		`{"reqErr":"인증키를 입력해주세요."}`,
+		`{"reqErr":"존재하지 않는 인증키 입니다."}`,
+	}
+	for _, raw := range cases {
+		var envelope apiEnvelope
+		if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+			t.Fatalf("unmarshal %q: %v", raw, err)
+		}
+		if envelope.ReqErr == "" {
+			t.Errorf("expected ReqErr to be set for %q", raw)
+		}
+	}
+}
+
 func TestParseExampleResponse(t *testing.T) {
 	var envelope apiEnvelope
 	if err := json.Unmarshal([]byte(exampleResponseJSON), &envelope); err != nil {

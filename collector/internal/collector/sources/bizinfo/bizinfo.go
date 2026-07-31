@@ -8,13 +8,20 @@
 //
 // 엔드포인트/파라미터/응답 필드는 bizinfo.go.kr이 공개한 API 안내
 // 페이지(https://www.bizinfo.go.kr/apiDetail.do?id=bizinfoApi)에 실린
-// 필드표 + XML/JSON 응답 예시 3곳을 교차 확인해 확정했다(추측 아님) —
-// 단, 이 사이트는 data.go.kr과 달리 실제 서비스키 없이는 라이브 호출을
-// 검증할 방법이 없어(자체 발급 절차, 이메일로 키 전달), 2026-08-01
-// 기준 실제 200 응답으로는 아직 검증하지 못했다. 필드명은 문서 3곳이
-// 서로 일치해 신뢰도가 높지만, totCnt 등 숫자 필드가 실제로 JSON
-// number로 오는지 string으로 오는지는 문서 예시의 HTML 렌더링이 애매해
-// 확신할 수 없어 방어적으로(flexibleInt) 둘 다 받아들인다.
+// 필드표 + XML/JSON 응답 예시 3곳을 교차 확인해 확정했다(추측 아님).
+// data.go.kr에는 이 API의 fileData(스냅샷 다운로드) 항목만 있고 라이브
+// OpenAPI는 없음을 확인함 — 기업마당 자체 도메인의 API가 유일한 경로.
+//
+// 엔드포인트/파라미터명(crtfcKey 포함)은 2026-08-01 실제 curl로도
+// 재확인했다: 키 없이 호출 시 HTTP 200 + {"reqErr":"인증키를 입력해주세요."},
+// 더미 키로는 HTTP 200 + {"reqErr":"존재하지 않는 인증키 입니다."} — 이
+// 두 응답 모두 서버가 crtfcKey 파라미터 자체는 정확히 인식한다는 뜻이라
+// 엔드포인트/파라미터명은 라이브로 검증됨. 단, 이 API는 유효한 키가 있어야만
+// 정상 응답(성공 시 실제 필드 형태)을 볼 수 있어, 목록 수집 자체는 아직
+// 실제 200 성공 응답으로 검증하지 못했다(사용자가 crtfcKey 발급 신청 중).
+// totCnt 등 숫자 필드가 성공 응답에서 실제로 JSON number로 오는지
+// string으로 오는지는 문서 예시의 HTML 렌더링이 애매해 확신할 수 없어
+// 방어적으로(flexibleInt) 둘 다 받아들인다.
 //
 // 이 API는 g2b(BidPublicInfoService)와 달리 조회 기간(inqryBgnDt/
 // inqryEndDt) 파라미터가 없다 — 서버 쪽 날짜 필터가 불가능하다. 대신
@@ -105,7 +112,14 @@ type bizinfoItem struct {
 	TotCnt                     flexibleInt `json:"totCnt"`                     // 전체건수(페이지마다 각 item에 반복됨)
 }
 
+// apiEnvelope.ReqErr — verified 2026-08-01 via live curl against the real
+// endpoint (no key / a dummy key): unlike data.go.kr's gateway, bizinfo
+// returns HTTP 200 with {"reqErr":"인증키를 입력해주세요."} or
+// {"reqErr":"존재하지 않는 인증키 입니다."} for auth failures, never a
+// 401/403 status. Without checking this field, a bad/expired key would
+// silently look like "0 items collected" forever instead of failing loud.
 type apiEnvelope struct {
+	ReqErr    string `json:"reqErr"`
 	JsonArray struct {
 		Item []bizinfoItem `json:"item"`
 	} `json:"jsonArray"`
@@ -155,6 +169,12 @@ func (s *Source) FetchList(ctx context.Context, cursor collector.Cursor) ([]coll
 		}
 		if err := json.Unmarshal(body, &envelope); err != nil {
 			return &common.PermanentError{Err: fmt.Errorf("parse response: %w", err)}
+		}
+		if envelope.ReqErr != "" {
+			// bizinfo always answers HTTP 200 even on auth failure — see
+			// apiEnvelope.ReqErr doc comment. Not retryable: a bad key won't
+			// fix itself.
+			return &common.PermanentError{Err: fmt.Errorf("bizinfo api error: %s", envelope.ReqErr)}
 		}
 		return nil
 	})

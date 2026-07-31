@@ -9,6 +9,11 @@ package api
 import "database/sql"
 
 type noticeScoringInput struct {
+	// NoticeType: "procurement"(기본값, 빈 문자열도 이걸로 취급 — 기존
+	// 호출부와 하위호환) | "support_program". 지원사업이면 아래
+	// scoreNoticeForCompany가 3-카테고리 자동판정을 건너뛰고
+	// supportProgramScore()로 대체한다.
+	NoticeType   string
 	Region       sql.NullString
 	Industry     sql.NullString
 	BudgetAmount sql.NullInt64
@@ -52,7 +57,37 @@ type participationScore struct {
 	Categories  []categoryScore `json:"categories"`
 }
 
+// noticeTypeSupportProgram matches notices.notice_type/collector.NormalizedNotice.NoticeType's
+// "support_program" value (bizinfo 등 지원사업 수집기).
+const noticeTypeSupportProgram = "support_program"
+
+// supportProgramReviewReason — 지원사업은 procurement 전용 판정 기준(예산
+// 규모별 참가자격 상한, 실적 규모 대비 공동수급 검토)이 적용되지 않고,
+// 지원분야 분류 체계도 g2b의 조달 업종 분류와 완전히 다르다(무엇을
+// 파는 공고인지가 아니라 어떤 "종류의 지원"인지라 회사의 업종과 애초에
+// 비교 대상이 아님 — bizinfo.go 패키지 주석 참고). 강제로 3개 카테고리
+// (지역/업종/예산)를 자동판정하면 근거 없는 판정이 되므로, procurement과
+// 달리 항상 "확인 필요"로 정직하게 처리한다 — 업종 불일치로 오판해
+// 실제로는 맞는 지원사업을 놓치는 것보다 안전하다.
+const supportProgramReviewReason = "지원사업은 입찰공고와 판정 기준이 달라 아직 자동 판정하지 않습니다. 공고 원문에서 지원대상·지원분야를 직접 확인해주세요."
+
+func supportProgramScore() participationScore {
+	categories := []categoryScore{
+		{Category: "종합판정", Result: "needs_confirmation", Reason: supportProgramReviewReason},
+	}
+	return participationScore{
+		Bucket:     "needs_review",
+		Grade:      gradeNeedsConfirmation,
+		MetCount:   0,
+		TotalCount: 1,
+		Categories: categories,
+	}
+}
+
 func scoreNoticeForCompany(notice noticeScoringInput, company companyScoringInput) participationScore {
+	if notice.NoticeType == noticeTypeSupportProgram {
+		return supportProgramScore()
+	}
 	regionResult, regionReason, regionGapSide := scoreRegion(notice.Region, company.Region)
 	industryResult, industryReason, industryGapSide := scoreIndustry(notice.Industry, company.Industry)
 	budgetResult, budgetReason, budgetGapSide := scoreBudgetSize(notice.BudgetAmount, company.Size)
@@ -102,8 +137,8 @@ func bucketFromCategories(categories []categoryScore) string {
 }
 
 const (
-	gradeRecommended        = "recommended"         // 참여 권장: 모든 필수조건 충족
-	gradeConditional        = "conditional"         // 조건부 참여 가능: 애매하지만 보완 여지 있음
+	gradeRecommended        = "recommended"          // 참여 권장: 모든 필수조건 충족
+	gradeConditional        = "conditional"          // 조건부 참여 가능: 애매하지만 보완 여지 있음
 	gradeJointVentureReview = "joint_venture_review" // 공동수급 검토: 실적 규모 부족 후보(휴리스틱)
 	gradeNeedsConfirmation  = "needs_confirmation"   // 확인 필요: 공고/회사 데이터 자체가 불완전
 	gradeNotRecommended     = "not_recommended"      // 참여 곤란: 핵심 필수조건 명확히 미충족

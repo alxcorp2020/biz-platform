@@ -150,12 +150,13 @@ func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 	}
 	companyIndustry := pq.StringArray(profile.Industry)
 
+	var noticeType string
 	var noticeRegion, noticeIndustry sql.NullString
 	var budgetAmount sql.NullInt64
 	var currentVersion int
 	err = s.db.QueryRowContext(ctx,
-		`SELECT region, industry, budget_amount, current_version FROM notices WHERE id = $1`, noticeID,
-	).Scan(&noticeRegion, &noticeIndustry, &budgetAmount, &currentVersion)
+		`SELECT notice_type, region, industry, budget_amount, current_version FROM notices WHERE id = $1`, noticeID,
+	).Scan(&noticeType, &noticeRegion, &noticeIndustry, &budgetAmount, &currentVersion)
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notice_not_found"})
 		return
@@ -177,36 +178,52 @@ func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	regionItem, err := s.evaluateRegion(ctx, versionID, profileID, noticeRegion, companyRegion)
-	if err != nil {
-		s.logger.Error("evaluate: region check failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
-	}
-	industryItem, err := s.evaluateIndustry(ctx, versionID, profileID, noticeIndustry, []string(companyIndustry))
-	if err != nil {
-		s.logger.Error("evaluate: industry check failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
-	}
-	budgetItem, err := s.evaluateBudgetSize(ctx, versionID, profileID, budgetAmount, companySize)
-	if err != nil {
-		s.logger.Error("evaluate: budget size check failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
-	}
+	var items []eligibilityItem
+	var grade, gradeReason string
+	if noticeType == noticeTypeSupportProgram {
+		// 지원사업은 procurement 3-카테고리(지역/업종/예산) 자동판정이
+		// 성립하지 않는다 — scoring.go의 supportProgramScore 주석 참고.
+		// 이 영속(evaluate) 경로도 같은 원칙을 따른다.
+		item, err := s.evaluateSupportProgram(ctx, versionID, profileID)
+		if err != nil {
+			s.logger.Error("evaluate: support program check failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		items = []eligibilityItem{item}
+		grade, gradeReason = gradeNeedsConfirmation, ""
+	} else {
+		regionItem, err := s.evaluateRegion(ctx, versionID, profileID, noticeRegion, companyRegion)
+		if err != nil {
+			s.logger.Error("evaluate: region check failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		industryItem, err := s.evaluateIndustry(ctx, versionID, profileID, noticeIndustry, []string(companyIndustry))
+		if err != nil {
+			s.logger.Error("evaluate: industry check failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		budgetItem, err := s.evaluateBudgetSize(ctx, versionID, profileID, budgetAmount, companySize)
+		if err != nil {
+			s.logger.Error("evaluate: budget size check failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
 
-	items := []eligibilityItem{regionItem, industryItem, budgetItem}
+		items = []eligibilityItem{regionItem, industryItem, budgetItem}
 
-	trackRecordMax, err := s.fetchTrackRecordMaxAmount(ctx, profileID)
-	if err != nil {
-		s.logger.Error("evaluate: track record max amount query failed", "error", err)
+		trackRecordMax, err := s.fetchTrackRecordMaxAmount(ctx, profileID)
+		if err != nil {
+			s.logger.Error("evaluate: track record max amount query failed", "error", err)
+		}
+		categories := make([]categoryScore, len(items))
+		for i, it := range items {
+			categories[i] = categoryScore{Category: it.Category, Result: it.Result, Reason: it.Reason}
+		}
+		grade, gradeReason = gradeFromCategories(categories, trackRecordThin(budgetAmount, trackRecordMax))
 	}
-	categories := make([]categoryScore, len(items))
-	for i, it := range items {
-		categories[i] = categoryScore{Category: it.Category, Result: it.Result, Reason: it.Reason}
-	}
-	grade, gradeReason := gradeFromCategories(categories, trackRecordThin(budgetAmount, trackRecordMax))
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"noticeId":         noticeID,
@@ -370,6 +387,23 @@ func (s *Server) evaluateBudgetSize(ctx context.Context, versionID, profileID st
 		return eligibilityItem{}, err
 	}
 	return eligibilityItem{Category: "예산 규모", Result: result, Reason: reason}, nil
+}
+
+// evaluateSupportProgram persists a single "종합판정" condition/evaluation
+// for notice_type='support_program' — see scoring.go's supportProgramScore
+// doc comment for why a single always-needs_confirmation category replaces
+// procurement's 3-category(지역/업종/예산) automated 판정 for this notice type.
+func (s *Server) evaluateSupportProgram(ctx context.Context, versionID, profileID string) (eligibilityItem, error) {
+	conditionID, err := s.findOrCreateAutoCondition(ctx, versionID,
+		"종합판정", "auto:support_program", "n/a", "",
+		"지원사업은 procurement 전용 자동판정 기준(예산규모/업종분류)이 적용되지 않아 항상 확인 필요로 처리")
+	if err != nil {
+		return eligibilityItem{}, err
+	}
+	if err := s.recordEvaluation(ctx, profileID, versionID, conditionID, "needs_confirmation", supportProgramReviewReason); err != nil {
+		return eligibilityItem{}, err
+	}
+	return eligibilityItem{Category: "종합판정", Result: "needs_confirmation", Reason: supportProgramReviewReason}, nil
 }
 
 // findOrCreateAutoCondition reuses the auto-generated eligibility_conditions
