@@ -15,6 +15,7 @@ import (
 	"github.com/lib/pq"
 
 	"biz-platform/collector/internal/billing"
+	"biz-platform/collector/internal/collector/sources/scsbid"
 	"biz-platform/collector/internal/notify"
 	"biz-platform/collector/internal/webui"
 )
@@ -34,9 +35,13 @@ type Server struct {
 	// 클라이언트에서 직접 쓰므로 이 값이 필요 없다 — 서버가 직접 링크
 	// 문자열을 만들어야 하는 유일한 경우가 이메일 발송이라 여기만 필요.
 	appBaseURL string
+	// scsbidSource — nil이면(서비스키 미설정) 낙찰이력 수집이 비활성화된
+	// 상태. handleRunAwardHistoryIngestion의 수동 트리거와 cmd/apiserver의
+	// 일일 티커 둘 다 이 필드를 쓴다.
+	scsbidSource *scsbid.Source
 }
 
-func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, smsNotifyClient *notify.SMSClient, tossClient *billing.TossClient, tossClientKey string, appBaseURL string) *Server {
+func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, smsNotifyClient *notify.SMSClient, tossClient *billing.TossClient, tossClientKey string, appBaseURL string, scsbidSource *scsbid.Source) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -51,6 +56,7 @@ func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir st
 		toss:            tossClient,
 		tossClientKey:   tossClientKey,
 		appBaseURL:      appBaseURL,
+		scsbidSource:    scsbidSource,
 	}
 }
 
@@ -106,6 +112,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/me/notification-settings", s.handleUpdateNotificationSettings)
 	mux.HandleFunc("POST /api/admin/run-notifications", s.handleRunNotifications)
 	mux.HandleFunc("POST /api/admin/run-pipeline-auto-transitions", s.handleRunPipelineAutoTransitions)
+	mux.HandleFunc("POST /api/admin/run-award-history-ingestion", s.handleRunAwardHistoryIngestion)
 	mux.HandleFunc("GET /api/me/subscription", s.handleGetSubscription)
 	mux.HandleFunc("GET /api/billing/config", s.handleGetBillingConfig)
 	mux.HandleFunc("POST /api/billing/checkout", s.handleBillingCheckout)
@@ -248,19 +255,19 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	userID, loggedIn := s.currentUserID(r)
 
 	var it noticeListItem
-	var org, region, industry, officialURL sql.NullString
+	var org, region, industry, officialURL, department sql.NullString
 	var budget sql.NullInt64
 	var deadline sql.NullTime
 
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT n.id, n.title, n.organization_name, n.region, n.industry, n.status,
 		       n.application_end_at, n.budget_amount, n.official_url, n.current_version,
-		       (nb.id IS NOT NULL) AS is_bookmarked
+		       (nb.id IS NOT NULL) AS is_bookmarked, n.department_name
 		FROM notices n
 		LEFT JOIN notice_bookmarks nb ON nb.notice_id = n.id AND nb.user_id = $2
 		WHERE n.id = $1`, id, sql.NullString{String: userID, Valid: loggedIn},
 	).Scan(&it.ID, &it.Title, &org, &region, &industry, &it.Status,
-		&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked)
+		&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &department)
 
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notice_not_found"})
@@ -379,7 +386,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	// 경쟁사/낙찰이력: notice_award_history가 비어 있어도(수집기가 아직
 	// 없음) awardHistory는 count=0인 정상 응답을 내려준다 — 프론트가
 	// 이 경우 "아직 수집된 낙찰 이력이 없습니다"로 자연스럽게 표시.
-	awardHistory, err := s.fetchOrganizationAwardHistory(r.Context(), it.OrganizationName)
+	awardHistory, err := s.fetchOrganizationAwardHistory(r.Context(), it.OrganizationName, department.String)
 	if err != nil {
 		s.logger.Error("fetch organization award history failed", "error", err)
 	}
@@ -392,17 +399,17 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"notice":                it,
-		"changes":               changes,
-		"eligibilityConditions": eligibilityConditions,
-		"requiredDocuments":     requiredDocuments,
-		"documentReadiness":     map[string]int{"total": len(requiredDocuments), "checked": checkedCount},
-		"attachments":           attachments,
-		"detail":                rawDetail,
-		"participationScore":    score,
-		"isMinimalProfile":      isMinimalProfile,
-		"aiSummary":             aiSummary,
-		"changeImpact":          impact,
+		"notice":                   it,
+		"changes":                  changes,
+		"eligibilityConditions":    eligibilityConditions,
+		"requiredDocuments":        requiredDocuments,
+		"documentReadiness":        map[string]int{"total": len(requiredDocuments), "checked": checkedCount},
+		"attachments":              attachments,
+		"detail":                   rawDetail,
+		"participationScore":       score,
+		"isMinimalProfile":         isMinimalProfile,
+		"aiSummary":                aiSummary,
+		"changeImpact":             impact,
 		"organizationAwardHistory": awardHistory,
 		"hasCompetitiveOverlap":    hasCompetitiveOverlap,
 	})

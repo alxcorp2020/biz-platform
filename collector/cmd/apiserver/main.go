@@ -22,6 +22,7 @@ import (
 	"biz-platform/collector/internal/collector/runner"
 	"biz-platform/collector/internal/collector/sources/demo"
 	"biz-platform/collector/internal/collector/sources/g2b"
+	"biz-platform/collector/internal/collector/sources/scsbid"
 	"biz-platform/collector/internal/migrate"
 	"biz-platform/collector/internal/notify"
 )
@@ -98,8 +99,10 @@ func main() {
 		logger.Warn("APP_BASE_URL is not set; 팀 초대 이메일 링크가 localhost를 가리킵니다 (운영 배포 시 반드시 설정)")
 	}
 
-	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, smsNotifyClient, tossClient, tossClientKey, appBaseURL)
-	startBackgroundNotifications(srv, logger)
+	scsbidSrc := newScsbidSource(logger)
+
+	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, smsNotifyClient, tossClient, tossClientKey, appBaseURL, scsbidSrc)
+	startBackgroundNotifications(srv, logger, scsbidSrc)
 
 	logger.Info("api server starting", "port", port)
 	if err := http.ListenAndServe(":"+port, srv.Routes()); err != nil {
@@ -120,7 +123,7 @@ const (
 // startBackgroundNotifications runs api.Server.RunDailyNotifications once a
 // day, same in-process-goroutine workaround as startBackgroundCollection
 // (Render 무료 플랜은 별도 Background Worker를 지원하지 않음).
-func startBackgroundNotifications(srv *api.Server, logger *slog.Logger) {
+func startBackgroundNotifications(srv *api.Server, logger *slog.Logger, scsbidSrc *scsbid.Source) {
 	loc, err := time.LoadLocation("Asia/Seoul")
 	if err != nil {
 		logger.Error("background notifications: failed to load Asia/Seoul timezone, notifications disabled", "error", err)
@@ -137,6 +140,13 @@ func startBackgroundNotifications(srv *api.Server, logger *slog.Logger) {
 				logger.Error("pipeline auto-transition batch failed", "error", err)
 			} else if deadlinePassed > 0 || noticeClosed > 0 {
 				logger.Info("pipeline auto-transition batch completed", "deadlinePassed", deadlinePassed, "noticeClosed", noticeClosed)
+			}
+			if scsbidSrc != nil {
+				if written, err := srv.RunAwardHistoryIngestion(ctx, scsbidSrc); err != nil {
+					logger.Error("award history ingestion batch failed", "error", err)
+				} else if written > 0 {
+					logger.Info("award history ingestion batch completed", "recordsWritten", written)
+				}
 			}
 			srv.RunDailyNotifications(ctx)
 		}
@@ -202,4 +212,20 @@ func newCollectorSource(logger *slog.Logger) (collector.Collector, string, strin
 	}
 	logger.Warn("G2B_SERVICE_KEY is not set; falling back to the bundled demo data source")
 	return demo.New(), "데모 데이터 소스", "demo://local"
+}
+
+// newScsbidSource builds the 낙찰이력(notice_award_history) 수집기용
+// scsbid.Source — G2B_SERVICE_KEY를 그대로 재사용한다(data.go.kr은 계정당
+// 키 하나로 그 계정이 활용신청 승인받은 모든 API를 호출하므로, 별도
+// SCSBID_SERVICE_KEY 환경변수를 추가할 필요가 없다). 키가 없으면 nil을
+// 반환해 이 배치 자체를 건너뛴다(g2b처럼 데모 폴백은 없음 — 낙찰이력은
+// 없어도 award_history.go가 count=0 정상 응답을 내려주므로 데모 데이터로
+// 채울 이유가 없다).
+func newScsbidSource(logger *slog.Logger) *scsbid.Source {
+	key := os.Getenv("G2B_SERVICE_KEY")
+	if key == "" {
+		logger.Warn("G2B_SERVICE_KEY is not set; 낙찰이력(경쟁사/낙찰 히스토리) 수집이 비활성화됩니다")
+		return nil
+	}
+	return scsbid.New(key)
 }

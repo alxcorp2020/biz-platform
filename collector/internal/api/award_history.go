@@ -10,6 +10,8 @@ package api
 import (
 	"context"
 	"database/sql"
+
+	"github.com/lib/pq"
 )
 
 type awardHistoryItem struct {
@@ -27,20 +29,34 @@ type organizationAwardHistoryDTO struct {
 }
 
 // fetchOrganizationAwardHistory returns up to 10 most recent award records
-// for organizationName, plus the average award rate across ALL matching
-// records (not just the 10 shown) — averaging over a small display window
-// would be misleading. organizationName == "" (공고에 발주기관명이 없는
-// 경우) returns nil, nil — 호출부가 섹션 자체를 생략한다.
-func (s *Server) fetchOrganizationAwardHistory(ctx context.Context, organizationName string) (*organizationAwardHistoryDTO, error) {
-	if organizationName == "" {
+// matching this notice's agency, plus the average award rate across ALL
+// matching records (not just the 10 shown) — averaging over a small display
+// window would be misleading.
+//
+// It matches against BOTH organizationName(공고기관명)과 departmentName
+// (수요기관명), not organizationName alone. 이유: notice_award_history를
+// 채우는 scsbid 수집기(collector/internal/collector/sources/scsbid)는
+// getScsbidListSttusServcPPSSrch 응답에 수요기관명(dminsttNm)만 있고
+// 공고기관명(ntceInsttNm)은 없어서, organization_name 컬럼에 dminsttNm
+// 값을 저장한다. 조달청이 공고기관으로 대행하는 공고는 전부 organization_
+// name="조달청"으로 동일해, notices.organization_name(마찬가지로
+// ntceInsttNm 기반)만으로 매칭하면 조달청-대행 공고 전부가 서로 매칭되는
+// 무의미한 결과가 나온다 — notices.department_name(dminsttNm 기반)까지
+// 같이 매칭해야 실제 같은 수요기관 이력을 잡아낸다.
+//
+// organizationName/departmentName 둘 다 빈 문자열이면(공고에 기관명이
+// 전혀 없는 경우) nil, nil을 반환 — 호출부가 섹션 자체를 생략한다.
+func (s *Server) fetchOrganizationAwardHistory(ctx context.Context, organizationName, departmentName string) (*organizationAwardHistoryDTO, error) {
+	names := dedupNonEmpty(organizationName, departmentName)
+	if len(names) == 0 {
 		return nil, nil
 	}
 
 	var dto organizationAwardHistoryDTO
 	var avgRate sql.NullFloat64
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*), AVG(award_rate) FROM notice_award_history WHERE organization_name = $1
-	`, organizationName).Scan(&dto.Count, &avgRate); err != nil {
+		SELECT COUNT(*), AVG(award_rate) FROM notice_award_history WHERE organization_name = ANY($1)
+	`, pq.Array(names)).Scan(&dto.Count, &avgRate); err != nil {
 		return nil, err
 	}
 	dto.Items = []awardHistoryItem{}
@@ -54,9 +70,9 @@ func (s *Server) fetchOrganizationAwardHistory(ctx context.Context, organization
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT title, winner_name, award_amount, award_rate, opened_at
 		FROM notice_award_history
-		WHERE organization_name = $1
+		WHERE organization_name = ANY($1)
 		ORDER BY opened_at DESC NULLS LAST
-		LIMIT 10`, organizationName)
+		LIMIT 10`, pq.Array(names))
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +102,22 @@ func (s *Server) fetchOrganizationAwardHistory(ctx context.Context, organization
 		dto.Items = append(dto.Items, it)
 	}
 	return &dto, rows.Err()
+}
+
+// dedupNonEmpty returns the distinct non-empty strings among names,
+// preserving order — used to build an IN-list without duplicating a name
+// that happens to equal itself (e.g. organizationName == departmentName).
+func dedupNonEmpty(names ...string) []string {
+	seen := make(map[string]bool, len(names))
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out
 }
 
 // hasTrackRecordOverlap reports whether this company's own 수행실적
