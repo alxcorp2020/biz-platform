@@ -602,7 +602,8 @@ CREATE INDEX idx_pipeline_checklist_entry ON pipeline_checklist_items(pipeline_e
 CREATE TABLE notification_log (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_type         TEXT NOT NULL CHECK (event_type IN
-                            ('deadline_d3','deadline_d1','recommendation_digest','assignee_status_change')),
+                            ('deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
+                             'weekly_report','monthly_report')),
     channel            TEXT NOT NULL DEFAULT 'email' CHECK (channel IN ('email','sms')),
     recipient_email    TEXT,
     recipient_phone    TEXT,
@@ -781,3 +782,25 @@ CREATE TABLE company_contacts (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_company_contacts_profile ON company_contacts(company_profile_id);
+
+-- ------------------------------------------------------------
+-- 주간/월간 자동 리포트 — 매주 월요일(주간)/매월 1일(월간) 09:00 KST
+-- 배치가 채운다(reports.go). 한 테이블에 period_type으로 구분한다
+-- (weekly_reports/monthly_reports로 나누면 스키마가 완전히 동일해서
+-- 그냥 중복이 된다). summary는 그 시점에 계산한 값의 스냅샷이라
+-- JSONB로 통째로 저장 — 나중에 집계 기준이 바뀌어도 과거 리포트는
+-- 그대로 보존된다. UNIQUE(company_profile_id, period_type,
+-- period_start)가 배치 재실행 시 멱등성 근거(같은 기간 리포트 중복
+-- 생성 안 됨).
+-- ------------------------------------------------------------
+CREATE TABLE reports (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id UUID NOT NULL REFERENCES company_profiles(id),
+    period_type        TEXT NOT NULL CHECK (period_type IN ('weekly','monthly')),
+    period_start       DATE NOT NULL,
+    period_end         DATE NOT NULL,
+    summary            JSONB NOT NULL,
+    generated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (company_profile_id, period_type, period_start)
+);
+CREATE INDEX idx_reports_profile ON reports(company_profile_id, period_start DESC);

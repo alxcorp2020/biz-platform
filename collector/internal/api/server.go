@@ -118,6 +118,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/admin/run-pipeline-auto-transitions", s.handleRunPipelineAutoTransitions)
 	mux.HandleFunc("POST /api/admin/run-award-history-ingestion", s.handleRunAwardHistoryIngestion)
 	mux.HandleFunc("GET /api/me/subscription", s.handleGetSubscription)
+	mux.HandleFunc("GET /api/reports", s.handleListReports)
 	mux.HandleFunc("GET /api/me/ai-usage", s.handleGetAIUsage)
 	mux.HandleFunc("GET /api/billing/config", s.handleGetBillingConfig)
 	mux.HandleFunc("POST /api/billing/checkout", s.handleBillingCheckout)

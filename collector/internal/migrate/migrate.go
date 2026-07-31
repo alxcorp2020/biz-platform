@@ -99,6 +99,12 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureDocumentKindColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_documents.document_kind column: %w", err)
 	}
+	if err := ensureReportsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate reports table: %w", err)
+	}
+	if err := ensureReportEventTypes(ctx, db); err != nil {
+		return fmt.Errorf("migrate notification_log report event types: %w", err)
+	}
 	return nil
 }
 
@@ -698,6 +704,45 @@ func ensureCompanyContactsTable(ctx context.Context, db *sql.DB) error {
 			created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
 		CREATE INDEX IF NOT EXISTS idx_company_contacts_profile ON company_contacts(company_profile_id);
+	`)
+	return err
+}
+
+// ensureReportsTable adds the weekly/monthly report table for any DB
+// created before this migration existed — see db/migrations/001_init.sql's
+// comment on the same table for why it's one table with period_type rather
+// than two identical weekly_reports/monthly_reports tables.
+func ensureReportsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS reports (
+			id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id UUID NOT NULL REFERENCES company_profiles(id),
+			period_type        TEXT NOT NULL CHECK (period_type IN ('weekly','monthly')),
+			period_start       DATE NOT NULL,
+			period_end         DATE NOT NULL,
+			summary            JSONB NOT NULL,
+			generated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (company_profile_id, period_type, period_start)
+		);
+		CREATE INDEX IF NOT EXISTS idx_reports_profile ON reports(company_profile_id, period_start DESC);
+	`)
+	return err
+}
+
+// ensureReportEventTypes widens notification_log.event_type's CHECK to allow
+// 'weekly_report'/'monthly_report' — an ALTER, not just an ADD COLUMN, so it
+// needs the explicit DROP+ADD dance. The name used here
+// (notification_log_event_type_check) matches Postgres's own auto-generated
+// name for the original single-column inline CHECK in 001_init.sql, so this
+// is safe on both a fresh install (where the constraint already has this
+// exact name) and a pre-existing DB (where DROP IF EXISTS + re-ADD replaces
+// the narrower check) — no duplicate-constraint risk either way.
+func ensureReportEventTypes(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
+		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
+			CHECK (event_type IN ('deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
+			                       'weekly_report','monthly_report'));
 	`)
 	return err
 }

@@ -149,6 +149,13 @@ func startBackgroundNotifications(srv *api.Server, logger *slog.Logger, scsbidSr
 				}
 			}
 			srv.RunDailyNotifications(ctx)
+			// 매일 실행되지만 실제 리포트 생성은 월요일(주간)/1일(월간)에만
+			// 일어난다 — RunScheduledReports 내부에서 날짜를 확인한다.
+			if weekly, monthly, err := srv.RunScheduledReports(ctx, time.Now().In(loc)); err != nil {
+				logger.Error("scheduled reports batch failed", "error", err)
+			} else if weekly > 0 || monthly > 0 {
+				logger.Info("scheduled reports batch completed", "weeklyGenerated", weekly, "monthlyGenerated", monthly)
+			}
 		}
 	}()
 }

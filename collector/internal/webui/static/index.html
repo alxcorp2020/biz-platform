@@ -4988,12 +4988,54 @@ async function renderMySubscription(container) {
       <a href="#/billing/plans" class="home-cta-secondary" style="margin-top:1rem;display:inline-block">요금제 변경</a>
     </div>
     <div class="detail-card" id="team-section"></div>
+    <div class="detail-card" id="reports-section"></div>
   `));
 
   // effectivePlanFromRow와 같은 판단: status가 active이고 plan이 business일
   // 때만 팀 3명 — 그 외(pending/expired/cancelled 또는 다른 플랜)는 본인 1명뿐.
   const isEffectiveBusiness = data.plan === 'business' && data.status === 'active';
   renderTeamSection(document.getElementById('team-section'), isEffectiveBusiness ? 3 : 1);
+  renderReportsSection(document.getElementById('reports-section'));
+}
+
+// renderReportsSection — 주간/월간 자동 리포트 목록. renderTeamSection과
+// 같은 이유로 새 최상위 메뉴 대신 구독 관리 화면에 임베드했다(사이드바/
+// 탭바 5개 고정 제약 유지).
+async function renderReportsSection(container) {
+  container.innerHTML = '<div class="loading">불러오는 중...</div>';
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/reports');
+  } catch (err) {
+    container.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+    return;
+  }
+  const items = data.items || [];
+  if (!items.length) {
+    container.innerHTML = '<h3>리포트</h3><p class="empty">아직 생성된 리포트가 없습니다(매주 월요일/매월 1일 09:00에 자동 생성됩니다).</p>';
+    return;
+  }
+  container.innerHTML = `<h3>리포트</h3><div class="license-list">${items.map(reportCardHtml).join('')}</div>`;
+}
+
+function reportCardHtml(item) {
+  const label = item.periodType === 'monthly' ? '월간' : '주간';
+  const s = item.summary;
+  const teamHtml = (s.teamActivity || []).length
+    ? `<div class="license-card-meta">${s.teamActivity.map(t => `${escapeHtml(t.assigneeName)} ${t.processedCount}건`).join(' · ')}</div>`
+    : '';
+  return `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${label} 리포트 · ${escapeHtml(item.periodStart)} ~ ${escapeHtml(item.periodEnd)}</div>
+        <div class="license-card-meta">
+          신규추천 ${s.newRecommendedCount}건 · 참여검토시작 ${s.pipelineStartedCount}건 · 제출완료 ${s.pipelineCompletedCount}건 ·
+          종료 ${s.pipelineClosedCount}건 · 마감임박 ${s.deadlineSoonCount}건 · 마감경과 ${s.deadlinePassedCount}건 · AI분석 ${s.aiAnalysisUsedCount}건
+        </div>
+        ${teamHtml}
+      </div>
+    </div>
+  `;
 }
 
 // renderTeamSection — 팀 관리(구성원 목록 + owner면 초대 폼/제거 버튼).
