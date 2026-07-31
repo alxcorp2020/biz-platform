@@ -146,6 +146,40 @@
     .modal-panel { max-width: 100%; border-radius: 18px 18px 0 0; max-height: 90vh; }
   }
 
+  /* ---------- PC 좌측 고정 사이드바 (900px 이상에서만) ----------
+     좁은 화면에서는 숨기고 기존 .site-header를 그대로 쓴다 — 모바일
+     하단 탭바(다음 단계)가 들어오면 그쪽이 대신하게 된다. */
+  .sidebar { display: none; }
+  @media (min-width: 900px) {
+    .site-header { display: none; }
+    .sidebar {
+      display: flex; flex-direction: column;
+      position: fixed; top: 0; left: 0; bottom: 0; width: var(--sidebar-width);
+      background: #fff; border-right: 1px solid var(--border);
+      padding: var(--space-lg) var(--space-md);
+      z-index: 10;
+    }
+    main { margin-left: var(--sidebar-width); max-width: none; }
+    main > * { max-width: 1080px; margin-left: auto; margin-right: auto; }
+  }
+  .sidebar-brand { display: block; text-decoration: none; padding: 0 0.5rem; margin-bottom: var(--space-lg); }
+  .sidebar-brand-title { font-size: var(--text-title); font-weight: 700; color: var(--navy); }
+  .sidebar-menu { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+  .sidebar-menu-item {
+    display: flex; align-items: center; gap: 0.85rem;
+    padding: 0.75rem 0.9rem; border-radius: 10px;
+    color: var(--ink-soft); text-decoration: none; font-weight: 600; font-size: var(--text-body);
+  }
+  .sidebar-menu-item:hover { background: var(--bg-soft); color: var(--ink); }
+  .sidebar-menu-item.is-active { background: rgba(46,90,172,0.10); color: var(--accent-blue); }
+  .sidebar-menu-icon { display: flex; flex-shrink: 0; width: 20px; height: 20px; }
+  .sidebar-menu-icon svg { width: 100%; height: 100%; }
+  .sidebar-footer { border-top: 1px solid var(--border); padding-top: var(--space-md); margin-top: var(--space-md); }
+  .sidebar-user-email {
+    font-size: var(--text-caption); color: var(--ink-soft); padding: 0 0.5rem;
+    margin-bottom: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
   /* ---------- Header ---------- */
   .site-header {
     background: var(--bg);
@@ -1194,6 +1228,16 @@
     </div>
   </div>
 </header>
+<!-- PC 전용 좌측 고정 사이드바 — 900px 이상에서만 보이고(.sidebar CSS
+     참고) 이 너비에서는 위 .site-header를 대신한다. 좁은 화면에서는
+     기존 상단 헤더가 그대로 쓰인다. -->
+<nav class="sidebar" id="sidebar">
+  <a href="#/" class="sidebar-brand">
+    <span class="sidebar-brand-title">공공사업 AI 비서</span>
+  </a>
+  <div class="sidebar-menu" id="sidebar-menu"></div>
+  <div class="sidebar-footer" id="sidebar-footer"></div>
+</nav>
 <main id="app"></main>
 
 <script>
@@ -1244,6 +1288,72 @@ function closeModal() {
   const onClose = window.__modalOnClose;
   window.__modalOnClose = null;
   if (onClose) onClose();
+}
+
+// ---------- PC 사이드바 ----------
+// 단순한 선 아이콘(feather-icons류) — currentColor라 .sidebar-menu-item의
+// 글자색(호버/active 상태 포함)을 그대로 따라간다.
+const SIDEBAR_ICONS = {
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  pipeline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9z"/><line x1="8" y1="11" x2="16" y2="11"/><line x1="8" y1="15" x2="16" y2="15"/></svg>',
+  profile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01"/><path d="M10 21v-4h4v4"/></svg>',
+  card: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
+  user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+};
+const SIDEBAR_MENU = [
+  { path: '#/', label: '홈', icon: 'home' },
+  { path: '#/notices', label: '공고 검색', icon: 'search' },
+  { path: '#/pipeline', label: '진행 중 사업', icon: 'pipeline' },
+  { path: '#/me/profile', label: '기업 프로필', icon: 'profile' },
+  { path: '#/me/subscription', label: '구독 관리', icon: 'card' },
+];
+
+function renderSidebar() {
+  const menu = document.getElementById('sidebar-menu');
+  menu.innerHTML = '';
+  menu.appendChild(h(SIDEBAR_MENU.map(item => `
+    <a href="${item.path}" class="sidebar-menu-item" data-path="${escapeAttr(item.path)}">
+      <span class="sidebar-menu-icon">${SIDEBAR_ICONS[item.icon]}</span>
+      <span class="sidebar-menu-label">${escapeHtml(item.label)}</span>
+    </a>
+  `).join('')));
+  updateSidebarActiveState();
+
+  const footer = document.getElementById('sidebar-footer');
+  footer.innerHTML = '';
+  if (currentUser) {
+    footer.appendChild(h(`
+      <div class="sidebar-user-email">${escapeHtml(currentUser.email)}</div>
+      <button type="button" id="sidebar-logout-btn" class="btn btn-ghost btn-block">로그아웃</button>
+    `));
+    document.getElementById('sidebar-logout-btn').addEventListener('click', async () => {
+      try { await apiRequest('POST', '/api/auth/logout'); } catch (err) { /* ignore */ }
+      currentUser = null;
+      currentProfile = null;
+      renderHeader();
+      location.hash = '#/';
+    });
+  } else {
+    footer.appendChild(h(`
+      <a href="#/auth/login" class="btn btn-secondary btn-block">로그인</a>
+      <a href="#/auth/signup" class="btn btn-primary btn-block" style="margin-top:0.6rem">회원가입</a>
+    `));
+  }
+}
+
+// updateSidebarActiveState — route()가 바뀔 때마다 호출(로그인 상태는
+// 안 바뀌므로 renderSidebar 전체를 다시 그릴 필요 없이 active 클래스만
+// 갱신). 공고/파이프라인 상세화면(#/notices/xxx, #/pipeline/xxx)도
+// 각각 목록 메뉴가 활성 상태로 보이도록 접두어로 비교한다.
+function updateSidebarActiveState() {
+  const path = (location.hash || '#/').split('?')[0];
+  document.querySelectorAll('.sidebar-menu-item').forEach(el => {
+    const itemPath = el.dataset.path;
+    const isActive = itemPath === '#/' ? path === '#/' : path.startsWith(itemPath);
+    el.classList.toggle('is-active', isActive);
+  });
 }
 
 function formatDate(iso) {
@@ -1548,6 +1658,7 @@ function renderHeader() {
       <a href="#/auth/signup">회원가입</a>
     `));
   }
+  renderSidebar();
 }
 
 // ---------- 홈: AI 대시보드 ----------
@@ -3888,6 +3999,7 @@ async function renderMySubscription(container) {
 function route() {
   const hash = location.hash || '#/';
   const path = hash.split('?')[0];
+  updateSidebarActiveState();
   if (path === '#/auth/signup') { renderSignup(app); return; }
   if (path === '#/auth/login') { renderLogin(app); return; }
   if (path === '#/me/profile') { renderProfile(app); return; }
