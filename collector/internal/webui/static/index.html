@@ -52,10 +52,11 @@
 
   /* ============================================================
      공통 컴포넌트 (디자인 리뉴얼) — 버튼/배지/row-card/스텝
-     인디케이터/모달. 화면별 적용은 이후 단계에서 순서대로 진행한다.
-     기존 화면 전용 클래스(.home-cta-*, .review-btn 등)는 아직 그대로
-     남아있다 — 각 화면을 이 컴포넌트로 옮길 때 정리한다(홈 화면은
-     이미 옮겨서 .priority-action-btn류는 제거됨).
+     인디케이터/모달. 전 화면 적용 완료.
+     .home-cta-*(큰 CTA 링크·버튼 전용)와 .review-btn(검토 승인/반려
+     성공·위험 톤 아웃라인 페어)은 이미 accent-blue/success/danger
+     토큰을 그대로 쓰고 있어 시각적으로 .btn 계열과 동일하므로 의도적으로
+     남겨둔 별도 클래스다 — 기계적 치환 대상이 아님.
      ============================================================ */
 
   /* ---------- 버튼: 화면당 강조(primary) 1개 원칙 ---------- */
@@ -307,48 +308,8 @@
 
   /* ---------- Notice card list ---------- */
   .notice-list { display: flex; flex-direction: column; gap: var(--space-md); }
-  .notice-card {
-    display: flex;
-    align-items: flex-start;
-    gap: 1.25rem;
-    padding: var(--space-md) 1.75rem;
-    background: #fff;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-    transition: border-color .15s ease, box-shadow .15s ease;
-  }
-  .notice-card:hover {
-    border-color: var(--accent-blue);
-    box-shadow: 0 2px 8px rgba(20,33,61,0.10);
-  }
-  .notice-card-main { flex: 1; min-width: 0; }
-  .notice-org {
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--accent-blue);
-    margin-bottom: 0.3rem;
-  }
-  .notice-title {
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: var(--ink);
-    line-height: 1.4;
-    margin: 0 0 0.55rem;
-  }
-  .notice-meta {
-    font-size: 0.85rem;
-    color: var(--ink-soft);
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-  .notice-meta .dot { color: var(--border); }
 
   /* ---------- 관심공고(북마크) ---------- */
-  .notice-card-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem; flex-shrink: 0; }
   .bookmark-btn {
     background: none;
     border: none;
@@ -1172,9 +1133,7 @@
      그리드류(dash-tiles/checkbox-grid/detail-meta 등)는 이미
      auto-fit/auto-fill이라 미디어쿼리 없이도 좁은 화면에서 알아서
      열이 줄어든다. 여기서는 그걸로 안 풀리는 것들만: 헤더/카드
-     여백 축소, notice-card 좌우 배치를 세로 스택으로 전환(참여검토/
-     제외/상세보기 버튼 3개가 옆 칸에서 넘치는 문제), 필터 폼
-     한 줄 배치. */
+     여백 축소, 필터 폼 한 줄 배치. */
   @media (max-width: 640px) {
     .site-header { padding: 1rem; }
     main { padding: 1.5rem 1rem 3rem; }
@@ -1187,9 +1146,6 @@
     }
     .home-hero { padding: 1.75rem 1.25rem; }
     .home-hero-title { font-size: 1.25rem; }
-
-    .notice-card { flex-direction: column; padding: 1rem; gap: 0.75rem; }
-    .notice-card-side { flex-direction: row; align-items: center; width: 100%; flex-wrap: wrap; }
 
     .filters { padding: 0.85rem; }
     .filters input[name="q"] { flex-basis: 100%; min-width: 0; }
@@ -1474,7 +1430,7 @@ function bookmarkButtonHtml(noticeId, isBookmarked) {
     `${isBookmarked ? '★' : '☆'}</button>`;
 }
 
-// container 안의 모든 .bookmark-btn에 클릭 핸들러를 붙인다. 부모 .notice-card의
+// container 안의 모든 .bookmark-btn에 클릭 핸들러를 붙인다. 부모 .row-card의
 // "상세로 이동" 클릭을 막기 위해 stopPropagation을 쓰고, 비로그인이면 로그인
 // 페이지로 보낸다(기존 다른 버튼들과 동일한 패턴). opts.onUnbookmark(noticeId, btn)는
 // 해제 성공 시 호출 — 관심공고 목록 페이지에서 카드를 즉시 제거하는 데 쓴다.
