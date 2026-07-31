@@ -359,7 +359,7 @@
     font-size: 0.76rem; font-weight: 600;
   }
   .pipeline-status-badge--new { background: rgba(31,138,95,0.10); color: var(--success); }
-  .priority-item-actions { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
+  .priority-item-actions { display: flex; gap: 0.4rem; margin-top: 0.4rem; flex-wrap: wrap; }
   .priority-action-btn {
     padding: 0.3rem 0.7rem; border: 1px solid var(--navy); background: var(--navy);
     color: #fff; border-radius: 6px; cursor: pointer; font-size: 0.78rem; font-weight: 600;
@@ -520,7 +520,7 @@
   .pipeline-status-section-count { font-size: 0.82rem; font-weight: 500; color: var(--ink-soft); }
   .checklist-list { display: flex; flex-direction: column; gap: 0.5rem; }
   .checklist-row {
-    display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+    display: flex; justify-content: space-between; align-items: center; gap: 0.75rem 1rem; flex-wrap: wrap;
     padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: 8px; background: #fff;
   }
   .checklist-doc-name { font-size: 0.92rem; color: var(--ink); }
@@ -544,7 +544,10 @@
     border-bottom: 1px solid var(--border);
   }
 
-  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  /* 좁은 화면에서 5열짜리 표가 페이지 전체를 가로로 밀어내지 않도록,
+     표 자체가 아니라 이 래퍼만 가로 스크롤되게 한다. */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 0.88rem; }
   th, td {
     text-align: left;
     padding: 0.65rem 0.5rem;
@@ -796,7 +799,8 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    gap: 1rem;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
   }
   .elig-category { font-size: 0.78rem; color: var(--ink-soft); font-weight: 600; }
   .elig-result { font-weight: 700; font-size: 0.88rem; }
@@ -909,8 +913,8 @@
   .license-section h3 { font-size: 1rem; margin: 1.5rem 0 0.75rem; color: var(--ink); }
   .license-list { display: flex; flex-direction: column; gap: 0.6rem; }
   .license-card {
-    display: flex; justify-content: space-between; align-items: flex-start;
-    gap: 1rem; padding: 0.9rem 1rem; border: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap;
+    gap: 0.75rem 1rem; padding: 0.9rem 1rem; border: 1px solid var(--border);
     border-radius: 10px; background: #fff;
   }
   .license-card-main { display: flex; flex-direction: column; gap: 0.3rem; }
@@ -972,6 +976,66 @@
     color: var(--navy); border-radius: 6px; cursor: pointer; font-size: 0.78rem; font-weight: 600;
   }
   .field-verify-btn:hover { background: var(--bg-soft); }
+
+  /* ---------- 모바일 반응형 최소 대응 ----------
+     그리드류(dash-tiles/checkbox-grid/detail-meta 등)는 이미
+     auto-fit/auto-fill이라 미디어쿼리 없이도 좁은 화면에서 알아서
+     열이 줄어든다. 여기서는 그걸로 안 풀리는 것들만: 헤더/카드
+     여백 축소, notice-card 좌우 배치를 세로 스택으로 전환(참여검토/
+     제외/상세보기 버튼 3개가 옆 칸에서 넘치는 문제), 필터 폼
+     한 줄 배치. */
+  @media (max-width: 640px) {
+    .site-header { padding: 1rem; }
+    main { padding: 1.5rem 1rem 3rem; }
+    .header-right { gap: 0.85rem; }
+    .header-links, .auth-nav { gap: 0.85rem; font-size: 0.85rem; }
+
+    .detail-card, .ai-summary-card, .ai-participation-card, .review-item,
+    .auth-card, .license-confirm-form, .profile-completeness-card {
+      padding: 1.1rem;
+    }
+    .home-hero { padding: 1.75rem 1.25rem; }
+    .home-hero-title { font-size: 1.25rem; }
+
+    .notice-card { flex-direction: column; padding: 1rem; gap: 0.75rem; }
+    .notice-card-side { flex-direction: row; align-items: center; width: 100%; flex-wrap: wrap; }
+
+    .filters { padding: 0.85rem; }
+    .filters input[name="q"] { flex-basis: 100%; min-width: 0; }
+    .filters input[name="region"], .filters input[name="industry"] { flex: 1; min-width: 0; }
+    .filters button { flex: 1; }
+
+    .review-actions { flex-wrap: wrap; }
+  }
+
+  /* ---------- 터치 타겟 최소 44px (터치 입력 기기 한정) ----------
+     hover 위주로 설계된 작은 아이콘류(용어설명 버튼 등)는 터치에서도
+     원래 크기를 유지한다 — 부차적인 정보 트리거라 44px로 키우면
+     오히려 본문 레이아웃을 깨뜨린다. 실제로 반복 조작하는 버튼/링크/
+     입력 요소만 대상으로 한다. */
+  @media (pointer: coarse) {
+    .filters button, .auth-form button, .profile-form button,
+    .license-toolbar button, .review-btn, .priority-action-btn,
+    .pipeline-review-btn, .field-verify-btn, .home-cta-primary,
+    .home-cta-secondary, .calendar-add-link, .checklist-status-select,
+    #logout-btn {
+      min-height: 44px;
+    }
+    .bookmark-btn {
+      min-width: 44px; min-height: 44px;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .header-links a, .auth-nav a, .link-btn, .back-link, .home-browse-link,
+    .official-link, .pipeline-review-link, .ai-next-action {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+    .auth-form input, .profile-form input, .filters input {
+      min-height: 44px;
+    }
+    input[type="checkbox"] { width: 1.3rem; height: 1.3rem; }
+  }
 </style>
 </head>
 <body>
@@ -1785,10 +1849,10 @@ function renderDetail(container, id) {
         <div id="required-documents-section"></div>
         <h3>변경 이력</h3>
         ${changeRows
-          ? `<table>
+          ? `<div class="table-scroll"><table>
               <thead><tr><th>항목</th><th>이전 값</th><th>변경 값</th><th>중요도</th><th>일시</th></tr></thead>
               <tbody>${changeRows}</tbody>
-            </table>`
+            </table></div>`
           : '<p class="empty">변경 이력이 없습니다.</p>'}
         <div id="change-impact-section"></div>
       `));
