@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """규칙(정규식/패턴 매칭) 기반 자격조건/제출서류 구조화 추출 — 1차 버전.
 
+Phase 4(서류자동화 고도화)부터 이 로직은 Go로 포팅돼 apiserver 백그라운드
+배치(collector/internal/api/document_extraction.go)가 1시간마다 자동
+실행한다 — 이 스크립트를 수동으로 또 돌리면 워터마크 컬럼
+(attachments.section_extraction_processed_at)을 모르는 채로 중복 작업할
+뿐이니, 특정 첨부파일 1건 디버깅(--attachment-id) 용도가 아니면 쓰지 말 것.
+
 attachments.extracted_text(extraction_status='completed')에서 "참가자격",
 "제출서류" 류의 절/섹션을 느슨한 패턴으로 찾아
 eligibility_conditions/required_documents에 저장한다. AI 연동은 다음 단계 —

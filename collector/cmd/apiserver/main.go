@@ -105,6 +105,7 @@ func main() {
 
 	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, smsNotifyClient, tossClient, tossClientKey, appBaseURL, scsbidSrc)
 	startBackgroundNotifications(srv, logger, scsbidSrc)
+	startBackgroundDocumentExtraction(srv, logger)
 
 	logger.Info("api server starting", "port", port)
 	if err := http.ListenAndServe(":"+port, srv.Routes()); err != nil {
@@ -163,6 +164,26 @@ func startBackgroundNotifications(srv *api.Server, logger *slog.Logger, scsbidSr
 			} else if applied > 0 {
 				logger.Info("scheduled downgrade batch completed", "applied", applied)
 			}
+		}
+	}()
+}
+
+// startBackgroundDocumentExtraction runs api.Server.RunDocumentExtraction
+// (Phase 4: 공고→제출서류/자격조건 추출 자동화, document_extraction.go)
+// on the same 1-hour ticker as startBackgroundCollection — same in-process
+// workaround, and it makes sense to follow shortly after each collection
+// cycle since that's what feeds new attachments into the pipeline.
+func startBackgroundDocumentExtraction(srv *api.Server, logger *slog.Logger) {
+	go func() {
+		ctx := context.Background()
+		runOnce := func() {
+			srv.RunDocumentExtraction(ctx)
+		}
+		runOnce()
+		ticker := time.NewTicker(60 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			runOnce()
 		}
 	}()
 }

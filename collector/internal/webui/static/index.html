@@ -6379,8 +6379,10 @@ function adminPaymentCardHtml(p) {
 }
 
 // renderAdminSystemStatus — 기존엔 curl로만 실행 가능했던 관리자 배치
-// (알림/파이프라인 자동전환/낙찰이력 수집/예약 다운그레이드 적용)를
-// 버튼으로 수동 실행. 전부 매일 09:00 KST에 자동으로도 돈다 — 여기 버튼은
+// (알림/파이프라인 자동전환/낙찰이력 수집/예약 다운그레이드 적용/서류
+// 추출)를 버튼으로 수동 실행. 대부분 매일 09:00 KST 자동 실행이고 서류
+// 추출만 1시간 주기(공고 수집 직후 이어서 돌기 때문 — document_
+// extraction.go 참고)라 문구를 "정기적으로"로 통일했다. 여기 버튼은
 // "지금 바로" 확인하고 싶을 때만 쓰는 보조 수단.
 function renderAdminSystemStatus(container) {
   const actions = [
@@ -6388,10 +6390,11 @@ function renderAdminSystemStatus(container) {
     { path: '/api/admin/run-pipeline-auto-transitions', label: '파이프라인 자동전환 실행' },
     { path: '/api/admin/run-award-history-ingestion', label: '낙찰이력 수집 실행' },
     { path: '/api/admin/run-scheduled-downgrades', label: '예약된 플랜 다운그레이드 적용' },
+    { path: '/api/admin/run-document-extraction', label: '제출서류/자격조건 추출 실행' },
   ];
   container.innerHTML = `
     <h3>시스템 상태</h3>
-    <p class="license-card-meta">매일 09:00 KST에 자동 실행되는 배치를 지금 바로 수동 실행합니다.</p>
+    <p class="license-card-meta">정기적으로 자동 실행되는 배치(알림/자동전환/낙찰이력/다운그레이드는 매일 09:00 KST, 서류 추출은 1시간마다)를 지금 바로 수동 실행합니다.</p>
     <div class="license-toolbar" style="flex-wrap:wrap">
       ${actions.map(a => `<button type="button" class="btn btn-secondary btn-sm admin-action-btn" data-path="${escapeAttr(a.path)}">${escapeHtml(a.label)}</button>`).join('')}
     </div>

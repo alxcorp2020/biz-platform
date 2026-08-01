@@ -135,6 +135,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureInAppNotificationsTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate in_app_notifications table: %w", err)
 	}
+	if err := ensureDocumentExtractionAutomationColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate document extraction automation columns: %w", err)
+	}
 	return nil
 }
 
@@ -162,6 +165,21 @@ func ensureInAppNotificationsTable(ctx context.Context, db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_in_app_notifications_profile ON in_app_notifications(company_profile_id, created_at DESC);
 		CREATE INDEX IF NOT EXISTS idx_in_app_notifications_user ON in_app_notifications(user_id, created_at DESC);
+	`)
+	return err
+}
+
+// ensureDocumentExtractionAutomationColumns adds the watermark columns Phase
+// 4(공고→제출서류 추출 자동화, collector/internal/api/document_extraction.go)
+// uses to avoid reprocessing the same attachment/row on every hourly batch —
+// attachments.section_extraction_processed_at(규칙기반 1차) and
+// eligibility_conditions/required_documents.ai_supplement_attempted_at(AI
+// 보완 2차). db/migrations/001_init.sql 주석 참고.
+func ensureDocumentExtractionAutomationColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE attachments ADD COLUMN IF NOT EXISTS section_extraction_processed_at TIMESTAMPTZ;
+		ALTER TABLE eligibility_conditions ADD COLUMN IF NOT EXISTS ai_supplement_attempted_at TIMESTAMPTZ;
+		ALTER TABLE required_documents ADD COLUMN IF NOT EXISTS ai_supplement_attempted_at TIMESTAMPTZ;
 	`)
 	return err
 }

@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """규칙 기반 추출(1차)을 보완하는 AI 기반 추출(2차) — Claude API 사용.
 
+Phase 4(서류자동화 고도화)부터 이 로직은 Go로 포팅돼 apiserver 백그라운드
+배치(collector/internal/api/document_extraction.go)가 1시간마다 자동
+실행한다 — 이 스크립트를 수동으로 또 돌리면 워터마크 컬럼
+(eligibility_conditions/required_documents.ai_supplement_attempted_at)을
+모르는 채로 같은 항목을 또 호출해 비용이 중복 발생하니, 자동 배치 자체를
+디버깅할 때가 아니면 쓰지 말 것.
+
 비용 절감 원칙(스펙 "공고 공통분석은 한 번만" 재사용): 이미 confidence 높게
 뽑힌 규칙 기반 행은 다시 건드리지 않는다. eligibility_conditions/
 required_documents 중 review_status='review_required'인 행만 대상으로 한다

@@ -146,7 +146,12 @@ CREATE TABLE attachments (
     extraction_error       TEXT,   -- 실패/미지원 사유
     analysis_status      TEXT NOT NULL DEFAULT 'pending'
                             CHECK (analysis_status IN ('pending','processing','completed','failed')),
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- extracted_text가 채워진 뒤(analyzer/run_extraction.py, 여전히 수동)
+    -- Phase 4 규칙기반 추출(Go, apiserver 백그라운드 배치)이 이 첨부파일을
+    -- 처리했는지 표시 — NULL이면 다음 배치에서 다시 시도한다. 매 시간
+    -- 전체 completed 첨부를 재스캔하지 않기 위한 워터마크.
+    section_extraction_processed_at TIMESTAMPTZ
 );
 CREATE INDEX idx_attachments_version ON attachments(notice_version_id);
 CREATE INDEX idx_attachments_hash ON attachments(file_hash);
@@ -191,7 +196,12 @@ CREATE TABLE eligibility_conditions (
     extraction_method TEXT NOT NULL DEFAULT 'rule'
                         CHECK (extraction_method IN ('rule','ai')),
     model_version   TEXT,  -- AI 추출(2차)에 사용한 모델명 — 재현성 확인용, 규칙 기반 행은 NULL
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Phase 4: review_required 행에 AI 보완 추출(Go, 자동 배치)을 시도했는지
+    -- 표시. NULL인 행만 다음 배치 대상 — 안 찍으면 review_required 상태가
+    -- 사람 검토 전까지 유지되는 한(review.go), 매시간 계속 재호출돼 비용이
+    -- 낭비된다.
+    ai_supplement_attempted_at TIMESTAMPTZ
 );
 CREATE INDEX idx_eligibility_version ON eligibility_conditions(notice_version_id);
 
@@ -218,7 +228,8 @@ CREATE TABLE required_documents (
                               CHECK (review_status IN ('pending','confirmed','rejected','review_required')),
     extraction_method    TEXT NOT NULL DEFAULT 'rule'
                               CHECK (extraction_method IN ('rule','ai')),
-    model_version        TEXT  -- AI 추출(2차)에 사용한 모델명 — 재현성 확인용, 규칙 기반 행은 NULL
+    model_version        TEXT,  -- AI 추출(2차)에 사용한 모델명 — 재현성 확인용, 규칙 기반 행은 NULL
+    ai_supplement_attempted_at TIMESTAMPTZ  -- eligibility_conditions와 동일 목적(위 주석 참고)
 );
 
 -- ------------------------------------------------------------
