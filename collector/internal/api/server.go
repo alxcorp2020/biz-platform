@@ -183,12 +183,29 @@ func parseListingIntParam(raw string, def int) int {
 	return n
 }
 
+// noticeListSortOrderBy — sort 쿼리파라미터 화이트리스트. 사용자 입력을
+// 그대로 ORDER BY에 꽂지 않고(SQL 인젝션 방지) 허용된 값만 고정 SQL로
+// 매핑한다. status는 진행중(open)인 공고를 먼저 보여주고, 그 안에서는
+// 최신순으로 정렬한다.
+var noticeListSortOrderBy = map[string]string{
+	"new":      "n.published_at DESC NULLS LAST",
+	"deadline": "n.application_end_at ASC NULLS LAST",
+	"budget":   "n.budget_amount DESC NULLS LAST",
+	"name":     "n.title ASC",
+	"status":   "(CASE WHEN n.status = 'open' THEN 0 ELSE 1 END) ASC, n.published_at DESC NULLS LAST",
+}
+
 func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	region := q.Get("region")
 	industry := q.Get("industry")
 	keyword := q.Get("q")
 	userID, loggedIn := s.currentUserID(r)
+
+	orderBy, ok := noticeListSortOrderBy[q.Get("sort")]
+	if !ok {
+		orderBy = noticeListSortOrderBy["new"]
+	}
 
 	offset := parseListingIntParam(q.Get("offset"), 0)
 	limit := parseListingIntParam(q.Get("limit"), defaultNoticeListLimit)
@@ -226,7 +243,7 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	if keyword != "" {
 		query += " AND n.title ILIKE " + addArg("%"+keyword+"%")
 	}
-	query += " ORDER BY n.published_at DESC NULLS LAST LIMIT " + addArg(limit) + " OFFSET " + addArg(offset)
+	query += " ORDER BY " + orderBy + " LIMIT " + addArg(limit) + " OFFSET " + addArg(offset)
 
 	rows, err := s.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
