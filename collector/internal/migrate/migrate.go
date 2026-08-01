@@ -114,7 +114,37 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureLastLoginColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate users.last_login_at column: %w", err)
 	}
+	if err := ensureCompanyProfileSnapshotColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate notice_pipeline_entries.company_profile_snapshot column: %w", err)
+	}
+	if err := ensureDeadlineD7EventType(ctx, db); err != nil {
+		return fmt.Errorf("migrate notification_log deadline_d7 event type: %w", err)
+	}
 	return nil
+}
+
+// ensureCompanyProfileSnapshotColumn adds notice_pipeline_entries.
+// company_profile_snapshot — 원클릭 참여검토(Phase 1) 시점의 company_profiles
+// 행 전체를 JSONB로 남겨, 나중에 "그때는 이 정보로 판정했다"를 감사할 수
+// 있게 한다. ADD COLUMN IF NOT EXISTS makes this idempotent.
+func ensureCompanyProfileSnapshotColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS company_profile_snapshot JSONB;
+	`)
+	return err
+}
+
+// ensureDeadlineD7EventType widens notification_log.event_type's CHECK to
+// allow 'deadline_d7' — 원클릭 참여검토(Phase 1)가 요구하는 D-7/D-3/D-1
+// 알림 예약 중 D-7 추가분. DROP+ADD 방식은 ensureReportEventTypes와 동일.
+func ensureDeadlineD7EventType(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
+		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
+			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
+			                       'weekly_report','monthly_report'));
+	`)
+	return err
 }
 
 // ensureCompanyFinancialTables adds company_financials/company_track_records/

@@ -108,6 +108,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/me/company-profile/employee-verification/documents", s.handleUploadEmployeeVerificationDocument)
 	mux.HandleFunc("POST /api/me/company-profile/employee-verification", s.handleConfirmEmployeeVerification)
 	mux.HandleFunc("POST /api/notices/{id}/pipeline", s.handleCreatePipelineEntry)
+	mux.HandleFunc("POST /api/notices/{id}/exclude", s.handleExcludeNotice)
+	mux.HandleFunc("POST /api/notices/{id}/share", s.handleShareNotice)
 	mux.HandleFunc("PATCH /api/pipeline/{id}", s.handleUpdatePipelineEntry)
 	mux.HandleFunc("PATCH /api/pipeline/{id}/checklist/{itemId}", s.handleUpdateChecklistItem)
 	mux.HandleFunc("GET /api/pipeline", s.handleListPipeline)
@@ -415,6 +417,24 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 원클릭 참여검토(Phase 1): 이 공고를 이미 파이프라인에 올렸는지
+	// 미리 알려줘, 재방문 시 "참여 검토 시작" 버튼 대신 바로 "진행 중 →
+	// 이동" 링크를 보여줄 수 있게 한다. UNIQUE(company_profile_id,
+	// notice_id) 인덱스를 그대로 타는 단건 조회라 비용이 낮다.
+	var existingPipelineEntryID *string
+	if profileID != "" {
+		var eid string
+		err := s.db.QueryRowContext(r.Context(),
+			`SELECT id FROM notice_pipeline_entries WHERE company_profile_id = $1 AND notice_id = $2`,
+			profileID, id,
+		).Scan(&eid)
+		if err == nil {
+			existingPipelineEntryID = &eid
+		} else if err != sql.ErrNoRows {
+			s.logger.Error("get notice: existing pipeline entry lookup failed", "error", err)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"notice":                   it,
 		"changes":                  changes,
@@ -429,6 +449,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"changeImpact":             impact,
 		"organizationAwardHistory": awardHistory,
 		"hasCompetitiveOverlap":    hasCompetitiveOverlap,
+		"existingPipelineEntryId":  existingPipelineEntryID,
 	})
 }
 

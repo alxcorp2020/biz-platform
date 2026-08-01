@@ -644,6 +644,10 @@
   .pipeline-review-btn:hover { background: var(--accent-blue-deep); }
   .pipeline-review-btn:disabled { opacity: 0.6; cursor: default; }
   .pipeline-review-link { display: inline-block; margin-top: 1rem; font-weight: 600; }
+  /* 원클릭 참여검토(Phase 1) 상단 액션 3종(참여 검토 시작/제외/담당자에게
+     전달) — 좁은 화면에서는 줄바꿈되어 세로로 쌓인다. */
+  .notice-action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-top: 1rem; }
+  .notice-action-bar .pipeline-review-btn { margin-top: 0; }
 
   /* ---------- 진행 중 사업(#/pipeline) ---------- */
   .pipeline-status-section { margin-bottom: 2rem; }
@@ -2606,7 +2610,7 @@ function renderDetail(container, id) {
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || []);
       renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || [], id, data.documentReadiness);
       renderAwardHistory(document.getElementById('award-history-section'), data.organizationAwardHistory, data.hasCompetitiveOverlap);
-      renderPipelineReviewAction(document.getElementById('pipeline-review-action'), id);
+      renderPipelineReviewAction(document.getElementById('pipeline-review-action'), id, data.existingPipelineEntryId);
       wireBookmarkButtons(body);
     })
     .catch(err => {
@@ -2615,18 +2619,44 @@ function renderDetail(container, id) {
     });
 }
 
-// renderPipelineReviewAction — 공고 상세의 "참여 검토" 버튼. 클릭 시
-// POST /api/notices/{id}/pipeline(멱등 — 이미 있으면 기존 엔트리 반환)를
-// 호출하고, 성공하면 버튼을 파이프라인 상세로 가는 링크로 바꾼다. 페이지를
-// 새로 열 때마다 이미 파이프라인에 있는지 미리 조회하진 않는다(전용
-// 엔드포인트가 없어 조회 한 번을 더 만들어야 함 — 처음엔 버튼으로 보이더라도
-// 클릭하면 멱등하게 기존 엔트리로 안내되므로 기능상 문제는 없다).
-function renderPipelineReviewAction(container, noticeId) {
+// renderPipelineReviewAction — 원클릭 참여검토(Phase 1)의 공고 상세 상단
+// 액션 3종: "참여 검토 시작" / "제외" / "담당자에게 전달". 서버가 미리
+// 알려주는 existingPipelineEntryId로 재방문 시 상태를 바로 인지한다(이미
+// 파이프라인에 있으면 버튼 대신 "진행 중 → 이동" 링크).
+function renderPipelineReviewAction(container, noticeId, existingPipelineEntryId) {
   container.innerHTML = '';
   if (!currentUser) return;
+
+  if (existingPipelineEntryId) {
+    renderAlreadyInPipeline(container, noticeId, existingPipelineEntryId);
+    return;
+  }
+  renderPipelineReviewButtons(container, noticeId);
+}
+
+function renderAlreadyInPipeline(container, noticeId, entryId) {
+  container.innerHTML = '';
   container.appendChild(h(`
-    <button type="button" id="pipeline-review-btn" class="pipeline-review-btn">참여 검토</button>
+    <div class="notice-action-bar">
+      <a href="#/pipeline/${escapeAttr(entryId)}" class="pipeline-review-btn" style="text-decoration:none;display:inline-block">진행 중 &middot; 워크스페이스로 이동 &rarr;</a>
+      <button type="button" id="share-notice-btn" class="btn btn-secondary btn-sm">담당자에게 전달</button>
+    </div>
+    <div id="share-notice-form-slot"></div>
+  `));
+  wireShareNoticeButton(container, noticeId);
+}
+
+function renderPipelineReviewButtons(container, noticeId) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="notice-action-bar">
+      <button type="button" id="pipeline-review-btn" class="pipeline-review-btn">참여 검토 시작</button>
+      <button type="button" id="exclude-notice-btn" class="btn btn-secondary btn-sm">제외</button>
+      <button type="button" id="share-notice-btn" class="btn btn-secondary btn-sm">담당자에게 전달</button>
+    </div>
     <p id="pipeline-review-error" class="error" style="display:none"></p>
+    <div id="exclude-notice-result"></div>
+    <div id="share-notice-form-slot"></div>
   `));
 
   document.getElementById('pipeline-review-btn').addEventListener('click', async () => {
@@ -2634,12 +2664,15 @@ function renderPipelineReviewAction(container, noticeId) {
     const errEl = document.getElementById('pipeline-review-error');
     errEl.style.display = 'none';
     btn.disabled = true;
+    btn.textContent = '시작하는 중...';
     try {
       const entry = await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/pipeline', {});
-      container.innerHTML = '';
-      container.appendChild(h(`<a href="#/pipeline/${escapeAttr(entry.id)}" class="pipeline-review-link">파이프라인에서 보기 &rarr;</a>`));
+      // 완료 기준: 자동으로 진행 화면(워크스페이스)까지 이동한다 —
+      // 링크를 보여주고 한 번 더 클릭하게 하지 않는다.
+      location.hash = '#/pipeline/' + entry.id;
     } catch (err) {
       btn.disabled = false;
+      btn.textContent = '참여 검토 시작';
       if (err.status === 401) { location.hash = '#/auth/login'; return; }
       if (err.status === 400 && err.code === 'company_profile_required') {
         errEl.innerHTML = '회사 정보를 등록하면 참여 검토를 시작할 수 있습니다. <a href="#/me/profile">기업 프로필 등록하기 →</a>';
@@ -2648,6 +2681,88 @@ function renderPipelineReviewAction(container, noticeId) {
       }
       errEl.style.display = 'block';
     }
+  });
+
+  wireExcludeNoticeButton(container, noticeId);
+  wireShareNoticeButton(container, noticeId);
+}
+
+// wireExcludeNoticeButton — "제외" 클릭 시 바로 실행(확인창 없음 — 원복
+// 가능하니 별도 확인 절차로 흐름을 끊지 않는다). 실행 후 되돌리기 버튼을
+// 보여주고, 되돌리기는 기존 PATCH /api/pipeline/{id}(status='검토전')를
+// 그대로 재사용한다(오류 시 원복 가능 요건).
+function wireExcludeNoticeButton(container, noticeId) {
+  const btn = container.querySelector('#exclude-notice-btn');
+  const resultEl = container.querySelector('#exclude-notice-result');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const res = await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/exclude', {});
+      if (res.alreadyExists) {
+        resultEl.innerHTML = `<p class="auth-step-hint">이미 파이프라인에 있는 공고입니다. <a href="#/pipeline/${escapeAttr(res.id)}">진행 화면으로 이동 &rarr;</a></p>`;
+        return;
+      }
+      container.querySelector('.notice-action-bar').style.display = 'none';
+      resultEl.innerHTML = `<p class="auth-step-hint">이 공고를 제외했습니다. <button type="button" id="undo-exclude-btn" class="link-btn">되돌리기</button></p>`;
+      resultEl.querySelector('#undo-exclude-btn').addEventListener('click', async () => {
+        try {
+          await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(res.id), { status: '검토전' });
+          renderPipelineReviewButtons(container, noticeId);
+        } catch (err) {
+          resultEl.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+        }
+      });
+    } catch (err) {
+      btn.disabled = false;
+      if (err.status === 401) { location.hash = '#/auth/login'; return; }
+      resultEl.innerHTML = `<p class="error">${escapeHtml(err.status === 400 && err.code === 'company_profile_required'
+        ? '회사 정보를 등록하면 제외 처리를 할 수 있습니다.' : err.message)}</p>`;
+    }
+  });
+}
+
+// wireShareNoticeButton — "담당자에게 전달" 클릭 시 이메일 입력 폼을
+// 펼친다(별도 화면 이동 없이 그 자리에서). 등록된 담당자가 있으면
+// datalist로 추천해 매번 새로 입력하지 않게 한다.
+function wireShareNoticeButton(container, noticeId) {
+  const btn = container.querySelector('#share-notice-btn');
+  const slot = container.querySelector('#share-notice-form-slot');
+  btn.addEventListener('click', async () => {
+    if (slot.querySelector('form')) { slot.innerHTML = ''; return; }
+    let contactOptions = '';
+    try {
+      const data = await apiRequest('GET', '/api/me/contacts');
+      contactOptions = (data.items || []).filter(c => c.email).map(c => `<option value="${escapeAttr(c.email)}">`).join('');
+    } catch (err) { /* 담당자 목록은 편의용 — 실패해도 직접 입력은 가능하므로 조용히 무시 */ }
+
+    slot.innerHTML = `
+      <form id="share-notice-form" class="profile-form" style="flex-direction:row;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;margin-top:0.75rem">
+        <label style="flex:1;min-width:220px">전달받을 이메일
+          <input type="email" name="email" list="share-contact-emails" placeholder="example@company.com" required>
+          <datalist id="share-contact-emails">${contactOptions}</datalist>
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm">보내기</button>
+      </form>
+      <div id="share-notice-result"></div>
+    `;
+    const form = slot.querySelector('#share-notice-form');
+    const resultEl = slot.querySelector('#share-notice-result');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const submitBtn = form.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      resultEl.innerHTML = '';
+      try {
+        await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/share', {
+          email: new FormData(form).get('email'),
+        });
+        resultEl.innerHTML = '<p class="success">전달했습니다.</p>';
+        form.reset();
+      } catch (err) {
+        resultEl.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+      }
+      submitBtn.disabled = false;
+    });
   });
 }
 

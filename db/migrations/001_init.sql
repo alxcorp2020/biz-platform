@@ -569,6 +569,7 @@ CREATE TABLE notice_pipeline_entries (
     submission_deadline DATE,
     memo                TEXT,
     awarded_amount      BIGINT, -- 성장분석(ROI) 근거 — status='낙찰'일 때 사용자가 직접 입력하는 실제 낙찰금액(공고 budget_amount와 다를 수 있어 별도 필드)
+    company_profile_snapshot JSONB, -- 원클릭 참여검토(Phase 1) 시점의 company_profiles 행 전체 스냅샷(감사용)
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (company_profile_id, notice_id)
@@ -604,7 +605,7 @@ CREATE INDEX idx_pipeline_checklist_entry ON pipeline_checklist_items(pipeline_e
 CREATE TABLE notification_log (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_type         TEXT NOT NULL CHECK (event_type IN
-                            ('deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
+                            ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
                              'weekly_report','monthly_report')),
     channel            TEXT NOT NULL DEFAULT 'email' CHECK (channel IN ('email','sms')),
     recipient_email    TEXT,

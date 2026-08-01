@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	notifyEventDeadlineD7           = "deadline_d7"
 	notifyEventDeadlineD3           = "deadline_d3"
 	notifyEventDeadlineD1           = "deadline_d1"
 	notifyEventRecommendationDigest = "recommendation_digest"
@@ -45,6 +46,9 @@ func (s *Server) RunDailyNotifications(ctx context.Context) {
 	if !emailReady && !smsReady {
 		s.logger.Warn("notify: RESEND_API_KEY/ALIGO_API_KEY 모두 설정되지 않아 알림 배치를 건너뜁니다")
 		return
+	}
+	if err := s.sendDeadlineReminders(ctx, 7, notifyEventDeadlineD7); err != nil {
+		s.logger.Error("notify: D-7 reminder batch failed", "error", err)
 	}
 	if err := s.sendDeadlineReminders(ctx, 3, notifyEventDeadlineD3); err != nil {
 		s.logger.Error("notify: D-3 reminder batch failed", "error", err)
