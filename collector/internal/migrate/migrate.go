@@ -177,12 +177,17 @@ func ensureInAppNotificationsTable(ctx context.Context, db *sql.DB) error {
 // uses to avoid reprocessing the same attachment/row on every hourly batch —
 // attachments.section_extraction_processed_at(규칙기반 1차) and
 // eligibility_conditions/required_documents.ai_supplement_attempted_at(AI
-// 보완 2차). db/migrations/001_init.sql 주석 참고.
+// 보완 2차). ai_supplement_attempts(2단계 고도화: 영구 실패 재시도 상한)는
+// 실패할 때마다 증가하고, maxAISupplementAttempts에 도달하면 성공 못 해도
+// attempted_at을 찍어 무한 재시도를 막는다. db/migrations/001_init.sql 주석
+// 참고.
 func ensureDocumentExtractionAutomationColumns(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE attachments ADD COLUMN IF NOT EXISTS section_extraction_processed_at TIMESTAMPTZ;
 		ALTER TABLE eligibility_conditions ADD COLUMN IF NOT EXISTS ai_supplement_attempted_at TIMESTAMPTZ;
 		ALTER TABLE required_documents ADD COLUMN IF NOT EXISTS ai_supplement_attempted_at TIMESTAMPTZ;
+		ALTER TABLE eligibility_conditions ADD COLUMN IF NOT EXISTS ai_supplement_attempts INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE required_documents ADD COLUMN IF NOT EXISTS ai_supplement_attempts INTEGER NOT NULL DEFAULT 0;
 	`)
 	return err
 }

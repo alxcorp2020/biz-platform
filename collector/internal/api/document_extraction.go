@@ -60,6 +60,21 @@ const (
 	ruleExtractionConfidence = 0.70
 	tableLookaheadLines      = 5
 	docNameMaxRunes          = 60
+
+	// documentExtractionBatchLimit — 배치(규칙기반/AI보완 각각)당 처리
+	// 상한. 워터마크 쿼리는 원래 무제한으로 전체 대상을 매시간 훑었는데,
+	// 첨부파일이 한꺼번에 몰리면(예: run_extraction.py가 며칠 밀렸다가
+	// 한 번에 텍스트를 채운 경우) 한 배치에서 API 호출/DB 트랜잭션이
+	// 폭주할 수 있어 상한을 뒀다 — 못 채운 나머지는 다음 시간 배치가
+	// 이어서 처리하므로 데이터가 유실되지는 않는다.
+	documentExtractionBatchLimit = 200
+
+	// maxAISupplementAttempts — AI 보완 호출이 이 횟수만큼 연속 실패하면
+	// (예: Claude API 키가 만료된 채 방치된 경우) 더 이상 재시도하지 않고
+	// ai_supplement_attempted_at을 찍어 포기한다. 사람이 review.go에서
+	// 직접 검토해야 하는 review_required 행 자체는 그대로 남으므로 데이터
+	// 유실은 아니고, "AI 자동 보완"만 포기하는 것이다.
+	maxAISupplementAttempts = 3
 )
 
 var headerPrefixRe = regexp.MustCompile(`^([0-9]+[.)]|[①-⑩]|[가나다라마바사아자차카타파하][.)]|[○◦●■□❍▶◆★☆※\-*])`)
@@ -328,15 +343,17 @@ func (s *Server) processAttachmentForRuleExtraction(ctx context.Context, tx *sql
 // runRuleBasedDocumentExtraction scans attachments whose text is ready but
 // not yet rule-processed. Empty-text rows (run_extraction.py hasn't reached
 // them yet) are left alone — no watermark set — so the next hourly batch
-// picks them up automatically once the text shows up.
-func (s *Server) runRuleBasedDocumentExtraction(ctx context.Context) {
+// picks them up automatically once the text shows up. Returns how many
+// attachments were actually processed this run (for admin visibility).
+func (s *Server) runRuleBasedDocumentExtraction(ctx context.Context) int {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, extracted_text FROM attachments
 		WHERE extraction_status = 'completed' AND section_extraction_processed_at IS NULL
-		ORDER BY created_at`)
+		ORDER BY created_at
+		LIMIT `+itoa(documentExtractionBatchLimit))
 	if err != nil {
 		s.logger.Error("document-extraction: attachment query failed", "error", err)
-		return
+		return 0
 	}
 	type target struct{ id, text string }
 	var targets []target
@@ -369,6 +386,7 @@ func (s *Server) runRuleBasedDocumentExtraction(ctx context.Context) {
 	if processed > 0 {
 		s.logger.Info("document-extraction: rule-based batch finished", "attachmentsProcessed", processed)
 	}
+	return processed
 }
 
 func (s *Server) runRuleExtractionForOneAttachment(ctx context.Context, attachmentID, text string) error {
@@ -584,16 +602,18 @@ func (s *Server) callClaudeForDocumentSupplement(ctx context.Context, kind, text
 type aiSupplementTarget struct {
 	id, noticeVersionID, sourceAttachmentID, sourceText string
 	extractedText                                       sql.NullString
+	attempts                                            int
 }
 
 func (s *Server) fetchEligibilitySupplementTargets(ctx context.Context) ([]aiSupplementTarget, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT ec.id, ec.notice_version_id, ec.source_attachment_id, ec.source_text, a.extracted_text
+		SELECT ec.id, ec.notice_version_id, ec.source_attachment_id, ec.source_text, a.extracted_text, ec.ai_supplement_attempts
 		FROM eligibility_conditions ec
 		JOIN attachments a ON a.id = ec.source_attachment_id
 		WHERE ec.review_status = 'review_required' AND ec.source_attachment_id IS NOT NULL
 		  AND ec.ai_supplement_attempted_at IS NULL
-		ORDER BY ec.created_at`)
+		ORDER BY ec.created_at
+		LIMIT `+itoa(documentExtractionBatchLimit))
 	if err != nil {
 		return nil, err
 	}
@@ -601,7 +621,7 @@ func (s *Server) fetchEligibilitySupplementTargets(ctx context.Context) ([]aiSup
 	var out []aiSupplementTarget
 	for rows.Next() {
 		var t aiSupplementTarget
-		if err := rows.Scan(&t.id, &t.noticeVersionID, &t.sourceAttachmentID, &t.sourceText, &t.extractedText); err != nil {
+		if err := rows.Scan(&t.id, &t.noticeVersionID, &t.sourceAttachmentID, &t.sourceText, &t.extractedText, &t.attempts); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -614,12 +634,13 @@ func (s *Server) fetchEligibilitySupplementTargets(ctx context.Context) ([]aiSup
 // (ai_extract.py의 fetch_document_targets와 동일한 제약).
 func (s *Server) fetchDocumentSupplementTargets(ctx context.Context) ([]aiSupplementTarget, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT rd.id, rd.notice_version_id, rd.source_attachment_id, rd.source_text, a.extracted_text
+		SELECT rd.id, rd.notice_version_id, rd.source_attachment_id, rd.source_text, a.extracted_text, rd.ai_supplement_attempts
 		FROM required_documents rd
 		JOIN attachments a ON a.id = rd.source_attachment_id
 		WHERE rd.review_status = 'review_required' AND rd.source_attachment_id IS NOT NULL
 		  AND rd.ai_supplement_attempted_at IS NULL
-		ORDER BY rd.id`)
+		ORDER BY rd.id
+		LIMIT `+itoa(documentExtractionBatchLimit))
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +648,7 @@ func (s *Server) fetchDocumentSupplementTargets(ctx context.Context) ([]aiSupple
 	var out []aiSupplementTarget
 	for rows.Next() {
 		var t aiSupplementTarget
-		if err := rows.Scan(&t.id, &t.noticeVersionID, &t.sourceAttachmentID, &t.sourceText, &t.extractedText); err != nil {
+		if err := rows.Scan(&t.id, &t.noticeVersionID, &t.sourceAttachmentID, &t.sourceText, &t.extractedText, &t.attempts); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -635,18 +656,75 @@ func (s *Server) fetchDocumentSupplementTargets(ctx context.Context) ([]aiSupple
 	return out, rows.Err()
 }
 
-func (s *Server) runAIEligibilitySupplementExtraction(ctx context.Context) {
+// aiSupplementResult — 규칙기반과 달리 AI 보완은 대상마다 성공/실패/포기
+// (재시도 상한 도달) 세 갈래로 갈릴 수 있어 각각을 센다. 관리자 수동 실행
+// 응답(handleRunDocumentExtraction)과 배치 로그 양쪽에서 재사용한다.
+type aiSupplementResult struct {
+	TargetCount int
+	SavedCount  int
+	FailedCount int
+	GaveUpCount int
+}
+
+// markEligibilitySupplementAttemptFailed increments the retry counter for a
+// failed AI-supplement call. Once it reaches maxAISupplementAttempts, the
+// watermark is set anyway (giving up) so the hourly batch stops retrying a
+// permanently-broken target (e.g. an expired API key left unnoticed) — the
+// underlying review_required row itself is untouched, so a human can still
+// review it manually via review.go; only the AI auto-supplement is skipped
+// from then on.
+func (s *Server) markEligibilitySupplementAttemptFailed(ctx context.Context, id string, attempts int) (gaveUp bool, err error) {
+	newAttempts := attempts + 1
+	gaveUp = newAttempts >= maxAISupplementAttempts
+	if gaveUp {
+		_, err = s.db.ExecContext(ctx,
+			`UPDATE eligibility_conditions SET ai_supplement_attempts = $2, ai_supplement_attempted_at = now() WHERE id = $1`,
+			id, newAttempts)
+	} else {
+		_, err = s.db.ExecContext(ctx,
+			`UPDATE eligibility_conditions SET ai_supplement_attempts = $2 WHERE id = $1`,
+			id, newAttempts)
+	}
+	return gaveUp, err
+}
+
+func (s *Server) markDocumentSupplementAttemptFailed(ctx context.Context, id string, attempts int) (gaveUp bool, err error) {
+	newAttempts := attempts + 1
+	gaveUp = newAttempts >= maxAISupplementAttempts
+	if gaveUp {
+		_, err = s.db.ExecContext(ctx,
+			`UPDATE required_documents SET ai_supplement_attempts = $2, ai_supplement_attempted_at = now() WHERE id = $1`,
+			id, newAttempts)
+	} else {
+		_, err = s.db.ExecContext(ctx,
+			`UPDATE required_documents SET ai_supplement_attempts = $2 WHERE id = $1`,
+			id, newAttempts)
+	}
+	return gaveUp, err
+}
+
+func (s *Server) runAIEligibilitySupplementExtraction(ctx context.Context) aiSupplementResult {
 	targets, err := s.fetchEligibilitySupplementTargets(ctx)
 	if err != nil {
 		s.logger.Error("document-extraction: eligibility ai-supplement target query failed", "error", err)
-		return
+		return aiSupplementResult{}
 	}
-	saved := 0
+	result := aiSupplementResult{TargetCount: len(targets)}
 	for _, t := range targets {
 		textContext := buildAISupplementContext(t.extractedText.String, t.sourceText)
 		items, err := s.callClaudeForDocumentSupplement(ctx, "eligibility", textContext)
 		if err != nil {
-			s.logger.Warn("document-extraction: eligibility ai-supplement call failed (retry next batch)", "id", t.id, "error", err)
+			result.FailedCount++
+			gaveUp, markErr := s.markEligibilitySupplementAttemptFailed(ctx, t.id, t.attempts)
+			if markErr != nil {
+				s.logger.Error("document-extraction: mark eligibility ai-supplement attempt failed", "id", t.id, "error", markErr)
+			}
+			if gaveUp {
+				result.GaveUpCount++
+				s.logger.Warn("document-extraction: eligibility ai-supplement gave up after max attempts", "id", t.id, "attempts", t.attempts+1, "error", err)
+			} else {
+				s.logger.Warn("document-extraction: eligibility ai-supplement call failed (retry next batch)", "id", t.id, "attempts", t.attempts+1, "error", err)
+			}
 			continue
 		}
 		var verified []aiSupplementItem
@@ -660,25 +738,37 @@ func (s *Server) runAIEligibilitySupplementExtraction(ctx context.Context) {
 			s.logger.Error("document-extraction: save eligibility ai-supplement failed", "id", t.id, "error", err)
 			continue
 		}
-		saved += len(verified)
+		result.SavedCount += len(verified)
 	}
-	if len(targets) > 0 {
-		s.logger.Info("document-extraction: eligibility ai-supplement batch finished", "targets", len(targets), "itemsSaved", saved)
+	if result.TargetCount > 0 {
+		s.logger.Info("document-extraction: eligibility ai-supplement batch finished",
+			"targets", result.TargetCount, "itemsSaved", result.SavedCount, "failed", result.FailedCount, "gaveUp", result.GaveUpCount)
 	}
+	return result
 }
 
-func (s *Server) runAIDocumentSupplementExtraction(ctx context.Context) {
+func (s *Server) runAIDocumentSupplementExtraction(ctx context.Context) aiSupplementResult {
 	targets, err := s.fetchDocumentSupplementTargets(ctx)
 	if err != nil {
 		s.logger.Error("document-extraction: document ai-supplement target query failed", "error", err)
-		return
+		return aiSupplementResult{}
 	}
-	saved := 0
+	result := aiSupplementResult{TargetCount: len(targets)}
 	for _, t := range targets {
 		textContext := buildAISupplementContext(t.extractedText.String, t.sourceText)
 		items, err := s.callClaudeForDocumentSupplement(ctx, "document", textContext)
 		if err != nil {
-			s.logger.Warn("document-extraction: document ai-supplement call failed (retry next batch)", "id", t.id, "error", err)
+			result.FailedCount++
+			gaveUp, markErr := s.markDocumentSupplementAttemptFailed(ctx, t.id, t.attempts)
+			if markErr != nil {
+				s.logger.Error("document-extraction: mark document ai-supplement attempt failed", "id", t.id, "error", markErr)
+			}
+			if gaveUp {
+				result.GaveUpCount++
+				s.logger.Warn("document-extraction: document ai-supplement gave up after max attempts", "id", t.id, "attempts", t.attempts+1, "error", err)
+			} else {
+				s.logger.Warn("document-extraction: document ai-supplement call failed (retry next batch)", "id", t.id, "attempts", t.attempts+1, "error", err)
+			}
 			continue
 		}
 		var verified []aiSupplementItem
@@ -692,11 +782,13 @@ func (s *Server) runAIDocumentSupplementExtraction(ctx context.Context) {
 			s.logger.Error("document-extraction: save document ai-supplement failed", "id", t.id, "error", err)
 			continue
 		}
-		saved += len(verified)
+		result.SavedCount += len(verified)
 	}
-	if len(targets) > 0 {
-		s.logger.Info("document-extraction: document ai-supplement batch finished", "targets", len(targets), "itemsSaved", saved)
+	if result.TargetCount > 0 {
+		s.logger.Info("document-extraction: document ai-supplement batch finished",
+			"targets", result.TargetCount, "itemsSaved", result.SavedCount, "failed", result.FailedCount, "gaveUp", result.GaveUpCount)
 	}
+	return result
 }
 
 func (s *Server) saveEligibilitySupplement(ctx context.Context, t aiSupplementTarget, items []aiSupplementItem) error {
@@ -745,14 +837,43 @@ func (s *Server) saveDocumentSupplement(ctx context.Context, t aiSupplementTarge
 	return tx.Commit()
 }
 
+// documentExtractionSummary — RunDocumentExtraction's result, surfaced to
+// the system_admin manual-trigger endpoint (handleRunDocumentExtraction) so
+// the "시스템 상태" admin screen shows actual counts instead of just
+// {"status":"completed"} (이전엔 성공/실패/대기 건수를 전혀 볼 수 없었음).
+type documentExtractionSummary struct {
+	Status                           string `json:"status"`
+	RuleBasedProcessedCount          int    `json:"ruleBasedProcessedCount"`
+	EligibilitySupplementTargetCount int    `json:"eligibilitySupplementTargetCount"`
+	EligibilitySupplementSavedCount  int    `json:"eligibilitySupplementSavedCount"`
+	EligibilitySupplementFailedCount int    `json:"eligibilitySupplementFailedCount"`
+	EligibilitySupplementGaveUpCount int    `json:"eligibilitySupplementGaveUpCount"`
+	DocumentSupplementTargetCount    int    `json:"documentSupplementTargetCount"`
+	DocumentSupplementSavedCount     int    `json:"documentSupplementSavedCount"`
+	DocumentSupplementFailedCount    int    `json:"documentSupplementFailedCount"`
+	DocumentSupplementGaveUpCount    int    `json:"documentSupplementGaveUpCount"`
+}
+
 // RunDocumentExtraction is the entry point cmd/apiserver calls on a
 // background ticker (same 1-hour cadence as notice collection — see
 // startBackgroundDocumentExtraction). Each sub-batch logs its own errors and
 // keeps going, matching RunDailyNotifications' pattern.
-func (s *Server) RunDocumentExtraction(ctx context.Context) {
-	s.runRuleBasedDocumentExtraction(ctx)
-	s.runAIEligibilitySupplementExtraction(ctx)
-	s.runAIDocumentSupplementExtraction(ctx)
+func (s *Server) RunDocumentExtraction(ctx context.Context) documentExtractionSummary {
+	ruleProcessed := s.runRuleBasedDocumentExtraction(ctx)
+	eligResult := s.runAIEligibilitySupplementExtraction(ctx)
+	docResult := s.runAIDocumentSupplementExtraction(ctx)
+	return documentExtractionSummary{
+		Status:                           "completed",
+		RuleBasedProcessedCount:          ruleProcessed,
+		EligibilitySupplementTargetCount: eligResult.TargetCount,
+		EligibilitySupplementSavedCount:  eligResult.SavedCount,
+		EligibilitySupplementFailedCount: eligResult.FailedCount,
+		EligibilitySupplementGaveUpCount: eligResult.GaveUpCount,
+		DocumentSupplementTargetCount:    docResult.TargetCount,
+		DocumentSupplementSavedCount:     docResult.SavedCount,
+		DocumentSupplementFailedCount:    docResult.FailedCount,
+		DocumentSupplementGaveUpCount:    docResult.GaveUpCount,
+	}
 }
 
 // handleRunDocumentExtraction manually fires the document-extraction batch on
@@ -775,6 +896,6 @@ func (s *Server) handleRunDocumentExtraction(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 		return
 	}
-	s.RunDocumentExtraction(r.Context())
-	writeJSON(w, http.StatusOK, map[string]string{"status": "completed"})
+	summary := s.RunDocumentExtraction(r.Context())
+	writeJSON(w, http.StatusOK, summary)
 }

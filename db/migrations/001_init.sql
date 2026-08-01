@@ -201,7 +201,11 @@ CREATE TABLE eligibility_conditions (
     -- 표시. NULL인 행만 다음 배치 대상 — 안 찍으면 review_required 상태가
     -- 사람 검토 전까지 유지되는 한(review.go), 매시간 계속 재호출돼 비용이
     -- 낭비된다.
-    ai_supplement_attempted_at TIMESTAMPTZ
+    ai_supplement_attempted_at TIMESTAMPTZ,
+    -- Phase 4 2단계: 실패할 때마다 증가. maxAISupplementAttempts(Go 상수)에
+    -- 도달하면 성공 못 해도 ai_supplement_attempted_at을 찍어 무한 재시도를
+    -- 막는다(document_extraction.go 참고).
+    ai_supplement_attempts INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX idx_eligibility_version ON eligibility_conditions(notice_version_id);
 
@@ -229,7 +233,8 @@ CREATE TABLE required_documents (
     extraction_method    TEXT NOT NULL DEFAULT 'rule'
                               CHECK (extraction_method IN ('rule','ai')),
     model_version        TEXT,  -- AI 추출(2차)에 사용한 모델명 — 재현성 확인용, 규칙 기반 행은 NULL
-    ai_supplement_attempted_at TIMESTAMPTZ  -- eligibility_conditions와 동일 목적(위 주석 참고)
+    ai_supplement_attempted_at TIMESTAMPTZ,  -- eligibility_conditions와 동일 목적(위 주석 참고)
+    ai_supplement_attempts INTEGER NOT NULL DEFAULT 0  -- eligibility_conditions와 동일 목적(위 주석 참고)
 );
 
 -- ------------------------------------------------------------
