@@ -299,7 +299,25 @@ func (s *Server) insertReport(ctx context.Context, profileID, periodType string,
 
 // sendReportEmail fans out to every org member (fetchCompanyMemberEmails,
 // notifications.go) — same per-member pattern as sendRecommendationDigest.
+// Phase 5 2단계: 인앱 알림함에도 1건 남긴다(원래 이메일만 가고 인앱은
+// 빠져 있어서 이메일을 안 열어보면 리포트가 나온 사실 자체를 놓쳤다).
+// 이 함수 자체가 insertReport의 ON CONFLICT(같은 기간 중복 방지)로 이미
+// 기간당 한 번만 호출되도록 보장되므로, 인앱 쪽에 별도 dedup 로직을
+// 추가할 필요는 없다 — 회사 단위 이벤트라 멤버별 반복 삽입도 안 한다.
 func (s *Server) sendReportEmail(ctx context.Context, profileID, periodType string, periodStart, periodEnd time.Time, summary *reportSummary) {
+	subject := reportEmailSubject(periodType, periodStart, periodEnd)
+	body := reportEmailHTML(subject, summary, s.appBaseURL+"/#/me/subscription")
+	eventType := notifyEventWeeklyReport
+	if periodType == "monthly" {
+		eventType = notifyEventMonthlyReport
+	}
+
+	inAppBody := fmt.Sprintf("신규 추천 %d건 · 참여검토 시작 %d건 · 마감임박 %d건",
+		summary.NewRecommendedCount, summary.PipelineStartedCount, summary.DeadlineSoonCount)
+	if err := s.insertInAppNotification(ctx, &profileID, nil, eventType, subject, inAppBody, nil, nil); err != nil {
+		s.logger.Error("report: in-app notification insert failed", "error", err)
+	}
+
 	members, err := s.fetchCompanyMemberEmails(ctx, profileID)
 	if err != nil {
 		s.logger.Error("report: member lookup failed", "error", err)
@@ -307,13 +325,6 @@ func (s *Server) sendReportEmail(ctx context.Context, profileID, periodType stri
 	}
 	if len(members) == 0 {
 		return
-	}
-
-	subject := reportEmailSubject(periodType, periodStart, periodEnd)
-	body := reportEmailHTML(subject, summary, s.appBaseURL+"/#/me/subscription")
-	eventType := notifyEventWeeklyReport
-	if periodType == "monthly" {
-		eventType = notifyEventMonthlyReport
 	}
 
 	for _, m := range members {

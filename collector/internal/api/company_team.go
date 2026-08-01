@@ -28,6 +28,15 @@ import (
 
 const invitationValidity = 7 * 24 * time.Hour
 
+// Phase 5 2단계: 팀 초대 발송/수락 이벤트도 notification_log를 거치게 해
+// 다른 채널(이메일 리마인더/다이제스트 등)과 동일하게 발송 이력·실패
+// 사유가 남게 한다 — 이전엔 s.notify.Send를 직접 호출해 실패해도 서버
+// 로그에만 남고 감사 이력이 전혀 없었다.
+const (
+	notifyEventTeamInvite         = "team_invite"
+	notifyEventTeamInviteAccepted = "team_invite_accepted"
+)
+
 // maxTeamMembers returns how many company_members rows (owner 포함) an org
 // on this effective plan may have — Business만 팀(최대 3명), 나머지는
 // 본인 1명뿐이라는 스펙을 그대로 상수화.
@@ -252,8 +261,19 @@ func (s *Server) handleCreateInvitation(w http.ResponseWriter, r *http.Request) 
 			"<p><b>%s</b>님이 회사 팀에 초대했습니다.</p><p>아래 링크로 접속해 가입 또는 로그인하면 자동으로 합류됩니다.</p><p><a href=\"%s\">%s</a></p><p>이 링크는 7일간 유효합니다.</p>",
 			html.EscapeString(inviterEmail), inviteLink, inviteLink,
 		)
-		if err := s.notify.Send(r.Context(), email, subject, body); err != nil {
-			s.logger.Error("create-invitation: send failed", "error", err)
+		sendErr := s.notify.Send(r.Context(), email, subject, body)
+		status, errMsg := "sent", sql.NullString{}
+		if sendErr != nil {
+			status = "failed"
+			errMsg = sql.NullString{String: sendErr.Error(), Valid: true}
+			s.logger.Error("create-invitation: send failed", "error", sendErr)
+		}
+		if _, logErr := s.db.ExecContext(r.Context(), `
+			INSERT INTO notification_log (event_type, channel, recipient_email, subject, status, error_message)
+			VALUES ($1,$2,$3,$4,$5,$6)`,
+			notifyEventTeamInvite, notifyChannelEmail, email, subject, status, errMsg,
+		); logErr != nil {
+			s.logger.Error("create-invitation: log insert failed", "error", logErr)
 		}
 	}
 
@@ -261,12 +281,12 @@ func (s *Server) handleCreateInvitation(w http.ResponseWriter, r *http.Request) 
 }
 
 type invitationDTO struct {
-	CompanyRegion   *string `json:"companyRegion"`
+	CompanyRegion   *string  `json:"companyRegion"`
 	CompanyIndustry []string `json:"companyIndustry"`
-	InviterEmail    string  `json:"inviterEmail"`
-	Email           string  `json:"email"`
-	Status          string  `json:"status"`
-	Expired         bool    `json:"expired"`
+	InviterEmail    string   `json:"inviterEmail"`
+	Email           string   `json:"email"`
+	Status          string   `json:"status"`
+	Expired         bool     `json:"expired"`
 }
 
 // handleGetInvitation — 공개 엔드포인트(로그인 불필요). 초대 링크를 클릭한
@@ -308,11 +328,11 @@ func (s *Server) handleAcceptInvitation(w http.ResponseWriter, r *http.Request) 
 	}
 	token := r.PathValue("token")
 
-	var invitationID, companyProfileID, invitedEmail, status string
+	var invitationID, companyProfileID, invitedEmail, status, invitedByUserID string
 	var expiresAt time.Time
 	err := s.db.QueryRowContext(r.Context(),
-		`SELECT id, company_profile_id, email, status, expires_at FROM company_invitations WHERE token = $1`, token,
-	).Scan(&invitationID, &companyProfileID, &invitedEmail, &status, &expiresAt)
+		`SELECT id, company_profile_id, email, status, expires_at, invited_by_user_id FROM company_invitations WHERE token = $1`, token,
+	).Scan(&invitationID, &companyProfileID, &invitedEmail, &status, &expiresAt, &invitedByUserID)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invitation_not_found"})
 		return
@@ -399,6 +419,37 @@ func (s *Server) handleAcceptInvitation(w http.ResponseWriter, r *http.Request) 
 		s.logger.Error("accept-invitation: commit failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
+	}
+
+	// Phase 5 2단계: 팀원이 초대를 수락해도 초대한 오너에게 알림이 전혀
+	// 없었다 — 인앱 알림함(항상 남김, 다른 이벤트와 동일 원칙)과 이메일
+	// (설정돼 있을 때만) 양쪽으로 알린다.
+	notifySubject := fmt.Sprintf("%s님이 팀에 합류했습니다", callerEmail)
+	if err := s.insertInAppNotification(r.Context(), nil, &invitedByUserID, notifyEventTeamInviteAccepted,
+		notifySubject, "초대를 수락해 조직에 합류했습니다.", nil, nil); err != nil {
+		s.logger.Error("accept-invitation: in-app notification insert failed", "error", err)
+	}
+	if s.notify != nil {
+		var inviterEmail string
+		if err := s.db.QueryRowContext(r.Context(), `SELECT email FROM users WHERE id = $1`, invitedByUserID).Scan(&inviterEmail); err != nil {
+			s.logger.Error("accept-invitation: inviter lookup failed", "error", err)
+		} else {
+			body := fmt.Sprintf("<p><b>%s</b>님이 초대를 수락해 조직에 합류했습니다.</p>", html.EscapeString(callerEmail))
+			sendErr := s.notify.Send(r.Context(), inviterEmail, notifySubject, body)
+			sendStatus, errMsg := "sent", sql.NullString{}
+			if sendErr != nil {
+				sendStatus = "failed"
+				errMsg = sql.NullString{String: sendErr.Error(), Valid: true}
+				s.logger.Error("accept-invitation: notify inviter failed", "error", sendErr)
+			}
+			if _, logErr := s.db.ExecContext(r.Context(), `
+				INSERT INTO notification_log (event_type, channel, recipient_email, user_id, subject, status, error_message)
+				VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+				notifyEventTeamInviteAccepted, notifyChannelEmail, inviterEmail, invitedByUserID, notifySubject, sendStatus, errMsg,
+			); logErr != nil {
+				s.logger.Error("accept-invitation: log insert failed", "error", logErr)
+			}
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "joined"})

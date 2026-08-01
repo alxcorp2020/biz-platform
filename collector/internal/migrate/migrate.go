@@ -141,6 +141,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureRefundAndCancellationColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate refund/cancellation columns: %w", err)
 	}
+	if err := ensureTeamInviteEventTypes(ctx, db); err != nil {
+		return fmt.Errorf("migrate team invite event types: %w", err)
+	}
 	return nil
 }
 
@@ -969,6 +972,20 @@ func ensureRefundAndCancellationColumns(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE payment_log DROP CONSTRAINT IF EXISTS payment_log_status_check;
 		ALTER TABLE payment_log ADD CONSTRAINT payment_log_status_check
 			CHECK (status IN ('승인','실패','취소','환불'));
+	`)
+	return err
+}
+
+// ensureTeamInviteEventTypes widens notification_log.event_type's CHECK to
+// allow 'team_invite'/'team_invite_accepted' (Phase 5 2단계: 팀 초대 발송/
+// 수락도 다른 채널과 동일하게 notification_log를 거치게 함 —
+// company_team.go 참고). DROP+ADD 방식은 ensureDeadlineD7EventType과 동일.
+func ensureTeamInviteEventTypes(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
+		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
+			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted'));
 	`)
 	return err
 }

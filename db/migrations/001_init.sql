@@ -652,11 +652,11 @@ CREATE TABLE notification_log (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_type         TEXT NOT NULL CHECK (event_type IN
                             ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-                             'weekly_report','monthly_report')),
+                             'weekly_report','monthly_report','team_invite','team_invite_accepted')),
     channel            TEXT NOT NULL DEFAULT 'email' CHECK (channel IN ('email','sms')),
     recipient_email    TEXT,
     recipient_phone    TEXT,
-    user_id            UUID REFERENCES users(id), -- 추천 공고 다이제스트(회원 단위)만 채움
+    user_id            UUID REFERENCES users(id), -- 추천 공고 다이제스트(회원 단위)/팀초대수락(초대한 사람)만 채움
     contact_id         UUID REFERENCES company_contacts(id), -- 마감 리마인더/상태변경 알림(담당자 단위)만 채움
     pipeline_entry_id  UUID REFERENCES notice_pipeline_entries(id),
     notice_id          UUID REFERENCES notices(id),

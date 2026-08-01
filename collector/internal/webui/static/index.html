@@ -4516,6 +4516,9 @@ const NOTIFICATION_ICON_MAP = [
   ['deadline_', LIST_ROW_ICONS.pipeline],
   ['assignee_status_change', LIST_ROW_ICONS.notice_change],
   ['recommendation_digest', LIST_ROW_ICONS.license_expiring],
+  ['weekly_report', SIDEBAR_ICONS.chart],
+  ['monthly_report', SIDEBAR_ICONS.chart],
+  ['team_invite_accepted', SIDEBAR_ICONS.user],
 ];
 function notificationIconHtml(eventType) {
   const found = NOTIFICATION_ICON_MAP.find(([prefix]) => eventType.startsWith(prefix));
@@ -6755,10 +6758,53 @@ async function renderAdminDashboard(container) {
     </div>
     <div class="detail-card" id="admin-changelog-section"></div>
     <div class="detail-card" id="admin-system-status-section"></div>
+    <div class="detail-card" id="admin-notification-failures-section"></div>
   `));
 
   renderAdminSystemStatus(document.getElementById('admin-system-status-section'));
   renderAdminChangelogSection(document.getElementById('admin-changelog-section'));
+  renderAdminNotificationFailures(document.getElementById('admin-notification-failures-section'));
+}
+
+// renderAdminNotificationFailures — Phase 5 2단계: notification_log의 최근
+// 발송 실패 건을 그대로 보여준다(이전엔 서버 로그로만 남아 관리자가 볼
+// 방법이 없었음). 재시도 버튼은 없다 — 실패 건은 다음날 배치가 dedup
+// 조건(status='sent'만 체크)에 안 걸려 자연스럽게 재시도되는 기존 동작을
+// 그대로 따른다.
+async function renderAdminNotificationFailures(container) {
+  container.innerHTML = '<h3>최근 알림 발송 실패</h3><div class="loading">불러오는 중...</div>';
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/notification-failures');
+  } catch (err) {
+    container.innerHTML = `<h3>최근 알림 발송 실패</h3><p class="error">${escapeHtml(err.message)}</p>`;
+    return;
+  }
+  const items = data.items || [];
+  if (!items.length) {
+    container.innerHTML = '<h3>최근 알림 발송 실패</h3><p class="empty">최근 발송 실패 건이 없습니다.</p>';
+    return;
+  }
+  const rowsHtml = items.map(it => `
+    <tr>
+      <td>${escapeHtml(formatDateTime(it.createdAt))}</td>
+      <td>${escapeHtml(it.eventType)}</td>
+      <td>${escapeHtml(it.channel)}</td>
+      <td>${escapeHtml(it.recipientEmail || it.recipientPhone || '-')}</td>
+      <td>${escapeHtml(it.subject)}</td>
+      <td>${escapeHtml(it.errorMessage || '-')}</td>
+    </tr>
+  `).join('');
+  container.innerHTML = `
+    <h3>최근 알림 발송 실패 (${items.length}건)</h3>
+    <p class="license-card-meta">다음 날 배치 때 자동으로 재시도됩니다 — 여기서는 원인 확인용으로만 보여줍니다.</p>
+    <div class="pipeline-table-wrap">
+      <table class="pipeline-table">
+        <thead><tr><th>시각</th><th>종류</th><th>채널</th><th>수신자</th><th>제목</th><th>오류</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 // renderAdminChangelogSection — collector/CHANGELOG.md를 서버가 이미

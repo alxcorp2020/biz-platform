@@ -394,3 +394,66 @@ func (s *Server) handleAdminGetMember(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, detail)
 }
+
+type adminNotificationFailureItem struct {
+	ID             string    `json:"id"`
+	EventType      string    `json:"eventType"`
+	Channel        string    `json:"channel"`
+	RecipientEmail *string   `json:"recipientEmail"`
+	RecipientPhone *string   `json:"recipientPhone"`
+	Subject        string    `json:"subject"`
+	ErrorMessage   *string   `json:"errorMessage"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+// handleAdminNotificationFailures — GET /api/admin/notification-failures
+// (Phase 5 2단계). notification_log에 실패(status='failed')가 계속
+// 쌓여도 지금까지 서버 로그로만 남고 볼 방법이 없었다 — 최근 실패 건을
+// 그대로 노출해 원인 파악에 쓸 수 있게 한다. 재시도 버튼은 없다(다음날
+// 배치가 dedup 조건(status='sent'만 체크)에 안 걸려 자연스럽게 재시도되는
+// 기존 동작을 그대로 따른다 — notifications.go 참고).
+func (s *Server) handleAdminNotificationFailures(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireSystemAdmin(w, r); !ok {
+		return
+	}
+	limit := parseListingIntParam(r.URL.Query().Get("limit"), 50)
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(r.Context(), `
+		SELECT id, event_type, channel, recipient_email, recipient_phone, subject, error_message, created_at
+		FROM notification_log
+		WHERE status = 'failed'
+		ORDER BY created_at DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		s.logger.Error("admin-notification-failures: query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	defer rows.Close()
+
+	items := []adminNotificationFailureItem{}
+	for rows.Next() {
+		var it adminNotificationFailureItem
+		var recipientEmail, recipientPhone, errMsg sql.NullString
+		if err := rows.Scan(&it.ID, &it.EventType, &it.Channel, &recipientEmail, &recipientPhone, &it.Subject, &errMsg, &it.CreatedAt); err != nil {
+			s.logger.Error("admin-notification-failures: scan failed", "error", err)
+			continue
+		}
+		if recipientEmail.Valid {
+			it.RecipientEmail = &recipientEmail.String
+		}
+		if recipientPhone.Valid {
+			it.RecipientPhone = &recipientPhone.String
+		}
+		if errMsg.Valid {
+			it.ErrorMessage = &errMsg.String
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		s.logger.Error("admin-notification-failures: rows iteration failed", "error", err)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
