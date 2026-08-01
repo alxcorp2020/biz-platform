@@ -1065,6 +1065,15 @@
     padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.15rem;
   }
 
+  /* ---------- 관리자: 업데이트 로그 / 기술 스펙 / 외부 연동 현황 ---------- */
+  .changelog-entry { margin-bottom: var(--space-md); }
+  .changelog-entry:last-child { margin-bottom: 0; }
+  .changelog-date { font-weight: 600; color: var(--ink); margin-bottom: 0.3rem; }
+  .changelog-items { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.9rem; color: var(--ink-soft); }
+  .tech-spec-list { margin: 0.4rem 0 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.9rem; }
+  .integration-env-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.15rem; }
+  .integration-env-list code { font-size: 0.8rem; }
+
   /* ---------- 성장분석(#/growth) — 차트 라이브러리 없이 간단한 가로 막대 ---------- */
   .growth-bar-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
   .growth-bar-label { flex: 0 0 110px; font-size: 0.82rem; color: var(--ink-soft); }
@@ -5319,10 +5328,47 @@ async function renderAdminDashboard(container) {
       <div class="license-list">${paymentRows || '<p class="empty">결제 이력이 없습니다.</p>'}</div>
       <a href="#/admin/members" class="official-link">전체 회원 관리 &rarr;</a>
     </div>
+    <div class="detail-card">
+      <h3>운영 정보</h3>
+      <div class="license-toolbar" style="flex-wrap:wrap">
+        <a href="#/admin/tech-spec" class="btn btn-secondary btn-sm">기술 스펙</a>
+        <a href="#/admin/integrations" class="btn btn-secondary btn-sm">외부 연동/API 현황</a>
+      </div>
+    </div>
+    <div class="detail-card" id="admin-changelog-section"></div>
     <div class="detail-card" id="admin-system-status-section"></div>
   `));
 
   renderAdminSystemStatus(document.getElementById('admin-system-status-section'));
+  renderAdminChangelogSection(document.getElementById('admin-changelog-section'));
+}
+
+// renderAdminChangelogSection — collector/CHANGELOG.md를 서버가 이미
+// 날짜별 섹션+항목으로 구조화해 내려주므로(admin_meta.go의 parseChangelog),
+// 여기서는 마크다운을 다시 파싱하지 않고 그대로 리스트로 그린다.
+async function renderAdminChangelogSection(container) {
+  container.innerHTML = '<h3>업데이트 로그</h3><div class="loading">불러오는 중...</div>';
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/changelog');
+  } catch (err) {
+    container.innerHTML = `<h3>업데이트 로그</h3><p class="error">${escapeHtml(err.message)}</p>`;
+    return;
+  }
+  const entries = data.entries || [];
+  const entriesHtml = entries.map(e => `
+    <div class="changelog-entry">
+      <div class="changelog-date">${escapeHtml(e.date)}</div>
+      <ul class="changelog-items">
+        ${(e.items || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+      </ul>
+    </div>
+  `).join('');
+  container.innerHTML = `
+    <h3>업데이트 로그</h3>
+    <p class="license-card-meta">collector/CHANGELOG.md 기준 — 큰 기능 단위로만 기록합니다.</p>
+    ${entriesHtml || '<p class="empty">기록된 업데이트가 없습니다.</p>'}
+  `;
 }
 
 function adminPaymentCardHtml(p) {
@@ -5512,6 +5558,110 @@ async function renderAdminMemberDetail(container, id) {
   `));
 }
 
+// renderAdminTechSpec — #/admin/tech-spec. 백엔드(admin_meta.go)가 go.mod/
+// requirements.txt/index.html/DB 버전을 실시간으로 읽어 내려주는 정적
+// 정보 페이지 — 여기서는 그 결과를 그대로 표로 보여주기만 한다.
+async function renderAdminTechSpec(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/tech-spec');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    if (err.status === 403) {
+      container.appendChild(h('<p class="error">관리자 권한이 필요합니다.</p>'));
+      return;
+    }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const listHtml = (items) => `<ul class="tech-spec-list">${(items || []).map(i => `<li class="mono">${escapeHtml(i)}</li>`).join('')}</ul>`;
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>기술 스펙</h2>
+    <div class="detail-card">
+      <h3>백엔드</h3>
+      <p class="license-card-meta">Go ${escapeHtml(data.backend.goVersion)} · ${escapeHtml(data.backend.framework)}</p>
+      ${listHtml(data.backend.dependencies)}
+    </div>
+    <div class="detail-card">
+      <h3>프론트엔드</h3>
+      <p class="license-card-meta">${escapeHtml(data.frontend.description)}</p>
+      ${listHtml(data.frontend.externalResources)}
+    </div>
+    <div class="detail-card">
+      <h3>분석 엔진 (analyzer)</h3>
+      <p class="license-card-meta">Python ${escapeHtml(data.analyzer.pythonVersion)}</p>
+      <p class="license-card-meta">${escapeHtml(data.analyzer.note)}</p>
+      ${listHtml(data.analyzer.packages)}
+    </div>
+    <div class="detail-card">
+      <h3>데이터베이스</h3>
+      <p class="license-card-meta mono">${escapeHtml(data.database.version)}</p>
+    </div>
+    <div class="detail-card">
+      <h3>인프라</h3>
+      <p class="license-card-meta">호스팅: ${escapeHtml(data.infra.hosting)}</p>
+      <p class="license-card-meta">저장소: ${escapeHtml(data.infra.repo)}</p>
+    </div>
+  `));
+}
+
+// renderAdminIntegrations — #/admin/integrations. 목록 자체는 백엔드에
+// 하드코딩되어 있지만(admin_meta.go의 adminIntegrationDefs), 환경변수
+// 설정 여부(configured)는 요청마다 os.Getenv로 실시간 확인한 값이다 —
+// 실제 키 값은 어떤 경우에도 응답에 포함되지 않는다.
+async function renderAdminIntegrations(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/integrations');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    if (err.status === 403) {
+      container.appendChild(h('<p class="error">관리자 권한이 필요합니다.</p>'));
+      return;
+    }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const items = data.items || [];
+  const rows = items.map(it => `
+    <tr>
+      <td>${escapeHtml(it.name)}</td>
+      <td>${escapeHtml(it.purpose)}</td>
+      <td><ul class="integration-env-list">${it.envVars.map(ev => `<li><code>${escapeHtml(ev)}</code></li>`).join('')}</ul></td>
+      <td><a href="${escapeAttr(it.docUrl)}" target="_blank" rel="noopener">문서</a></td>
+      <td><span class="badge ${it.configured ? 'badge--success' : 'badge--gray'}">${it.configured ? '설정됨' : '설정안됨'}</span></td>
+    </tr>
+  `).join('');
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>외부 연동 / API 현황</h2>
+    <div class="detail-card">
+      <p class="license-card-meta">실제 API 호출 성공 여부가 아니라, 필요한 환경변수가 설정되어 있는지만 확인합니다. 키 값 자체는 표시하지 않습니다.</p>
+      <div class="table-scroll">
+        <table class="report-table">
+          <thead><tr><th>서비스</th><th>용도</th><th>환경변수</th><th>문서</th><th>상태</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `));
+}
+
 // renderTeamSection — 팀 관리(구성원 목록 + owner면 초대 폼/제거 버튼).
 // 별도 최상위 메뉴를 추가하지 않고 "구독관리" 화면에 통합했다(플랜에 따라
 // 팀 정원이 달라지므로 맥락상 여기가 자연스럽고, 사이드바 메뉴 5개 이내
@@ -5675,6 +5825,8 @@ function route() {
   if (path === '#/invite') { renderInviteAccept(app); return; }
   if (path === '#/admin') { renderAdminDashboard(app); return; }
   if (path === '#/admin/members') { renderAdminMembers(app); return; }
+  if (path === '#/admin/tech-spec') { renderAdminTechSpec(app); return; }
+  if (path === '#/admin/integrations') { renderAdminIntegrations(app); return; }
   const adminMemberDetailMatch = path.match(/^#\/admin\/members\/(.+)$/);
   if (adminMemberDetailMatch) {
     renderAdminMemberDetail(app, decodeURIComponent(adminMemberDetailMatch[1]));

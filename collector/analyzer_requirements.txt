@@ -1,0 +1,18 @@
+# 이 파일은 analyzer/requirements.txt의 사본이다. 운영 배포(Render, distroless
+# 이미지)에는 Python이 아예 없어 apiserver가 런타임에 analyzer/requirements.txt를
+# 읽을 수 없다 — 그래서 기술 스펙 화면(#/admin/tech-spec)이 go:embed로 내장해
+# 보여줄 수 있도록 이 사본을 collector 모듈 안에 둔다.
+#
+# analyzer/requirements.txt를 바꾸면 이 파일도 함께(수동으로) 갱신할 것.
+#
+# ---- 아래부터 analyzer/requirements.txt 원본 내용 ----
+cryptography==48.0.1
+pypdfium2==5.11.0
+
+pdfplumber==0.11.10        # PDF 텍스트/표 추출
+pyhwp==0.1b15              # 구형 .hwp(OLE2 바이너리) 파싱 — hwp5txt CLI로 호출
+six==1.17.0                # pyhwp가 six를 쓰지만 의존성으로 선언하지 않음(패키징 누락)
+hwp-hwpx-parser==1.0.0     # .hwpx(zip+XML) 파싱 — "python-hwpx"는 PyPI에 존재하지 않아 대체
+openpyxl==3.1.5            # .xlsx 처리
+psycopg2-binary==2.9.12    # Postgres 연결
+anthropic==0.120.2         # AI 기반 보완 추출(2차, ai_extract.py)

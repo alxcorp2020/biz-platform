@@ -1,3 +1,6 @@
+# 이 파일을 바꾸면 collector/analyzer_requirements.txt(기술 스펙 화면
+# #/admin/tech-spec이 go:embed로 내장해 보여주는 사본)도 함께 갱신할 것.
+#
 # macOS x86_64(Intel) 환경 참고: cryptography>=49와 pypdfium2>=5.12는
 # x86_64용 macOS 휠을 더 이상 배포하지 않아(arm64/universal2만 제공) 소스
 # 빌드가 필요해진다(Rust/OpenSSL 툴체인 요구). 아래 버전은 x86_64 macOS에

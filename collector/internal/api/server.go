@@ -130,6 +130,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/admin/dashboard", s.handleAdminDashboard)
 	mux.HandleFunc("GET /api/admin/members", s.handleAdminListMembers)
 	mux.HandleFunc("GET /api/admin/members/{id}", s.handleAdminGetMember)
+	mux.HandleFunc("GET /api/admin/changelog", s.handleAdminChangelog)
+	mux.HandleFunc("GET /api/admin/tech-spec", s.handleAdminTechSpec)
+	mux.HandleFunc("GET /api/admin/integrations", s.handleAdminIntegrations)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }
