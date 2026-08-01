@@ -821,3 +821,37 @@ CREATE TABLE reports (
     UNIQUE (company_profile_id, period_type, period_start)
 );
 CREATE INDEX idx_reports_profile ON reports(company_profile_id, period_start DESC);
+
+-- ------------------------------------------------------------
+-- 인앱 알림함 — notification_log(이메일/SMS 발송 이력, 채널별로 행이
+-- 갈라짐)와는 별개다. 여기는 "사용자가 화면에서 보는 알림 목록" 전용이라
+-- 채널 상관없이 이벤트 1건당 딱 1행만 쌓는다(같은 마감 리마인더가 이메일+
+-- SMS 두 통 나가도 인앱 알림함엔 한 번만 뜬다). company_profile_id는
+-- 조직 단위 이벤트(마감 리마인더/상태변경 — 같은 회사 팀원 전체에게
+-- 보임), user_id는 회원 단위 이벤트(추천 공고 다이제스트 — 받은 회원
+-- 본인에게만 보임)에 채운다. 정확히 하나만 채워지는 게 정상.
+-- ------------------------------------------------------------
+CREATE TABLE in_app_notifications (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id UUID REFERENCES company_profiles(id),
+    user_id            UUID REFERENCES users(id),
+    event_type         TEXT NOT NULL,
+    title              TEXT NOT NULL,
+    body               TEXT NOT NULL,
+    pipeline_entry_id  UUID REFERENCES notice_pipeline_entries(id),
+    notice_id          UUID REFERENCES notices(id),
+    read_at            TIMESTAMPTZ,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT in_app_notifications_scope_check CHECK (
+        (company_profile_id IS NOT NULL AND user_id IS NULL) OR
+        (company_profile_id IS NULL AND user_id IS NOT NULL)
+    )
+);
+CREATE INDEX idx_in_app_notifications_profile ON in_app_notifications(company_profile_id, created_at DESC);
+CREATE INDEX idx_in_app_notifications_user ON in_app_notifications(user_id, created_at DESC);
+-- 배치가 하루에 여러 번(수동 재실행 포함) 돌아도 중복 적재되지 않게
+-- 막는 dedup은 DB 제약이 아니라 애플리케이션 코드(insertInAppNotification
+-- 호출부)가 EXISTS 조회로 판단한다 — 이벤트 종류마다 "같은 알림"의 기준이
+-- 달라서(마감 리마인더는 event_type+entry, 상태변경은 event_type+entry+
+-- 새 상태값, 다이제스트는 event_type+user+날짜) 단일 UNIQUE 인덱스로는
+-- 표현이 안 된다. notification_log의 기존 EXISTS dedup 패턴과 동일.

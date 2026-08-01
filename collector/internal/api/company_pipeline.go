@@ -465,7 +465,7 @@ func (s *Server) handleUpdatePipelineEntry(w http.ResponseWriter, r *http.Reques
 	// entry.AssigneeEmail/Phone을 더 이상 확인하지 않는다.
 	if statusChanged {
 		title, noticeID, status := entry.NoticeTitle, entry.NoticeID, entry.Status
-		go s.notifyAssigneeStatusChange(context.Background(), profile.ID, entryID, noticeID, title, status)
+		go s.notifyAssigneeStatusChange(context.Background(), profile.ID, entryID, noticeID, title, currentStatus, status)
 	}
 
 	writeJSON(w, http.StatusOK, entry)

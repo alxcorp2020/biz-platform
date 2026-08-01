@@ -44,9 +44,12 @@ func (s *Server) RunDailyNotifications(ctx context.Context) {
 	emailReady := s.notify != nil && s.notify.Configured()
 	smsReady := s.smsNotify != nil && s.smsNotify.Configured()
 	if !emailReady && !smsReady {
-		s.logger.Warn("notify: RESEND_API_KEY/ALIGO_API_KEY 모두 설정되지 않아 알림 배치를 건너뜁니다")
-		return
+		s.logger.Warn("notify: RESEND_API_KEY/ALIGO_API_KEY 모두 설정되지 않아 이메일/SMS는 건너뜁니다(인앱 알림함은 그대로 채워짐)")
 	}
+	// 이메일/SMS가 둘 다 꺼져 있어도 마감 리마인더/상태변경 배치는 계속
+	// 돈다 — 인앱 알림함(Phase 5)은 발송 채널과 무관하게 항상 채워야
+	// 하고, sendNotificationEmail/SMS는 클라이언트가 nil이면 각자 알아서
+	// 조용히 스킵한다(기존 관례).
 	if err := s.sendDeadlineReminders(ctx, 7, notifyEventDeadlineD7); err != nil {
 		s.logger.Error("notify: D-7 reminder batch failed", "error", err)
 	}
@@ -112,6 +115,15 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 
 	for _, t := range targets {
 		entryID, noticeID := t.entryID, t.noticeID
+
+		// 인앱 알림함은 이메일/SMS 채널 토글과 무관하게 항상 남는다 — 로그인
+		// 자체가 "받아볼 채널"이라 담당자별 email/sms 설정을 따로 타지 않는다.
+		inAppTitle := fmt.Sprintf("제출마감 D-%d · %s", offsetDays, t.title)
+		inAppBody := fmt.Sprintf("발주기관: %s", t.org.String)
+		if err := s.insertEntryScopedInAppNotification(ctx, t.profileID, eventType, entryID, noticeID, inAppTitle, inAppBody); err != nil {
+			s.logger.Error("notify: in-app notification insert failed", "error", err)
+		}
+
 		contacts, err := s.fetchNotifiableContacts(ctx, t.profileID, eventType, entryID)
 		if err != nil {
 			s.logger.Error("notify: contact lookup failed", "error", err)
@@ -317,10 +329,20 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 
 			subject := fmt.Sprintf("오늘의 추천 공고 %d건", len(matched))
 			var itemsHTML string
+			titlesForInApp := make([]string, 0, len(matched))
 			for _, n := range matched {
 				itemsHTML += fmt.Sprintf("<li><b>%s</b> (%s)</li>", html.EscapeString(n.title), html.EscapeString(n.org.String))
+				titlesForInApp = append(titlesForInApp, n.title)
 			}
 			body := fmt.Sprintf("<p>참여를 권장하는 신규 공고 %d건이 발견되었습니다.</p><ul>%s</ul>", len(matched), itemsHTML)
+
+			inAppBody := strings.Join(titlesForInApp, " · ")
+			if len(titlesForInApp) > 3 {
+				inAppBody = strings.Join(titlesForInApp[:3], " · ") + fmt.Sprintf(" 외 %d건", len(titlesForInApp)-3)
+			}
+			if err := s.insertDigestInAppNotification(ctx, m.userID, subject, inAppBody); err != nil {
+				s.logger.Error("notify: digest in-app notification insert failed", "error", err)
+			}
 
 			sendErr := s.notify.Send(ctx, m.email, subject, body)
 			status, errMsg := "sent", sql.NullString{}
@@ -417,7 +439,12 @@ func (s *Server) fetchDigestedNoticeIDs(ctx context.Context, userID string) (map
 // 엔트리 자체의 assignee_email/assignee_phone 한 명이 아니라, 이 회사에
 // 등록된 담당자(company_contacts) 중 채널별 알림이 켜진 사람 전부다
 // (담당자별 개별 설정 재설계) — fetchNotifiableContacts를 그대로 재사용한다.
-func (s *Server) notifyAssigneeStatusChange(ctx context.Context, profileID, pipelineEntryID, noticeID, noticeTitle, newStatus string) {
+func (s *Server) notifyAssigneeStatusChange(ctx context.Context, profileID, pipelineEntryID, noticeID, noticeTitle, oldStatus, newStatus string) {
+	inAppTitle := fmt.Sprintf("상태변경: %s → %s", oldStatus, newStatus)
+	if err := s.insertEntryScopedInAppNotification(ctx, profileID, notifyEventAssigneeStatusChange, pipelineEntryID, noticeID, inAppTitle, noticeTitle); err != nil {
+		s.logger.Error("notify: status-change in-app notification insert failed", "error", err)
+	}
+
 	contacts, err := s.fetchNotifiableContacts(ctx, profileID, notifyEventAssigneeStatusChange, pipelineEntryID)
 	if err != nil {
 		s.logger.Error("notify: assignee-status-change contact lookup failed", "error", err)

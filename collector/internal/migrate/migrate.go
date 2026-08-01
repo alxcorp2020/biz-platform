@@ -132,7 +132,38 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureNotificationLogContactIDColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate notification_log.contact_id column: %w", err)
 	}
+	if err := ensureInAppNotificationsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate in_app_notifications table: %w", err)
+	}
 	return nil
+}
+
+// ensureInAppNotificationsTable adds in_app_notifications — "인앱 알림함"
+// 전용 테이블(notification_log와 별개, db/migrations/001_init.sql 주석
+// 참고: 채널별로 갈라지지 않고 이벤트 1건당 1행만 쌓는다). CREATE TABLE
+// IF NOT EXISTS makes this idempotent for DBs created before this migration.
+func ensureInAppNotificationsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS in_app_notifications (
+			id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id UUID REFERENCES company_profiles(id),
+			user_id            UUID REFERENCES users(id),
+			event_type         TEXT NOT NULL,
+			title              TEXT NOT NULL,
+			body               TEXT NOT NULL,
+			pipeline_entry_id  UUID REFERENCES notice_pipeline_entries(id),
+			notice_id          UUID REFERENCES notices(id),
+			read_at            TIMESTAMPTZ,
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+			CONSTRAINT in_app_notifications_scope_check CHECK (
+				(company_profile_id IS NOT NULL AND user_id IS NULL) OR
+				(company_profile_id IS NULL AND user_id IS NOT NULL)
+			)
+		);
+		CREATE INDEX IF NOT EXISTS idx_in_app_notifications_profile ON in_app_notifications(company_profile_id, created_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_in_app_notifications_user ON in_app_notifications(user_id, created_at DESC);
+	`)
+	return err
 }
 
 // ensurePaymentMethodColumn adds payment_log.payment_method — Toss의 결제

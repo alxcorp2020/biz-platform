@@ -85,7 +85,7 @@
     padding: 0.3rem 0.75rem; border-radius: 999px;
     font-size: var(--text-caption); font-weight: 700; white-space: nowrap; line-height: 1.3;
   }
-  .badge--blue { background: rgba(46,90,172,0.12); color: var(--accent-blue); }
+  .badge--blue { background: rgba(49,130,246,0.12); color: var(--accent-blue); }
   .badge--success { background: rgba(31,138,95,0.12); color: var(--success); }
   .badge--warn { background: rgba(196,132,29,0.12); color: var(--warn); }
   .badge--danger { background: rgba(192,57,43,0.12); color: var(--danger); }
@@ -138,7 +138,7 @@
   .step-indicator { display: flex; align-items: center; }
   .step-indicator-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
   .step-indicator-dot.is-done { background: var(--accent-blue); }
-  .step-indicator-dot.is-current { background: var(--accent-blue); box-shadow: 0 0 0 3px rgba(46,90,172,0.2); }
+  .step-indicator-dot.is-current { background: var(--accent-blue); box-shadow: 0 0 0 3px rgba(49,130,246,0.2); }
   .step-indicator-dot.is-danger { background: var(--danger); }
   .step-indicator-line { flex: 1; height: 2px; background: var(--border); min-width: 10px; }
   .step-indicator-line.is-done { background: var(--accent-blue); }
@@ -204,9 +204,16 @@
     color: var(--ink-soft); text-decoration: none; font-weight: 600; font-size: var(--text-body);
   }
   .sidebar-menu-item:hover { background: var(--bg-soft); color: var(--ink); }
-  .sidebar-menu-item.is-active { background: rgba(46,90,172,0.10); color: var(--accent-blue); }
-  .sidebar-menu-icon { display: flex; flex-shrink: 0; width: 20px; height: 20px; }
+  .sidebar-menu-item.is-active { background: rgba(49,130,246,0.10); color: var(--accent-blue); }
+  .sidebar-menu-icon { display: flex; flex-shrink: 0; width: 20px; height: 20px; position: relative; }
   .sidebar-menu-icon svg { width: 100%; height: 100%; }
+  /* 읽지 않은 알림 개수 배지 — 사이드바/탭바 아이콘 오른쪽 위에 겹쳐 표시.
+     setNotificationBadge()가 카운트에 따라 만들었다 지웠다 한다. */
+  .nav-badge {
+    position: absolute; top: -4px; right: -6px; min-width: 15px; height: 15px;
+    padding: 0 3px; border-radius: 999px; background: var(--danger); color: #fff;
+    font-size: 0.6rem; font-weight: 700; line-height: 15px; text-align: center;
+  }
   .sidebar-footer { border-top: 1px solid var(--border); padding-top: var(--space-md); margin-top: var(--space-md); }
   .sidebar-user-email {
     font-size: var(--text-caption); color: var(--ink-soft); padding: 0 0.5rem;
@@ -230,7 +237,7 @@
     }
     .tabbar-item.is-active { color: var(--accent-blue); }
     .tabbar-icon {
-      display: flex; align-items: center; justify-content: center;
+      display: flex; align-items: center; justify-content: center; position: relative;
       width: 32px; height: 32px; border-radius: 50%;
       transition: background-color .15s ease;
     }
@@ -404,6 +411,14 @@
   .notice-batch-count { font-size: var(--text-caption); font-weight: 700; color: var(--ink-soft); white-space: nowrap; }
   .notice-batch-rule { flex: 1; height: 1px; background: var(--border); }
 
+  /* ---------- 알림함(#/notifications) ---------- */
+  .notification-row--unread { background: rgba(49,130,246,0.04); }
+  .notification-row--unread .row-card-title { font-weight: 800; }
+  .notification-unread-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent-blue); margin-right: 0.4rem; vertical-align: middle;
+  }
+
   /* ---------- 관심공고(북마크) ---------- */
   .bookmark-btn {
     background: none;
@@ -429,7 +444,7 @@
     font-weight: 600;
     font-size: 0.78rem;
     white-space: nowrap;
-    background: rgba(46,90,172,0.10);
+    background: rgba(49,130,246,0.10);
     color: var(--accent-blue);
   }
   .dday-badge--danger { background: rgba(192,57,43,0.10); color: var(--danger); }
@@ -660,7 +675,7 @@
   .ai-participation-card--needs_review,
   .ai-participation-card--joint_venture_review { border-color: rgba(196,132,29,0.35); background: rgba(196,132,29,0.04); }
   .ai-participation-card--not_recommended { border-color: rgba(192,57,43,0.35); background: rgba(192,57,43,0.04); }
-  .ai-participation-card--conditional { border-color: rgba(46,90,172,0.35); background: rgba(46,90,172,0.04); }
+  .ai-participation-card--conditional { border-color: rgba(49,130,246,0.35); background: rgba(49,130,246,0.04); }
   .ai-participation-card--needs_confirmation { border-color: var(--border); background: var(--bg-soft); }
   .ai-participation-card--cta { text-align: center; }
   .ai-participation-cta-text { margin: 0 0 1.1rem; color: var(--ink-soft); font-size: 0.95rem; }
@@ -957,7 +972,7 @@
     white-space: nowrap;
   }
   .extraction-method-badge--rule { background: var(--bg-soft); color: var(--ink-soft); }
-  .extraction-method-badge--ai { background: rgba(46,90,172,0.10); color: var(--accent-blue); }
+  .extraction-method-badge--ai { background: rgba(49,130,246,0.10); color: var(--accent-blue); }
   .document-item--reference {
     background: rgba(196,132,29,0.07);
     border-radius: 8px;
@@ -1045,7 +1060,7 @@
     font-weight: 700;
     padding: 0.2rem 0.6rem;
     border-radius: 999px;
-    background: rgba(46,90,172,0.10);
+    background: rgba(49,130,246,0.10);
     color: var(--accent-blue);
     white-space: nowrap;
   }
@@ -1350,7 +1365,7 @@
     display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
     font-size: 0.72rem; font-weight: 700;
   }
-  .confidence-badge--a { background: rgba(46,90,172,0.12); color: var(--accent-blue); }
+  .confidence-badge--a { background: rgba(49,130,246,0.12); color: var(--accent-blue); }
   .confidence-badge--b { background: rgba(31,138,95,0.10); color: var(--success); }
   .confidence-badge--c { background: var(--bg-soft); color: var(--ink-soft); }
   .confidence-badge--d { background: rgba(196,132,29,0.12); color: var(--warn); }
@@ -1435,7 +1450,7 @@
   .plan-card-features li { padding: 0.35rem 0; }
   .plan-current-badge {
     display: inline-block; padding: 0.35rem 0.9rem; border-radius: 999px;
-    background: rgba(46,90,172,0.10); color: var(--accent-blue); font-size: 0.85rem; font-weight: 700;
+    background: rgba(49,130,246,0.10); color: var(--accent-blue); font-size: 0.85rem; font-weight: 700;
   }
   .plan-subscribe-btn {
     padding: 0.65rem 1.4rem; border: 1px solid var(--accent-blue); background: var(--accent-blue);
@@ -1633,31 +1648,34 @@ const SIDEBAR_ICONS = {
   user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
   chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>',
   calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
 };
 // SIDEBAR_MENU — 원래 5개 고정이었으나(모바일 TABBAR_MENU와의 통일된
 // 제약), 성장분석 추가 시 사용자가 "임베드"가 아니라 "새 메뉴 항목"을
 // 명시적으로 선택해(5개 제약 미리보기를 보여준 뒤 확인) 6개로 늘렸다.
-// TABBAR_MENU는 그대로 5개 유지 — 모바일에서는 기존에 구독관리도 탭바에
-// 없었던 것과 같은 이유로 auth-nav 헤더 링크로만 노출한다.
+// Phase 5(인앱 알림함) 추가로 7개. TABBAR_MENU는 그대로 5개 유지 —
+// 모바일에서는 기존에 구독관리도 탭바에 없었던 것과 같은 이유로 auth-nav
+// 헤더 링크로만 노출한다.
 const SIDEBAR_MENU = [
   { path: '#/', label: '홈', icon: 'home' },
   { path: '#/notices', label: '공고 검색', icon: 'search' },
   { path: '#/pipeline', label: '진행 중 사업', icon: 'pipeline' },
+  { path: '#/notifications', label: '알림', icon: 'bell' },
   { path: '#/calendar', label: '캘린더', icon: 'calendar' },
   { path: '#/me/profile', label: '기업 프로필', icon: 'profile' },
   { path: '#/growth', label: '성장분석', icon: 'chart' },
   { path: '#/me/subscription', label: '구독 관리', icon: 'card' },
 ];
 // 모바일 하단 탭바 — PC 사이드바와 다른 5개 구성(요청사항). '진행중'/
-// '내정보'는 사이드바의 파이프라인/프로필과 동일 라우트, '관심공고'는
-// 원래 요청한 "알림" 자리를 대신한다(인앱 알림 목록 화면이 아직 없어
-// 이미 있는 #/me/bookmarks로 연결하기로 결정 — 라벨도 실제 목적지에
-// 맞게 "관심공고"로).
+// '내정보'는 사이드바의 파이프라인/프로필과 동일 라우트. '관심공고'가
+// 원래 이 자리(원래 요청한 "알림")를 대신하고 있었는데, 인앱 알림함이
+// 생기면서 제자리를 찾았다 — 관심공고는 auth-nav 헤더 링크(모바일
+// 햄버거)로 계속 노출된다(원래 거기 있었음, 안 없어짐).
 const TABBAR_MENU = [
   { path: '#/', label: '홈', icon: 'home' },
   { path: '#/notices', label: '검색', icon: 'search' },
   { path: '#/pipeline', label: '진행중', icon: 'pipeline' },
-  { path: '#/me/bookmarks', label: '관심공고', icon: 'bookmark' },
+  { path: '#/notifications', label: '알림', icon: 'bell' },
   { path: '#/me/profile', label: '내정보', icon: 'user' },
 ];
 
@@ -2054,6 +2072,35 @@ async function loadMe() {
     currentProfile = null;
   }
   renderHeader();
+  if (currentUser) refreshUnreadNotificationCount();
+}
+
+// setNotificationBadge — 사이드바/탭바의 "알림" 아이콘 위에 안읽음
+// 개수를 작은 배지로 겹쳐 그린다(0이면 배지 자체를 지운다). 두 nav 모두
+// data-path="#/notifications"인 아이템 안의 아이콘 wrapper를 찾아서 붙인다.
+function setNotificationBadge(count) {
+  document.querySelectorAll('[data-path="#/notifications"]').forEach(item => {
+    const iconWrap = item.querySelector('.sidebar-menu-icon, .tabbar-icon');
+    if (!iconWrap) return;
+    let badge = iconWrap.querySelector('.nav-badge');
+    if (count > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'nav-badge';
+        iconWrap.appendChild(badge);
+      }
+      badge.textContent = count > 99 ? '99+' : String(count);
+    } else if (badge) {
+      badge.remove();
+    }
+  });
+}
+
+async function refreshUnreadNotificationCount() {
+  try {
+    const data = await apiRequest('GET', '/api/me/notifications/unread-count');
+    setNotificationBadge(data.count || 0);
+  } catch (err) { /* 배지 하나 실패했다고 화면을 막을 일은 아님 — 조용히 무시 */ }
 }
 
 const REVIEWER_ROLES = ['analyst', 'operator', 'system_admin'];
@@ -4127,6 +4174,154 @@ async function renderBookmarks(container) {
       }
     },
   });
+}
+
+// ---------- 알림함(#/notifications, Phase 5) ----------
+// NOTIFICATION_ICONS — event_type 접두어별 원형 아이콘. deadline_d7/d3/d1은
+// 전부 "deadline_"로 시작해서 접두어 매칭 하나로 묶는다.
+const NOTIFICATION_ICON_MAP = [
+  ['deadline_', LIST_ROW_ICONS.pipeline],
+  ['assignee_status_change', LIST_ROW_ICONS.notice_change],
+  ['recommendation_digest', LIST_ROW_ICONS.license_expiring],
+];
+function notificationIconHtml(eventType) {
+  const found = NOTIFICATION_ICON_MAP.find(([prefix]) => eventType.startsWith(prefix));
+  return found ? found[1] : LIST_ROW_ICONS.pipeline;
+}
+
+let notificationListState = null; // { batches, offset, limit, total, hasMore, loading, unreadOnly }
+
+async function renderNotifications(container) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="report-actions">
+      <h2 style="margin:0">알림</h2>
+      <div class="license-toolbar">
+        <button type="button" class="btn btn-secondary btn-sm" id="notif-filter-all">전체</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="notif-filter-unread">안읽음</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="notif-mark-all-read">모두 읽음</button>
+      </div>
+    </div>
+    <div id="notif-list-body">${skeletonListHtml(4)}</div>
+  `));
+
+  const setActiveFilter = (unreadOnly) => {
+    document.getElementById('notif-filter-all').classList.toggle('btn-primary', !unreadOnly);
+    document.getElementById('notif-filter-unread').classList.toggle('btn-primary', unreadOnly);
+  };
+  document.getElementById('notif-filter-all').addEventListener('click', () => startNotificationList(container, false));
+  document.getElementById('notif-filter-unread').addEventListener('click', () => startNotificationList(container, true));
+  document.getElementById('notif-mark-all-read').addEventListener('click', async () => {
+    try {
+      await apiRequest('POST', '/api/me/notifications/read-all');
+      startNotificationList(container, notificationListState ? notificationListState.unreadOnly : false);
+      refreshUnreadNotificationCount();
+    } catch (err) { /* 무시 — 목록은 그대로 남아있으니 다시 시도 가능 */ }
+  });
+
+  startNotificationList(container, false);
+  setActiveFilter(false);
+
+  function startNotificationList(root, unreadOnly) {
+    setActiveFilter(unreadOnly);
+    notificationListState = { batches: [], offset: 0, limit: 20, total: 0, hasMore: true, loading: false, unreadOnly };
+    loadMoreNotifications(root.querySelector('#notif-list-body'));
+  }
+}
+
+async function loadMoreNotifications(listBody) {
+  const state = notificationListState;
+  if (!state || state.loading || !state.hasMore) return;
+  state.loading = true;
+  renderNotificationControl(listBody);
+
+  const params = new URLSearchParams();
+  params.set('offset', String(state.offset));
+  params.set('limit', String(state.limit));
+  if (state.unreadOnly) params.set('unreadOnly', 'true');
+
+  try {
+    const data = await fetchJSON('/api/me/notifications?' + params.toString());
+    if (notificationListState !== state) return; // 그 사이 필터가 바뀜 — 결과 버림
+    const items = data.items || [];
+    if (items.length) state.batches.push(items);
+    state.offset += items.length;
+    state.total = data.total || 0;
+    state.hasMore = !!data.hasMore;
+    state.loading = false;
+    renderNotificationItems(listBody, state.batches);
+  } catch (err) {
+    state.loading = false;
+    if (!state.batches.length) {
+      listBody.className = 'error';
+      listBody.innerHTML = '';
+      listBody.textContent = err.message;
+    } else {
+      renderNotificationControl(listBody);
+    }
+  }
+}
+
+function notificationRowHtml(n) {
+  const target = n.pipelineEntryId ? '#/pipeline/' + n.pipelineEntryId
+    : n.noticeId ? '#/notices/' + n.noticeId : '#/notices';
+  return `
+    <div class="row-card notification-row${n.read ? '' : ' notification-row--unread'}" data-id="${escapeAttr(n.id)}" data-target="${escapeAttr(target)}">
+      <span class="row-card-icon">${notificationIconHtml(n.eventType)}</span>
+      <div class="row-card-main">
+        <div class="row-card-title">${n.read ? '' : '<span class="notification-unread-dot"></span>'}${escapeHtml(n.title)}</div>
+        <div class="row-card-subtitle">${escapeHtml(n.body)} · ${escapeHtml(formatDateTime(n.createdAt))}</div>
+      </div>
+      <span class="row-card-arrow">›</span>
+    </div>
+  `;
+}
+
+function renderNotificationItems(listBody, batches) {
+  const totalCount = batches.reduce((sum, b) => sum + b.length, 0);
+  if (!totalCount) {
+    listBody.className = 'empty';
+    listBody.innerHTML = '';
+    listBody.textContent = '받은 알림이 없습니다.';
+    return;
+  }
+  const batchesHtml = batches.map(batch => `
+    <div class="notice-batch-header"><span class="notice-batch-count">${batch.length}건</span><span class="notice-batch-rule"></span></div>
+    <div class="notice-list">${batch.map(notificationRowHtml).join('')}</div>
+  `).join('');
+  listBody.className = '';
+  listBody.innerHTML = '';
+  listBody.appendChild(h(`${batchesHtml}<div id="notif-list-more-control"></div>`));
+  renderNotificationControl(listBody);
+  listBody.querySelectorAll('.notification-row').forEach(row => {
+    row.addEventListener('click', async () => {
+      const id = row.dataset.id;
+      if (row.classList.contains('notification-row--unread')) {
+        row.classList.remove('notification-row--unread');
+        const dot = row.querySelector('.notification-unread-dot');
+        if (dot) dot.remove();
+        try { await apiRequest('POST', '/api/me/notifications/' + encodeURIComponent(id) + '/read'); } catch (err) { /* 무시 */ }
+        refreshUnreadNotificationCount();
+      }
+      location.hash = row.dataset.target;
+    });
+  });
+}
+
+function renderNotificationControl(listBody) {
+  const control = listBody.querySelector('#notif-list-more-control');
+  if (!control || !notificationListState) return;
+  const state = notificationListState;
+  if (state.loading) {
+    control.innerHTML = `<p class="notice-list-sentinel">불러오는 중...</p>`;
+    return;
+  }
+  if (!state.hasMore) {
+    control.innerHTML = state.batches.length ? `<p class="notice-list-sentinel">모든 알림을 불러왔습니다.</p>` : '';
+    return;
+  }
+  control.innerHTML = `<button type="button" class="btn btn-secondary btn-block" id="notif-list-more-btn">더보기</button>`;
+  control.querySelector('#notif-list-more-btn').addEventListener('click', () => loadMoreNotifications(listBody));
 }
 
 // renderProfileCompletenessCard — 기업 프로필 화면 상단 요약 카드.
@@ -6612,6 +6807,7 @@ function route() {
   if (path === '#/auth/login') { renderLogin(app); return; }
   if (path === '#/me/profile') { renderProfile(app); return; }
   if (path === '#/me/bookmarks') { renderBookmarks(app); return; }
+  if (path === '#/notifications') { renderNotifications(app); return; }
   if (path === '#/me/licenses') { renderLicenses(app); return; }
   if (path === '#/review') { renderReviewQueue(app); return; }
   if (path === '#/notices') { renderList(app); return; }
