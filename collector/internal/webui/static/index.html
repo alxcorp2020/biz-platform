@@ -1398,7 +1398,14 @@ function renderSidebar() {
   const footer = document.getElementById('sidebar-footer');
   footer.innerHTML = '';
   if (currentUser) {
+    // 관리자 화면은 SIDEBAR_MENU(고정 6개)에 넣지 않고 system_admin
+    // 계정에게만 여기(sidebar-footer)에 조건부로 노출한다 — 일반 사용자
+    // 눈에는 아예 안 보이는 게 맞는 기능이라 항상 보이는 메뉴 자리를
+    // 차지할 이유가 없음.
+    const adminLinkHtml = currentUser.role === 'system_admin'
+      ? '<a href="#/admin" class="sidebar-menu-item" style="margin-bottom:0.5rem">관리자</a>' : '';
     footer.appendChild(h(`
+      ${adminLinkHtml}
       <div class="sidebar-user-email">${escapeHtml(currentUser.email)}</div>
       <button type="button" id="sidebar-logout-btn" class="btn btn-ghost btn-block">로그아웃</button>
     `));
@@ -1779,8 +1786,10 @@ function renderHeader() {
   if (currentUser) {
     nav.innerHTML = '';
     const reviewLink = REVIEWER_ROLES.includes(currentUser.role) ? '<a href="#/review">검토 대기</a>' : '';
+    const adminLink = currentUser.role === 'system_admin' ? '<a href="#/admin">관리자</a>' : '';
     nav.appendChild(h(`
       ${reviewLink}
+      ${adminLink}
       <a href="#/pipeline">진행 중 사업</a>
       <a href="#/me/bookmarks">관심공고</a>
       <a href="#/me/profile">내 프로필</a>
@@ -5246,6 +5255,263 @@ async function renderGrowthAnalytics(container) {
   `));
 }
 
+// ---------- 관리자(#/admin) — users.role='system_admin' 전용 ----------
+// 접근 자체는 백엔드(requireSystemAdmin)가 403으로 막지만, 프론트에서도
+// 403/401을 명확한 안내로 보여준다(로그인 화면으로 튕기거나 "권한 없음"
+// 문구) — system_admin이 아닌 사용자가 URL을 직접 쳐서 들어와도 빈
+// 화면이나 계속 도는 로딩바 대신 이유를 알 수 있게.
+async function renderAdminDashboard(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/dashboard');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    if (err.status === 403) {
+      container.appendChild(h('<p class="error">관리자 권한이 필요합니다.</p>'));
+      return;
+    }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const tiles = [
+    { label: '전체 회원', value: data.totalMembers + '명' },
+    { label: '이번달 신규가입', value: data.newMembersThisMonth + '명' },
+    { label: '이번달 결제 매출', value: formatBudget(data.revenueThisMonthKRW) },
+    { label: '이번달 AI 분석 사용', value: data.aiAnalysisThisMonth + '건' },
+  ];
+  const tilesHtml = tiles.map(t => `
+    <div class="dash-tile">
+      <div class="dash-tile-count">${escapeHtml(t.value)}</div>
+      <div class="dash-tile-label">${escapeHtml(t.label)}</div>
+    </div>
+  `).join('');
+
+  const planOrder = ['free', 'basic', 'pro', 'business'];
+  const dist = data.planDistribution || {};
+  const maxPlanCount = Math.max(1, ...planOrder.map(p => dist[p] || 0));
+  const planBars = planOrder.map(p => `
+    <div class="growth-bar-row">
+      <span class="growth-bar-label">${escapeHtml(PLAN_DISPLAY_NAMES[p] || p)}</span>
+      <span class="growth-bar-track"><span class="growth-bar-fill" style="width:${((dist[p] || 0) / maxPlanCount * 100).toFixed(0)}%"></span></span>
+      <span class="growth-bar-value">${dist[p] || 0}명</span>
+    </div>
+  `).join('');
+
+  const paymentRows = (data.recentPayments || []).map(adminPaymentCardHtml).join('');
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <h2>관리자 대시보드</h2>
+    <div class="dash-tiles">${tilesHtml}</div>
+    <div class="detail-card">
+      <h3>플랜별 회원 분포</h3>
+      <p class="license-card-meta">계정이 소속된 조직(구독 단위)의 플랜 기준입니다 — 같은 조직 팀원은 모두 같은 플랜으로 집계됩니다.</p>
+      ${planBars}
+    </div>
+    <div class="detail-card">
+      <h3>최근 결제 내역 (전체 회원)</h3>
+      <p class="license-card-meta">실제 Anthropic API 사용 비용(달러)은 이 화면에 없습니다 — <a href="https://platform.claude.com" target="_blank" rel="noopener">Claude Console(platform.claude.com)</a>에서 확인하세요.</p>
+      <div class="license-list">${paymentRows || '<p class="empty">결제 이력이 없습니다.</p>'}</div>
+      <a href="#/admin/members" class="official-link">전체 회원 관리 &rarr;</a>
+    </div>
+    <div class="detail-card" id="admin-system-status-section"></div>
+  `));
+
+  renderAdminSystemStatus(document.getElementById('admin-system-status-section'));
+}
+
+function adminPaymentCardHtml(p) {
+  const statusTone = p.status === '승인' ? 'badge--success' : (p.status === '취소' ? 'badge--gray' : 'badge--danger');
+  return `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(p.email)} · ${escapeHtml(p.planName || p.plan || '-')} <span class="badge ${statusTone}">${escapeHtml(p.status)}</span></div>
+        <div class="license-card-meta">${escapeHtml(formatDateTime(p.requestedAt))} · <span class="mono">${formatBudget(p.amount)}</span></div>
+      </div>
+    </div>
+  `;
+}
+
+// renderAdminSystemStatus — 기존엔 curl로만 실행 가능했던 관리자 배치
+// (알림/파이프라인 자동전환/낙찰이력 수집/예약 다운그레이드 적용)를
+// 버튼으로 수동 실행. 전부 매일 09:00 KST에 자동으로도 돈다 — 여기 버튼은
+// "지금 바로" 확인하고 싶을 때만 쓰는 보조 수단.
+function renderAdminSystemStatus(container) {
+  const actions = [
+    { path: '/api/admin/run-notifications', label: '이메일/SMS 알림 배치 실행' },
+    { path: '/api/admin/run-pipeline-auto-transitions', label: '파이프라인 자동전환 실행' },
+    { path: '/api/admin/run-award-history-ingestion', label: '낙찰이력 수집 실행' },
+    { path: '/api/admin/run-scheduled-downgrades', label: '예약된 플랜 다운그레이드 적용' },
+  ];
+  container.innerHTML = `
+    <h3>시스템 상태</h3>
+    <p class="license-card-meta">매일 09:00 KST에 자동 실행되는 배치를 지금 바로 수동 실행합니다.</p>
+    <div class="license-toolbar" style="flex-wrap:wrap">
+      ${actions.map(a => `<button type="button" class="btn btn-secondary btn-sm admin-action-btn" data-path="${escapeAttr(a.path)}">${escapeHtml(a.label)}</button>`).join('')}
+    </div>
+    <div id="admin-action-result"></div>
+  `;
+  const resultBox = document.getElementById('admin-action-result');
+  container.querySelectorAll('.admin-action-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      resultBox.innerHTML = '<div class="loading">실행 중...</div>';
+      try {
+        const result = await apiRequest('POST', btn.dataset.path, {});
+        resultBox.innerHTML = `<p class="success">완료: ${escapeHtml(JSON.stringify(result))}</p>`;
+      } catch (err) {
+        resultBox.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+      }
+      btn.disabled = false;
+    });
+  });
+}
+
+// renderAdminMembers — 전체 회원 목록(검색/필터). 필터 상태를 쿼리
+// 파라미터로 hash에 반영해 뒤로가기/새로고침에도 유지되게 한다(공고
+// 목록 필터와 같은 관례).
+async function renderAdminMembers(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const qParam = params.get('q') || '';
+  const planParam = params.get('plan') || '';
+
+  let data;
+  try {
+    const query = new URLSearchParams();
+    if (qParam) query.set('q', qParam);
+    if (planParam) query.set('plan', planParam);
+    data = await apiRequest('GET', '/api/admin/members' + (query.toString() ? '?' + query.toString() : ''));
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    if (err.status === 403) {
+      container.appendChild(h('<p class="error">관리자 권한이 필요합니다.</p>'));
+      return;
+    }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const items = data.items || [];
+  const rows = items.map(m => `
+    <div class="row-card admin-member-row" data-id="${escapeAttr(m.id)}">
+      <div class="row-card-main">
+        <div class="row-card-title">${escapeHtml(m.email)}</div>
+        <div class="row-card-subtitle">${escapeHtml(m.planName)} · 가입 ${escapeHtml(formatDate(m.createdAt))} · 마지막 로그인 ${m.lastLoginAt ? escapeHtml(formatDateTime(m.lastLoginAt)) : '기록 없음'}</div>
+      </div>
+      <span class="row-card-arrow">›</span>
+    </div>
+  `).join('');
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>회원 관리</h2>
+    <form id="admin-member-filter-form" class="profile-form" style="flex-direction:row;flex-wrap:wrap;gap:0.5rem;align-items:flex-end">
+      <label style="flex:1;min-width:180px">이메일 검색<input type="text" name="q" value="${escapeAttr(qParam)}" placeholder="이메일 일부 입력"></label>
+      <label style="min-width:140px">플랜<select name="plan">
+        <option value="">전체</option>
+        ${['free', 'basic', 'pro', 'business'].map(p => `<option value="${p}" ${planParam === p ? 'selected' : ''}>${escapeHtml(PLAN_DISPLAY_NAMES[p])}</option>`).join('')}
+      </select></label>
+      <button type="submit" class="btn btn-primary btn-sm">검색</button>
+    </form>
+    <p class="license-card-meta">${items.length}명</p>
+    <div class="notice-list">${rows || '<p class="empty">조건에 맞는 회원이 없습니다.</p>'}</div>
+  `));
+
+  document.getElementById('admin-member-filter-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const q = (fd.get('q') || '').trim();
+    const plan = fd.get('plan') || '';
+    const query = new URLSearchParams();
+    if (q) query.set('q', q);
+    if (plan) query.set('plan', plan);
+    location.hash = '#/admin/members' + (query.toString() ? '?' + query.toString() : '');
+  });
+
+  container.querySelectorAll('.admin-member-row').forEach(row => {
+    row.addEventListener('click', () => { location.hash = '#/admin/members/' + row.dataset.id; });
+  });
+}
+
+// renderAdminMemberDetail — 읽기 전용(수정 기능 없음, 요청 범위 밖).
+// 결제이력/파이프라인은 이 계정이 속한 조직 전체 데이터 — 개인이 아니라
+// 조직 단위 데이터라서(팀기능 원칙). 파이프라인 카드는 일부러 pipelineListRowHtml을
+// 재사용하지 않는다 — 그건 클릭 시 #/pipeline/{id}로 이동하는데, 관리자
+// 계정은 그 조직 멤버가 아니라서 접근 권한 검사(handleGetPipelineEntry)에
+// 걸려 404가 뜬다 — 그래서 클릭 불가능한 순수 카드로만 보여준다.
+async function renderAdminMemberDetail(container, id) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/members/' + encodeURIComponent(id));
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    if (err.status === 403) {
+      container.appendChild(h('<p class="error">관리자 권한이 필요합니다.</p>'));
+      return;
+    }
+    if (err.status === 404) {
+      container.appendChild(h('<p class="error">회원을 찾을 수 없습니다.</p>'));
+      return;
+    }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const paymentRows = (data.paymentHistory || []).map(p => `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(p.planName || p.plan || '-')} <span class="badge ${p.status === '승인' ? 'badge--success' : (p.status === '취소' ? 'badge--gray' : 'badge--danger')}">${escapeHtml(p.status)}</span></div>
+        <div class="license-card-meta">${escapeHtml(formatDateTime(p.requestedAt))} · <span class="mono">${formatBudget(p.amount)}</span></div>
+      </div>
+    </div>
+  `).join('');
+
+  const pipelineRows = (data.pipelineEntries || []).map(entry => `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(entry.noticeTitle)} ${pipelineStepIndicatorHtml(entry.status)}</div>
+        <div class="license-card-meta">${escapeHtml(entry.organizationName || '-')} · 담당자 ${escapeHtml(entry.assigneeName || '미지정')} · 마감 ${entry.submissionDeadline ? escapeHtml(entry.submissionDeadline) : '-'}</div>
+      </div>
+    </div>
+  `).join('');
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin/members" class="back-link">&larr; 회원 목록으로</a>
+    <div class="detail-card">
+      <p class="detail-eyebrow">${escapeHtml(data.role)}</p>
+      <h2>${escapeHtml(data.email)}</h2>
+      <dl class="detail-meta">
+        <div><dt>가입일</dt><dd>${escapeHtml(formatDateTime(data.createdAt))}</dd></div>
+        <div><dt>마지막 로그인</dt><dd>${data.lastLoginAt ? escapeHtml(formatDateTime(data.lastLoginAt)) : '기록 없음'}</dd></div>
+        <div><dt>플랜</dt><dd>${escapeHtml(data.planName)}</dd></div>
+      </dl>
+    </div>
+    <div class="detail-card">
+      <h3>결제 이력</h3>
+      <div class="license-list">${paymentRows || '<p class="empty">결제 이력이 없습니다.</p>'}</div>
+    </div>
+    <div class="detail-card">
+      <h3>파이프라인 현황</h3>
+      <div class="license-list">${pipelineRows || '<p class="empty">파이프라인 이력이 없습니다.</p>'}</div>
+    </div>
+  `));
+}
+
 // renderTeamSection — 팀 관리(구성원 목록 + owner면 초대 폼/제거 버튼).
 // 별도 최상위 메뉴를 추가하지 않고 "구독관리" 화면에 통합했다(플랜에 따라
 // 팀 정원이 달라지므로 맥락상 여기가 자연스럽고, 사이드바 메뉴 5개 이내
@@ -5407,6 +5673,13 @@ function route() {
   if (path === '#/me/subscription') { renderMySubscription(app); return; }
   if (path === '#/growth') { renderGrowthAnalytics(app); return; }
   if (path === '#/invite') { renderInviteAccept(app); return; }
+  if (path === '#/admin') { renderAdminDashboard(app); return; }
+  if (path === '#/admin/members') { renderAdminMembers(app); return; }
+  const adminMemberDetailMatch = path.match(/^#\/admin\/members\/(.+)$/);
+  if (adminMemberDetailMatch) {
+    renderAdminMemberDetail(app, decodeURIComponent(adminMemberDetailMatch[1]));
+    return;
+  }
   const pipelineDetailMatch = path.match(/^#\/pipeline\/(.+)$/);
   if (pipelineDetailMatch) {
     renderPipelineDetail(app, decodeURIComponent(pipelineDetailMatch[1]));

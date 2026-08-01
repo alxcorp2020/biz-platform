@@ -111,6 +111,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensurePendingPlanColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate subscriptions.pending_plan column: %w", err)
 	}
+	if err := ensureLastLoginColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate users.last_login_at column: %w", err)
+	}
 	return nil
 }
 
@@ -785,6 +788,15 @@ func ensurePendingPlanColumn(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS pending_plan TEXT
 			CHECK (pending_plan IN ('free','basic','pro','business'));
+	`)
+	return err
+}
+
+// ensureLastLoginColumn adds users.last_login_at — 관리자 화면(admin.go)
+// 회원목록의 "마지막 로그인" 컬럼 근거. handleLogin이 로그인 성공마다 갱신.
+func ensureLastLoginColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
 	`)
 	return err
 }

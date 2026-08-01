@@ -267,7 +267,8 @@ CREATE TABLE users (
     email_notifications_enabled BOOLEAN NOT NULL DEFAULT true,
     phone_number    TEXT,
     sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login_at   TIMESTAMPTZ -- 관리자 화면(admin.go)의 회원목록용. 이 컬럼이 생기기 전 로그인은 기록이 없어 NULL로 남는다(과거 소급 불가).
 );
 
 -- user_id는 최초 생성자 참조로만 남는다(과거 호환) — 실제 "누가 이

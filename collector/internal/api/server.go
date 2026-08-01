@@ -127,6 +127,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/billing/confirm", s.handleBillingConfirm)
 	mux.HandleFunc("POST /api/billing/cancel-downgrade", s.handleCancelDowngrade)
 	mux.HandleFunc("POST /api/admin/run-scheduled-downgrades", s.handleRunScheduledDowngrades)
+	mux.HandleFunc("GET /api/admin/dashboard", s.handleAdminDashboard)
+	mux.HandleFunc("GET /api/admin/members", s.handleAdminListMembers)
+	mux.HandleFunc("GET /api/admin/members/{id}", s.handleAdminGetMember)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }

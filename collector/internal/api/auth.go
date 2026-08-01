@@ -185,6 +185,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 관리자 화면(admin.go) 회원목록의 "마지막 로그인" 근거. 실패해도
+	// 로그인 자체를 막을 이유는 없어 에러만 로깅한다.
+	if _, err := s.db.ExecContext(r.Context(), `UPDATE users SET last_login_at = now() WHERE id = $1`, userID); err != nil {
+		s.logger.Error("login: last_login_at update failed", "error", err)
+	}
+
 	s.setSessionCookie(w, userID)
 	writeJSON(w, http.StatusOK, map[string]string{"id": userID, "email": email})
 }
