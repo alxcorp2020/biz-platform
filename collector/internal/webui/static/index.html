@@ -110,6 +110,14 @@
   .row-card-value { font-size: 1.4rem; font-weight: 800; color: var(--ink); white-space: nowrap; }
   .row-card-arrow { color: var(--border); font-size: 1.3rem; line-height: 1; }
   .row-card:hover .row-card-arrow { color: var(--accent-blue); }
+  @media (max-width: 640px) {
+    /* 좁은 화면에서는 제목만 1줄로 잘리고 부제는 2줄까지 나와 균형이
+       안 맞았다 — 제목도 2줄까지 허용해서 부제와 맞춘다. */
+    .row-card-title {
+      white-space: normal; display: -webkit-box; -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2; overflow: hidden;
+    }
+  }
 
   /* ---------- 스텝 인디케이터 (파이프라인 상태 등 단계형 진행 표시) ---------- */
   .step-indicator { display: flex; align-items: center; }
@@ -1173,7 +1181,11 @@
     border-color: var(--accent-blue);
     background-color: #fff;
   }
-  .auth-form button, .profile-form button {
+  /* :not(.btn) — .btn류 클래스가 붙은 버튼(.btn-secondary 등)은 이 기본
+     스타일에 덮이지 않고 자기 클래스 스타일을 그대로 유지해야 한다.
+     예전엔 이 규칙이 모든 button을 잡아서, 폼 안의 보조/취소 버튼도
+     전부 주요 액션처럼 파랗게 칠해지는 문제가 있었다. */
+  .auth-form button:not(.btn), .profile-form button:not(.btn) {
     padding: 0.75rem 1rem;
     border: 1px solid var(--accent-blue);
     background: var(--accent-blue);
@@ -1184,7 +1196,7 @@
     font-size: 0.92rem;
     margin-top: 0.5rem;
   }
-  .auth-form button:hover, .profile-form button:hover {
+  .auth-form button:not(.btn):hover, .profile-form button:not(.btn):hover {
     background: var(--accent-blue-deep);
     border-color: var(--accent-blue-deep);
   }
@@ -1261,10 +1273,11 @@
   /* ---------- 기업 프로필 탭(기본정보/재무정보/수행실적/인력정보) ---------- */
   .profile-tabs {
     display: flex; gap: 0.4rem; margin: 1rem 0 1.5rem; border-bottom: 1px solid var(--border);
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
   }
   .profile-tab-btn {
     padding: 0.6rem 1rem; border: none; background: none; cursor: pointer;
-    font-weight: 600; font-size: 0.9rem; color: var(--ink-soft);
+    font-weight: 600; font-size: 0.9rem; color: var(--ink-soft); white-space: nowrap; flex-shrink: 0;
     border-bottom: 2px solid transparent; margin-bottom: -1px;
   }
   .profile-tab-btn:hover { color: var(--ink); }
