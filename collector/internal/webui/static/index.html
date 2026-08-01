@@ -96,11 +96,20 @@
      단계에서. main(제목+부제) / value(강조 숫자·배지) / arrow 3구획. */
   .row-card {
     display: flex; align-items: center; justify-content: space-between; gap: var(--space-md);
-    padding: var(--space-md) 1.75rem; background: #fff; border: 1px solid var(--border);
-    border-radius: var(--radius-card); cursor: pointer;
-    transition: border-color .15s ease, box-shadow .15s ease;
+    padding: var(--space-md) 1.25rem; background: transparent; border: none;
+    border-bottom: 1px solid var(--border); cursor: pointer;
+    transition: background-color .15s ease;
   }
-  .row-card:hover { border-color: var(--accent-blue); box-shadow: 0 4px 16px rgba(20,33,61,0.08); }
+  .row-card:last-child { border-bottom: none; }
+  .row-card:hover { background-color: var(--bg-soft); }
+  .row-card-icon {
+    flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(49,130,246,0.08); color: var(--accent-blue);
+  }
+  .row-card-icon svg { width: 20px; height: 20px; }
+  .row-card-icon--danger { background: rgba(192,57,43,0.08); color: var(--danger); }
+  .row-card-icon--warn { background: rgba(196,132,29,0.08); color: var(--warn); }
   .row-card-main { flex: 1; min-width: 0; }
   .row-card-title {
     font-size: var(--text-body); font-weight: 700; color: var(--ink); margin: 0 0 0.3rem;
@@ -108,8 +117,7 @@
   }
   .row-card-subtitle { font-size: var(--text-caption); color: var(--ink-soft); }
   .row-card-side { display: flex; align-items: center; gap: 0.85rem; flex-shrink: 0; }
-  .row-card-value { font-size: 1.4rem; font-weight: 800; color: var(--ink); white-space: nowrap; }
-  .row-card-arrow { color: var(--border); font-size: 1.3rem; line-height: 1; }
+  .row-card-arrow { color: var(--border); font-size: 1.2rem; line-height: 1; }
   .row-card:hover .row-card-arrow { color: var(--accent-blue); }
   @media (max-width: 640px) {
     /* 좁은 화면에서는 제목만 1줄로 잘리고 부제는 2줄까지 나와 균형이
@@ -118,6 +126,12 @@
       white-space: normal; display: -webkit-box; -webkit-box-orient: vertical;
       -webkit-line-clamp: 2; overflow: hidden;
     }
+    /* 파이프라인 목록 행의 스텝 점 표시는 좁은 화면에서 제목 자리를
+       너무 많이 잡아먹는다(점 5개+선). 상태 라벨만 남기고 점은 상세
+       페이지(공간이 넉넉함)에만 남긴다. */
+    .pipeline-row .step-indicator-dot,
+    .pipeline-row .step-indicator-line { display: none; }
+    .pipeline-row .step-indicator-label { margin-left: 0; }
   }
 
   /* ---------- 스텝 인디케이터 (파이프라인 상태 등 단계형 진행 표시) ---------- */
@@ -374,8 +388,15 @@
   }
   .back-link:hover { text-decoration: underline; }
 
-  /* ---------- Notice card list ---------- */
-  .notice-list { display: flex; flex-direction: column; gap: var(--space-md); }
+  /* ---------- Notice row list — 바깥 카드 하나 + 구분선 행(토스 스타일) ----------
+     예전엔 이 안의 .row-card 각각이 개별 카드(테두리+그림자)였다. 이제는
+     .notice-list 자체가 카드(흰 배경+둥근 모서리+은은한 그림자)이고,
+     .row-card는 그 안에서 구분선으로만 나뉜 행이다. */
+  .notice-list {
+    display: flex; flex-direction: column;
+    background: #fff; border-radius: var(--radius-card); box-shadow: var(--shadow-soft);
+    overflow: hidden;
+  }
   .notice-list-sentinel { text-align: center; padding: var(--space-md) 0; color: var(--ink-soft); font-size: var(--text-caption); min-height: 1.5rem; }
 
   /* ---------- 관심공고(북마크) ---------- */
@@ -458,7 +479,7 @@
   .skeleton-line--reason { width: 85%; height: 0.8rem; margin-top: 0.4rem; }
   .skeleton-pill { width: 64px; height: 28px; border-radius: 999px; flex-shrink: 0; }
   .skeleton-row { cursor: default; }
-  .skeleton-row:hover { border-color: var(--border); box-shadow: var(--shadow-soft); }
+  .skeleton-row:hover { background-color: transparent; }
   .skeleton-meta-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -557,6 +578,11 @@
      작은 점 배지로만 표시 — 강조색은 파랑 하나로 통일하고 상태색은
      배지류에만 쓴다는 원칙(디자인 시스템)을 홈 통계 타일에도 맞춘다. */
   .dash-tile-count { font-size: 2.1rem; font-weight: 800; color: var(--ink); margin-bottom: 0.3rem; letter-spacing: -0.02em; }
+  @media (max-width: 640px) {
+    /* "98,000원"처럼 자릿수 긴 금액이 좁은 타일(2열)에서 단위까지
+       줄바꿈되는 걸 막는다. */
+    .dash-tile-count { font-size: 1.6rem; }
+  }
   .dash-tile-label { font-size: var(--text-caption); color: var(--ink-soft); font-weight: 500; display: flex; align-items: center; gap: 0.35rem; }
   .dash-tile-label::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: transparent; flex-shrink: 0; }
   .dash-tile--review .dash-tile-label::before { background: var(--warn); }
@@ -573,10 +599,6 @@
     font-size: 0.78rem;
     font-weight: 600;
   }
-
-  /* ---------- 진행 중 사업/공고 목록 카드형 리스트의 D-day 값 색상 ---------- */
-  .row-card-value--danger { color: var(--danger); }
-  .row-card-value--muted { color: var(--ink-soft); font-size: var(--text-caption); font-weight: 600; }
 
   /* ---------- 홈 "오늘 해야 할 일" — 토스 스타일 행(row) 리스트 ----------
      기존 row-card(각 행이 개별 카드)와 달리, 바깥 카드 하나 안에 행들을
@@ -822,7 +844,11 @@
   .calendar-week-col-events { display: flex; flex-direction: column; gap: 0.3rem; }
   .calendar-empty-hint { color: var(--ink-soft); font-size: 0.78rem; margin: 0; }
 
-  .calendar-day-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .calendar-day-list {
+    display: flex; flex-direction: column;
+    background: #fff; border-radius: var(--radius-card); box-shadow: var(--shadow-soft);
+    overflow: hidden;
+  }
 
   @media (max-width: 640px) {
     .calendar-week-grid { grid-template-columns: 1fr; }
@@ -1295,9 +1321,25 @@
   .growth-trend-table th, .growth-trend-table td { padding: 0.45rem 0.5rem; text-align: right; border-bottom: 1px solid var(--border); }
   .growth-trend-table th:first-child, .growth-trend-table td:first-child { text-align: left; }
   .growth-roi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-md); margin: 0.75rem 0; }
-  .growth-roi-tile { padding: var(--space-md); background: #fff; border: 1px solid var(--border); border-radius: var(--radius-card); }
-  .growth-roi-tile-value { font-size: 1.3rem; font-weight: 700; color: var(--ink); }
-  .growth-roi-tile-label { font-size: var(--text-caption); color: var(--ink-soft); margin-top: 0.2rem; }
+  .growth-roi-tile { padding: var(--space-md); background: #fff; border: none; border-radius: var(--radius-card); box-shadow: var(--shadow-soft); }
+  .growth-roi-tile-value { font-size: 1.7rem; font-weight: 800; color: var(--ink); letter-spacing: -0.01em; }
+  @media (max-width: 640px) {
+    /* 금액 숫자(쉼표 포함, 자릿수 김)가 좁은 타일 폭에서 단위까지
+       줄바꿈되는 걸 막는다. */
+    .growth-roi-tile-value { font-size: 1.25rem; }
+  }
+  .growth-roi-tile-label { font-size: var(--text-caption); color: var(--ink-soft); margin-top: 0.3rem; }
+
+  /* ---------- AI 등급 분포 도넛차트 — 외부 라이브러리 없이 순수 SVG ----------
+     stroke-dasharray로 원 둘레를 등급별 비율만큼 나눠 그린다. */
+  .donut-chart-wrap { display: flex; align-items: center; gap: var(--space-lg); flex-wrap: wrap; margin-top: 0.75rem; }
+  .donut-chart-total { font-size: 1.6rem; font-weight: 800; fill: var(--ink); }
+  .donut-chart-total-label { font-size: 0.72rem; fill: var(--ink-soft); }
+  .donut-legend { display: flex; flex-direction: column; gap: 0.55rem; flex: 1; min-width: 160px; }
+  .donut-legend-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+  .donut-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .donut-legend-label { flex: 1; color: var(--ink-soft); }
+  .donut-legend-value { font-weight: 700; color: var(--ink); }
   .license-card-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0.35rem; }
   .confidence-badge {
     display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
@@ -1346,8 +1388,8 @@
     padding-bottom: 1.1rem; border-bottom: 1px solid var(--border);
   }
   .completeness-summary-item { display: flex; flex-direction: column; }
-  .completeness-summary-value { font-size: 1.4rem; font-weight: 700; color: var(--navy); }
-  .completeness-summary-label { font-size: 0.8rem; color: var(--ink-soft); }
+  .completeness-summary-value { font-size: 2.1rem; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; }
+  .completeness-summary-label { font-size: 0.8rem; color: var(--ink-soft); margin-top: 0.15rem; }
   .completeness-rows { display: flex; flex-direction: column; gap: 0.5rem; }
   .completeness-row { display: flex; align-items: center; gap: 0.75rem; }
   .completeness-label { flex: 0 0 4.5rem; font-size: 0.85rem; color: var(--ink-soft); }
@@ -2270,11 +2312,11 @@ function renderGrowthSummaryHtml(g) {
   `;
 }
 
-// HOME_LIST_ICONS — "오늘 해야 할 일" 행 왼쪽의 원형 아이콘. item.kind
-// (dashboard.go dashboardPriorityItem.Kind)별로 구분해서 어떤 종류의
-// 할 일인지 한눈에 알 수 있게 한다. SIDEBAR_ICONS와 같은 선 스타일
+// LIST_ROW_ICONS — .row-card(행 리스트)의 원형 아이콘. 홈의 "오늘 해야
+// 할 일"은 item.kind(dashboard.go dashboardPriorityItem.Kind)별로,
+// 다른 화면은 맥락에 맞게 골라 쓴다. SIDEBAR_ICONS와 같은 선 스타일
 // (24x24, stroke-width 2)로 통일.
-const HOME_LIST_ICONS = {
+const LIST_ROW_ICONS = {
   pipeline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
   recommendation: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
   license_expiring: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M8.5 13.5 7 21l5-3 5 3-1.5-7.5"/></svg>',
@@ -2291,7 +2333,7 @@ function homeListRowHtml(item) {
   const subtitle = item.reason ? `${org} · ${item.reason}` : org;
   const dday = ddayInfo(item.applicationEndAt);
   const isUrgent = dday.cls.includes('danger');
-  const icon = HOME_LIST_ICONS[item.kind] || HOME_LIST_ICONS.pipeline;
+  const icon = LIST_ROW_ICONS[item.kind] || LIST_ROW_ICONS.pipeline;
   return `
     <div class="home-list-row${isUrgent ? ' home-list-row--urgent' : ''}" data-cta-href="${escapeAttr(item.ctaHref || '')}">
       <span class="home-list-icon">${icon}</span>
@@ -2428,6 +2470,7 @@ function pipelineListRowHtml(entry) {
   const assignee = entry.assigneeName ? `담당: ${escapeHtml(entry.assigneeName)}` : '담당자 미지정';
   return `
     <div class="row-card pipeline-row" data-id="${escapeAttr(entry.id)}">
+      <span class="row-card-icon">${LIST_ROW_ICONS.pipeline}</span>
       <div class="row-card-main">
         <div class="row-card-title">${escapeHtml(entry.noticeTitle)}</div>
         <div class="row-card-subtitle">${escapeHtml(entry.organizationName || '-')} · ${assignee}</div>
@@ -2666,15 +2709,20 @@ function calendarDayHtml(anchor, byDate) {
   if (!dayEvents.length) {
     return '<p class="empty">이 날은 일정이 없습니다.</p>';
   }
-  return `<div class="calendar-day-list">${dayEvents.map(e => `
+  return `<div class="calendar-day-list">${dayEvents.map(e => {
+    const tone = CALENDAR_KIND_TONES[e.kind];
+    const iconCls = tone === 'blue' ? '' : ` row-card-icon--${tone}`;
+    return `
     <div class="row-card calendar-event calendar-event--row" data-entry-id="${escapeAttr(e.pipelineEntryId)}">
+      <span class="row-card-icon${iconCls}">${SIDEBAR_ICONS.calendar}</span>
       <div class="row-card-main">
         <div class="row-card-title">${escapeHtml(e.noticeTitle)}</div>
         <div class="row-card-subtitle">${escapeHtml(CALENDAR_KIND_LABELS[e.kind] || e.kind)}${e.allDay ? '' : ' · ' + formatDateTime(e.start).slice(11)}</div>
       </div>
       <span class="row-card-arrow">›</span>
     </div>
-  `).join('')}</div>`;
+  `;
+  }).join('')}</div>`;
 }
 
 // ---------- AI 분석 사용내역 (#/ai-usage) ----------
@@ -2991,9 +3039,6 @@ function renderNoticeListItems(listBody, items) {
     return;
   }
   const rows = items.map(n => {
-    const dday = ddayInfo(n.applicationEndAt);
-    const valueClass = dday.cls.includes('danger') ? 'row-card-value--danger'
-      : (dday.label === '-' ? 'row-card-value--muted' : '');
     return `
     <div class="row-card notice-row" data-id="${escapeAttr(n.id)}">
       <div class="row-card-main">
@@ -3005,7 +3050,7 @@ function renderNoticeListItems(listBody, items) {
       </div>
       <div class="row-card-side">
         ${bookmarkButtonHtml(n.id, n.isBookmarked)}
-        <span class="row-card-value ${valueClass}">${escapeHtml(dday.label)}</span>
+        ${ddayBadgeHtml(n.applicationEndAt)}
         <span class="row-card-arrow">›</span>
       </div>
     </div>
@@ -3607,6 +3652,41 @@ function gradeBadgeHtml(grade, label) {
   return `<span class="ai-bucket-badge ${GRADE_BADGE_TONE[grade] || 'badge--gray'}">${escapeHtml(label)}</span>`;
 }
 
+// GRADE_TONE_COLOR_VAR — GRADE_BADGE_TONE(배지 톤 클래스)을 도넛차트에
+// 쓸 CSS 변수 이름으로 매핑. 등급 배지와 같은 색으로 통일.
+const GRADE_TONE_COLOR_VAR = {
+  'badge--success': '--success',
+  'badge--blue': '--accent-blue',
+  'badge--warn': '--warn',
+  'badge--danger': '--danger',
+  'badge--gray': '--ink-soft',
+};
+
+// donutChartHtml — 외부 차트 라이브러리 없이 순수 SVG로 그리는 도넛
+// 차트. stroke-dasharray/dashoffset으로 원 둘레를 segment별 비율만큼
+// 나눠 그린다(원 하나를 여러 겹 원호로 겹쳐 그리는 표준 기법). segments
+// = [{ label, count, colorVar }]. 합계가 0이면 빈 회색 링만 보여준다.
+function donutChartHtml(segments) {
+  const total = segments.reduce((sum, s) => sum + s.count, 0);
+  const size = 160, strokeWidth = 22, r = (size - strokeWidth) / 2, circumference = 2 * Math.PI * r;
+  let offset = 0;
+  const arcs = total > 0
+    ? segments.filter(s => s.count > 0).map(s => {
+        const dash = (s.count / total) * circumference;
+        const arc = `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(${s.colorVar})" stroke-width="${strokeWidth}" stroke-dasharray="${dash.toFixed(2)} ${(circumference - dash).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${size / 2} ${size / 2})"/>`;
+        offset += dash;
+        return arc;
+      }).join('')
+    : `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--border)" stroke-width="${strokeWidth}"/>`;
+  return `
+    <svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="등급 분포 도넛차트">
+      ${arcs}
+      <text x="${size / 2}" y="${size / 2 - 4}" text-anchor="middle" class="donut-chart-total">${total}</text>
+      <text x="${size / 2}" y="${size / 2 + 16}" text-anchor="middle" class="donut-chart-total-label">건</text>
+    </svg>
+  `;
+}
+
 // "핵심 요약" — analyzer/ai_summarize.py(claude-sonnet-5)가 배치로 미리
 // 생성해둔 3줄 요약을 그대로 보여준다(Go/프론트 어느 쪽도 실시간으로 Claude를
 // 호출하지 않음). 아직 생성되지 않은 공고가 대부분일 수 있으므로 기존 다른
@@ -3974,9 +4054,6 @@ async function renderBookmarks(container) {
   }
 
   const rows = data.items.map(n => {
-    const dday = ddayInfo(n.applicationEndAt);
-    const valueClass = dday.cls.includes('danger') ? 'row-card-value--danger'
-      : (dday.label === '-' ? 'row-card-value--muted' : '');
     return `
     <div class="row-card notice-row" data-id="${escapeAttr(n.id)}">
       <div class="row-card-main">
@@ -3988,7 +4065,7 @@ async function renderBookmarks(container) {
       </div>
       <div class="row-card-side">
         ${bookmarkButtonHtml(n.id, true)}
-        <span class="row-card-value ${valueClass}">${escapeHtml(dday.label)}</span>
+        ${ddayBadgeHtml(n.applicationEndAt)}
         <span class="row-card-arrow">›</span>
       </div>
     </div>
@@ -5893,14 +5970,23 @@ async function renderGrowthAnalytics(container) {
     </div>
   `;
 
-  const maxGradeCount = Math.max(1, ...(data.gradeDistribution || []).map(g => g.count));
-  const gradeRows = (data.gradeDistribution || []).map(g => `
-    <div class="growth-bar-row">
-      <span class="growth-bar-label">${escapeHtml(GRADE_LABELS[g.grade] || g.grade)}</span>
-      <span class="growth-bar-track"><span class="growth-bar-fill" style="width:${(g.count / maxGradeCount * 100).toFixed(0)}%"></span></span>
-      <span class="growth-bar-value">${g.count}건</span>
+  const gradeSegments = (data.gradeDistribution || []).map(g => ({
+    label: GRADE_LABELS[g.grade] || g.grade,
+    count: g.count,
+    colorVar: GRADE_TONE_COLOR_VAR[GRADE_BADGE_TONE[g.grade]] || '--ink-soft',
+  }));
+  const gradeDistributionHtml = gradeSegments.length ? `
+    <div class="donut-chart-wrap">
+      ${donutChartHtml(gradeSegments)}
+      <div class="donut-legend">${gradeSegments.map(s => `
+        <div class="donut-legend-row">
+          <span class="donut-legend-dot" style="background:var(${s.colorVar})"></span>
+          <span class="donut-legend-label">${escapeHtml(s.label)}</span>
+          <span class="donut-legend-value">${s.count}건</span>
+        </div>
+      `).join('')}</div>
     </div>
-  `).join('');
+  ` : '<p class="empty">채점할 공고가 없습니다.</p>';
 
   const roi = data.roi || {};
   const ratioLabel = roi.ratio != null ? (roi.ratio * 100).toFixed(0) + '%' : '계산 불가';
@@ -5912,7 +5998,7 @@ async function renderGrowthAnalytics(container) {
     <div class="detail-card">
       <h3>AI 참여판정 등급 분포</h3>
       <p class="license-card-meta">현재 열려있는 공고 전체를 지금 기준으로 다시 채점한 결과입니다(실시간 스냅샷).</p>
-      ${gradeRows || '<p class="empty">채점할 공고가 없습니다.</p>'}
+      ${gradeDistributionHtml}
     </div>
     <div class="detail-card">
       <h3>ROI (낙찰금액 대비 비용)</h3>
@@ -5997,7 +6083,7 @@ async function renderAdminDashboard(container) {
     <div class="detail-card">
       <h3>최근 결제 내역 (전체 회원)</h3>
       <p class="license-card-meta">실제 Anthropic API 사용 비용(달러)은 이 화면에 없습니다 — <a href="https://platform.claude.com" target="_blank" rel="noopener">Claude Console(platform.claude.com)</a>에서 확인하세요.</p>
-      <div class="license-list">${paymentRows || '<p class="empty">결제 이력이 없습니다.</p>'}</div>
+      ${paymentRows ? `<div class="notice-list">${paymentRows}</div>` : '<p class="empty">결제 이력이 없습니다.</p>'}
       <a href="#/admin/members" class="official-link">전체 회원 관리 &rarr;</a>
     </div>
     <div class="detail-card">
@@ -6045,12 +6131,14 @@ async function renderAdminChangelogSection(container) {
 
 function adminPaymentCardHtml(p) {
   const statusTone = p.status === '승인' ? 'badge--success' : (p.status === '취소' ? 'badge--gray' : 'badge--danger');
+  const iconCls = p.status === '승인' ? '' : (p.status === '취소' ? '' : ' row-card-icon--danger');
   const methodPart = p.paymentMethodLabel ? ` · ${escapeHtml(p.paymentMethodLabel)}` : '';
   return `
-    <div class="license-card">
-      <div class="license-card-main">
-        <div class="license-card-name">${escapeHtml(p.email)} · ${escapeHtml(p.planName || p.plan || '-')} <span class="badge ${statusTone}">${escapeHtml(p.status)}</span></div>
-        <div class="license-card-meta">${escapeHtml(formatDateTime(p.requestedAt))} · <span class="mono">${formatBudget(p.amount)}</span>${methodPart}</div>
+    <div class="row-card">
+      <span class="row-card-icon${iconCls}">${SIDEBAR_ICONS.card}</span>
+      <div class="row-card-main">
+        <div class="row-card-title">${escapeHtml(p.email)}</div>
+        <div class="row-card-subtitle">${escapeHtml(p.planName || p.plan || '-')} <span class="badge ${statusTone}">${escapeHtml(p.status)}</span> · ${escapeHtml(formatDateTime(p.requestedAt))} · <span class="mono">${formatBudget(p.amount)}</span>${methodPart}</div>
       </div>
     </div>
   `;
@@ -6122,6 +6210,7 @@ async function renderAdminMembers(container) {
   const items = data.items || [];
   const rows = items.map(m => `
     <div class="row-card admin-member-row" data-id="${escapeAttr(m.id)}">
+      <span class="row-card-icon">${SIDEBAR_ICONS.user}</span>
       <div class="row-card-main">
         <div class="row-card-title">${escapeHtml(m.email)}</div>
         <div class="row-card-subtitle">${escapeHtml(m.planName)} · 가입 ${escapeHtml(formatDate(m.createdAt))} · 마지막 로그인 ${m.lastLoginAt ? escapeHtml(formatDateTime(m.lastLoginAt)) : '기록 없음'}</div>
