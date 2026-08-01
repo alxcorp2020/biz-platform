@@ -108,6 +108,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureAwardedAmountColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate notice_pipeline_entries.awarded_amount column: %w", err)
 	}
+	if err := ensurePendingPlanColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate subscriptions.pending_plan column: %w", err)
+	}
 	return nil
 }
 
@@ -768,6 +771,20 @@ func ensureDocumentKindColumn(ctx context.Context, db *sql.DB) error {
 func ensureAwardedAmountColumn(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS awarded_amount BIGINT;
+	`)
+	return err
+}
+
+// ensurePendingPlanColumn adds subscriptions.pending_plan — 예약 다운그레이드
+// (즉시 업그레이드/예약 다운그레이드 정책, api/billing.go 참고). 단일
+// 컬럼 inline CHECK라 ADD COLUMN IF NOT EXISTS만으로 이미 멱등이다(DROP+
+// ADD CONSTRAINT 춤이 필요 없음 — notification_log.event_type 때와 다른
+// 케이스: 그건 기존 값의 CHECK 범위를 "넓히는" 변경이었고, 이건 신규
+// 컬럼 추가라 fresh install/기존 DB 둘 다 이 한 줄로 동일하게 끝난다).
+func ensurePendingPlanColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS pending_plan TEXT
+			CHECK (pending_plan IN ('free','basic','pro','business'));
 	`)
 	return err
 }

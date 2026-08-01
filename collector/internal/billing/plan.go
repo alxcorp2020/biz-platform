@@ -46,6 +46,18 @@ var Plans = map[Plan]PlanInfo{
 // order is not stable).
 var PlanOrder = []Plan{PlanFree, PlanBasic, PlanPro, PlanBusiness}
 
+// PlanRank returns p's position in PlanOrder (0=Free .. 3=Business), or -1
+// for an unknown plan. Used to tell upgrade from downgrade — see
+// api/billing.go's handleBillingConfirm(즉시 업그레이드/예약 다운그레이드 정책).
+func PlanRank(p Plan) int {
+	for i, candidate := range PlanOrder {
+		if candidate == p {
+			return i
+		}
+	}
+	return -1
+}
+
 // ParsePlan validates a plan string against the known plan set.
 func ParsePlan(s string) (Plan, bool) {
 	p := Plan(s)

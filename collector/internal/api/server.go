@@ -125,6 +125,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/billing/config", s.handleGetBillingConfig)
 	mux.HandleFunc("POST /api/billing/checkout", s.handleBillingCheckout)
 	mux.HandleFunc("POST /api/billing/confirm", s.handleBillingConfirm)
+	mux.HandleFunc("POST /api/billing/cancel-downgrade", s.handleCancelDowngrade)
+	mux.HandleFunc("POST /api/admin/run-scheduled-downgrades", s.handleRunScheduledDowngrades)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }

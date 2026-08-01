@@ -1699,6 +1699,7 @@ const ERROR_MESSAGES = {
   category_and_name_required: '구분과 명칭은 필수입니다.',
   invalid_status: '보유 상태 값이 올바르지 않습니다.',
   invalid_awarded_amount: '낙찰 금액은 0 이상의 숫자여야 합니다.',
+  no_pending_downgrade: '예약된 플랜 전환이 없습니다.',
   invalid_issued_at: '발급일 형식이 올바르지 않습니다(YYYY-MM-DD).',
   invalid_document_type: '증빙서류 종류 값이 올바르지 않습니다.',
   invalid_ip_type: '지식재산권 종류 값이 올바르지 않습니다.',
@@ -4951,6 +4952,24 @@ async function renderBillingSuccess(container) {
   try {
     const result = await apiRequest('POST', '/api/billing/confirm', { paymentKey, orderId, amount: Number(amount) });
     container.innerHTML = '';
+    if (result.scheduled) {
+      // 다운그레이드는 즉시 적용되지 않는다 — 결제는 완료됐지만 지금
+      // 이용 중인 상위 플랜 혜택을 현재 만료일까지 그대로 유지하고,
+      // 그 이후 새 플랜으로 자동 전환된다.
+      container.appendChild(h(`
+        <div class="detail-card" style="text-align:center">
+          <p class="detail-eyebrow">결제 완료 (예약됨)</p>
+          <h2>${escapeHtml(PLAN_DISPLAY_NAMES[result.pendingPlan] || result.pendingPlan)} 플랜으로 전환 예약되었습니다</h2>
+          <p class="ai-participation-subtitle">
+            현재 이용 중인 ${escapeHtml(PLAN_DISPLAY_NAMES[result.currentPlan] || result.currentPlan)} 플랜 혜택은
+            ${result.effectiveAt ? escapeHtml(formatDateTime(result.effectiveAt)) : '만료일'}까지 그대로 유지되고,
+            그 이후 자동으로 전환됩니다.
+          </p>
+          <a href="#/me/subscription" class="home-cta-primary">내 구독 확인하기</a>
+        </div>
+      `));
+      return;
+    }
     container.appendChild(h(`
       <div class="detail-card" style="text-align:center">
         <p class="detail-eyebrow">결제 완료</p>
@@ -5011,6 +5030,16 @@ async function renderMySubscription(container) {
   const notActiveNote = notActiveReason
     ? `<p class="ai-minimal-profile-notice">${escapeHtml(notActiveReason)} 적용되지 않았습니다 — 아래 한도는 현재 실제로 적용 중인 Free 기준입니다.</p>`
     : '';
+  // 예약된 다운그레이드 — 즉시 업그레이드/예약 다운그레이드 정책. 결제는
+  // 이미 완료됐지만 지금 플랜 혜택은 만료일까지 유지되고 그 이후 자동 전환.
+  const pendingDowngradeNote = data.pendingPlan ? `
+    <div class="ai-minimal-profile-notice">
+      <p>${escapeHtml(data.pendingPlanName || data.pendingPlan)} 플랜으로 전환이 예약되어 있습니다
+        (${data.expiresAt ? escapeHtml(formatDateTime(data.expiresAt)) : '만료일'}부터 적용).
+        그 전까지는 현재 ${escapeHtml(planName)} 플랜 혜택을 그대로 이용할 수 있습니다.</p>
+      <button type="button" id="cancel-downgrade-btn" class="btn btn-secondary btn-sm" style="margin-top:0.5rem">전환 예약 취소</button>
+    </div>
+  ` : '';
 
   container.innerHTML = '';
   container.appendChild(h(`
@@ -5019,6 +5048,7 @@ async function renderMySubscription(container) {
       <span class="badge ${PLAN_STATUS_BADGE_TONE[data.status] || 'badge--gray'}">${escapeHtml(statusLabel)}</span>
       <h2>${escapeHtml(planName)} 플랜</h2>
       ${notActiveNote}
+      ${pendingDowngradeNote}
       <dl class="detail-meta">
         <div><dt>시작일</dt><dd>${data.startedAt ? escapeHtml(formatDateTime(data.startedAt)) : '-'}</dd></div>
         <div><dt>다음 결제/만료일</dt><dd>${data.expiresAt ? escapeHtml(formatDateTime(data.expiresAt)) : '-'}</dd></div>
@@ -5031,6 +5061,19 @@ async function renderMySubscription(container) {
     <div class="detail-card" id="payment-history-section"></div>
     <div class="detail-card" id="reports-section"></div>
   `));
+
+  const cancelDowngradeBtn = document.getElementById('cancel-downgrade-btn');
+  if (cancelDowngradeBtn) {
+    cancelDowngradeBtn.addEventListener('click', async () => {
+      if (!confirm('예약된 플랜 전환을 취소하시겠습니까?')) return;
+      try {
+        await apiRequest('POST', '/api/billing/cancel-downgrade', {});
+        renderMySubscription(container);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
 
   // effectivePlanFromRow와 같은 판단: status가 active이고 plan이 business일
   // 때만 팀 3명 — 그 외(pending/expired/cancelled 또는 다른 플랜)는 본인 1명뿐.

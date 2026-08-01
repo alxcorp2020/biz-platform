@@ -26,21 +26,25 @@ import (
 // currentSubscription returns the caller's persisted subscription row, or
 // an implicit free/active zero-state when no row exists yet — signup
 // doesn't create one, so "no row" simply means "never subscribed".
+// pendingPlan is non-nil only when a downgrade has been paid for but not
+// yet applied (즉시 업그레이드/예약 다운그레이드 정책) — see
+// handleBillingConfirm and ApplyScheduledDowngrades.
 func (s *Server) currentSubscription(ctx context.Context, profileID string) (
-	plan billing.Plan, status string, startedAt, expiresAt *time.Time, amount *int64, err error,
+	plan billing.Plan, status string, startedAt, expiresAt *time.Time, amount *int64, pendingPlan *billing.Plan, err error,
 ) {
 	var planStr, statusStr string
 	var started, expires sql.NullTime
 	var amt sql.NullInt64
+	var pendingPlanStr sql.NullString
 	err = s.db.QueryRowContext(ctx,
-		`SELECT plan, status, started_at, expires_at, amount FROM subscriptions WHERE company_profile_id = $1`,
+		`SELECT plan, status, started_at, expires_at, amount, pending_plan FROM subscriptions WHERE company_profile_id = $1`,
 		profileID,
-	).Scan(&planStr, &statusStr, &started, &expires, &amt)
+	).Scan(&planStr, &statusStr, &started, &expires, &amt, &pendingPlanStr)
 	if err == sql.ErrNoRows {
-		return billing.PlanFree, "active", nil, nil, nil, nil
+		return billing.PlanFree, "active", nil, nil, nil, nil, nil
 	}
 	if err != nil {
-		return "", "", nil, nil, nil, err
+		return "", "", nil, nil, nil, nil, err
 	}
 	if started.Valid {
 		startedAt = &started.Time
@@ -51,7 +55,11 @@ func (s *Server) currentSubscription(ctx context.Context, profileID string) (
 	if amt.Valid {
 		amount = &amt.Int64
 	}
-	return billing.Plan(planStr), statusStr, startedAt, expiresAt, amount, nil
+	if pendingPlanStr.Valid {
+		p := billing.Plan(pendingPlanStr.String)
+		pendingPlan = &p
+	}
+	return billing.Plan(planStr), statusStr, startedAt, expiresAt, amount, pendingPlan, nil
 }
 
 // effectivePlanFromRow is the single source of truth for "which plan
@@ -91,7 +99,7 @@ func displayStatus(status string, expiresAt *time.Time) string {
 // otherwise a checked-out-but-unpaid subscription would display paid-tier
 // limits it doesn't actually get (see effectivePlanFromRow above).
 func (s *Server) effectivePlan(ctx context.Context, profileID string) (billing.Plan, error) {
-	plan, status, _, expiresAt, _, err := s.currentSubscription(ctx, profileID)
+	plan, status, _, expiresAt, _, _, err := s.currentSubscription(ctx, profileID)
 	if err != nil {
 		return "", err
 	}
@@ -210,7 +218,7 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plan, status, startedAt, expiresAt, amount, err := s.currentSubscription(r.Context(), profile.ID)
+	plan, status, startedAt, expiresAt, amount, pendingPlan, err := s.currentSubscription(r.Context(), profile.ID)
 	if err != nil {
 		s.logger.Error("get-subscription: query failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
@@ -225,6 +233,13 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 	// checkAIAnalysisQuota는 원래도 정확했다).
 	limits := billing.Plans[effectivePlanFromRow(plan, status, expiresAt)]
 
+	var pendingPlanStr, pendingPlanName *string
+	if pendingPlan != nil {
+		pv := string(*pendingPlan)
+		nv := billing.Plans[*pendingPlan].Name
+		pendingPlanStr, pendingPlanName = &pv, &nv
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"plan":                  string(plan),
 		"planName":              info.Name,
@@ -234,6 +249,8 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 		"amount":                amount,
 		"maxPipelineEntries":    limits.MaxPipelineEntries,
 		"maxAIAnalysisPerMonth": limits.MaxAIAnalysisPerMonth,
+		"pendingPlan":           pendingPlanStr,
+		"pendingPlanName":       pendingPlanName,
 	})
 }
 
@@ -458,6 +475,20 @@ func (s *Server) handleBillingConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 다운그레이드 여부는 결제 승인(Toss)이 실제로 이 row를 덮어쓰기 전,
+	// "지금 이 순간의 실효 플랜"을 기준으로 판단해야 한다 — 즉시 업그레이드/
+	// 예약 다운그레이드 정책(사용자와 확정, 2026-08-02). 만료된 구독에서
+	// 재구독하는 경우(effective=Free)는 어떤 유료 플랜을 사도 "업그레이드"로
+	// 취급돼 즉시 적용된다 — 예약할 "남은 혜택"이 없기 때문.
+	currentPlan, currentStatus, _, currentExpiresAt, _, _, err := s.currentSubscription(r.Context(), profile.ID)
+	if err != nil {
+		s.logger.Error("billing-confirm: current subscription lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	effectiveCurrent := effectivePlanFromRow(currentPlan, currentStatus, currentExpiresAt)
+	isDowngrade := billing.PlanRank(plan) < billing.PlanRank(effectiveCurrent)
+
 	if s.toss == nil || !s.toss.Configured() {
 		s.logger.Warn("billing-confirm: TOSS_SECRET_KEY not configured, cannot call Toss")
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "payment_provider_not_configured"})
@@ -487,9 +518,34 @@ func (s *Server) handleBillingConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isDowngrade {
+		// 결제는 이미 승인되어 payment_log에 남았지만(환불 대상 아님 —
+		// 다음 주기 요금을 미리 낸 것), 지금 활성 중인 상위 플랜 혜택은
+		// currentExpiresAt까지 그대로 유지한다. plan/status/started_at/
+		// expires_at은 손대지 않고 pending_plan만 기록 — ApplyScheduledDowngrades
+		// 배치가 만료 시점에 실제로 전환한다.
+		if _, err := s.db.ExecContext(r.Context(),
+			`UPDATE subscriptions SET pending_plan = $1 WHERE id = $2`,
+			string(plan), subscriptionID,
+		); err != nil {
+			s.logger.Error("billing-confirm: schedule downgrade failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"scheduled":   true,
+			"currentPlan": string(currentPlan),
+			"pendingPlan": string(plan),
+			"effectiveAt": currentExpiresAt,
+		})
+		return
+	}
+
+	// 즉시 적용 — 업그레이드, 또는 만료 후 재구독. 이전에 예약해둔
+	// 다운그레이드가 있었다면 이번 결제로 의미가 없어지므로 같이 지운다.
 	expiresAt := requestedAt.AddDate(0, 1, 0)
 	if _, err := s.db.ExecContext(r.Context(), `
-		UPDATE subscriptions SET plan = $1, status = 'active', started_at = $2, expires_at = $3, amount = $4
+		UPDATE subscriptions SET plan = $1, status = 'active', started_at = $2, expires_at = $3, amount = $4, pending_plan = NULL
 		WHERE id = $5`,
 		string(plan), requestedAt, expiresAt, req.Amount, subscriptionID,
 	); err != nil {
@@ -504,4 +560,129 @@ func (s *Server) handleBillingConfirm(w http.ResponseWriter, r *http.Request) {
 		"startedAt": requestedAt,
 		"expiresAt": expiresAt,
 	})
+}
+
+// handleCancelDowngrade — owner-only. 예약된 다운그레이드를 취소하고
+// 현재 플랜을 만료일까지(그리고 재구독 시 그 플랜으로) 그대로 유지한다.
+// 이미 낸 하위 플랜 결제 자체는 환불하지 않는다(별도 정책 범위 밖) —
+// payment_log 기록은 그대로 남는다.
+func (s *Server) handleCancelDowngrade(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("cancel-downgrade: profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if profile == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
+		return
+	}
+	if profile.Role != "owner" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_only"})
+		return
+	}
+
+	res, err := s.db.ExecContext(r.Context(),
+		`UPDATE subscriptions SET pending_plan = NULL WHERE company_profile_id = $1 AND pending_plan IS NOT NULL`,
+		profile.ID,
+	)
+	if err != nil {
+		s.logger.Error("cancel-downgrade: update failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no_pending_downgrade"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+// ApplyScheduledDowngrades runs on the existing daily 09:00 KST ticker
+// (cmd/apiserver) alongside RunPipelineAutoTransitions/RunScheduledReports.
+// Every subscription whose paid-through period(expires_at) has passed and
+// still carries a pending_plan gets switched over — seamlessly, as if the
+// lower-tier payment already made at downgrade-request time covers this new
+// cycle(started_at = old expires_at, not "now", so there's no gap even if
+// the batch runs a bit late).
+func (s *Server) ApplyScheduledDowngrades(ctx context.Context) (int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, pending_plan, expires_at FROM subscriptions
+		WHERE pending_plan IS NOT NULL AND status = 'active' AND expires_at <= now()`)
+	if err != nil {
+		return 0, err
+	}
+	type row struct {
+		id, pendingPlan string
+		expiresAt       time.Time
+	}
+	var targets []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.pendingPlan, &r.expiresAt); err != nil {
+			continue
+		}
+		targets = append(targets, r)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+
+	applied := 0
+	for _, t := range targets {
+		plan, ok := billing.ParsePlan(t.pendingPlan)
+		if !ok {
+			s.logger.Error("apply-scheduled-downgrade: unknown pending_plan", "subscriptionId", t.id, "pendingPlan", t.pendingPlan)
+			continue
+		}
+		newExpiresAt := t.expiresAt.AddDate(0, 1, 0)
+		if _, err := s.db.ExecContext(ctx, `
+			UPDATE subscriptions
+			SET plan = $1, started_at = $2, expires_at = $3, amount = $4, pending_plan = NULL
+			WHERE id = $5`,
+			string(plan), t.expiresAt, newExpiresAt, billing.Plans[plan].AmountKRW, t.id,
+		); err != nil {
+			s.logger.Error("apply-scheduled-downgrade: update failed", "subscriptionId", t.id, "error", err)
+			continue
+		}
+		applied++
+	}
+	return applied, nil
+}
+
+// handleRunScheduledDowngrades manually fires ApplyScheduledDowngrades on
+// demand — same system_admin-only pattern as handleRunPipelineAutoTransitions/
+// handleRunNotifications. The only other trigger is the daily ticker in
+// cmd/apiserver.
+func (s *Server) handleRunScheduledDowngrades(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	role, err := s.userRole(r.Context(), userID)
+	if err != nil {
+		s.logger.Error("run-scheduled-downgrades: role lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if role != "system_admin" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+
+	applied, err := s.ApplyScheduledDowngrades(r.Context())
+	if err != nil {
+		s.logger.Error("run-scheduled-downgrades: batch failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "completed", "appliedCount": applied})
 }

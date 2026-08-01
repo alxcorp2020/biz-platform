@@ -696,6 +696,7 @@ CREATE TABLE subscriptions (
     started_at          TIMESTAMPTZ,
     expires_at          TIMESTAMPTZ,
     amount              BIGINT,
+    pending_plan        TEXT CHECK (pending_plan IN ('free','basic','pro','business')), -- 예약 다운그레이드: 결제는 완료됐지만 expires_at까지는 기존 plan 혜택을 유지하고, 그 이후 배치(ApplyScheduledDowngrades)가 이 값으로 전환한다. 즉시 적용되는 업그레이드는 이 컬럼을 안 씀(NULL 유지).
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (company_profile_id)

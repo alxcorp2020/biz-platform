@@ -158,6 +158,11 @@ func startBackgroundNotifications(srv *api.Server, logger *slog.Logger, scsbidSr
 			} else if weekly > 0 || monthly > 0 {
 				logger.Info("scheduled reports batch completed", "weeklyGenerated", weekly, "monthlyGenerated", monthly)
 			}
+			if applied, err := srv.ApplyScheduledDowngrades(ctx); err != nil {
+				logger.Error("scheduled downgrade batch failed", "error", err)
+			} else if applied > 0 {
+				logger.Info("scheduled downgrade batch completed", "applied", applied)
+			}
 		}
 	}()
 }
