@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 var validPipelineStatuses = map[string]bool{
@@ -47,6 +49,7 @@ type pipelineEntry struct {
 	CreatedAt               time.Time  `json:"createdAt"`
 	UpdatedAt               time.Time  `json:"updatedAt"`
 	IncompleteDocumentCount int        `json:"incompleteDocumentCount"` // handleListPipeline만 채움(대시보드 카드 클릭 → 서류확인필요 필터용) — handleGetPipelineEntry는 체크리스트 원본을 따로 내려주므로 항상 0
+	AIGrade                 string     `json:"aiGrade,omitempty"`       // handleListPipeline만 채움(Phase 3 칸반/표 뷰용). 영속 컬럼이 아니라 growth_analytics.go의 fetchGradeDistribution과 동일하게 요청 시점에 scoreNoticeForCompany로 계산한다.
 }
 
 // pipelineEntryRowScanner is satisfied by both *sql.Row (QueryRowContext)
@@ -579,7 +582,62 @@ func (s *Server) handleListPipeline(w http.ResponseWriter, r *http.Request) {
 		entry.IncompleteDocumentCount = incompleteDocCounts[entry.ID]
 		items = append(items, *entry)
 	}
+	s.attachPipelineGrades(r.Context(), profile, items)
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// attachPipelineGrades computes each entry's AI 판정등급 in place (mutates
+// items) using the same live scoreNoticeForCompany path growth_analytics.go's
+// fetchGradeDistribution uses — grade isn't a persisted column, so this
+// re-derives it per request. Best-effort: a lookup failure just leaves
+// AIGrade empty for the affected entries rather than failing the whole list.
+func (s *Server) attachPipelineGrades(ctx context.Context, profile *companyProfileDTO, items []pipelineEntry) {
+	if len(items) == 0 {
+		return
+	}
+	var region, size sql.NullString
+	if profile.Region != nil {
+		region = sql.NullString{String: *profile.Region, Valid: true}
+	}
+	if profile.CompanySize != nil {
+		size = sql.NullString{String: *profile.CompanySize, Valid: true}
+	}
+	trackRecordMax, err := s.fetchTrackRecordMaxAmount(ctx, profile.ID)
+	if err != nil {
+		s.logger.Error("pipeline-grades: track record lookup failed", "error", err)
+	}
+	company := companyScoringInput{Region: region, Industry: profile.Industry, Size: size, TrackRecordMaxAmount: trackRecordMax}
+
+	noticeIDs := make([]string, len(items))
+	for i, it := range items {
+		noticeIDs[i] = it.NoticeID
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, notice_type, region, industry, budget_amount FROM notices WHERE id = ANY($1)`,
+		pq.Array(noticeIDs),
+	)
+	if err != nil {
+		s.logger.Error("pipeline-grades: notice lookup failed", "error", err)
+		return
+	}
+	defer rows.Close()
+
+	notices := make(map[string]noticeScoringInput, len(items))
+	for rows.Next() {
+		var id, noticeType string
+		var noticeRegion, industry sql.NullString
+		var budget sql.NullInt64
+		if err := rows.Scan(&id, &noticeType, &noticeRegion, &industry, &budget); err != nil {
+			continue
+		}
+		notices[id] = noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: industry, BudgetAmount: budget}
+	}
+
+	for i := range items {
+		if input, ok := notices[items[i].NoticeID]; ok {
+			items[i].AIGrade = scoreNoticeForCompany(input, company).Grade
+		}
+	}
 }
 
 func (s *Server) handleGetPipelineEntry(w http.ResponseWriter, r *http.Request) {
