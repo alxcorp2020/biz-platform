@@ -164,6 +164,11 @@ func startBackgroundNotifications(srv *api.Server, logger *slog.Logger, scsbidSr
 			} else if applied > 0 {
 				logger.Info("scheduled downgrade batch completed", "applied", applied)
 			}
+			if applied, err := srv.ApplyScheduledCancellations(ctx); err != nil {
+				logger.Error("scheduled cancellation batch failed", "error", err)
+			} else if applied > 0 {
+				logger.Info("scheduled cancellation batch completed", "applied", applied)
+			}
 		}
 	}()
 }

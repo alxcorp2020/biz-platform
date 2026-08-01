@@ -240,6 +240,25 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 		pendingPlanStr, pendingPlanName = &pv, &nv
 	}
 
+	// 환불 요청 버튼을 보여줄지(사용 이력 없음) 아니면 해지 신청 버튼을
+	// 보여줄지(사용 이력 있음)는 프론트가 매번 별도 요청으로 판단하지 않고
+	// 구독 조회 응답에 이미 포함해서 내려준다 — 화면 진입 시 버튼이 잠깐
+	// "환불 요청"으로 잘못 보였다가 바뀌는 깜빡임을 막기 위함.
+	var cancelAtPeriodEnd bool
+	var refundEligible bool
+	var usage *serviceUsageSummary
+	if sub, subOK, subErr := s.fetchActivePaidSubscription(r.Context(), profile.ID); subErr != nil {
+		s.logger.Error("get-subscription: active subscription lookup failed", "error", subErr)
+	} else if subOK {
+		cancelAtPeriodEnd = sub.cancelAtPeriodEnd
+		if u, usageErr := s.serviceUsageSince(r.Context(), profile.ID, sub.startedAt); usageErr != nil {
+			s.logger.Error("get-subscription: usage lookup failed", "error", usageErr)
+		} else {
+			usage = &u
+			refundEligible = !u.hasUsage()
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"plan":                  string(plan),
 		"planName":              info.Name,
@@ -251,6 +270,9 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 		"maxAIAnalysisPerMonth": limits.MaxAIAnalysisPerMonth,
 		"pendingPlan":           pendingPlanStr,
 		"pendingPlanName":       pendingPlanName,
+		"cancelAtPeriodEnd":     cancelAtPeriodEnd,
+		"refundEligible":        refundEligible,
+		"usageThisCycle":        usage,
 	})
 }
 
@@ -259,11 +281,13 @@ type paymentHistoryItem struct {
 	Plan               string     `json:"plan"`
 	PlanName           string     `json:"planName"`
 	Amount             int64      `json:"amount"`
-	Status             string     `json:"status"` // '승인' | '실패' | '취소'
+	Status             string     `json:"status"` // '승인' | '실패' | '취소' | '환불'
 	RequestedAt        time.Time  `json:"requestedAt"`
 	ApprovedAt         *time.Time `json:"approvedAt"`
 	PaymentMethod      *string    `json:"paymentMethod"`      // 토스 원본 값("카드"/"가상계좌" 등) — 실패 건은 nil
 	PaymentMethodLabel *string    `json:"paymentMethodLabel"` // 사용자에게 보여줄 표기(paymentMethodLabel 함수로 변환)
+	RefundReason       *string    `json:"refundReason"`
+	RefundedAt         *time.Time `json:"refundedAt"`
 }
 
 // handleGetPaymentHistory — GET /api/me/payment-history. 읽기 전용 정보라
@@ -291,7 +315,8 @@ func (s *Server) handleGetPaymentHistory(w http.ResponseWriter, r *http.Request)
 	}
 
 	rows, err := s.db.QueryContext(r.Context(), `
-		SELECT pl.id, pl.toss_order_id, pl.amount, pl.status, pl.requested_at, pl.approved_at, pl.payment_method
+		SELECT pl.id, pl.toss_order_id, pl.amount, pl.status, pl.requested_at, pl.approved_at, pl.payment_method,
+		       pl.refund_reason, pl.refunded_at
 		FROM payment_log pl
 		JOIN subscriptions sub ON sub.id = pl.subscription_id
 		WHERE sub.company_profile_id = $1
@@ -309,9 +334,18 @@ func (s *Server) handleGetPaymentHistory(w http.ResponseWriter, r *http.Request)
 		var orderID string
 		var approvedAt sql.NullTime
 		var paymentMethod sql.NullString
-		if err := rows.Scan(&it.ID, &orderID, &it.Amount, &it.Status, &it.RequestedAt, &approvedAt, &paymentMethod); err != nil {
+		var refundReason sql.NullString
+		var refundedAt sql.NullTime
+		if err := rows.Scan(&it.ID, &orderID, &it.Amount, &it.Status, &it.RequestedAt, &approvedAt, &paymentMethod,
+			&refundReason, &refundedAt); err != nil {
 			s.logger.Error("payment-history: scan failed", "error", err)
 			continue
+		}
+		if refundReason.Valid {
+			it.RefundReason = &refundReason.String
+		}
+		if refundedAt.Valid {
+			it.RefundedAt = &refundedAt.Time
 		}
 		if plan, ok := billing.DecodePlanFromOrderID(orderID); ok {
 			it.Plan = string(plan)

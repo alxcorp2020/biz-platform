@@ -741,6 +741,14 @@ CREATE TABLE subscriptions (
     expires_at          TIMESTAMPTZ,
     amount              BIGINT,
     pending_plan        TEXT CHECK (pending_plan IN ('free','basic','pro','business')), -- 예약 다운그레이드: 결제는 완료됐지만 expires_at까지는 기존 plan 혜택을 유지하고, 그 이후 배치(ApplyScheduledDowngrades)가 이 값으로 전환한다. 즉시 적용되는 업그레이드는 이 컬럼을 안 씀(NULL 유지).
+    -- 해지(구독취소, 환불과 다름 — billing.go 주석 참고): pending_plan과
+    -- 별개 필드로 둔다. pending_plan은 "다음 결제를 이미 낸" 유료→유료
+    -- 예약 전환 전용이라 결제 없이 무료로 전환하는 해지엔 안 맞는다
+    -- (ApplyScheduledDowngrades가 매번 다음 만료일을 1개월 뒤로 다시
+    -- 계산하는 등 유료 갱신을 전제로 함). true면 expires_at 도달 시
+    -- ApplyScheduledCancellations 배치가 즉시 Free로 전환한다.
+    cancel_at_period_end BOOLEAN NOT NULL DEFAULT false,
+    cancel_requested_at TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (company_profile_id)
@@ -756,12 +764,19 @@ CREATE TABLE payment_log (
     toss_payment_key   TEXT NOT NULL,
     toss_order_id      TEXT NOT NULL,
     amount             BIGINT NOT NULL,
-    status             TEXT NOT NULL CHECK (status IN ('승인','실패','취소')),
+    status             TEXT NOT NULL CHECK (status IN ('승인','실패','취소','환불')),
     requested_at       TIMESTAMPTZ NOT NULL,
     approved_at        TIMESTAMPTZ,
     payment_method     TEXT, -- 토스 응답 method 그대로("카드"/"가상계좌"/"계좌이체" 등, 실패 건은 NULL)
     raw_response       JSONB,
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- 환불(서비스 미사용 전액환불만 허용, billing.go handleBillingRefundRequest
+    -- 참고) 처리 시 이 승인(status='승인') 행을 '환불'로 갱신하면서 채운다.
+    -- 새 행을 만들지 않고 원본 결제 행 자체를 갱신 — 사용자 요청 원문의
+    -- "payment_log 상태를 갱신" 표현 그대로.
+    refund_reason      TEXT,
+    refunded_at        TIMESTAMPTZ,
+    refund_processed_by TEXT -- 현재는 항상 'system_auto'(자동 판정) — 수동 환불 경로 없음
 );
 CREATE INDEX idx_payment_log_subscription ON payment_log(subscription_id);
 

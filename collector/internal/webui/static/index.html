@@ -2007,6 +2007,12 @@ const ERROR_MESSAGES = {
   invalid_status: '보유 상태 값이 올바르지 않습니다.',
   invalid_awarded_amount: '낙찰 금액은 0 이상의 숫자여야 합니다.',
   no_pending_downgrade: '예약된 플랜 전환이 없습니다.',
+  no_active_paid_subscription: '환불/해지할 유료 구독이 없습니다.',
+  no_payment_to_refund: '환불할 결제 내역을 찾을 수 없습니다.',
+  payment_provider_not_configured: '결제 시스템 설정에 문제가 있어 환불을 처리할 수 없습니다. 관리자에게 문의해주세요.',
+  toss_cancel_failed: '결제 취소 처리에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해주세요.',
+  no_pending_cancellation: '신청된 해지가 없습니다.',
+  already_used: '이미 서비스를 이용하신 내역이 있어 환불이 불가합니다.',
   invalid_issued_at: '발급일 형식이 올바르지 않습니다(YYYY-MM-DD).',
   invalid_document_type: '증빙서류 종류 값이 올바르지 않습니다.',
   invalid_ip_type: '지식재산권 종류 값이 올바르지 않습니다.',
@@ -2059,6 +2065,7 @@ async function apiRequest(method, url, body) {
     const err = new Error((code && ERROR_MESSAGES[code]) || ('요청 실패 (' + res.status + ')'));
     err.code = code;
     err.status = res.status;
+    err.data = data; // 코드-메시지 매핑에 없는 추가 정보(예: 환불 거부 사유의 사용 이력 요약)가 필요한 호출부용
     throw err;
   }
   return data;
@@ -6061,6 +6068,36 @@ async function renderMySubscription(container) {
     </div>
   ` : '';
 
+  // 환불/해지 — 결제 주기 동안 서비스 사용 이력이 있는지(백엔드
+  // refundEligible)에 따라 "환불 요청" 또는 "해지 신청" 중 하나만 보여준다.
+  // 이미 해지가 신청된 상태(cancelAtPeriodEnd)면 그 안내 + 취소 버튼으로
+  // 대체.
+  let refundCancelSection = '';
+  if (data.cancelAtPeriodEnd) {
+    refundCancelSection = `
+      <div class="ai-minimal-profile-notice">
+        <p>해지가 신청되어 ${data.expiresAt ? escapeHtml(formatDateTime(data.expiresAt)) : '만료일'}까지 이용 후 자동으로 무료 플랜으로 전환됩니다.</p>
+        <button type="button" id="resume-renewal-btn" class="btn btn-secondary btn-sm" style="margin-top:0.5rem">해지 취소</button>
+      </div>
+    `;
+  } else if (data.plan !== 'free' && data.status === 'active') {
+    if (data.refundEligible) {
+      refundCancelSection = `
+        <div style="margin-top:1rem">
+          <button type="button" id="refund-request-btn" class="btn btn-secondary btn-sm">환불 요청</button>
+        </div>
+      `;
+    } else {
+      const until = data.expiresAt ? formatDateTime(data.expiresAt) : '만료일';
+      refundCancelSection = `
+        <div class="ai-minimal-profile-notice">
+          <p>이미 서비스를 이용하셔서 환불은 어려우며, 해지 시 ${escapeHtml(until)}까지 이용 후 자동으로 무료 플랜으로 전환됩니다.</p>
+          <button type="button" id="cancel-renewal-btn" class="btn btn-secondary btn-sm" style="margin-top:0.5rem">해지 신청</button>
+        </div>
+      `;
+    }
+  }
+
   container.innerHTML = '';
   container.appendChild(h(`
     <h2>내 구독</h2>
@@ -6069,6 +6106,7 @@ async function renderMySubscription(container) {
       <h2>${escapeHtml(planName)} 플랜</h2>
       ${notActiveNote}
       ${pendingDowngradeNote}
+      ${refundCancelSection}
       <dl class="detail-meta">
         <div><dt>시작일</dt><dd>${data.startedAt ? escapeHtml(formatDateTime(data.startedAt)) : '-'}</dd></div>
         <div><dt>다음 결제/만료일</dt><dd>${data.expiresAt ? escapeHtml(formatDateTime(data.expiresAt)) : '-'}</dd></div>
@@ -6095,12 +6133,70 @@ async function renderMySubscription(container) {
     });
   }
 
+  const refundBtn = document.getElementById('refund-request-btn');
+  if (refundBtn) {
+    refundBtn.addEventListener('click', async () => {
+      if (!confirm('결제 후 서비스를 이용하지 않으셨습니다. 전액 환불 처리됩니다. 진행하시겠습니까?')) return;
+      refundBtn.disabled = true;
+      try {
+        await apiRequest('POST', '/api/billing/refund-request', {});
+        alert('환불이 완료되었습니다.');
+        renderMySubscription(container);
+      } catch (err) {
+        // already_used는 서버가 사용 이력 요약(usage)도 같이 내려준다 —
+        // "왜 안 되는지" 숫자로 납득할 수 있게 메시지에 그대로 붙인다.
+        let msg = err.message;
+        if (err.code === 'already_used' && err.data && err.data.usage) {
+          const u = err.data.usage;
+          msg += `\n(이번 결제 주기 중 AI 분석 ${u.aiAnalysisCount}건, 신규 파이프라인 ${u.pipelineCreatedCount}건 이용)`;
+        }
+        alert(msg);
+        refundBtn.disabled = false;
+      }
+    });
+  }
+  const cancelRenewalBtn = document.getElementById('cancel-renewal-btn');
+  if (cancelRenewalBtn) {
+    cancelRenewalBtn.addEventListener('click', async () => {
+      if (!confirm('해지를 신청하시겠습니까?')) return;
+      cancelRenewalBtn.disabled = true;
+      try {
+        await apiRequest('POST', '/api/billing/cancel-renewal', {});
+        renderMySubscription(container);
+      } catch (err) {
+        alert(err.message);
+        cancelRenewalBtn.disabled = false;
+      }
+    });
+  }
+  const resumeRenewalBtn = document.getElementById('resume-renewal-btn');
+  if (resumeRenewalBtn) {
+    resumeRenewalBtn.addEventListener('click', async () => {
+      if (!confirm('해지 신청을 취소하시겠습니까?')) return;
+      try {
+        await apiRequest('POST', '/api/billing/resume-renewal', {});
+        renderMySubscription(container);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+
   // effectivePlanFromRow와 같은 판단: status가 active이고 plan이 business일
   // 때만 팀 3명 — 그 외(pending/expired/cancelled 또는 다른 플랜)는 본인 1명뿐.
   const isEffectiveBusiness = data.plan === 'business' && data.status === 'active';
   renderTeamSection(document.getElementById('team-section'), isEffectiveBusiness ? 3 : 1);
   renderPaymentHistorySection(document.getElementById('payment-history-section'));
   renderReportsSection(document.getElementById('reports-section'));
+}
+
+// paymentStatusToneClass — payment_log.status('승인'/'실패'/'취소'/'환불')를
+// 배지 톤으로. 결제내역(내 구독)/관리자 대시보드/관리자 회원상세 3곳이
+// 전부 이 함수를 쓴다 — 예전엔 3곳에 각각 복붙돼 있었음.
+function paymentStatusToneClass(status) {
+  if (status === '승인') return 'badge--success';
+  if (status === '취소' || status === '환불') return 'badge--gray';
+  return 'badge--danger'; // 실패
 }
 
 // renderPaymentHistorySection — 결제 내역(payment_log) 최신순 목록. 팀
@@ -6120,13 +6216,17 @@ async function renderPaymentHistorySection(container) {
     return;
   }
   const rows = items.map(it => {
-    const statusTone = it.status === '승인' ? 'badge--success' : (it.status === '취소' ? 'badge--gray' : 'badge--danger');
+    const statusTone = paymentStatusToneClass(it.status);
     const methodPart = it.paymentMethodLabel ? ` · ${escapeHtml(it.paymentMethodLabel)}` : '';
+    const refundPart = it.status === '환불' && it.refundedAt
+      ? `<div class="license-card-meta">환불 처리: ${escapeHtml(formatDateTime(it.refundedAt))}${it.refundReason ? ' · ' + escapeHtml(it.refundReason) : ''}</div>`
+      : '';
     return `
       <div class="license-card">
         <div class="license-card-main">
           <div class="license-card-name">${escapeHtml(it.planName || it.plan || '-')} <span class="badge ${statusTone}">${escapeHtml(it.status)}</span></div>
           <div class="license-card-meta">${escapeHtml(formatDateTime(it.requestedAt))} · <span class="mono">${formatBudget(it.amount)}</span>${methodPart}</div>
+          ${refundPart}
         </div>
       </div>
     `;
@@ -6384,8 +6484,8 @@ async function renderAdminChangelogSection(container) {
 }
 
 function adminPaymentCardHtml(p) {
-  const statusTone = p.status === '승인' ? 'badge--success' : (p.status === '취소' ? 'badge--gray' : 'badge--danger');
-  const iconCls = p.status === '승인' ? '' : (p.status === '취소' ? '' : ' row-card-icon--danger');
+  const statusTone = paymentStatusToneClass(p.status);
+  const iconCls = p.status === '실패' ? ' row-card-icon--danger' : '';
   const methodPart = p.paymentMethodLabel ? ` · ${escapeHtml(p.paymentMethodLabel)}` : '';
   return `
     <div class="row-card">
@@ -6539,7 +6639,7 @@ async function renderAdminMemberDetail(container, id) {
   const paymentRows = (data.paymentHistory || []).map(p => `
     <div class="license-card">
       <div class="license-card-main">
-        <div class="license-card-name">${escapeHtml(p.planName || p.plan || '-')} <span class="badge ${p.status === '승인' ? 'badge--success' : (p.status === '취소' ? 'badge--gray' : 'badge--danger')}">${escapeHtml(p.status)}</span></div>
+        <div class="license-card-name">${escapeHtml(p.planName || p.plan || '-')} <span class="badge ${paymentStatusToneClass(p.status)}">${escapeHtml(p.status)}</span></div>
         <div class="license-card-meta">${escapeHtml(formatDateTime(p.requestedAt))} · <span class="mono">${formatBudget(p.amount)}</span>${p.paymentMethodLabel ? ` · ${escapeHtml(p.paymentMethodLabel)}` : ''}</div>
       </div>
     </div>

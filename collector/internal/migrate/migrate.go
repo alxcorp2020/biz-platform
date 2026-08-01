@@ -138,6 +138,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureDocumentExtractionAutomationColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate document extraction automation columns: %w", err)
 	}
+	if err := ensureRefundAndCancellationColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate refund/cancellation columns: %w", err)
+	}
 	return nil
 }
 
@@ -939,6 +942,28 @@ func ensurePendingPlanColumn(ctx context.Context, db *sql.DB) error {
 func ensureLastLoginColumn(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+	`)
+	return err
+}
+
+// ensureRefundAndCancellationColumns adds the columns billing.go's refund
+// (handleBillingRefundRequest) and 해지(handleCancelRenewal/
+// ApplyScheduledCancellations) flows need. subscriptions.cancel_at_period_end
+// is a separate field from pending_plan on purpose — db/migrations/
+// 001_init.sql 주석 참고(pending_plan은 항상 결제를 거쳐야만 설정되는
+// "다음 유료 플랜 예약" 전용이라, 결제 없이 무료로 전환하는 해지엔 안
+// 맞는다). payment_log.status CHECK는 기존 값 범위를 넓히는 변경이라
+// DROP+ADD CONSTRAINT가 필요하다(ensureDeadlineD7EventType과 동일 패턴).
+func ensureRefundAndCancellationColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS cancel_requested_at TIMESTAMPTZ;
+		ALTER TABLE payment_log ADD COLUMN IF NOT EXISTS refund_reason TEXT;
+		ALTER TABLE payment_log ADD COLUMN IF NOT EXISTS refunded_at TIMESTAMPTZ;
+		ALTER TABLE payment_log ADD COLUMN IF NOT EXISTS refund_processed_by TEXT;
+		ALTER TABLE payment_log DROP CONSTRAINT IF EXISTS payment_log_status_check;
+		ALTER TABLE payment_log ADD CONSTRAINT payment_log_status_check
+			CHECK (status IN ('승인','실패','취소','환불'));
 	`)
 	return err
 }
