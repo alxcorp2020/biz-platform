@@ -9,6 +9,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"sort"
 	"time"
@@ -38,7 +39,7 @@ var pipelineUndecidedStatuses = map[string]bool{
 }
 
 type dashboardPriorityItem struct {
-	Kind             string     `json:"kind"` // "pipeline" | "recommendation"
+	Kind             string     `json:"kind"` // "pipeline" | "recommendation" | "license_expiring" | "notice_change"
 	NoticeID         string     `json:"noticeId"`
 	PipelineEntryID  *string    `json:"pipelineEntryId,omitempty"`
 	Title            string     `json:"title"`
@@ -46,6 +47,14 @@ type dashboardPriorityItem struct {
 	Status           *string    `json:"status,omitempty"` // pipeline 항목만
 	ApplicationEndAt *time.Time `json:"applicationEndAt"`
 	IsBookmarked     bool       `json:"isBookmarked"`
+	// Reason/CtaLabel/CtaHref — Phase 2: "오늘 해야 할 일"이 항목마다 왜
+	// 여기 있는지와 무엇을 누르면 되는지를 직접 말해준다("기관 · 상태"
+	// 나열 대신). CtaHref를 서버가 확정해 내려주면 프론트는 종류별로
+	// 다른 이동 규칙을 다시 구현할 필요가 없다(license_expiring/
+	// notice_change처럼 pipelineEntryId도 없는 항목도 그대로 처리됨).
+	Reason   string `json:"reason"`
+	CtaLabel string `json:"ctaLabel"`
+	CtaHref  string `json:"ctaHref"`
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -160,9 +169,22 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			Kind: "pipeline", NoticeID: pr.noticeID, PipelineEntryID: &entryID,
 			Title: pr.title, OrganizationName: pr.organizationName.String, Status: &status,
 			IsBookmarked: bookmarkedIDs[pr.noticeID],
+			CtaHref:      "#/pipeline/" + pr.id,
 		}
 		if pr.deadline.Valid {
 			item.ApplicationEndAt = &pr.deadline.Time
+		}
+		// 사유는 우선순위 하나만 고른다(여러 이유가 겹칠 수 있어도 "지금
+		// 당장 뭘 눌러야 하는지"는 하나로 좁혀야 행동이 명확해진다) —
+		// 참여 여부 결정이 안 됐으면 그게 가장 근본적인 다음 행동이고,
+		// 이미 결정됐다면 담당자 지정, 그것도 됐다면 서류 미비 순.
+		switch {
+		case pipelineUndecidedStatuses[pr.status]:
+			item.Reason, item.CtaLabel = "참여 여부 결정 필요", "검토하기"
+		case pr.assigneeName.String == "":
+			item.Reason, item.CtaLabel = "담당자 지정 필요", "담당자 지정"
+		default:
+			item.Reason, item.CtaLabel = fmt.Sprintf("제출서류 %d건 확인 필요", incomplete), "서류 확인"
 		}
 		priorityItems = append(priorityItems, item)
 	}
@@ -202,6 +224,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		item := dashboardPriorityItem{
 			Kind: "recommendation", NoticeID: id, Title: title, OrganizationName: org.String,
 			IsBookmarked: bookmarkedIDs[id],
+			Reason:       "참여 여부 결정 필요", CtaLabel: "검토하기", CtaHref: "#/notices/" + id,
 		}
 		if deadline.Valid {
 			item.ApplicationEndAt = &deadline.Time
@@ -211,6 +234,29 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if err := noticeRows.Err(); err != nil {
 		s.logger.Error("dashboard: notices scan failed", "error", err)
 	}
+
+	// reviewNeededCount — 오늘의 AI 브리핑 한 문장의 근거. "오늘 해야 할
+	// 일" 전체(인증만료/공고변경 포함)가 아니라 "참여 여부를 결정해야
+	// 하는" 항목만 센다 — 브리핑 문장이 "검토할 사업이 N건"이라고 말하는데
+	// 실제로는 인증 갱신 건이었다면 신뢰가 깎인다.
+	reviewNeededCount := 0
+	for _, it := range priorityItems {
+		if it.Kind == "pipeline" || it.Kind == "recommendation" {
+			reviewNeededCount++
+		}
+	}
+
+	licenseExpiringItems, err := s.fetchLicenseExpiringItems(ctx, profileID)
+	if err != nil {
+		s.logger.Error("dashboard: license expiring query failed", "error", err)
+	}
+	priorityItems = append(priorityItems, licenseExpiringItems...)
+
+	noticeChangeItems, err := s.fetchNoticeChangeItems(ctx, profileID)
+	if err != nil {
+		s.logger.Error("dashboard: notice change query failed", "error", err)
+	}
+	priorityItems = append(priorityItems, noticeChangeItems...)
 
 	sort.Slice(priorityItems, func(i, j int) bool {
 		a, b := priorityItems[i].ApplicationEndAt, priorityItems[j].ApplicationEndAt
@@ -233,8 +279,19 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("dashboard: AI usage count failed", "error", err)
 	}
 
+	automation, err := s.computeAutomationSummary(ctx, company)
+	if err != nil {
+		s.logger.Error("dashboard: automation summary failed", "error", err)
+	}
+
+	completeness, err := s.computeProfileCompleteness(ctx, profileID, profile.Industry)
+	if err != nil {
+		s.logger.Error("dashboard: profile completeness failed", "error", err)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"hasProfile": true,
+		"briefing":   dashboardBriefing(reviewNeededCount, len(priorityItems)),
 		"summary": map[string]int{
 			"reviewPendingCount":  reviewPendingCount,
 			"deadlineSoonCount":   deadlineSoonCount,
@@ -243,8 +300,28 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			"aiAnalysisUsedCount": aiUsed,
 			"aiAnalysisLimit":     aiLimit, // -1 = 무제한, 0 = 이 플랜에서 이용 불가(Free)
 		},
-		"priorityItems": priorityItems,
+		"priorityItems":     priorityItems,
+		"automationSummary": automation,
+		"growthSummary": map[string]int{
+			"overallCompleteness": completeness.OverallCompleteness,
+		},
 	})
+}
+
+// dashboardBriefing — "오늘의 AI 브리핑" 한 문장. 참여 여부를 결정해야
+// 하는 건(reviewNeededCount)을 우선 강조하고, 그게 0이어도 인증만료/공고
+// 변경 같은 다른 할 일이 있으면 그 사실을 알려준다 — "확인 필요 500건"
+// 처럼 원시 총량을 던지는 대신, 항상 "오늘 실제로 뭘 하면 되는지"로 문장을
+// 맺는다.
+func dashboardBriefing(reviewNeededCount, totalCount int) string {
+	switch {
+	case reviewNeededCount > 0:
+		return fmt.Sprintf("오늘 우선 검토할 사업이 %d건 있어요.", reviewNeededCount)
+	case totalCount > 0:
+		return fmt.Sprintf("새로 검토할 사업은 없지만, 확인할 일이 %d건 있어요.", totalCount)
+	default:
+		return "오늘은 새로 확인할 업무가 없어요. 잘하고 계세요."
+	}
 }
 
 // fetchIncompleteChecklistCounts returns, per pipeline entry id, how many
@@ -294,4 +371,194 @@ func (s *Server) fetchBookmarkedNoticeIDs(ctx context.Context, userID string) (m
 		ids[id] = true
 	}
 	return ids, rows.Err()
+}
+
+// dashboardLicenseExpiringWindowDays — 이 기간 안에 만료되는 보유 면허/
+// 인증만 "오늘 해야 할 일"에 올린다(스펙 6.1 예시: "만료까지 29일").
+const dashboardLicenseExpiringWindowDays = 30
+
+// fetchLicenseExpiringItems — company_licenses/certifications 중
+// status='보유'이면서 만료가 임박한 것. 관련 공고가 없는 항목이라
+// NoticeID/PipelineEntryID는 비워두고 CtaHref로 프로필 화면(면허·인증
+// 탭)을 직접 가리킨다.
+func (s *Server) fetchLicenseExpiringItems(ctx context.Context, profileID string) ([]dashboardPriorityItem, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT name, expires_at FROM (
+			SELECT name, expires_at FROM company_licenses
+			WHERE company_profile_id = $1 AND status = '보유' AND expires_at IS NOT NULL
+			UNION ALL
+			SELECT name, expires_at FROM company_certifications
+			WHERE company_profile_id = $1 AND status = '보유' AND expires_at IS NOT NULL
+		) x
+		WHERE expires_at BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '1 day' * $2
+		ORDER BY expires_at ASC`,
+		profileID, dashboardLicenseExpiringWindowDays,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []dashboardPriorityItem{}
+	for rows.Next() {
+		var name string
+		var expiresAt time.Time
+		if err := rows.Scan(&name, &expiresAt); err != nil {
+			continue
+		}
+		daysLeft := int(time.Until(expiresAt).Hours() / 24)
+		expiresAtCopy := expiresAt
+		items = append(items, dashboardPriorityItem{
+			Kind: "license_expiring", Title: name,
+			Reason: fmt.Sprintf("만료까지 %d일", daysLeft), CtaLabel: "갱신 일정 등록",
+			CtaHref: "#/me/profile", ApplicationEndAt: &expiresAtCopy,
+		})
+	}
+	return items, rows.Err()
+}
+
+// dashboardNoticeChangeWindowDays — 이 기간 안에 감지된 중요 변경만 올린다
+// (계속 쌓이지 않도록 자연스럽게 만료되게).
+const dashboardNoticeChangeWindowDays = 7
+
+// fetchNoticeChangeItems — 진행 중인(active) 파이프라인 건 중 최근 중요
+// 변경(critical/major)이 감지된 것. 공고당 가장 최근 변경 하나만 올린다
+// (DISTINCT ON).
+func (s *Server) fetchNoticeChangeItems(ctx context.Context, profileID string) ([]dashboardPriorityItem, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT ON (n.id) n.id, n.title, n.organization_name, n.application_end_at,
+		       nc.changed_field, nc.old_value, nc.new_value
+		FROM notice_pipeline_entries pe
+		JOIN notices n ON n.id = pe.notice_id
+		JOIN notice_versions nv ON nv.notice_id = n.id AND nv.version_number = n.current_version
+		JOIN notice_changes nc ON nc.to_version_id = nv.id
+		WHERE pe.company_profile_id = $1
+		  AND pe.status = ANY($2)
+		  AND nc.importance IN ('critical','major')
+		  AND nc.created_at >= now() - INTERVAL '1 day' * $3
+		ORDER BY n.id, nc.created_at DESC`,
+		profileID, pq.Array(activeStatusList()), dashboardNoticeChangeWindowDays,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []dashboardPriorityItem{}
+	for rows.Next() {
+		var id, title, changedField string
+		var org, oldValue, newValue sql.NullString
+		var deadline sql.NullTime
+		if err := rows.Scan(&id, &title, &org, &deadline, &changedField, &oldValue, &newValue); err != nil {
+			continue
+		}
+		item := dashboardPriorityItem{
+			Kind: "notice_change", NoticeID: id, Title: title, OrganizationName: org.String,
+			Reason:   describeNoticeChangeForDashboard(changedField, oldValue.String, newValue.String),
+			CtaLabel: "변경사항 보기", CtaHref: "#/notices/" + id,
+		}
+		if deadline.Valid {
+			item.ApplicationEndAt = &deadline.Time
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// activeStatusList — pipelineActiveStatuses(맵)를 pq.Array에 넘길 수 있는
+// slice로. 맵 순서가 안 정해져도 IN 조건에는 영향 없다.
+func activeStatusList() []string {
+	out := make([]string, 0, len(pipelineActiveStatuses))
+	for k := range pipelineActiveStatuses {
+		out = append(out, k)
+	}
+	return out
+}
+
+// describeNoticeChangeForDashboard — application_end_at 변경(스펙 6.1 예시:
+// "제출기한이 2일 연장되었습니다")은 늘어났는지 줄었는지까지 말해주고,
+// 그 외 중요 필드는 일반 문구로 대체한다(과장 없이 "변경되었다"는 사실만).
+func describeNoticeChangeForDashboard(field, oldValue, newValue string) string {
+	if field == "application_end_at" {
+		oldDate, oldErr := time.Parse("2006-01-02", oldValue)
+		newDate, newErr := time.Parse("2006-01-02", newValue)
+		if oldErr == nil && newErr == nil {
+			diffDays := int(newDate.Sub(oldDate).Hours() / 24)
+			switch {
+			case diffDays > 0:
+				return fmt.Sprintf("제출기한이 %d일 연장되었습니다.", diffDays)
+			case diffDays < 0:
+				return fmt.Sprintf("제출기한이 %d일 단축되었습니다.", -diffDays)
+			}
+		}
+		return "제출기한이 변경되었습니다."
+	}
+	return "공고 내용이 변경되었습니다."
+}
+
+// dashboardAssumedMinutesPerNotice — "이번 달 자동화 성과"의 절감시간은
+// 실측이 아니라 가정이다(과장 금지 원칙 — Phase 7 스펙과 동일). 응답에
+// SavedMinutesAssumption으로 이 가정을 항상 함께 내려 프론트가 반드시
+// 명시하게 한다.
+const dashboardAssumedMinutesPerNotice = 5
+
+type automationSummary struct {
+	AnalyzedCount          int    `json:"analyzedCount"`
+	NarrowedCount          int    `json:"narrowedCount"`
+	ChangesTrackedCount    int    `json:"changesTrackedCount"`
+	EstimatedSavedMinutes  int    `json:"estimatedSavedMinutes"`
+	SavedMinutesAssumption string `json:"savedMinutesAssumption"`
+}
+
+// computeAutomationSummary — "이번 달"(달력 기준) 자동화 성과 4개 지표.
+// analyzedCount/narrowedCount는 이번 달 새로 수집된 공고를 대상으로,
+// changesTrackedCount는 그 안에서 실제로 중요 변경이 감지된 공고 수만
+// 센다(전체 시스템의 변경이력이 아니라 "이 회사가 이번 달 마주친" 범위로
+// 한정 — 그래야 "당신을 위해 자동화했다"는 문장이 성립한다).
+func (s *Server) computeAutomationSummary(ctx context.Context, company companyScoringInput) (automationSummary, error) {
+	summary := automationSummary{SavedMinutesAssumption: fmt.Sprintf("공고 1건당 검토 %d분 가정", dashboardAssumedMinutesPerNotice)}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, notice_type, region, industry, budget_amount
+		FROM notices
+		WHERE created_at >= date_trunc('month', now())
+		LIMIT `+itoa(dashboardNoticeScanLimit))
+	if err != nil {
+		return summary, err
+	}
+	var noticeIDs []string
+	for rows.Next() {
+		var id, noticeType string
+		var region, industry sql.NullString
+		var budget sql.NullInt64
+		if err := rows.Scan(&id, &noticeType, &region, &industry, &budget); err != nil {
+			continue
+		}
+		noticeIDs = append(noticeIDs, id)
+		score := scoreNoticeForCompany(
+			noticeScoringInput{NoticeType: noticeType, Region: region, Industry: industry, BudgetAmount: budget}, company,
+		)
+		if score.Grade == gradeRecommended {
+			summary.NarrowedCount++
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return summary, err
+	}
+
+	summary.AnalyzedCount = len(noticeIDs)
+	summary.EstimatedSavedMinutes = summary.AnalyzedCount * dashboardAssumedMinutesPerNotice
+
+	if len(noticeIDs) > 0 {
+		if err := s.db.QueryRowContext(ctx, `
+			SELECT count(DISTINCT notice_id) FROM notice_changes
+			WHERE notice_id = ANY($1) AND importance IN ('critical','major')
+			  AND created_at >= date_trunc('month', now())`,
+			pq.Array(noticeIDs),
+		).Scan(&summary.ChangesTrackedCount); err != nil {
+			return summary, err
+		}
+	}
+	return summary, nil
 }

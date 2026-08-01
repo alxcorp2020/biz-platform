@@ -148,6 +148,14 @@
     .modal-panel { max-width: 100%; border-radius: 18px 18px 0 0; max-height: 90vh; }
   }
 
+  /* main의 기본(모바일) 레이아웃 — 아래 "PC 좌측 고정 사이드바" 미디어
+     쿼리의 main { margin-left: ... } 규칙보다 반드시 먼저 와야 한다.
+     같은 명시도(main 단일 선택자)에서는 소스상 나중에 오는 규칙이
+     이기므로, 이 규칙이 뒤에 있으면 900px 이상에서도 sidebar 폭만큼
+     밀어주는 margin-left가 이 규칙의 margin:0 auto에 매번 덮여
+     사이드바가 본문 앞부분을 가리는 버그가 생긴다(실제로 있었음). */
+  main { max-width: 1080px; margin: 0 auto; padding: var(--space-xl) var(--space-lg) 5rem; }
+
   /* ---------- PC 좌측 고정 사이드바 (900px 이상에서만) ----------
      좁은 화면에서는 숨기고 기존 .site-header를 그대로 쓴다 — 모바일
      하단 탭바(다음 단계)가 들어오면 그쪽이 대신하게 된다. */
@@ -274,8 +282,6 @@
   }
   .header-links a:hover, .auth-nav a:hover, .link-btn:hover { text-decoration: underline; }
   .link-btn { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
-
-  main { max-width: 1080px; margin: 0 auto; padding: var(--space-xl) var(--space-lg) 5rem; }
 
   /* ---------- Filters ---------- */
   .filters {
@@ -473,6 +479,17 @@
   .dash-greeting { margin-bottom: 1.75rem; }
   .dash-greeting-eyebrow { margin: 0 0 0.3rem; font-size: 0.85rem; font-weight: 600; color: var(--accent-blue); }
   .dash-greeting-title { margin: 0; font-size: 1.35rem; font-weight: 700; color: var(--ink); }
+  /* 오늘의 AI 브리핑 — "확인 필요 500건" 같은 압박형 숫자 나열 대신,
+     오늘 실제로 뭘 하면 되는지를 문장 하나로 먼저 크게 보여준다. */
+  .dash-brief-card {
+    padding: var(--space-lg) var(--space-md);
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    margin-bottom: var(--space-lg);
+  }
+  .dash-brief-text { margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--navy); }
+  .dash-automation-card p:last-child { margin-bottom: 0; }
   .dash-tiles {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -2025,15 +2042,23 @@ function renderDashboard(container, data) {
     ? `<div class="notice-list">${items.map(priorityItemHtml).join('')}</div>`
     : '<p class="empty">오늘 처리할 업무가 없습니다. 잘하고 계세요.</p>';
 
+  const automationHtml = renderAutomationSummaryHtml(data.automationSummary);
+  const growthHtml = renderGrowthSummaryHtml(data.growthSummary);
+
   container.appendChild(h(`
     <div class="dash-greeting">
       <p class="dash-greeting-eyebrow">안녕하세요.</p>
       <h2 class="dash-greeting-title">오늘 확인할 업무입니다.</h2>
     </div>
+    <div class="dash-brief-card">
+      <p class="dash-brief-text">${escapeHtml(data.briefing || '')}</p>
+    </div>
     <div class="dash-tiles">${tilesHtml}</div>
     <p class="license-card-meta">${glossaryHtml('AI 분석')} 카드는 이번달 AI 자동분석 사용 현황입니다.</p>
-    <h3 class="dash-section-title">오늘의 우선 업무</h3>
+    <h3 class="dash-section-title">오늘 해야 할 일 (${items.length}건)</h3>
     ${itemsHtml}
+    ${growthHtml}
+    ${automationHtml}
   `));
 
   container.querySelectorAll('.dash-tile--clickable').forEach(tile => {
@@ -2042,41 +2067,70 @@ function renderDashboard(container, data) {
   wirePriorityItemNav(container);
 }
 
-// priorityItemHtml — row-card 패턴(제목+부제 / D-day 값+화살표)으로
-// 통일. 예전엔 행마다 [참여검토]/[제외]/[상세보기] 버튼 3개가 있었지만,
-// "화면당 강조 버튼 1개" + "카드는 제목+큰 숫자+화살표" 원칙에 맞춰
-// 행 전체를 눌러 상세로 이동하는 방식으로 단순화했다 — 참여검토는
-// 공고 상세에, 제외(상태 변경)는 파이프라인 상세에 이미 있어 기능
-// 자체가 없어지는 건 아니다.
+// renderAutomationSummaryHtml — "이번 달 자동화 성과". 절감시간은 실측이
+// 아니라 가정이므로(과장 금지 원칙, Phase 7과 동일) 서버가 내려주는
+// savedMinutesAssumption 문구를 항상 그대로 함께 보여준다 — 숫자만 크게
+// 보여주고 근거를 숨기지 않는다.
+function renderAutomationSummaryHtml(a) {
+  if (!a) return '';
+  const hours = Math.round(a.estimatedSavedMinutes / 60 * 10) / 10;
+  return `
+    <div class="detail-card dash-automation-card">
+      <h3>이번 달 자동화 성과</h3>
+      <p class="license-card-meta">이번 달 <strong>${a.analyzedCount}건</strong>을 분석해서 우선검토 대상을 <strong>${a.narrowedCount}건</strong>으로 압축했어요.</p>
+      <p class="license-card-meta">예상 절감시간 약 <strong>${hours}시간</strong> (${escapeHtml(a.savedMinutesAssumption)}) · 변경사항 자동추적 <strong>${a.changesTrackedCount}건</strong></p>
+    </div>
+  `;
+}
+
+// renderGrowthSummaryHtml — 성장 제안은 이번 단계에서 프로필 완성도 요약
+// 카드 하나만 가볍게 둔다("영향받은 공고 N건"처럼 근거를 계산해 보여주는
+// 정교한 제안은 Phase 7 몫 — 여기서 새로 만들지 않는다).
+function renderGrowthSummaryHtml(g) {
+  if (!g) return '';
+  return `
+    <div class="detail-card">
+      <h3>회사 프로필</h3>
+      <p class="license-card-meta">프로필 완성도 <strong>${g.overallCompleteness}%</strong> — 완성도가 높을수록 더 정확하게 판정할 수 있어요.</p>
+      <a href="#/me/profile" class="official-link">프로필 보완하기 &rarr;</a>
+    </div>
+  `;
+}
+
+// priorityItemHtml — row-card 패턴(제목+부제 / D-day 값 / CTA 버튼). 부제는
+// "기관 · 상태" 대신 서버가 내려주는 reason(사유)을 그대로 써서 왜 이
+// 항목이 여기 있는지 바로 알 수 있게 한다. 행 전체 클릭과 CTA 버튼 둘 다
+// 같은 곳(ctaHref)으로 이동한다 — CTA 버튼은 "무엇을 누르면 되는지"를
+// 명시하기 위한 것이고, 행 클릭은 기존 습관(느슨한 타겟)을 유지하기
+// 위한 것이다.
 function priorityItemHtml(item) {
   const org = item.organizationName || '-';
-  const subtitle = item.status ? `${org} · ${item.status}` : `${org} · 신규 추천`;
+  const subtitle = item.reason ? `${org} · ${item.reason}` : org;
   const dday = ddayInfo(item.applicationEndAt);
   const valueClass = dday.cls.includes('danger') ? 'row-card-value--danger'
     : (dday.label === '-' ? 'row-card-value--muted' : '');
   return `
-    <div class="row-card priority-item" data-notice-id="${escapeAttr(item.noticeId)}"
-         data-entry-id="${escapeAttr(item.pipelineEntryId || '')}">
+    <div class="row-card priority-item" data-cta-href="${escapeAttr(item.ctaHref || '')}">
       <div class="row-card-main">
         <div class="row-card-title">${escapeHtml(item.title)}</div>
         <div class="row-card-subtitle">${escapeHtml(subtitle)}</div>
       </div>
       <div class="row-card-side">
         <span class="row-card-value ${valueClass}">${escapeHtml(dday.label)}</span>
-        <span class="row-card-arrow">›</span>
+        ${item.ctaLabel ? `<button type="button" class="btn btn-secondary btn-sm priority-item-cta">${escapeHtml(item.ctaLabel)}</button>` : ''}
       </div>
     </div>
   `;
 }
 
-// wirePriorityItemNav — 행 전체 클릭 시 파이프라인에 이미 있으면 그
-// 상세로, 아직 없으면(추천만 된 상태) 공고 상세로 이동.
+// wirePriorityItemNav — 행 전체 또는 CTA 버튼 클릭 시 서버가 정해준
+// ctaHref로 이동(kind별로 다른 이동 규칙을 프론트가 다시 판단하지 않는다
+// — license_expiring/notice_change처럼 파이프라인 엔트리가 없는 항목도
+// 이걸로 그대로 처리됨).
 function wirePriorityItemNav(container) {
   container.querySelectorAll('.priority-item').forEach(card => {
     card.addEventListener('click', () => {
-      const entryId = card.dataset.entryId;
-      const noticeId = card.dataset.noticeId;
-      location.hash = entryId ? '#/pipeline/' + entryId : '#/notices/' + noticeId;
+      if (card.dataset.ctaHref) location.hash = card.dataset.ctaHref;
     });
   });
 }
