@@ -679,6 +679,74 @@
     background: var(--surface-soft, #f5f5f7); border-radius: var(--radius-card);
     font-size: var(--text-caption); color: var(--ink-soft);
   }
+  /* ---------- 캘린더(#/calendar) — 외부 라이브러리 없이 직접 구현.
+     이벤트 종류 3가지(제출마감/등록마감/개찰일시)는 badge 색상 관례를
+     그대로 따른다(danger/warn/blue). */
+  .calendar-toolbar {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+    gap: 0.75rem; margin-bottom: 0.75rem;
+  }
+  .calendar-toolbar-nav { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .calendar-title { font-size: 1.1rem; font-weight: 700; color: var(--ink); margin: 0 0 0 0.25rem; }
+  .calendar-view-switch { display: flex; gap: 0.4rem; }
+  .calendar-view-btn.is-active { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+  .calendar-legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; font-size: 0.82rem; color: var(--ink-soft); }
+  .calendar-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .calendar-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+  .calendar-dot--danger, .calendar-event--danger { background: var(--danger); }
+  .calendar-dot--warn, .calendar-event--warn { background: var(--warn); }
+  .calendar-dot--blue, .calendar-event--blue { background: var(--accent-blue); }
+
+  .calendar-month-grid {
+    display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+    border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden;
+    background: var(--border);
+    gap: 1px;
+  }
+  .calendar-month-headcell {
+    background: var(--bg-soft); padding: 0.5rem; text-align: center;
+    font-size: 0.8rem; font-weight: 600; color: var(--ink-soft);
+    min-width: 0;
+  }
+  .calendar-month-cell {
+    background: #fff; min-height: 90px; padding: 0.4rem; display: flex; flex-direction: column; gap: 0.25rem;
+    min-width: 0;
+  }
+  .calendar-month-cell.is-outside { background: var(--bg-soft); }
+  .calendar-month-cell.is-outside .calendar-month-cell-date { color: var(--text-disabled, var(--ink-soft)); }
+  .calendar-month-cell.is-today .calendar-month-cell-date {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.4rem; height: 1.4rem; border-radius: 50%;
+    background: var(--accent-blue); color: #fff;
+  }
+  .calendar-month-cell-date { font-size: 0.82rem; font-weight: 600; color: var(--ink); }
+  .calendar-month-cell-events { display: flex; flex-direction: column; gap: 0.2rem; }
+  .calendar-event {
+    font-size: 0.72rem; color: #fff; padding: 0.1rem 0.35rem; border-radius: 4px;
+    cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .calendar-event:hover { opacity: 0.85; }
+  .calendar-event--row { background: none !important; color: inherit; padding: 0; }
+
+  .calendar-week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.5rem; }
+  .calendar-week-col {
+    border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.5rem;
+    min-height: 220px; background: #fff;
+  }
+  .calendar-week-col.is-today { border-color: var(--accent-blue); }
+  .calendar-week-col-head { font-size: 0.82rem; font-weight: 600; color: var(--ink); margin-bottom: 0.5rem; }
+  .calendar-week-col-date { color: var(--ink-soft); font-weight: 500; }
+  .calendar-week-col-events { display: flex; flex-direction: column; gap: 0.3rem; }
+  .calendar-empty-hint { color: var(--ink-soft); font-size: 0.78rem; margin: 0; }
+
+  .calendar-day-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  @media (max-width: 640px) {
+    .calendar-week-grid { grid-template-columns: 1fr; }
+    .calendar-month-cell { min-height: 60px; }
+    .calendar-title { width: 100%; order: -1; margin: 0 0 0.25rem; }
+  }
+
   .checklist-list { display: flex; flex-direction: column; gap: 0.5rem; }
   .checklist-row {
     display: flex; justify-content: space-between; align-items: center; gap: 0.75rem 1rem; flex-wrap: wrap;
@@ -1421,6 +1489,7 @@ const SIDEBAR_ICONS = {
   bookmark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
   user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
   chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
 };
 // SIDEBAR_MENU — 원래 5개 고정이었으나(모바일 TABBAR_MENU와의 통일된
 // 제약), 성장분석 추가 시 사용자가 "임베드"가 아니라 "새 메뉴 항목"을
@@ -1431,6 +1500,7 @@ const SIDEBAR_MENU = [
   { path: '#/', label: '홈', icon: 'home' },
   { path: '#/notices', label: '공고 검색', icon: 'search' },
   { path: '#/pipeline', label: '진행 중 사업', icon: 'pipeline' },
+  { path: '#/calendar', label: '캘린더', icon: 'calendar' },
   { path: '#/me/profile', label: '기업 프로필', icon: 'profile' },
   { path: '#/growth', label: '성장분석', icon: 'chart' },
   { path: '#/me/subscription', label: '구독 관리', icon: 'card' },
@@ -1855,6 +1925,7 @@ function renderHeader() {
       ${reviewLink}
       ${adminLink}
       <a href="#/pipeline">진행 중 사업</a>
+      <a href="#/calendar">캘린더</a>
       <a href="#/me/bookmarks">관심공고</a>
       <a href="#/me/profile">내 프로필</a>
       <a href="#/me/licenses">면허·인증</a>
@@ -2255,6 +2326,204 @@ function pipelineListRowHtml(entry) {
       </div>
     </div>
   `;
+}
+
+// ---------- 캘린더(#/calendar) ----------
+// 외부 캘린더 라이브러리(FullCalendar 등) 없이 순수 JS로 만들었다 —
+// 이 프로젝트가 프레임워크/무거운 의존성을 피하는 기조(analyzer의
+// requirements.txt 주석, notify 패키지의 "최소 외부 의존성" 원칙과
+// 동일한 판단)와 맞고, 이벤트 볼륨도 작아(회사 하나가 동시에 진행하는
+// 파이프라인 일정이 많아야 수십 건) 250KB+ 라이브러리를 CDN으로 붙일
+// 실익이 없다고 판단했다. 이벤트 데이터는 .ics 다운로드(calendar.go)와
+// 완전히 같은 소스(GET /api/pipeline/calendar-events)를 쓴다.
+const CALENDAR_WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
+const CALENDAR_KIND_LABELS = { submission: '제출마감', qualification: '등록마감', opening: '개찰일시' };
+const CALENDAR_KIND_TONES = { submission: 'danger', qualification: 'warn', opening: 'blue' };
+
+let calendarState = { view: 'month', anchor: new Date(), events: [] };
+
+async function renderCalendarView(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/pipeline/calendar-events');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+  calendarState.events = data.items || [];
+  calendarState.anchor = new Date(); // 화면 진입마다 오늘 기준으로 리셋
+  container.innerHTML = '';
+  container.appendChild(h('<h2>캘린더</h2><div id="calendar-root"></div>'));
+  renderCalendarShell(document.getElementById('calendar-root'));
+}
+
+function renderCalendarShell(root) {
+  root.innerHTML = `
+    <div class="calendar-toolbar">
+      <div class="calendar-toolbar-nav">
+        <button type="button" id="calendar-prev-btn" class="btn btn-secondary btn-sm" aria-label="이전">&lsaquo;</button>
+        <button type="button" id="calendar-today-btn" class="btn btn-secondary btn-sm">오늘</button>
+        <button type="button" id="calendar-next-btn" class="btn btn-secondary btn-sm" aria-label="다음">&rsaquo;</button>
+        <h2 class="calendar-title" id="calendar-title"></h2>
+      </div>
+      <div class="calendar-view-switch">
+        ${['month', 'week', 'day'].map(v => `<button type="button" class="btn btn-secondary btn-sm calendar-view-btn${calendarState.view === v ? ' is-active' : ''}" data-view="${v}">${v === 'month' ? '월' : v === 'week' ? '주' : '일'}</button>`).join('')}
+      </div>
+    </div>
+    <div class="calendar-legend">
+      ${Object.keys(CALENDAR_KIND_LABELS).map(k => `<span class="calendar-legend-item"><span class="calendar-dot calendar-dot--${CALENDAR_KIND_TONES[k]}"></span>${escapeHtml(CALENDAR_KIND_LABELS[k])}</span>`).join('')}
+    </div>
+    <div id="calendar-body"></div>
+  `;
+  document.getElementById('calendar-prev-btn').addEventListener('click', () => { shiftCalendarAnchor(-1); renderCalendarShell(root); });
+  document.getElementById('calendar-next-btn').addEventListener('click', () => { shiftCalendarAnchor(1); renderCalendarShell(root); });
+  document.getElementById('calendar-today-btn').addEventListener('click', () => { calendarState.anchor = new Date(); renderCalendarShell(root); });
+  root.querySelectorAll('.calendar-view-btn').forEach(btn => {
+    btn.addEventListener('click', () => { calendarState.view = btn.dataset.view; renderCalendarShell(root); });
+  });
+  renderCalendarBody(document.getElementById('calendar-body'));
+}
+
+function shiftCalendarAnchor(dir) {
+  const d = new Date(calendarState.anchor);
+  if (calendarState.view === 'month') d.setMonth(d.getMonth() + dir);
+  else if (calendarState.view === 'week') d.setDate(d.getDate() + dir * 7);
+  else d.setDate(d.getDate() + dir);
+  calendarState.anchor = d;
+}
+
+function calendarDateKey(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function calendarFormatDate(d) {
+  return `${d.getMonth() + 1}월 ${d.getDate()}일(${CALENDAR_WEEKDAY_LABELS[d.getDay()]})`;
+}
+
+function calendarWeekDays(anchor) {
+  const d = new Date(anchor);
+  d.setHours(0, 0, 0, 0);
+  const start = new Date(d);
+  start.setDate(d.getDate() - d.getDay());
+  return Array.from({ length: 7 }, (_, i) => {
+    const x = new Date(start);
+    x.setDate(start.getDate() + i);
+    return x;
+  });
+}
+
+function calendarEventsByDateKey() {
+  const map = {};
+  calendarState.events.forEach(e => {
+    const key = calendarDateKey(new Date(e.start));
+    (map[key] = map[key] || []).push(e);
+  });
+  Object.values(map).forEach(list => list.sort((a, b) => new Date(a.start) - new Date(b.start)));
+  return map;
+}
+
+function calendarEventChipHtml(e) {
+  const tone = CALENDAR_KIND_TONES[e.kind] || '';
+  const d = new Date(e.start);
+  const time = e.allDay ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} `;
+  return `<div class="calendar-event calendar-event--${tone}" data-entry-id="${escapeAttr(e.pipelineEntryId)}" title="${escapeAttr(CALENDAR_KIND_LABELS[e.kind] || e.kind)} · ${escapeAttr(e.noticeTitle)}">${time}${escapeHtml(e.noticeTitle)}</div>`;
+}
+
+function wireCalendarEventClicks(scopeEl) {
+  scopeEl.querySelectorAll('.calendar-event').forEach(el => {
+    el.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      location.hash = '#/pipeline/' + el.dataset.entryId;
+    });
+  });
+}
+
+function renderCalendarBody(bodyEl) {
+  const titleEl = document.getElementById('calendar-title');
+  const byDate = calendarEventsByDateKey();
+  if (calendarState.view === 'month') {
+    titleEl.textContent = `${calendarState.anchor.getFullYear()}년 ${calendarState.anchor.getMonth() + 1}월`;
+    bodyEl.innerHTML = calendarMonthHtml(calendarState.anchor, byDate);
+  } else if (calendarState.view === 'week') {
+    const days = calendarWeekDays(calendarState.anchor);
+    titleEl.textContent = `${calendarFormatDate(days[0])} ~ ${calendarFormatDate(days[6])}`;
+    bodyEl.innerHTML = calendarWeekHtml(days, byDate);
+  } else {
+    titleEl.textContent = calendarFormatDate(calendarState.anchor);
+    bodyEl.innerHTML = calendarDayHtml(calendarState.anchor, byDate);
+  }
+  wireCalendarEventClicks(bodyEl);
+}
+
+function calendarMonthHtml(anchor, byDate) {
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const gridStart = new Date(year, month, 1 - firstOfMonth.getDay());
+  const todayKey = calendarDateKey(new Date());
+
+  const cells = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    const key = calendarDateKey(d);
+    const dayEvents = byDate[key] || [];
+    const classes = ['calendar-month-cell'];
+    if (d.getMonth() !== month) classes.push('is-outside');
+    if (key === todayKey) classes.push('is-today');
+    return `
+      <div class="${classes.join(' ')}">
+        <div class="calendar-month-cell-date">${d.getDate()}</div>
+        <div class="calendar-month-cell-events">${dayEvents.map(calendarEventChipHtml).join('')}</div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="calendar-month-grid">
+      ${CALENDAR_WEEKDAY_LABELS.map(w => `<div class="calendar-month-headcell">${w}</div>`).join('')}
+      ${cells}
+    </div>
+  `;
+}
+
+function calendarWeekHtml(days, byDate) {
+  const todayKey = calendarDateKey(new Date());
+  return `
+    <div class="calendar-week-grid">
+      ${days.map(d => {
+        const key = calendarDateKey(d);
+        const dayEvents = byDate[key] || [];
+        return `
+          <div class="calendar-week-col${key === todayKey ? ' is-today' : ''}">
+            <div class="calendar-week-col-head">${CALENDAR_WEEKDAY_LABELS[d.getDay()]} <span class="calendar-week-col-date">${d.getDate()}</span></div>
+            <div class="calendar-week-col-events">${dayEvents.length ? dayEvents.map(calendarEventChipHtml).join('') : '<p class="calendar-empty-hint">일정 없음</p>'}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function calendarDayHtml(anchor, byDate) {
+  const dayEvents = byDate[calendarDateKey(anchor)] || [];
+  if (!dayEvents.length) {
+    return '<p class="empty">이 날은 일정이 없습니다.</p>';
+  }
+  return `<div class="calendar-day-list">${dayEvents.map(e => `
+    <div class="row-card calendar-event calendar-event--row" data-entry-id="${escapeAttr(e.pipelineEntryId)}">
+      <div class="row-card-main">
+        <div class="row-card-title">${escapeHtml(e.noticeTitle)}</div>
+        <div class="row-card-subtitle">${escapeHtml(CALENDAR_KIND_LABELS[e.kind] || e.kind)}${e.allDay ? '' : ' · ' + formatDateTime(e.start).slice(11)}</div>
+      </div>
+      <span class="row-card-arrow">›</span>
+    </div>
+  `).join('')}</div>`;
 }
 
 // ---------- AI 분석 사용내역 (#/ai-usage) ----------
@@ -6068,6 +6337,7 @@ function route() {
   if (path === '#/review') { renderReviewQueue(app); return; }
   if (path === '#/notices') { renderList(app); return; }
   if (path === '#/pipeline') { renderPipelineList(app); return; }
+  if (path === '#/calendar') { renderCalendarView(app); return; }
   if (path === '#/ai-usage') { renderAIUsage(app); return; }
   if (path === '#/billing/plans') { renderPricingPlans(app); return; }
   if (path === '#/billing/checkout') { renderBillingCheckout(app); return; }

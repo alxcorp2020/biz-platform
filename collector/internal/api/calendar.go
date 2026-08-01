@@ -29,6 +29,13 @@ type icsEvent struct {
 	summary string
 	allDay  bool
 	start   time.Time
+	// pipelineEntryID/noticeTitle/kind — renderICS(.ics 출력)는 안 쓰고,
+	// GET /api/pipeline/calendar-events(JSON, 인앱 캘린더 화면 전용)만
+	// 쓴다. buildPipelineCalendarEvents 한 곳에서 채워두면 ICS/JSON 두
+	// 출력이 항상 같은 데이터 소스·같은 판정 로직을 공유한다.
+	pipelineEntryID string
+	noticeTitle     string
+	kind            string // "submission" | "qualification" | "opening"
 }
 
 func (s *Server) handleGetPipelineCalendar(w http.ResponseWriter, r *http.Request) {
@@ -91,10 +98,13 @@ func (s *Server) buildPipelineCalendarEvents(ctx context.Context, entry *pipelin
 	if entry.SubmissionDeadline != nil {
 		if d, err := time.Parse("2006-01-02", *entry.SubmissionDeadline); err == nil {
 			events = append(events, icsEvent{
-				uid:     entry.ID + "-submission@biz-platform",
-				summary: "[제출마감] " + entry.NoticeTitle,
-				allDay:  true,
-				start:   d,
+				uid:             entry.ID + "-submission@biz-platform",
+				summary:         "[제출마감] " + entry.NoticeTitle,
+				allDay:          true,
+				start:           d,
+				pipelineEntryID: entry.ID,
+				noticeTitle:     entry.NoticeTitle,
+				kind:            "submission",
 			})
 		}
 	}
@@ -121,19 +131,101 @@ func (s *Server) buildPipelineCalendarEvents(ctx context.Context, entry *pipelin
 
 	if detail.QualificationDeadlineAt != nil {
 		events = append(events, icsEvent{
-			uid:     entry.ID + "-qualification@biz-platform",
-			summary: "[등록마감] " + entry.NoticeTitle,
-			start:   *detail.QualificationDeadlineAt,
+			uid:             entry.ID + "-qualification@biz-platform",
+			summary:         "[등록마감] " + entry.NoticeTitle,
+			start:           *detail.QualificationDeadlineAt,
+			pipelineEntryID: entry.ID,
+			noticeTitle:     entry.NoticeTitle,
+			kind:            "qualification",
 		})
 	}
 	if detail.BidOpeningAt != nil {
 		events = append(events, icsEvent{
-			uid:     entry.ID + "-opening@biz-platform",
-			summary: "[개찰일시] " + entry.NoticeTitle,
-			start:   *detail.BidOpeningAt,
+			uid:             entry.ID + "-opening@biz-platform",
+			summary:         "[개찰일시] " + entry.NoticeTitle,
+			start:           *detail.BidOpeningAt,
+			pipelineEntryID: entry.ID,
+			noticeTitle:     entry.NoticeTitle,
+			kind:            "opening",
 		})
 	}
 	return events
+}
+
+// calendarEventItem is the JSON shape GET /api/pipeline/calendar-events
+// returns — the인앱 캘린더 화면(월/주/일 뷰)이 쓰는 구조화된 버전. icsEvent
+// 그대로 노출하지 않는 이유는 uid/summary가 .ics 포맷 전용 표현이라서다
+// (summary엔 "[제출마감] " 같은 접두사가 이미 박혀 있음 — 화면에서는
+// kind로 직접 배지를 그리는 쪽이 낫다).
+type calendarEventItem struct {
+	PipelineEntryID string    `json:"pipelineEntryId"`
+	NoticeTitle     string    `json:"noticeTitle"`
+	Kind            string    `json:"kind"` // "submission" | "qualification" | "opening"
+	AllDay          bool      `json:"allDay"`
+	Start           time.Time `json:"start"`
+}
+
+// handleListPipelineCalendarEvents — GET /api/pipeline/calendar-events.
+// "진행 중"(pipelineActiveStatuses) 파이프라인 전체의 일정을 한 번에
+// 모아 인앱 캘린더 화면에 내려준다. 종결된 건(제출완료/낙찰/탈락/보류/
+// 제외)은 더 이상 챙길 필요가 없어 제외한다 — dashboard.go의 같은
+// 판단과 동일.
+func (s *Server) handleListPipelineCalendarEvents(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	ctx := r.Context()
+
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("pipeline-calendar-events: profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if profile == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []calendarEventItem{}})
+		return
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		pipelineEntrySelect+` WHERE pe.company_profile_id = $1`, profile.ID)
+	if err != nil {
+		s.logger.Error("pipeline-calendar-events: query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	var entries []pipelineEntry
+	for rows.Next() {
+		entry, err := scanPipelineEntry(rows)
+		if err != nil {
+			s.logger.Error("pipeline-calendar-events: scan failed", "error", err)
+			continue
+		}
+		if !pipelineActiveStatuses[entry.Status] {
+			continue
+		}
+		entries = append(entries, *entry)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		s.logger.Error("pipeline-calendar-events: rows iteration failed", "error", err)
+	}
+
+	items := []calendarEventItem{}
+	for _, entry := range entries {
+		for _, e := range s.buildPipelineCalendarEvents(ctx, &entry) {
+			items = append(items, calendarEventItem{
+				PipelineEntryID: e.pipelineEntryID,
+				NoticeTitle:     e.noticeTitle,
+				Kind:            e.kind,
+				AllDay:          e.allDay,
+				Start:           e.start,
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 // renderICS builds an RFC 5545 VCALENDAR document. CRLF line endings,

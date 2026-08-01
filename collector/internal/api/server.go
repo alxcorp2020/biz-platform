@@ -115,6 +115,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/pipeline", s.handleListPipeline)
 	mux.HandleFunc("GET /api/pipeline/{id}", s.handleGetPipelineEntry)
 	mux.HandleFunc("GET /api/pipeline/{id}/calendar.ics", s.handleGetPipelineCalendar)
+	mux.HandleFunc("GET /api/pipeline/calendar-events", s.handleListPipelineCalendarEvents)
 	mux.HandleFunc("PATCH /api/me/notification-settings", s.handleUpdateNotificationSettings)
 	mux.HandleFunc("POST /api/admin/run-notifications", s.handleRunNotifications)
 	mux.HandleFunc("POST /api/admin/run-pipeline-auto-transitions", s.handleRunPipelineAutoTransitions)
