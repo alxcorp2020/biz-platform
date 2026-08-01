@@ -405,8 +405,13 @@
     overflow: hidden; margin-bottom: var(--space-lg);
   }
   .notice-list-sentinel { text-align: center; padding: var(--space-md) 0; color: var(--ink-soft); font-size: var(--text-caption); min-height: 1.5rem; }
-  /* "더보기"로 묶음을 불러올 때마다 그 묶음 위에 붙는 건수 헤더 —
-     "20건 ────────" 처럼 숫자 뒤로 남는 폭만큼 가로줄이 채운다. */
+  /* 공고 검색 결과 무한스크롤 — 지금까지 몇 건 불러왔는지 목록 위에
+     한 줄로 보여준다. 스크롤로 다음 페이지를 불러올 때마다(20건 단위)
+     renderNoticeListItems가 통째로 다시 그리면서 이 숫자도 같이 갱신됨. */
+  .notice-list-counter { font-size: var(--text-caption); font-weight: 700; color: var(--ink-soft); margin: 0 0 0.6rem; }
+  /* 알림함(#/notifications)에서 "더보기"로 묶음을 불러올 때마다 그 묶음
+     위에 붙는 건수 헤더 — "20건 ────────" 처럼 숫자 뒤로 남는 폭만큼
+     가로줄이 채운다. */
   .notice-batch-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.6rem; }
   .notice-batch-count { font-size: var(--text-caption); font-weight: 700; color: var(--ink-soft); white-space: nowrap; }
   .notice-batch-rule { flex: 1; height: 1px; background: var(--border); }
@@ -1478,7 +1483,7 @@
 
     .filters { padding: 0.85rem; }
     .filters input[name="q"] { flex-basis: 100%; min-width: 0; }
-    .filters input[name="region"], .filters input[name="industry"] { flex: 1; min-width: 0; }
+    .filters select[name="region"], .filters input[name="industry"] { flex: 1; min-width: 0; }
     .filters select[name="sort"] { flex-basis: 100%; }
     .filters button { flex: 1; }
 
@@ -2998,14 +3003,22 @@ const NOTICE_SORT_OPTIONS = [
   { value: 'deadline', label: '마감순' },
 ];
 
-// noticeListState — #/notices "더보기" 상태 캐시(모듈 레벨 변수, 서버/
+// REGION_OPTIONS — 대한민국 17개 광역시도 + "전국". notices.region은
+// 원문 그대로(자유 텍스트)라 서버 필터는 정확히 일치(=)로 비교한다 —
+// 실제 저장된 값도 이 표기 그대로("서울특별시" 등, 로컬 데모데이터로
+// 확인)라 select로 바꿔도 기존 자유입력보다 매칭이 더 잘 된다.
+const REGION_OPTIONS = [
+  '전국', '서울특별시', '부산광역시', '대구광역시', '인천광역시', '광주광역시',
+  '대전광역시', '울산광역시', '세종특별자치시', '경기도', '강원특별자치도',
+  '충청북도', '충청남도', '전북특별자치도', '전라남도', '경상북도', '경상남도', '제주특별자치도',
+];
+
+// noticeListState — #/notices 무한스크롤 상태 캐시(모듈 레벨 변수, 서버/
 // sessionStorage 아님). 해시 라우팅 SPA라 상세 화면으로 이동했다가 브라우저
 // "뒤로가기"로 돌아와도 페이지 전체가 리로드되지 않고 location.hash만
 // 바뀐다 — 그래서 이 변수가 JS 메모리에 그대로 남아있는 것만으로 "지금까지
 // 불러온 항목 + 스크롤 위치"를 그대로 복원할 수 있다. key가 현재 검색
 // 조건(q/region/industry/sort)과 다르면 새 검색으로 보고 캐시를 버린다.
-// batches — "더보기"를 누를 때마다 불러온 묶음을 그대로 보관(각 묶음
-// 위에 건수 헤더를 따로 붙이기 위해, items를 하나로 합치지 않는다).
 let noticeListState = null;
 
 function noticeListKey(params) {
@@ -3025,12 +3038,16 @@ function renderList(container) {
   const params = new URLSearchParams(location.hash.split('?')[1] || '');
   const key = noticeListKey(params);
   const currentSort = params.get('sort') || 'new';
+  const currentRegion = params.get('region') || '';
 
   container.innerHTML = '';
   container.appendChild(h(`
     <form class="filters" id="filter-form">
       <input type="text" name="q" placeholder="공고명 검색" value="${params.get('q') || ''}">
-      <input type="text" name="region" placeholder="지역" value="${params.get('region') || ''}">
+      <select name="region" class="select-input">
+        <option value="">지역 전체</option>
+        ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === currentRegion ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
+      </select>
       <input type="text" name="industry" placeholder="업종" value="${params.get('industry') || ''}">
       <select name="sort" class="select-input">
         ${NOTICE_SORT_OPTIONS.map(o => `<option value="${o.value}" ${o.value === currentSort ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}
@@ -3045,7 +3062,7 @@ function renderList(container) {
     const fd = new FormData(filterForm);
     const p = new URLSearchParams();
     for (const [k, v] of fd.entries()) if (v) p.set(k, v);
-    noticeListState = null; // 새 검색/정렬 — 이전 "더보기" 캐시는 폐기
+    noticeListState = null; // 새 검색/정렬 — 이전 무한스크롤 캐시는 폐기
     location.hash = '#/notices?' + p.toString();
   };
   filterForm.addEventListener('submit', (e) => { e.preventDefault(); submitFilterForm(); });
@@ -3056,28 +3073,27 @@ function renderList(container) {
   const listBody = document.getElementById('list-body');
 
   // 캐시 적중 = 같은 검색 조건으로 돌아온 것(전형적으로 상세→뒤로가기).
-  // 새로 fetch하지 않고 이미 불러온 묶음들을 그대로 다시 그린 뒤 저장해둔
+  // 새로 fetch하지 않고 이미 불러온 항목을 그대로 다시 그린 뒤 저장해둔
   // 스크롤 위치로 복원한다.
   if (noticeListState && noticeListState.key === key) {
-    renderNoticeListItems(listBody, noticeListState.batches);
+    renderNoticeListItems(listBody, noticeListState.items, noticeListState.total);
     wireNoticeListLoadMore(listBody, key);
     const savedScrollY = noticeListState.scrollY || 0;
     requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, savedScrollY)));
     return;
   }
 
-  noticeListState = { key, batches: [], offset: 0, limit: 20, total: 0, hasMore: true, loading: false, scrollY: 0 };
+  noticeListState = { key, items: [], offset: 0, limit: 20, total: 0, hasMore: true, loading: false, scrollY: 0 };
   loadMoreNotices(listBody, key, params, true);
 }
 
-// loadMoreNotices fetches the next page(offset=noticeListState.offset)과
-// 새 묶음으로 batches에 추가한다. isFirstPage만 실패 시 전체 에러 화면으로
-// 바꾸고, 이후 페이지 실패는 "더보기" 버튼 자리에 에러 문구만 남겨 이미
-// 불러온 목록은 그대로 유지한다.
+// loadMoreNotices fetches the next page(offset=noticeListState.offset)and
+// appends to the cached item list. isFirstPage만 실패 시 전체 에러 화면으로
+// 바꾸고, 이후 페이지 실패는 sentinel에 에러 문구만 남겨 이미 불러온 목록은
+// 그대로 유지한다.
 async function loadMoreNotices(listBody, key, filterParams, isFirstPage) {
   if (!noticeListState || noticeListState.key !== key || noticeListState.loading || !noticeListState.hasMore) return;
   noticeListState.loading = true;
-  wireNoticeListLoadMore(listBody, key); // "불러오는 중..." 상태 즉시 반영
 
   const apiParams = noticeListApiParams(filterParams);
   apiParams.set('offset', String(noticeListState.offset));
@@ -3086,13 +3102,12 @@ async function loadMoreNotices(listBody, key, filterParams, isFirstPage) {
   try {
     const data = await fetchJSON('/api/notices?' + apiParams.toString());
     if (!noticeListState || noticeListState.key !== key) return; // 그 사이 다른 검색으로 전환됨 — 결과 버림
-    const items = data.items || [];
-    if (items.length) noticeListState.batches.push(items);
-    noticeListState.offset = noticeListState.offset + items.length;
+    noticeListState.items = noticeListState.items.concat(data.items || []);
+    noticeListState.offset = noticeListState.offset + (data.items ? data.items.length : 0);
     noticeListState.total = data.total || 0;
     noticeListState.hasMore = !!data.hasMore;
     noticeListState.loading = false;
-    renderNoticeListItems(listBody, noticeListState.batches);
+    renderNoticeListItems(listBody, noticeListState.items, noticeListState.total);
     wireNoticeListLoadMore(listBody, key);
   } catch (err) {
     if (noticeListState) noticeListState.loading = false;
@@ -3101,16 +3116,14 @@ async function loadMoreNotices(listBody, key, filterParams, isFirstPage) {
       listBody.innerHTML = '';
       listBody.textContent = err.message;
     } else {
-      const control = listBody.querySelector('#notice-list-more-control');
-      if (control) control.innerHTML = `<p class="notice-list-sentinel">더 불러오지 못했습니다: ${escapeHtml(err.message)}</p>`;
+      const sentinel = listBody.querySelector('#notice-list-sentinel');
+      if (sentinel) sentinel.textContent = '더 불러오지 못했습니다: ' + err.message;
     }
   }
 }
 
-// noticeRowHtml/renderNoticeListItems — 묶음(batch)마다 "N건 ────" 헤더를
-// 붙여서 따로 그린다("더보기"를 누를 때마다 새 묶음이 아래에 쌓이는 걸
-// 눈으로 알 수 있게). 검색 결과 전체 화면과 관심공고(#/me/bookmarks)가
-// 같은 행 카드 마크업을 쓰므로 noticeRowHtml로 공유한다.
+// noticeRowHtml — 검색 결과 전체 화면과 관심공고(#/me/bookmarks)가 같은
+// 행 카드 마크업을 쓰므로 공유한다.
 function noticeRowHtml(n) {
   return `
     <div class="row-card notice-row" data-id="${escapeAttr(n.id)}">
@@ -3130,21 +3143,28 @@ function noticeRowHtml(n) {
   `;
 }
 
-function renderNoticeListItems(listBody, batches) {
-  const totalCount = batches.reduce((sum, b) => sum + b.length, 0);
-  if (!totalCount) {
+// renderNoticeListItems — 상단에 "지금까지 몇 건 로드됐는지"를 보여주는
+// 카운터 한 줄(#notice-list-counter) + 목록. 무한스크롤로 새 페이지를
+// 불러올 때마다(loadMoreNotices) 이 함수가 통째로 다시 그리면서 카운터도
+// 같이 갱신된다.
+function renderNoticeListItems(listBody, items, total) {
+  if (!items.length) {
     listBody.className = 'empty';
     listBody.innerHTML = '';
     listBody.textContent = '조건에 맞는 공고가 없습니다.';
     return;
   }
-  const batchesHtml = batches.map(batch => `
-    <div class="notice-batch-header"><span class="notice-batch-count">${batch.length}건</span><span class="notice-batch-rule"></span></div>
-    <div class="notice-list">${batch.map(noticeRowHtml).join('')}</div>
-  `).join('');
+  const counterText = total > items.length
+    ? `${items.length}건 / 전체 ${total.toLocaleString()}건 표시 중`
+    : `${items.length}건 표시 중`;
+  const rows = items.map(noticeRowHtml).join('');
   listBody.className = '';
   listBody.innerHTML = '';
-  listBody.appendChild(h(`${batchesHtml}<div id="notice-list-more-control"></div>`));
+  listBody.appendChild(h(`
+    <p class="notice-list-counter">${escapeHtml(counterText)}</p>
+    <div class="notice-list">${rows}</div>
+    <p id="notice-list-sentinel" class="notice-list-sentinel"></p>
+  `));
   listBody.querySelectorAll('.notice-row').forEach(row => {
     row.addEventListener('click', () => {
       // 상세로 이동하기 직전 스크롤 위치를 저장 — "뒤로가기" 시 이 값으로 복원.
@@ -3155,27 +3175,27 @@ function renderNoticeListItems(listBody, batches) {
   wireBookmarkButtons(listBody);
 }
 
-// wireNoticeListLoadMore — 더보기 버튼(자동 무한스크롤 아님, 명시적으로
-// 눌러야 다음 묶음을 불러온다). renderNoticeListItems가 매번 이 자리를
-// 새로 만들기 때문에, 상태(로딩 중/더 없음/에러)에 맞는 내용을 그때그때
-// 다시 그린다.
+// wireNoticeListLoadMore — IntersectionObserver로 목록 끝의 sentinel이
+// 화면에 걸리면(rootMargin만큼 미리) 자동으로 다음 페이지를 불러온다.
+// renderNoticeListItems가 매번 sentinel을 새로 만들기 때문에, 이 함수도
+// 호출될 때마다 새 Observer를 그 새 sentinel에 건다(이전 Observer는 옛
+// sentinel이 DOM에서 떨어져 나가면서 자연히 무의미해짐).
 function wireNoticeListLoadMore(listBody, key) {
-  const control = listBody.querySelector('#notice-list-more-control');
-  if (!control || !noticeListState) return;
-  if (noticeListState.loading) {
-    control.innerHTML = `<p class="notice-list-sentinel">불러오는 중...</p>`;
-    return;
-  }
+  const sentinel = listBody.querySelector('#notice-list-sentinel');
+  if (!sentinel || !noticeListState) return;
   if (!noticeListState.hasMore) {
-    control.innerHTML = noticeListState.batches.length
-      ? `<p class="notice-list-sentinel">모든 공고를 불러왔습니다.</p>` : '';
+    sentinel.textContent = noticeListState.items.length ? '모든 공고를 불러왔습니다.' : '';
     return;
   }
-  control.innerHTML = `<button type="button" class="btn btn-secondary btn-block" id="notice-list-more-btn">더보기</button>`;
+  sentinel.textContent = '불러오는 중...';
   const filterParams = new URLSearchParams(location.hash.split('?')[1] || '');
-  control.querySelector('#notice-list-more-btn').addEventListener('click', () => {
-    loadMoreNotices(listBody, key, filterParams, false);
-  });
+  const observer = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) {
+      observer.disconnect();
+      loadMoreNotices(listBody, key, filterParams, false);
+    }
+  }, { rootMargin: '400px' });
+  observer.observe(sentinel);
 }
 
 function renderDetail(container, id) {
