@@ -5028,6 +5028,7 @@ async function renderMySubscription(container) {
       <a href="#/billing/plans" class="home-cta-secondary" style="margin-top:1rem;display:inline-block">요금제 변경</a>
     </div>
     <div class="detail-card" id="team-section"></div>
+    <div class="detail-card" id="payment-history-section"></div>
     <div class="detail-card" id="reports-section"></div>
   `));
 
@@ -5035,7 +5036,38 @@ async function renderMySubscription(container) {
   // 때만 팀 3명 — 그 외(pending/expired/cancelled 또는 다른 플랜)는 본인 1명뿐.
   const isEffectiveBusiness = data.plan === 'business' && data.status === 'active';
   renderTeamSection(document.getElementById('team-section'), isEffectiveBusiness ? 3 : 1);
+  renderPaymentHistorySection(document.getElementById('payment-history-section'));
   renderReportsSection(document.getElementById('reports-section'));
+}
+
+// renderPaymentHistorySection — 결제 내역(payment_log) 최신순 목록. 팀
+// 관리/리포트와 같은 이유로 구독 관리 화면에 임베드했다.
+async function renderPaymentHistorySection(container) {
+  container.innerHTML = '<div class="loading">불러오는 중...</div>';
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/me/payment-history');
+  } catch (err) {
+    container.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+    return;
+  }
+  const items = data.items || [];
+  if (!items.length) {
+    container.innerHTML = '<h3>결제 내역</h3><p class="empty">아직 결제 이력이 없습니다.</p>';
+    return;
+  }
+  const rows = items.map(it => {
+    const statusTone = it.status === '승인' ? 'badge--success' : (it.status === '취소' ? 'badge--gray' : 'badge--danger');
+    return `
+      <div class="license-card">
+        <div class="license-card-main">
+          <div class="license-card-name">${escapeHtml(it.planName || it.plan || '-')} <span class="badge ${statusTone}">${escapeHtml(it.status)}</span></div>
+          <div class="license-card-meta">${escapeHtml(formatDateTime(it.requestedAt))} · <span class="mono">${formatBudget(it.amount)}</span></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  container.innerHTML = `<h3>결제 내역</h3><div class="license-list">${rows}</div>`;
 }
 
 // renderReportsSection — 주간/월간 자동 리포트 목록. renderTeamSection과

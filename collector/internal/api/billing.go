@@ -237,6 +237,74 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type paymentHistoryItem struct {
+	ID          string     `json:"id"`
+	Plan        string     `json:"plan"`
+	PlanName    string     `json:"planName"`
+	Amount      int64      `json:"amount"`
+	Status      string     `json:"status"` // '승인' | '실패' | '취소'
+	RequestedAt time.Time  `json:"requestedAt"`
+	ApprovedAt  *time.Time `json:"approvedAt"`
+}
+
+// handleGetPaymentHistory — GET /api/me/payment-history. 읽기 전용 정보라
+// handleGetSubscription과 같은 접근 범위(owner/member 둘 다 조회 가능 —
+// 구독 화면이 이미 amount를 두 역할 모두에게 보여주는 것과 같은 원칙).
+// plan은 payment_log에 직접 저장돼 있지 않아 toss_order_id에서 복원한다
+// (subscriptions.plan은 "지금" 플랜이라 과거 결제 건과 다를 수 있음 —
+// 플랜을 여러 번 바꾼 이력이 있으면 각 결제가 그 시점에 실제로 어떤
+// 플랜이었는지 정확히 보여줘야 함).
+func (s *Server) handleGetPaymentHistory(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("payment-history: profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if profile == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []paymentHistoryItem{}})
+		return
+	}
+
+	rows, err := s.db.QueryContext(r.Context(), `
+		SELECT pl.id, pl.toss_order_id, pl.amount, pl.status, pl.requested_at, pl.approved_at
+		FROM payment_log pl
+		JOIN subscriptions sub ON sub.id = pl.subscription_id
+		WHERE sub.company_profile_id = $1
+		ORDER BY pl.requested_at DESC`, profile.ID)
+	if err != nil {
+		s.logger.Error("payment-history: query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	defer rows.Close()
+
+	items := []paymentHistoryItem{}
+	for rows.Next() {
+		var it paymentHistoryItem
+		var orderID string
+		var approvedAt sql.NullTime
+		if err := rows.Scan(&it.ID, &orderID, &it.Amount, &it.Status, &it.RequestedAt, &approvedAt); err != nil {
+			s.logger.Error("payment-history: scan failed", "error", err)
+			continue
+		}
+		if plan, ok := billing.DecodePlanFromOrderID(orderID); ok {
+			it.Plan = string(plan)
+			it.PlanName = billing.Plans[plan].Name
+		}
+		if approvedAt.Valid {
+			it.ApprovedAt = &approvedAt.Time
+		}
+		items = append(items, it)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 type billingCheckoutRequest struct {
 	Plan string `json:"plan"`
 }
