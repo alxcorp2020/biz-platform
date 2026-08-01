@@ -459,18 +459,13 @@ func (s *Server) handleUpdatePipelineEntry(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	hasAssigneeEmail := entry.AssigneeEmail != nil && *entry.AssigneeEmail != ""
-	hasAssigneePhone := entry.AssigneePhone != nil && *entry.AssigneePhone != ""
-	if statusChanged && (hasAssigneeEmail || hasAssigneePhone) {
-		var email, phone string
-		if hasAssigneeEmail {
-			email = *entry.AssigneeEmail
-		}
-		if hasAssigneePhone {
-			phone = *entry.AssigneePhone
-		}
+	// 담당자별 개별 알림 설정 재설계: 수신자는 이제 엔트리 자체의
+	// assignee_email/assignee_phone이 아니라 이 회사의 company_contacts
+	// 전체(notifications.go의 fetchNotifiableContacts) — 그래서 여기서는
+	// entry.AssigneeEmail/Phone을 더 이상 확인하지 않는다.
+	if statusChanged {
 		title, noticeID, status := entry.NoticeTitle, entry.NoticeID, entry.Status
-		go s.notifyAssigneeStatusChange(context.Background(), email, phone, entryID, noticeID, title, status)
+		go s.notifyAssigneeStatusChange(context.Background(), profile.ID, entryID, noticeID, title, status)
 	}
 
 	writeJSON(w, http.StatusOK, entry)

@@ -49,12 +49,13 @@ func (s *Server) requireSystemAdmin(w http.ResponseWriter, r *http.Request) (use
 }
 
 type adminPaymentItem struct {
-	Email       string    `json:"email"`
-	Plan        string    `json:"plan"`
-	PlanName    string    `json:"planName"`
-	Amount      int64     `json:"amount"`
-	Status      string    `json:"status"`
-	RequestedAt time.Time `json:"requestedAt"`
+	Email              string    `json:"email"`
+	Plan               string    `json:"plan"`
+	PlanName           string    `json:"planName"`
+	Amount             int64     `json:"amount"`
+	Status             string    `json:"status"`
+	RequestedAt        time.Time `json:"requestedAt"`
+	PaymentMethodLabel *string   `json:"paymentMethodLabel"`
 }
 
 type adminDashboardResponse struct {
@@ -167,7 +168,7 @@ func (s *Server) computePlanDistribution(ctx context.Context) (map[string]int, e
 // (billing.go) 이게 항상 실제 결제자다.
 func (s *Server) fetchRecentPayments(ctx context.Context, limit int) ([]adminPaymentItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT u.email, pl.toss_order_id, pl.amount, pl.status, pl.requested_at
+		SELECT u.email, pl.toss_order_id, pl.amount, pl.status, pl.requested_at, pl.payment_method
 		FROM payment_log pl
 		JOIN subscriptions sub ON sub.id = pl.subscription_id
 		JOIN company_members cm ON cm.company_profile_id = sub.company_profile_id AND cm.role = 'owner'
@@ -183,12 +184,17 @@ func (s *Server) fetchRecentPayments(ctx context.Context, limit int) ([]adminPay
 	for rows.Next() {
 		var it adminPaymentItem
 		var orderID string
-		if err := rows.Scan(&it.Email, &orderID, &it.Amount, &it.Status, &it.RequestedAt); err != nil {
+		var paymentMethod sql.NullString
+		if err := rows.Scan(&it.Email, &orderID, &it.Amount, &it.Status, &it.RequestedAt, &paymentMethod); err != nil {
 			continue
 		}
 		if plan, ok := billing.DecodePlanFromOrderID(orderID); ok {
 			it.Plan = string(plan)
 			it.PlanName = billing.Plans[plan].Name
+		}
+		if paymentMethod.Valid {
+			label := paymentMethodLabel(paymentMethod.String)
+			it.PaymentMethodLabel = &label
 		}
 		items = append(items, it)
 	}
@@ -333,7 +339,7 @@ func (s *Server) handleAdminGetMember(w http.ResponseWriter, r *http.Request) {
 	detail.PlanName = billing.Plans[effective].Name
 
 	payRows, err := s.db.QueryContext(ctx, `
-		SELECT pl.id, pl.toss_order_id, pl.amount, pl.status, pl.requested_at, pl.approved_at
+		SELECT pl.id, pl.toss_order_id, pl.amount, pl.status, pl.requested_at, pl.approved_at, pl.payment_method
 		FROM payment_log pl
 		JOIN subscriptions sub ON sub.id = pl.subscription_id
 		WHERE sub.company_profile_id = $1
@@ -347,7 +353,8 @@ func (s *Server) handleAdminGetMember(w http.ResponseWriter, r *http.Request) {
 		var it paymentHistoryItem
 		var orderID string
 		var approvedAt sql.NullTime
-		if err := payRows.Scan(&it.ID, &orderID, &it.Amount, &it.Status, &it.RequestedAt, &approvedAt); err != nil {
+		var paymentMethod sql.NullString
+		if err := payRows.Scan(&it.ID, &orderID, &it.Amount, &it.Status, &it.RequestedAt, &approvedAt, &paymentMethod); err != nil {
 			s.logger.Error("admin-get-member: payment scan failed", "error", err)
 			continue
 		}
@@ -357,6 +364,11 @@ func (s *Server) handleAdminGetMember(w http.ResponseWriter, r *http.Request) {
 		}
 		if approvedAt.Valid {
 			it.ApprovedAt = &approvedAt.Time
+		}
+		if paymentMethod.Valid {
+			it.PaymentMethod = &paymentMethod.String
+			label := paymentMethodLabel(paymentMethod.String)
+			it.PaymentMethodLabel = &label
 		}
 		detail.PaymentHistory = append(detail.PaymentHistory, it)
 	}

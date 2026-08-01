@@ -292,9 +292,10 @@ CREATE TABLE company_profiles (
     direct_production_cert BOOLEAN NOT NULL DEFAULT false,
     max_performance_amount  BIGINT, -- 최근 3년 최대 실적
     credit_rating           TEXT,
-    email_notifications_enabled BOOLEAN NOT NULL DEFAULT true,
-    phone_number            TEXT,
-    sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false,
+    email_notifications_enabled BOOLEAN NOT NULL DEFAULT true, -- 추천 공고 다이제스트 전용(마감 리마인더/상태변경 알림은 company_contacts 담당자별 설정으로 이전됨)
+    phone_number            TEXT, -- 더 이상 알림에 쓰이지 않음(담당자별 SMS로 대체) — 과거 값 보존 목적으로만 컬럼 유지
+    sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false, -- 더 이상 알림에 쓰이지 않음(위와 동일한 이유로 컬럼만 유지)
+    notification_days_before INTEGER[] NOT NULL DEFAULT '{3,1}', -- 제출마감 리마인더 D-N 선택(7/3/1 중 다중선택)
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -592,6 +593,35 @@ CREATE TABLE pipeline_checklist_items (
 CREATE INDEX idx_pipeline_checklist_entry ON pipeline_checklist_items(pipeline_entry_id);
 
 -- ------------------------------------------------------------
+-- 담당자 관리 — 참여 검토(파이프라인 생성) 시 assignee_name/email/phone을
+-- 매번 빈칸부터 입력하지 않도록, 회사가 미리 등록해두는 담당자 목록.
+-- is_default는 "자동 채우기에 쓸 한 명"을 가리키며, 한 번에 하나만
+-- true가 되도록 애플리케이션 코드(company_contacts.go)가 트랜잭션으로
+-- 보장한다(DB 제약이 아님 — 어차피 "새로 지정하면 기존 것 해제"하는
+-- 트랜잭션이 필요해 부분 유니크 인덱스를 추가로 걸 실익이 적다).
+--
+-- {email,sms,push}_notifications_enabled — 알림 수신 여부를 조직 공용
+-- 설정(company_profiles.phone_number/sms_notifications_enabled, 더 이상
+-- 안 씀) 대신 담당자 개인 단위로 둔다. push는 인프라가 아직 없어 항상
+-- false로 시작(나중에 실제로 붙일 때 이 컬럼만 켜면 되도록 미리 만듦).
+-- notification_log가 이 테이블을 참조하므로(contact_id) 아래
+-- notification_log보다 먼저 있어야 한다.
+-- ------------------------------------------------------------
+CREATE TABLE company_contacts (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_profile_id UUID NOT NULL REFERENCES company_profiles(id),
+    name               TEXT NOT NULL,
+    email              TEXT,
+    phone              TEXT,
+    is_default         BOOLEAN NOT NULL DEFAULT false,
+    email_notifications_enabled BOOLEAN NOT NULL DEFAULT true,
+    sms_notifications_enabled   BOOLEAN NOT NULL DEFAULT false,
+    push_notifications_enabled  BOOLEAN NOT NULL DEFAULT false,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_company_contacts_profile ON company_contacts(company_profile_id);
+
+-- ------------------------------------------------------------
 -- 이메일/SMS 알림 발송 이력 — 중복발송 방지(동일 event_type+대상+channel에
 -- 대해 status='sent' 행이 이미 있으면 재발송하지 않음)와 발송 성공/실패
 -- 기록을 겸한다. pipeline_entry_id/notice_id는 이벤트 종류에 따라
@@ -610,7 +640,8 @@ CREATE TABLE notification_log (
     channel            TEXT NOT NULL DEFAULT 'email' CHECK (channel IN ('email','sms')),
     recipient_email    TEXT,
     recipient_phone    TEXT,
-    user_id            UUID REFERENCES users(id),
+    user_id            UUID REFERENCES users(id), -- 추천 공고 다이제스트(회원 단위)만 채움
+    contact_id         UUID REFERENCES company_contacts(id), -- 마감 리마인더/상태변경 알림(담당자 단위)만 채움
     pipeline_entry_id  UUID REFERENCES notice_pipeline_entries(id),
     notice_id          UUID REFERENCES notices(id),
     subject            TEXT NOT NULL,
@@ -717,6 +748,7 @@ CREATE TABLE payment_log (
     status             TEXT NOT NULL CHECK (status IN ('승인','실패','취소')),
     requested_at       TIMESTAMPTZ NOT NULL,
     approved_at        TIMESTAMPTZ,
+    payment_method     TEXT, -- 토스 응답 method 그대로("카드"/"가상계좌"/"계좌이체" 등, 실패 건은 NULL)
     raw_response       JSONB,
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -767,25 +799,6 @@ CREATE TABLE notice_award_history (
 );
 CREATE INDEX idx_award_history_org ON notice_award_history(organization_name);
 CREATE INDEX idx_award_history_industry ON notice_award_history(industry);
-
--- ------------------------------------------------------------
--- 담당자 관리 — 참여 검토(파이프라인 생성) 시 assignee_name/email/phone을
--- 매번 빈칸부터 입력하지 않도록, 회사가 미리 등록해두는 담당자 목록.
--- is_default는 "자동 채우기에 쓸 한 명"을 가리키며, 한 번에 하나만
--- true가 되도록 애플리케이션 코드(company_contacts.go)가 트랜잭션으로
--- 보장한다(DB 제약이 아님 — 어차피 "새로 지정하면 기존 것 해제"하는
--- 트랜잭션이 필요해 부분 유니크 인덱스를 추가로 걸 실익이 적다).
--- ------------------------------------------------------------
-CREATE TABLE company_contacts (
-    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_profile_id UUID NOT NULL REFERENCES company_profiles(id),
-    name               TEXT NOT NULL,
-    email              TEXT,
-    phone              TEXT,
-    is_default         BOOLEAN NOT NULL DEFAULT false,
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX idx_company_contacts_profile ON company_contacts(company_profile_id);
 
 -- ------------------------------------------------------------
 -- 주간/월간 자동 리포트 — 매주 월요일(주간)/매월 1일(월간) 09:00 KST

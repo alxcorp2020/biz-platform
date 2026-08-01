@@ -201,7 +201,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 type companyProfileDTO struct {
-	ID   string `json:"id"`
+	ID string `json:"id"`
 	// Role — 팀기능: 이 조직에서 호출자의 역할(owner/member). owner만
 	// 프로필/재무/실적/인력/면허/지식재산권/구독을 쓸 수 있고, member는
 	// 파이프라인만 쓸 수 있다(company_pipeline.go는 이 필드를 안 봄 —
@@ -231,6 +231,11 @@ type companyProfileDTO struct {
 	EmailNotificationsEnabled bool    `json:"emailNotificationsEnabled"`
 	PhoneNumber               *string `json:"phoneNumber"`
 	SMSNotificationsEnabled   bool    `json:"smsNotificationsEnabled"`
+	// NotificationDaysBefore — 제출마감 리마인더를 보낼 D-N 목록(7/3/1
+	// 중 다중선택, 기본 [3,1]). notifications.go의 sendDeadlineReminders가
+	// 호출부에서 넘기는 offsetDays가 이 배열에 있을 때만 실제로 대상이
+	// 된다.
+	NotificationDaysBefore []int `json:"notificationDaysBefore"`
 }
 
 // getCompanyProfile resolves "which organization does this user belong to"
@@ -247,13 +252,15 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 	var revenueAmount, employeeCount, maxPerformanceAmount sql.NullInt64
 	var employeeCountVerifiedAt sql.NullTime
 	var businessType, industry, licenses, certs pq.StringArray
+	var notificationDaysBefore pq.Int64Array
 
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT cp.id, cm.role, cp.business_type, cp.region, cp.industry, cp.business_age_years, cp.revenue_amount,
 		       cp.employee_count, cp.company_size, cp.licenses, cp.certifications,
 		       cp.direct_production_cert, cp.max_performance_amount, cp.credit_rating,
 		       cp.employee_count_confidence, cp.employee_count_verified_at,
-		       cp.email_notifications_enabled, cp.phone_number, cp.sms_notifications_enabled
+		       cp.email_notifications_enabled, cp.phone_number, cp.sms_notifications_enabled,
+		       cp.notification_days_before
 		FROM company_members cm
 		JOIN company_profiles cp ON cp.id = cm.company_profile_id
 		WHERE cm.user_id = $1`, userID,
@@ -261,7 +268,8 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 		&employeeCount, &companySize, &licenses, &certs,
 		&p.DirectProductionCert, &maxPerformanceAmount, &creditRating,
 		&employeeCountConfidence, &employeeCountVerifiedAt,
-		&p.EmailNotificationsEnabled, &phoneNumber, &p.SMSNotificationsEnabled)
+		&p.EmailNotificationsEnabled, &phoneNumber, &p.SMSNotificationsEnabled,
+		&notificationDaysBefore)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -287,6 +295,10 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 		p.EmployeeCountVerifiedAt = &employeeCountVerifiedAt.Time
 	}
 	p.PhoneNumber = nullStringPtr(phoneNumber)
+	p.NotificationDaysBefore = make([]int, len(notificationDaysBefore))
+	for i, v := range notificationDaysBefore {
+		p.NotificationDaysBefore[i] = int(v)
+	}
 	return &p, nil
 }
 

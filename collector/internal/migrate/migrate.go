@@ -120,7 +120,70 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureDeadlineD7EventType(ctx, db); err != nil {
 		return fmt.Errorf("migrate notification_log deadline_d7 event type: %w", err)
 	}
+	if err := ensurePaymentMethodColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate payment_log.payment_method column: %w", err)
+	}
+	if err := ensureContactNotificationColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_contacts notification columns: %w", err)
+	}
+	if err := ensureNotificationDaysBeforeColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_profiles.notification_days_before column: %w", err)
+	}
+	if err := ensureNotificationLogContactIDColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate notification_log.contact_id column: %w", err)
+	}
 	return nil
+}
+
+// ensurePaymentMethodColumn adds payment_log.payment_method — Toss의 결제
+// 승인 응답(ConfirmResult.Method, 이미 "카드"/"가상계좌"/"계좌이체" 등
+// 한글로 내려옴)을 raw_response(JSONB) 안에만 묻어두지 않고 별도 컬럼으로
+// 뽑아, 결제내역 화면에서 바로 표시/조회할 수 있게 한다.
+func ensurePaymentMethodColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE payment_log ADD COLUMN IF NOT EXISTS payment_method TEXT;
+	`)
+	return err
+}
+
+// ensureContactNotificationColumns adds company_contacts.{email,sms,push}_
+// notifications_enabled — 알림 수신 여부를 조직 단위(company_profiles.
+// phone_number/sms_notifications_enabled)가 아니라 담당자 개인 단위로
+// 바꾼다. 기존 회사 공용 SMS 설정을 대체하는 것이므로 email 기본값은
+// true(기존 조직 이메일 알림 기본값과 동일), sms는 false(기존과 동일),
+// push는 인프라 자체가 아직 없어 항상 false로 시작(나중에 실제로 붙일 때
+// 이 컬럼만 켜면 되도록 미리 만들어둠).
+func ensureContactNotificationColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_contacts ADD COLUMN IF NOT EXISTS email_notifications_enabled BOOLEAN NOT NULL DEFAULT true;
+		ALTER TABLE company_contacts ADD COLUMN IF NOT EXISTS sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE company_contacts ADD COLUMN IF NOT EXISTS push_notifications_enabled BOOLEAN NOT NULL DEFAULT false;
+	`)
+	return err
+}
+
+// ensureNotificationDaysBeforeColumn adds company_profiles.notification_days_
+// before — 제출마감 리마인더를 어느 D-N에 보낼지 조직이 고를 수 있게 한다
+// (선택 가능한 값은 실제 배치가 도는 7/3/1뿐 — notifications.go의
+// sendDeadlineReminders 호출부와 정확히 맞아야 함). 기본값 '{3,1}'은 이
+// 설정이 생기기 전까지의 실제 동작(D-3/D-1 고정)과 동일하다.
+func ensureNotificationDaysBeforeColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS notification_days_before INTEGER[] NOT NULL DEFAULT '{3,1}';
+	`)
+	return err
+}
+
+// ensureNotificationLogContactIDColumn adds notification_log.contact_id —
+// 마감 리마인더/담당자 상태변경 알림의 중복발송 방지 키가 이제
+// company_members(user_id)가 아니라 company_contacts(담당자, 로그인
+// 계정이 없을 수도 있음) 기준이라 별도 컬럼이 필요하다. user_id는
+// 추천공고 다이제스트(여전히 회원 단위)에서만 계속 쓰인다.
+func ensureNotificationLogContactIDColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS contact_id UUID REFERENCES company_contacts(id);
+	`)
+	return err
 }
 
 // ensureCompanyProfileSnapshotColumn adds notice_pipeline_entries.

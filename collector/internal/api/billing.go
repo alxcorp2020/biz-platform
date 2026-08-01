@@ -255,13 +255,15 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 }
 
 type paymentHistoryItem struct {
-	ID          string     `json:"id"`
-	Plan        string     `json:"plan"`
-	PlanName    string     `json:"planName"`
-	Amount      int64      `json:"amount"`
-	Status      string     `json:"status"` // '승인' | '실패' | '취소'
-	RequestedAt time.Time  `json:"requestedAt"`
-	ApprovedAt  *time.Time `json:"approvedAt"`
+	ID                 string     `json:"id"`
+	Plan               string     `json:"plan"`
+	PlanName           string     `json:"planName"`
+	Amount             int64      `json:"amount"`
+	Status             string     `json:"status"` // '승인' | '실패' | '취소'
+	RequestedAt        time.Time  `json:"requestedAt"`
+	ApprovedAt         *time.Time `json:"approvedAt"`
+	PaymentMethod      *string    `json:"paymentMethod"`      // 토스 원본 값("카드"/"가상계좌" 등) — 실패 건은 nil
+	PaymentMethodLabel *string    `json:"paymentMethodLabel"` // 사용자에게 보여줄 표기(paymentMethodLabel 함수로 변환)
 }
 
 // handleGetPaymentHistory — GET /api/me/payment-history. 읽기 전용 정보라
@@ -289,7 +291,7 @@ func (s *Server) handleGetPaymentHistory(w http.ResponseWriter, r *http.Request)
 	}
 
 	rows, err := s.db.QueryContext(r.Context(), `
-		SELECT pl.id, pl.toss_order_id, pl.amount, pl.status, pl.requested_at, pl.approved_at
+		SELECT pl.id, pl.toss_order_id, pl.amount, pl.status, pl.requested_at, pl.approved_at, pl.payment_method
 		FROM payment_log pl
 		JOIN subscriptions sub ON sub.id = pl.subscription_id
 		WHERE sub.company_profile_id = $1
@@ -306,7 +308,8 @@ func (s *Server) handleGetPaymentHistory(w http.ResponseWriter, r *http.Request)
 		var it paymentHistoryItem
 		var orderID string
 		var approvedAt sql.NullTime
-		if err := rows.Scan(&it.ID, &orderID, &it.Amount, &it.Status, &it.RequestedAt, &approvedAt); err != nil {
+		var paymentMethod sql.NullString
+		if err := rows.Scan(&it.ID, &orderID, &it.Amount, &it.Status, &it.RequestedAt, &approvedAt, &paymentMethod); err != nil {
 			s.logger.Error("payment-history: scan failed", "error", err)
 			continue
 		}
@@ -317,9 +320,34 @@ func (s *Server) handleGetPaymentHistory(w http.ResponseWriter, r *http.Request)
 		if approvedAt.Valid {
 			it.ApprovedAt = &approvedAt.Time
 		}
+		if paymentMethod.Valid {
+			it.PaymentMethod = &paymentMethod.String
+			label := paymentMethodLabel(paymentMethod.String)
+			it.PaymentMethodLabel = &label
+		}
 		items = append(items, it)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// paymentMethodLabel translates Toss's payment_log.payment_method value
+// (already Korean, e.g. "카드"/"가상계좌"/"계좌이체") into the friendlier
+// label 사용자가 보길 원하는 문구로 바꾼다. 매핑에 없는 값(새로운 결제수단
+// 등)은 원본 그대로 보여준다 — 값을 숨기거나 지어내지 않는다.
+func paymentMethodLabel(method string) string {
+	labels := map[string]string{
+		"카드":      "신용카드",
+		"가상계좌":    "무통장입금(가상계좌)",
+		"계좌이체":    "실시간 계좌이체",
+		"휴대폰":     "휴대폰 소액결제",
+		"문화상품권":   "문화상품권",
+		"도서문화상품권": "도서문화상품권",
+		"게임문화상품권": "게임문화상품권",
+	}
+	if label, ok := labels[method]; ok {
+		return label
+	}
+	return method
 }
 
 type billingCheckoutRequest struct {
@@ -500,14 +528,18 @@ func (s *Server) handleBillingConfirm(w http.ResponseWriter, r *http.Request) {
 
 	status := "실패"
 	var approvedAt sql.NullTime
+	var paymentMethod sql.NullString
 	if tossErr == nil {
 		status = "승인"
 		approvedAt = sql.NullTime{Time: result.ApprovedAt, Valid: true}
+		if result.Method != "" {
+			paymentMethod = sql.NullString{String: result.Method, Valid: true}
+		}
 	}
 	if _, logErr := s.db.ExecContext(r.Context(), `
-		INSERT INTO payment_log (subscription_id, toss_payment_key, toss_order_id, amount, status, requested_at, approved_at, raw_response)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		subscriptionID, req.PaymentKey, req.OrderID, req.Amount, status, requestedAt, approvedAt, rawBody,
+		INSERT INTO payment_log (subscription_id, toss_payment_key, toss_order_id, amount, status, requested_at, approved_at, payment_method, raw_response)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		subscriptionID, req.PaymentKey, req.OrderID, req.Amount, status, requestedAt, approvedAt, paymentMethod, rawBody,
 	); logErr != nil {
 		s.logger.Error("billing-confirm: payment_log insert failed", "error", logErr)
 	}

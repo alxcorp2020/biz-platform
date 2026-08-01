@@ -2326,6 +2326,10 @@ async function renderPipelineDetail(container, id) {
         <label>담당자<input type="text" name="assigneeName" value="${escapeAttr(entry.assigneeName || '')}" placeholder="담당자 이름"></label>
         <label>담당자 이메일<input type="email" name="assigneeEmail" value="${escapeAttr(entry.assigneeEmail || '')}" placeholder="상태 변경 시 이 주소로 알림이 발송됩니다"></label>
         <label>담당자 전화번호<input type="tel" name="assigneePhone" value="${escapeAttr(entry.assigneePhone || '')}" placeholder="상태 변경 시 이 번호로 SMS가 발송됩니다"></label>
+        <div>
+          <button type="button" id="load-contact-btn" class="btn btn-secondary btn-sm">담당자 목록에서 불러오기</button>
+          <div id="load-contact-picker"></div>
+        </div>
         <div id="pipeline-no-contact-hint"></div>
         <label>메모<textarea name="memo" rows="3">${escapeHtml(entry.memo || '')}</textarea></label>
         <p class="license-card-meta">제출 마감: ${entry.submissionDeadline ? escapeHtml(entry.submissionDeadline) : '확인 안 됨'}</p>
@@ -2351,6 +2355,8 @@ async function renderPipelineDetail(container, id) {
       }
     }).catch(() => {});
   }
+
+  wireLoadContactButton(container);
 
   const form = document.getElementById('pipeline-entry-form');
   const errorBox = document.getElementById('pipeline-entry-error');
@@ -2380,6 +2386,46 @@ async function renderPipelineDetail(container, id) {
   });
 
   renderPipelineChecklist(document.getElementById('pipeline-checklist-section'), id, checklist);
+}
+
+// wireLoadContactButton — "담당자 목록에서 불러오기" 버튼. 클릭 시
+// company_contacts 목록을 select로 펼치고, 고르면 그 담당자의 이름/이메일/
+// 전화번호로 입력란 3개를 바로 채운다(폼 제출은 별도 — "저장" 버튼을
+// 눌러야 실제 반영된다, 실수로 덮어써도 저장 전이면 취소 가능).
+function wireLoadContactButton(container) {
+  const btn = container.querySelector('#load-contact-btn');
+  const picker = container.querySelector('#load-contact-picker');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    if (picker.querySelector('select')) { picker.innerHTML = ''; return; }
+    let items = [];
+    try {
+      const data = await apiRequest('GET', '/api/me/contacts');
+      items = data.items || [];
+    } catch (err) {
+      picker.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+      return;
+    }
+    if (!items.length) {
+      picker.innerHTML = `<p class="auth-step-hint">등록된 담당자가 없습니다. <a href="#/me/profile">담당자 관리</a>에서 먼저 등록하세요.</p>`;
+      return;
+    }
+    picker.innerHTML = `
+      <select id="load-contact-select" class="select-input" style="margin-top:0.5rem">
+        <option value="">담당자 선택...</option>
+        ${items.map(c => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.name)}${c.isDefault ? ' (기본)' : ''}</option>`).join('')}
+      </select>
+    `;
+    picker.querySelector('#load-contact-select').addEventListener('change', (e) => {
+      const c = items.find(i => i.id === e.target.value);
+      if (!c) return;
+      const form = container.querySelector('#pipeline-entry-form');
+      form.elements['assigneeName'].value = c.name || '';
+      form.elements['assigneeEmail'].value = c.email || '';
+      form.elements['assigneePhone'].value = c.phone || '';
+      picker.innerHTML = '';
+    });
+  });
 }
 
 // renderPipelineChecklist — 항목별 select 하나로 바로 PATCH(저장 버튼 없음,
@@ -3645,35 +3691,42 @@ async function renderProfile(container) {
   });
 }
 
-// 알림 설정(email/phone/sms)은 팀기능으로 조직 단위(currentProfile)로
-// 옮겨졌다 — currentUser엔 더 이상 없다. owner만 바꿀 수 있어 member면
-// 토글/입력을 읽기 전용으로 보여준다(서버도 owner_only로 막지만, 프론트에서
-// 미리 disabled 처리해 "저장 눌렀다가 403 보는" 경험을 없앤다).
+// NOTIFICATION_DAYS_BEFORE_OPTIONS — 실제로 배치가 도는 오프셋만
+// (notifications.go의 notificationDaysBeforeAllowed와 정확히 같은 값).
+const NOTIFICATION_DAYS_BEFORE_OPTIONS = [7, 3, 1];
+
+// 알림 설정 재설계: 마감 리마인더/담당자 상태변경 알림의 수신 여부는
+// 이제 조직 공용(휴대폰 번호+SMS 토글)이 아니라 "담당자 관리" 탭의
+// 담당자 개인별 설정이다 — 여기 남는 건 (1) 추천 공고 다이제스트
+// 이메일 on/off, (2) 제출마감 리마인더를 D-N 중 어느 시점에 보낼지
+// 뿐이다. owner만 바꿀 수 있어 member면 읽기 전용으로 보여준다(서버도
+// owner_only로 막지만, 프론트에서 미리 disabled 처리해 "저장 눌렀다가
+// 403 보는" 경험을 없앤다).
 function renderProfileBasicTab(container) {
   const p = currentProfile || {};
   const isOwner = p.role === 'owner';
   const disabledAttr = isOwner ? '' : 'disabled';
   const orgNote = isOwner ? '' : '<p class="license-card-meta">알림 설정은 팀 관리자만 변경할 수 있습니다.</p>';
+  const daysBefore = p.notificationDaysBefore || [];
 
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="detail-card">
       <label class="checkbox-label">
         <input type="checkbox" id="email-notifications-toggle" ${p.emailNotificationsEnabled ? 'checked' : ''} ${disabledAttr}>
-        이메일 알림 받기 (제출마감 D-3/D-1, 추천 공고 다이제스트, 담당자 상태변경)
+        추천 공고 다이제스트 이메일 받기
       </label>
       <span id="email-notifications-status" class="license-card-meta"></span>
     </div>
     <div class="detail-card">
-      <label>휴대폰 번호 (SMS 수신용, 조직 공용)
-        <input type="tel" id="phone-number-input" value="${escapeAttr(p.phoneNumber || '')}" placeholder="01012345678" ${disabledAttr}>
-      </label>
-      ${isOwner ? '<button type="button" class="btn btn-secondary btn-sm" id="phone-number-save-btn">번호 저장</button>' : ''}
-      <label class="checkbox-label" style="margin-top:0.75rem">
-        <input type="checkbox" id="sms-notifications-toggle" ${p.smsNotificationsEnabled ? 'checked' : ''} ${disabledAttr}>
-        SMS 알림 받기 (제출마감 D-3/D-1, 담당자 상태변경 — 추천 공고 다이제스트는 이메일에서만 제공됩니다)
-      </label>
-      <span id="sms-notifications-status" class="license-card-meta"></span>
+      <p class="license-card-meta" style="margin-bottom:0.5rem">제출마감 리마인더를 언제 받을지 선택하세요. 실제 수신자는 "담당자 관리" 탭에서 담당자별로 설정합니다.</p>
+      ${NOTIFICATION_DAYS_BEFORE_OPTIONS.map(d => `
+        <label class="checkbox-label">
+          <input type="checkbox" name="notification-days-before" value="${d}" ${daysBefore.includes(d) ? 'checked' : ''} ${disabledAttr}>
+          마감 D-${d}
+        </label>
+      `).join('')}
+      <span id="notification-days-before-status" class="license-card-meta"></span>
       ${orgNote}
     </div>
     <div id="profile-summary-section"></div>
@@ -3697,37 +3750,23 @@ function renderProfileBasicTab(container) {
       }
     });
 
-    const phoneInput = document.getElementById('phone-number-input');
-    const phoneSaveBtn = document.getElementById('phone-number-save-btn');
-    const smsToggle = document.getElementById('sms-notifications-toggle');
-    const smsStatus = document.getElementById('sms-notifications-status');
-    phoneSaveBtn.addEventListener('click', async () => {
-      smsStatus.textContent = '';
-      phoneSaveBtn.disabled = true;
-      const phone = phoneInput.value.trim();
-      try {
-        await apiRequest('PATCH', '/api/me/notification-settings', { phoneNumber: phone });
-        currentProfile.phoneNumber = phone;
-        smsStatus.textContent = '전화번호가 저장되었습니다.';
-      } catch (err) {
-        smsStatus.textContent = err.message;
-      } finally {
-        phoneSaveBtn.disabled = false;
-      }
-    });
-    smsToggle.addEventListener('change', async () => {
-      const enabled = smsToggle.checked;
-      smsToggle.disabled = true;
-      try {
-        await apiRequest('PATCH', '/api/me/notification-settings', { smsNotificationsEnabled: enabled });
-        currentProfile.smsNotificationsEnabled = enabled;
-        smsStatus.textContent = '저장되었습니다.';
-      } catch (err) {
-        smsToggle.checked = !enabled;
-        smsStatus.textContent = err.message;
-      } finally {
-        smsToggle.disabled = false;
-      }
+    const daysStatus = document.getElementById('notification-days-before-status');
+    container.querySelectorAll('input[name="notification-days-before"]').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        const selected = Array.from(container.querySelectorAll('input[name="notification-days-before"]:checked'))
+          .map(el => Number(el.value));
+        container.querySelectorAll('input[name="notification-days-before"]').forEach(el => { el.disabled = true; });
+        try {
+          await apiRequest('PATCH', '/api/me/notification-settings', { notificationDaysBefore: selected });
+          currentProfile.notificationDaysBefore = selected;
+          daysStatus.textContent = '저장되었습니다.';
+        } catch (err) {
+          cb.checked = !cb.checked;
+          daysStatus.textContent = err.message;
+        } finally {
+          container.querySelectorAll('input[name="notification-days-before"]').forEach(el => { el.disabled = false; });
+        }
+      });
     });
   }
 
@@ -4492,6 +4531,7 @@ async function renderContactsTab(container) {
       try {
         await apiRequest('PATCH', '/api/me/contacts/' + encodeURIComponent(item.id), {
           name: item.name, email: item.email, phone: item.phone, isDefault: true,
+          emailNotificationsEnabled: item.emailNotificationsEnabled, smsNotificationsEnabled: item.smsNotificationsEnabled,
         });
         renderContactsTab(container);
       } catch (err) {
@@ -4506,11 +4546,15 @@ function contactCardHtml(item) {
   const metaParts = [];
   if (item.email) metaParts.push(escapeHtml(item.email));
   if (item.phone) metaParts.push(escapeHtml(item.phone));
+  const channelParts = [];
+  if (item.emailNotificationsEnabled) channelParts.push('이메일 수신');
+  if (item.smsNotificationsEnabled) channelParts.push('SMS 수신');
   return `
     <div class="license-card">
       <div class="license-card-main">
         <div class="license-card-name">${escapeHtml(item.name)} ${item.isDefault ? '<span class="badge badge--success">기본</span>' : ''}</div>
         <div class="license-card-meta">${metaParts.join(' · ') || '-'}</div>
+        <div class="license-card-meta">${channelParts.length ? channelParts.join(' · ') : '알림 수신 안 함'}</div>
       </div>
       <div class="license-card-side">
         ${!item.isDefault ? `<button type="button" class="btn btn-secondary btn-sm contact-set-default-btn" data-id="${escapeAttr(item.id)}">기본으로 지정</button>` : ''}
@@ -4532,6 +4576,8 @@ function renderContactForm(formSlot, item, onSaved) {
         <label>이메일<input type="email" name="email" value="${escapeAttr(c.email || '')}"></label>
         <label>전화번호<input type="tel" name="phone" value="${escapeAttr(c.phone || '')}" placeholder="010-0000-0000"></label>
         <label><input type="checkbox" name="isDefault" ${c.isDefault ? 'checked' : ''}> 기본 담당자로 지정</label>
+        <label class="checkbox-label"><input type="checkbox" name="emailNotificationsEnabled" ${c.id ? (c.emailNotificationsEnabled ? 'checked' : '') : 'checked'}> 이메일 알림 받기 (제출마감 리마인더, 상태변경)</label>
+        <label class="checkbox-label"><input type="checkbox" name="smsNotificationsEnabled" ${c.smsNotificationsEnabled ? 'checked' : ''}> SMS 알림 받기 (제출마감 리마인더, 상태변경)</label>
         <div id="contact-form-error" class="error" style="display:none"></div>
         <div class="license-toolbar">
           <button type="submit" class="btn btn-primary btn-sm">저장</button>
@@ -4554,6 +4600,8 @@ function renderContactForm(formSlot, item, onSaved) {
       email: fd.get('email') || null,
       phone: fd.get('phone') || null,
       isDefault: fd.get('isDefault') === 'on',
+      emailNotificationsEnabled: fd.get('emailNotificationsEnabled') === 'on',
+      smsNotificationsEnabled: fd.get('smsNotificationsEnabled') === 'on',
     };
     try {
       if (item) {
@@ -5322,11 +5370,12 @@ async function renderPaymentHistorySection(container) {
   }
   const rows = items.map(it => {
     const statusTone = it.status === '승인' ? 'badge--success' : (it.status === '취소' ? 'badge--gray' : 'badge--danger');
+    const methodPart = it.paymentMethodLabel ? ` · ${escapeHtml(it.paymentMethodLabel)}` : '';
     return `
       <div class="license-card">
         <div class="license-card-main">
           <div class="license-card-name">${escapeHtml(it.planName || it.plan || '-')} <span class="badge ${statusTone}">${escapeHtml(it.status)}</span></div>
-          <div class="license-card-meta">${escapeHtml(formatDateTime(it.requestedAt))} · <span class="mono">${formatBudget(it.amount)}</span></div>
+          <div class="license-card-meta">${escapeHtml(formatDateTime(it.requestedAt))} · <span class="mono">${formatBudget(it.amount)}</span>${methodPart}</div>
         </div>
       </div>
     `;
@@ -5576,11 +5625,12 @@ async function renderAdminChangelogSection(container) {
 
 function adminPaymentCardHtml(p) {
   const statusTone = p.status === '승인' ? 'badge--success' : (p.status === '취소' ? 'badge--gray' : 'badge--danger');
+  const methodPart = p.paymentMethodLabel ? ` · ${escapeHtml(p.paymentMethodLabel)}` : '';
   return `
     <div class="license-card">
       <div class="license-card-main">
         <div class="license-card-name">${escapeHtml(p.email)} · ${escapeHtml(p.planName || p.plan || '-')} <span class="badge ${statusTone}">${escapeHtml(p.status)}</span></div>
-        <div class="license-card-meta">${escapeHtml(formatDateTime(p.requestedAt))} · <span class="mono">${formatBudget(p.amount)}</span></div>
+        <div class="license-card-meta">${escapeHtml(formatDateTime(p.requestedAt))} · <span class="mono">${formatBudget(p.amount)}</span>${methodPart}</div>
       </div>
     </div>
   `;
@@ -5724,7 +5774,7 @@ async function renderAdminMemberDetail(container, id) {
     <div class="license-card">
       <div class="license-card-main">
         <div class="license-card-name">${escapeHtml(p.planName || p.plan || '-')} <span class="badge ${p.status === '승인' ? 'badge--success' : (p.status === '취소' ? 'badge--gray' : 'badge--danger')}">${escapeHtml(p.status)}</span></div>
-        <div class="license-card-meta">${escapeHtml(formatDateTime(p.requestedAt))} · <span class="mono">${formatBudget(p.amount)}</span></div>
+        <div class="license-card-meta">${escapeHtml(formatDateTime(p.requestedAt))} · <span class="mono">${formatBudget(p.amount)}</span>${p.paymentMethodLabel ? ` · ${escapeHtml(p.paymentMethodLabel)}` : ''}</div>
       </div>
     </div>
   `).join('');

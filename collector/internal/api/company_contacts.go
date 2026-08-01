@@ -23,14 +23,23 @@ type contactItem struct {
 	Phone     *string   `json:"phone"`
 	IsDefault bool      `json:"isDefault"`
 	CreatedAt time.Time `json:"createdAt"`
+	// {Email,SMS,Push}NotificationsEnabled — 알림 수신 여부는 담당자
+	// 개인 단위(예전엔 company_profiles의 조직 공용 설정이었음, notifications.go
+	// 참고). PushNotificationsEnabled는 실제 발송 인프라가 아직 없어 항상
+	// false로만 유지된다(요청으로 켜려 해도 handleCreateContact/
+	// handleUpdateContact가 무시한다) — UI에도 아직 노출하지 않는다.
+	EmailNotificationsEnabled bool `json:"emailNotificationsEnabled"`
+	SMSNotificationsEnabled   bool `json:"smsNotificationsEnabled"`
+	PushNotificationsEnabled  bool `json:"pushNotificationsEnabled"`
 }
 
-const contactSelect = `SELECT id, name, email, phone, is_default, created_at FROM company_contacts`
+const contactSelect = `SELECT id, name, email, phone, is_default, created_at, email_notifications_enabled, sms_notifications_enabled, push_notifications_enabled FROM company_contacts`
 
 func scanContact(row interface{ Scan(dest ...any) error }) (*contactItem, error) {
 	var c contactItem
 	var email, phone sql.NullString
-	if err := row.Scan(&c.ID, &c.Name, &email, &phone, &c.IsDefault, &c.CreatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &email, &phone, &c.IsDefault, &c.CreatedAt,
+		&c.EmailNotificationsEnabled, &c.SMSNotificationsEnabled, &c.PushNotificationsEnabled); err != nil {
 		return nil, err
 	}
 	c.Email = nullStringPtr(email)
@@ -80,11 +89,18 @@ func (s *Server) handleListContacts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+// contactRequest — PushNotificationsEnabled는 의도적으로 필드 자체가 없다.
+// 실제 발송 인프라가 생기기 전까지는 클라이언트가 뭘 보내든 무조건
+// false로 저장한다(company_contacts.go의 INSERT/UPDATE가 리터럴 false를
+// 박아 넣음) — 요청 바디에 값을 받아도 조용히 무시되는 필드를 두지
+// 않기 위해서다.
 type contactRequest struct {
-	Name      string  `json:"name"`
-	Email     *string `json:"email"`
-	Phone     *string `json:"phone"`
-	IsDefault bool    `json:"isDefault"`
+	Name                      string  `json:"name"`
+	Email                     *string `json:"email"`
+	Phone                     *string `json:"phone"`
+	IsDefault                 bool    `json:"isDefault"`
+	EmailNotificationsEnabled bool    `json:"emailNotificationsEnabled"`
+	SMSNotificationsEnabled   bool    `json:"smsNotificationsEnabled"`
 }
 
 func (s *Server) handleCreateContact(w http.ResponseWriter, r *http.Request) {
@@ -137,9 +153,9 @@ func (s *Server) handleCreateContact(w http.ResponseWriter, r *http.Request) {
 
 	var id string
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO company_contacts (company_profile_id, name, email, phone, is_default)
-		VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-		profile.ID, req.Name, req.Email, req.Phone, req.IsDefault,
+		INSERT INTO company_contacts (company_profile_id, name, email, phone, is_default, email_notifications_enabled, sms_notifications_enabled, push_notifications_enabled)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,false) RETURNING id`,
+		profile.ID, req.Name, req.Email, req.Phone, req.IsDefault, req.EmailNotificationsEnabled, req.SMSNotificationsEnabled,
 	).Scan(&id)
 	if err != nil {
 		s.logger.Error("create-contact: insert failed", "error", err)
@@ -154,6 +170,8 @@ func (s *Server) handleCreateContact(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id": id, "name": req.Name, "email": req.Email, "phone": req.Phone, "isDefault": req.IsDefault,
+		"emailNotificationsEnabled": req.EmailNotificationsEnabled, "smsNotificationsEnabled": req.SMSNotificationsEnabled,
+		"pushNotificationsEnabled": false,
 	})
 }
 
@@ -207,9 +225,10 @@ func (s *Server) handleUpdateContact(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := tx.ExecContext(ctx, `
-		UPDATE company_contacts SET name = $1, email = $2, phone = $3, is_default = $4
-		WHERE id = $5 AND company_profile_id = $6`,
-		req.Name, req.Email, req.Phone, req.IsDefault, contactID, profile.ID,
+		UPDATE company_contacts SET name = $1, email = $2, phone = $3, is_default = $4,
+		       email_notifications_enabled = $5, sms_notifications_enabled = $6
+		WHERE id = $7 AND company_profile_id = $8`,
+		req.Name, req.Email, req.Phone, req.IsDefault, req.EmailNotificationsEnabled, req.SMSNotificationsEnabled, contactID, profile.ID,
 	)
 	if err != nil {
 		s.logger.Error("update-contact: update failed", "error", err)
