@@ -664,7 +664,9 @@
     padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: 8px; background: #fff;
   }
   .checklist-doc-name { font-size: 0.92rem; color: var(--ink); }
-  .checklist-status-select { padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; }
+  /* checklist-status-select 자체는 이제 시각 스타일을 안 갖는다 — 박스
+     스타일은 .select-input이 전부 담당하고, 이 클래스는 JS 훅(querySelectorAll)
+     + 위쪽 @media(pointer: coarse)의 44px 탭 타겟 규칙 용도로만 남는다. */
   .official-link {
     display: inline-block;
     margin-top: 1rem;
@@ -1016,6 +1018,38 @@
     outline: 2px solid var(--accent-blue);
     outline-offset: 1px;
     border-color: var(--accent-blue);
+  }
+
+  /* ---------- 공용 셀렉트박스(.select-input) — 사이트 전체 모든 <select>가
+     쓰는 클래스. 테두리/둥근 모서리/글자 크기는 위 input과 동일하고,
+     왼쪽/위아래 패딩도 동일하다(오른쪽만 화살표 아이콘 자리만큼 더 줌).
+     기본 배경을 var(--bg-soft)로 살짝 낮춰서(입력창은 흰 배경 그대로 —
+     "자유 입력"과 "선택"의 톤 차이) hover 시 흰색으로 밝아지는 여지를
+     남긴다. 펼친 옵션 목록(<option>) 내부는 브라우저 기본 스타일이며
+     이건 CSS 단독으로는 손댈 수 없는 브라우저 제약이다. */
+  .select-input {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    padding: 0.65rem 2.2rem 0.65rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background-color: var(--bg-soft);
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%20fill='none'%20stroke='%235F6672'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpolyline%20points='4%206%208%2010%2012%206'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 0.65rem;
+    color: var(--ink);
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .select-input:hover { background-color: #fff; }
+  .select-input:focus {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 1px;
+    border-color: var(--accent-blue);
+    background-color: #fff;
   }
   .auth-form button, .profile-form button {
     padding: 0.75rem 1rem;
@@ -1926,7 +1960,7 @@ function pipelineStatusSelectHtml(currentStatus) {
   if (otherOptions.length) {
     groups.push(`<optgroup label="기타">${otherOptions.map(optionHtml).join('')}</optgroup>`);
   }
-  return `<select name="status">${groups.join('')}</select>`;
+  return `<select name="status" class="select-input">${groups.join('')}</select>`;
 }
 
 // stepIndicatorHtml — 점+선 스텝 인디케이터 공용 헬퍼. 파이프라인 상태
@@ -2302,7 +2336,7 @@ function renderPipelineChecklist(container, entryId, items) {
   const rows = items.map(it => `
     <div class="checklist-row" data-item-id="${escapeAttr(it.id)}">
       <span class="checklist-doc-name">${escapeHtml(it.documentName)}</span>
-      <select class="checklist-status-select">
+      <select class="select-input checklist-status-select">
         ${CHECKLIST_STATUS_LIST.map(s => `<option value="${escapeAttr(s)}" ${s === it.status ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
       </select>
     </div>
@@ -3861,7 +3895,7 @@ const TRI_STATE_OPTIONS = [
 ];
 
 function triStateSelectHtml(name, selected) {
-  return `<select name="${name}">${TRI_STATE_OPTIONS.map(o =>
+  return `<select name="${name}" class="select-input">${TRI_STATE_OPTIONS.map(o =>
     `<option value="${escapeAttr(o.value)}" ${o.value === (selected || '') ? 'selected' : ''}>${escapeHtml(o.label)}</option>`
   ).join('')}</select>`;
 }
@@ -3886,7 +3920,7 @@ function disableOwnerOnlyButtons(container) {
 // true면 맨 앞에 빈 옵션을 추가한다(값 목록 자체엔 넣지 않아도 됨).
 function plainSelectHtml(name, options, selected, withEmpty) {
   const opts = withEmpty ? ['', ...options] : options;
-  return `<select name="${name}">${opts.map(v =>
+  return `<select name="${name}" class="select-input">${opts.map(v =>
     `<option value="${escapeAttr(v)}" ${v === (selected || '') ? 'selected' : ''}>${escapeHtml(v || '선택 안 함')}</option>`
   ).join('')}</select>`;
 }
@@ -4628,7 +4662,7 @@ function renderLicenseConfirmForm(formSlot, candidate, documentId, onSaved) {
       <h4>${documentId ? 'AI가 읽은 내용을 확인해주세요' : '직접 입력'}</h4>
       <form id="license-confirm-form" class="profile-form">
         <label>등록 대상
-          <select name="target">
+          <select name="target" class="select-input">
             <option value="license" ${isLicenseDefault ? 'selected' : ''}>면허·신고·등록</option>
             <option value="certification" ${!isLicenseDefault ? 'selected' : ''}>인증 및 확인서</option>
           </select>
@@ -4641,7 +4675,7 @@ function renderLicenseConfirmForm(formSlot, candidate, documentId, onSaved) {
         <label>유효기간<input type="date" name="expiresAt" value="${escapeAttr(c.expiresAt || '')}"></label>
         <label>적용업종<input type="text" name="applicableIndustry" value="${escapeAttr(c.applicableIndustry || '')}"></label>
         <label>보유 상태
-          <select name="status">
+          <select name="status" class="select-input">
             ${LICENSE_STATUS_OPTIONS.map(s => `<option value="${escapeAttr(s)}" ${s === '보유' ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
           </select>
         </label>
@@ -5463,7 +5497,7 @@ async function renderAdminMembers(container) {
     <h2>회원 관리</h2>
     <form id="admin-member-filter-form" class="profile-form" style="flex-direction:row;flex-wrap:wrap;gap:0.5rem;align-items:flex-end">
       <label style="flex:1;min-width:180px">이메일 검색<input type="text" name="q" value="${escapeAttr(qParam)}" placeholder="이메일 일부 입력"></label>
-      <label style="min-width:140px">플랜<select name="plan">
+      <label style="min-width:140px">플랜<select name="plan" class="select-input">
         <option value="">전체</option>
         ${['free', 'basic', 'pro', 'business'].map(p => `<option value="${p}" ${planParam === p ? 'selected' : ''}>${escapeHtml(PLAN_DISPLAY_NAMES[p])}</option>`).join('')}
       </select></label>
