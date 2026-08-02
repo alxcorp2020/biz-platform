@@ -123,6 +123,9 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 		if err := s.insertEntryScopedInAppNotification(ctx, t.profileID, eventType, entryID, noticeID, inAppTitle, inAppBody); err != nil {
 			s.logger.Error("notify: in-app notification insert failed", "error", err)
 		}
+		// Phase 6: 웹 푸시도 인앱 알림함과 동일한 대상(조직 전체)에 나란히
+		// 보낸다 — VAPID 미설정이면 sendPushToProfileMembers가 조용히 스킵.
+		s.sendPushToProfileMembers(ctx, t.profileID, inAppTitle, inAppBody, "/#/pipeline/"+entryID)
 
 		contacts, err := s.fetchNotifiableContacts(ctx, t.profileID, eventType, entryID)
 		if err != nil {
@@ -343,6 +346,8 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 			if err := s.insertDigestInAppNotification(ctx, m.userID, subject, inAppBody); err != nil {
 				s.logger.Error("notify: digest in-app notification insert failed", "error", err)
 			}
+			// Phase 6: 다이제스트는 이미 회원 단위(m.userID)라 sendPushToUser를 직접 쓴다.
+			s.sendPushToUser(ctx, m.userID, subject, inAppBody, "/#/notices")
 
 			sendErr := s.notify.Send(ctx, m.email, subject, body)
 			status, errMsg := "sent", sql.NullString{}
@@ -444,6 +449,8 @@ func (s *Server) notifyAssigneeStatusChange(ctx context.Context, profileID, pipe
 	if err := s.insertEntryScopedInAppNotification(ctx, profileID, notifyEventAssigneeStatusChange, pipelineEntryID, noticeID, inAppTitle, noticeTitle); err != nil {
 		s.logger.Error("notify: status-change in-app notification insert failed", "error", err)
 	}
+	// Phase 6: 인앱 알림함과 동일한 대상(조직 전체)에 웹 푸시도 나란히 보낸다.
+	s.sendPushToProfileMembers(ctx, profileID, inAppTitle, noticeTitle, "/#/pipeline/"+pipelineEntryID)
 
 	contacts, err := s.fetchNotifiableContacts(ctx, profileID, notifyEventAssigneeStatusChange, pipelineEntryID)
 	if err != nil {

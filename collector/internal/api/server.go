@@ -39,9 +39,15 @@ type Server struct {
 	// 상태. handleRunAwardHistoryIngestion의 수동 트리거와 cmd/apiserver의
 	// 일일 티커 둘 다 이 필드를 쓴다.
 	scsbidSource *scsbid.Source
+	// Phase 6: 웹 푸시(VAPID). vapidPrivateKey가 비어있으면 push_notifications.go의
+	// 발송 함수들이 조용히 스킵한다(다른 채널의 "미설정 시 실패 로그만" 패턴과
+	// 동일하게, 서버가 죽지 않고 인앱 알림함/이메일 등 다른 채널은 그대로 동작).
+	vapidPublicKey  string
+	vapidPrivateKey string
+	vapidSubject    string
 }
 
-func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, smsNotifyClient *notify.SMSClient, tossClient *billing.TossClient, tossClientKey string, appBaseURL string, scsbidSource *scsbid.Source) *Server {
+func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, smsNotifyClient *notify.SMSClient, tossClient *billing.TossClient, tossClientKey string, appBaseURL string, scsbidSource *scsbid.Source, vapidPublicKey, vapidPrivateKey, vapidSubject string) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -57,6 +63,9 @@ func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir st
 		tossClientKey:   tossClientKey,
 		appBaseURL:      appBaseURL,
 		scsbidSource:    scsbidSource,
+		vapidPublicKey:  vapidPublicKey,
+		vapidPrivateKey: vapidPrivateKey,
+		vapidSubject:    vapidSubject,
 	}
 }
 
@@ -121,6 +130,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/me/notifications/unread-count", s.handleUnreadNotificationCount)
 	mux.HandleFunc("POST /api/me/notifications/read-all", s.handleMarkAllNotificationsRead)
 	mux.HandleFunc("POST /api/me/notifications/{id}/read", s.handleMarkNotificationRead)
+	mux.HandleFunc("GET /api/push/vapid-public-key", s.handleGetPushPublicKey)
+	mux.HandleFunc("POST /api/me/push-subscriptions", s.handleSubscribePush)
+	mux.HandleFunc("DELETE /api/me/push-subscriptions", s.handleUnsubscribePush)
 	mux.HandleFunc("POST /api/admin/run-notifications", s.handleRunNotifications)
 	mux.HandleFunc("POST /api/admin/run-pipeline-auto-transitions", s.handleRunPipelineAutoTransitions)
 	mux.HandleFunc("POST /api/admin/run-award-history-ingestion", s.handleRunAwardHistoryIngestion)

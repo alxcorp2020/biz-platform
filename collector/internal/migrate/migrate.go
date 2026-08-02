@@ -144,6 +144,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureTeamInviteEventTypes(ctx, db); err != nil {
 		return fmt.Errorf("migrate team invite event types: %w", err)
 	}
+	if err := ensurePushSubscriptionsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate push_subscriptions table: %w", err)
+	}
 	return nil
 }
 
@@ -259,13 +262,25 @@ func ensureCompanyProfileSnapshotColumn(ctx context.Context, db *sql.DB) error {
 
 // ensureDeadlineD7EventType widens notification_log.event_type's CHECK to
 // allow 'deadline_d7' — 원클릭 참여검토(Phase 1)가 요구하는 D-7/D-3/D-1
-// 알림 예약 중 D-7 추가분. DROP+ADD 방식은 ensureReportEventTypes와 동일.
+// 알림 예약 중 D-7 추가분.
+//
+// 버그였다가 고쳐진 이력: 이 함수와 ensureReportEventTypes/
+// ensureTeamInviteEventTypes 셋 다 DROP+ADD CONSTRAINT를 쓰는데, Apply()가
+// 매 기동마다 전부 순서대로 재실행하는 구조라(idempotent 마이그레이션
+// 패턴) 한 함수가 "그 함수가 작성된 시점의" 목록으로 재실행되면 그
+// 사이 더 넓은 목록으로 이미 커진 실제 테이블 데이터(예: team_invite
+// 행)를 위반해 ADD CONSTRAINT 자체가 실패한다 — 실제로 재현된 크래시.
+// 그래서 세 함수 모두 항상 "현재 최종" 전체 목록을 쓰도록 통일했다
+// (셋 중 어느 게 먼저/나중에 실행되든 중간 단계가 기존 행보다 좁아지는
+// 순간이 생기지 않게). 앞으로 이벤트 타입을 추가할 때도 새 함수 하나만
+// 추가하지 말고 이 세 함수(및 001_init.sql) 전부의 목록을 함께 넓혀야
+// 한다.
 func ensureDeadlineD7EventType(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted'));
 	`)
 	return err
 }
@@ -899,12 +914,17 @@ func ensureReportsTable(ctx context.Context, db *sql.DB) error {
 // is safe on both a fresh install (where the constraint already has this
 // exact name) and a pre-existing DB (where DROP IF EXISTS + re-ADD replaces
 // the narrower check) — no duplicate-constraint risk either way.
+//
+// 항상 "현재 최종" 전체 목록을 쓴다(ensureDeadlineD7EventType 주석의 버그
+// 설명 참고) — 이 함수만 옛날 좁은 목록을 쓰면 Apply()가 이 함수를
+// ensureTeamInviteEventTypes보다 먼저 재실행할 때 이미 존재하는 team_invite
+// 행을 위반해 크래시한다.
 func ensureReportEventTypes(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
-			CHECK (event_type IN ('deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report'));
+			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted'));
 	`)
 	return err
 }
@@ -986,6 +1006,29 @@ func ensureTeamInviteEventTypes(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
 			                       'weekly_report','monthly_report','team_invite','team_invite_accepted'));
+	`)
+	return err
+}
+
+// ensurePushSubscriptionsTable adds Phase 6(웹푸시/PWA)의 유일한 새 테이블.
+// 구독 단위는 "회원"(로그인 계정, users)이다 — 담당자(company_contacts)가
+// 아니다. 이메일/SMS는 로그인 없이도 존재하는 담당자 연락처로 보내지만,
+// 웹 푸시는 "로그인해서 브라우저 권한을 승인한 특정 기기"에만 보낼 수
+// 있어 구조가 다르다(project_phase6_app_requirements 요구사항 확정 사항).
+// endpoint에 UNIQUE를 걸어, 같은 기기가 로그아웃 후 다른 계정으로
+// 재구독하면 ON CONFLICT (endpoint) DO UPDATE로 소유자를 자연스럽게
+// 갈아치운다(push_notifications.go의 handleSubscribePush 참고).
+func ensurePushSubscriptionsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS push_subscriptions (
+			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id    UUID NOT NULL REFERENCES users(id),
+			endpoint   TEXT NOT NULL UNIQUE,
+			p256dh_key TEXT NOT NULL,
+			auth_key   TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
 	`)
 	return err
 }

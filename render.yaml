@@ -48,4 +48,10 @@ services:
         sync: false
       - key: APP_BASE_URL
         sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
     healthCheckPath: /healthz

@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>공공사업 AI 비서</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<meta name="theme-color" content="#3182F6">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -4527,6 +4531,97 @@ function notificationIconHtml(eventType) {
 
 let notificationListState = null; // { batches, offset, limit, total, hasMore, loading, unreadOnly }
 
+// ---------- 웹 푸시(Phase 6) ----------
+// urlBase64ToUint8Array — PushManager.subscribe()의 applicationServerKey는
+// Uint8Array를 요구하는데 서버는 base64url 문자열로 공개키를 내려주므로
+// (webpush-go 관례) 표준 변환 보일러플레이트가 필요하다.
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+// isIOSInstallNeeded — iOS Safari는 16.4+에서도 "홈 화면에 추가"로 설치된
+// PWA 안에서만 웹 푸시가 동작한다(요구사항 확정 사항). standalone 모드가
+// 아니면 구독 시도 자체가 의미 없으므로 안내만 보여준다.
+function isIOSInstallNeeded() {
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  return isIOS && !isStandalone;
+}
+
+async function renderPushBanner(container) {
+  if (!container) return;
+  if (isIOSInstallNeeded()) {
+    container.innerHTML = `
+      <div class="pipeline-filter-banner">
+        <span>iOS에서 알림을 받으려면 먼저 홈 화면에 추가하세요 — 공유 아이콘 → "홈 화면에 추가"</span>
+      </div>
+    `;
+    return;
+  }
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+  let registration, subscription;
+  try {
+    registration = await navigator.serviceWorker.ready;
+    subscription = await registration.pushManager.getSubscription();
+  } catch (e) {
+    return;
+  }
+
+  const subscribed = !!subscription;
+  container.innerHTML = `
+    <div class="pipeline-filter-banner">
+      <span>${subscribed ? '이 기기에서 알림이 켜져 있습니다.' : '이 기기에서도 알림을 받아보세요.'}</span>
+      <button type="button" class="btn btn-secondary btn-sm" id="push-toggle-btn">${subscribed ? '끄기' : '알림 받기'}</button>
+    </div>
+  `;
+  document.getElementById('push-toggle-btn').addEventListener('click', async () => {
+    if (subscribed) {
+      await unsubscribeFromPush(registration);
+    } else {
+      await subscribeToPush(registration);
+    }
+    renderPushBanner(container);
+  });
+}
+
+async function subscribeToPush(registration) {
+  try {
+    if (Notification.permission === 'denied') {
+      alert('브라우저 알림 권한이 차단되어 있습니다. 브라우저 설정에서 알림 권한을 허용해주세요.');
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return;
+    const { publicKey } = await apiRequest('GET', '/api/push/vapid-public-key');
+    const sub = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+    const json = sub.toJSON();
+    await apiRequest('POST', '/api/me/push-subscriptions', { endpoint: json.endpoint, keys: json.keys });
+  } catch (err) {
+    console.error('push subscribe failed', err);
+  }
+}
+
+async function unsubscribeFromPush(registration) {
+  try {
+    const sub = await registration.pushManager.getSubscription();
+    if (!sub) return;
+    const endpoint = sub.endpoint;
+    await sub.unsubscribe();
+    await apiRequest('DELETE', '/api/me/push-subscriptions', { endpoint });
+  } catch (err) {
+    console.error('push unsubscribe failed', err);
+  }
+}
+
 async function renderNotifications(container) {
   container.innerHTML = '';
   container.appendChild(h(`
@@ -4538,8 +4633,10 @@ async function renderNotifications(container) {
         <button type="button" class="btn btn-secondary btn-sm" id="notif-mark-all-read">모두 읽음</button>
       </div>
     </div>
+    <div id="push-banner"></div>
     <div id="notif-list-body">${skeletonListHtml(4)}</div>
   `));
+  renderPushBanner(document.getElementById('push-banner'));
 
   const setActiveFilter = (unreadOnly) => {
     document.getElementById('notif-filter-all').classList.toggle('btn-primary', !unreadOnly);
@@ -7355,6 +7452,14 @@ headerRight.addEventListener('click', (e) => {
 });
 
 window.addEventListener('hashchange', () => { closeMobileMenu(); route(); });
+
+// Phase 6(PWA/웹푸시): 서비스워커는 로그인 여부와 무관하게 항상 등록해둔다
+// (등록 자체는 알림 권한을 요구하지 않음 — 실제 구독은 #/notifications의
+// "알림 받기" 버튼을 눌러야 시작됨). 오프라인 캐싱은 하지 않는다.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/service-worker.js').catch(() => { /* 미지원 브라우저는 조용히 무시 */ });
+}
+
 loadMe();
 route();
 </script>

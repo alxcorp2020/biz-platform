@@ -103,7 +103,17 @@ func main() {
 
 	scsbidSrc := newScsbidSource(logger)
 
-	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, smsNotifyClient, tossClient, tossClientKey, appBaseURL, scsbidSrc)
+	vapidPublicKey := os.Getenv("VAPID_PUBLIC_KEY")
+	vapidPrivateKey := os.Getenv("VAPID_PRIVATE_KEY")
+	vapidSubject := os.Getenv("VAPID_SUBJECT")
+	if vapidPublicKey == "" || vapidPrivateKey == "" {
+		logger.Warn("VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY is not set; 웹 푸시 알림(Phase 6)은 발송되지 않습니다")
+	} else if vapidSubject == "" {
+		vapidSubject = "mailto:admin@example.com"
+		logger.Warn("VAPID_SUBJECT is not set; 기본값(mailto:admin@example.com)을 씁니다 — 운영 배포 시 실제 연락처로 설정 권장")
+	}
+
+	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, smsNotifyClient, tossClient, tossClientKey, appBaseURL, scsbidSrc, vapidPublicKey, vapidPrivateKey, vapidSubject)
 	startBackgroundNotifications(srv, logger, scsbidSrc)
 	startBackgroundDocumentExtraction(srv, logger)
 

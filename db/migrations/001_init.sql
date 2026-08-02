@@ -886,3 +886,20 @@ CREATE INDEX idx_in_app_notifications_user ON in_app_notifications(user_id, crea
 -- 달라서(마감 리마인더는 event_type+entry, 상태변경은 event_type+entry+
 -- 새 상태값, 다이제스트는 event_type+user+날짜) 단일 UNIQUE 인덱스로는
 -- 표현이 안 된다. notification_log의 기존 EXISTS dedup 패턴과 동일.
+
+-- ------------------------------------------------------------
+-- Phase 6(웹푸시/PWA) — 구독 단위는 "회원"(로그인 계정)이다. 담당자
+-- (company_contacts)가 아니다 — 이메일/SMS는 로그인 없이도 존재하는
+-- 담당자 연락처로 보내지만, 웹 푸시는 "로그인해서 브라우저 권한을
+-- 승인한 특정 기기"에만 보낼 수 있어 구조가 다르다. endpoint UNIQUE로
+-- 같은 기기가 다른 계정으로 재구독하면 소유자가 자연스럽게 갈아치워진다.
+-- ------------------------------------------------------------
+CREATE TABLE push_subscriptions (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    UUID NOT NULL REFERENCES users(id),
+    endpoint   TEXT NOT NULL UNIQUE,
+    p256dh_key TEXT NOT NULL,
+    auth_key   TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_push_subscriptions_user ON push_subscriptions(user_id);
