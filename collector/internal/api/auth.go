@@ -166,7 +166,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	email := strings.TrimSpace(strings.ToLower(req.Email))
 
-	var userID, passwordHash string
+	var userID string
+	var passwordHash sql.NullString
 	err := s.db.QueryRowContext(r.Context(),
 		`SELECT id, password_hash FROM users WHERE email = $1`, email,
 	).Scan(&userID, &passwordHash)
@@ -180,7 +181,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil {
+	// 간편로그인(구글/네이버/카카오)으로만 가입한 계정은 password_hash가
+	// NULL이다 — 이메일/비밀번호로는 로그인할 수 없으니 "이 계정으로는
+	// 비번 로그인 불가"를 명확히 구분해 알려준다(invalid_credentials로
+	// 뭉개면 사용자가 비번을 계속 재시도하게 됨).
+	if !passwordHash.Valid {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "social_login_only"})
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(passwordHash.String), []byte(req.Password)) != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return
 	}

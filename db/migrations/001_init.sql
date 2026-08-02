@@ -275,7 +275,7 @@ CREATE TABLE contract_risks (
 CREATE TABLE users (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email           TEXT NOT NULL UNIQUE,
-    password_hash   TEXT NOT NULL,
+    password_hash   TEXT, -- 소셜 로그인(간편로그인) 전용 계정은 비밀번호를 만든 적이 없어 NULL(원래는 NOT NULL이었으나 ensureOAuthIdentitiesTable에서 완화). handleLogin은 NULL이면 social_login_only 에러 반환
     role            TEXT NOT NULL DEFAULT 'user'
                         CHECK (role IN ('user','company_admin','analyst','operator','system_admin')),
     plan            TEXT NOT NULL DEFAULT 'free'
@@ -919,3 +919,23 @@ CREATE TABLE system_settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 INSERT INTO system_settings (key, value) VALUES ('free_plan_email_limit', '20');
+
+-- ------------------------------------------------------------
+-- 간편로그인(구글/네이버/카카오). users에 provider/provider_id 컬럼을
+-- 직접 두지 않고 별도 테이블로 뺀 이유는 한 사용자가 여러 소셜 계정을
+-- 동시에 연결할 수 있게 하기 위함(예: 구글로 가입한 뒤 나중에 카카오도
+-- 연결). 이메일이 같은 기존 계정이 있으면 새 유저를 만들지 않고 이
+-- 테이블에 행만 추가해 그 계정에 연결한다(oauth_login.go의
+-- resolveOAuthUser). users.password_hash는 이제 NULL 허용 — 소셜 전용
+-- 계정(비밀번호를 만든 적 없는 계정)에 필요.
+-- ------------------------------------------------------------
+CREATE TABLE user_oauth_identities (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider         TEXT NOT NULL CHECK (provider IN ('google','naver','kakao')),
+    provider_user_id TEXT NOT NULL,
+    email            TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (provider, provider_user_id)
+);
+CREATE INDEX idx_user_oauth_identities_user ON user_oauth_identities(user_id);

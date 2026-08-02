@@ -153,6 +153,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureNotificationLogSkippedStatus(ctx, db); err != nil {
 		return fmt.Errorf("migrate notification_log skipped status: %w", err)
 	}
+	if err := ensureOAuthIdentitiesTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate user_oauth_identities table: %w", err)
+	}
 	return nil
 }
 
@@ -1070,6 +1073,35 @@ func ensureNotificationLogSkippedStatus(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_status_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_status_check
 			CHECK (status IN ('sent','failed','skipped_quota'));
+	`)
+	return err
+}
+
+// ensureOAuthIdentitiesTable adds 간편로그인(구글/네이버/카카오) 지원 —
+// (provider, provider_user_id) 쌍을 users.id에 연결하는 별도 테이블로 뒀다
+// (users에 provider/provider_id 컬럼을 직접 추가하는 대신) — 한 사용자가
+// 여러 소셜 계정을 동시에 연결할 수 있게 하기 위함(예: 구글로 가입한 뒤
+// 나중에 카카오도 연결). 이메일이 같은 기존 계정이 있으면 신규 유저를
+// 만들지 않고 이 테이블에 새 행만 추가해 그 계정에 연결한다
+// (oauth_login.go의 resolveOAuthUser 참고).
+//
+// users.password_hash도 여기서 NULL 허용으로 바꾼다 — 소셜 전용 계정(이메일
+// 비밀번호를 아예 만든 적 없는 계정)은 비밀번호 해시가 없기 때문이다.
+// handleLogin은 이 컬럼이 NULL이면 "social_login_only" 에러를 돌려준다.
+func ensureOAuthIdentitiesTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+
+		CREATE TABLE IF NOT EXISTS user_oauth_identities (
+			id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			provider         TEXT NOT NULL CHECK (provider IN ('google','naver','kakao')),
+			provider_user_id TEXT NOT NULL,
+			email            TEXT,
+			created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (provider, provider_user_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_user_oauth_identities_user ON user_oauth_identities(user_id);
 	`)
 	return err
 }

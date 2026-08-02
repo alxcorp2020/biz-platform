@@ -17,6 +17,7 @@ import (
 	"biz-platform/collector/internal/billing"
 	"biz-platform/collector/internal/collector/sources/scsbid"
 	"biz-platform/collector/internal/notify"
+	"biz-platform/collector/internal/oauth"
 	"biz-platform/collector/internal/webui"
 )
 
@@ -45,9 +46,14 @@ type Server struct {
 	vapidPublicKey  string
 	vapidPrivateKey string
 	vapidSubject    string
+	// oauthProviders — 간편로그인(구글/네이버/카카오). "google"/"naver"/"kakao"
+	// 키로 항상 3개 다 채워져 있다(클라이언트ID 미설정이면 그 Client의
+	// Configured()가 false일 뿐 — oauth_login.go의 핸들러가 이 맵에서
+	// r.PathValue("provider")로 찾아 바로 404/동작 여부를 판단한다).
+	oauthProviders map[string]oauth.Client
 }
 
-func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, smsNotifyClient *notify.SMSClient, tossClient *billing.TossClient, tossClientKey string, appBaseURL string, scsbidSource *scsbid.Source, vapidPublicKey, vapidPrivateKey, vapidSubject string) *Server {
+func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, smsNotifyClient *notify.SMSClient, tossClient *billing.TossClient, tossClientKey string, appBaseURL string, scsbidSource *scsbid.Source, vapidPublicKey, vapidPrivateKey, vapidSubject string, googleOAuth, naverOAuth, kakaoOAuth oauth.Client) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -66,6 +72,7 @@ func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir st
 		vapidPublicKey:  vapidPublicKey,
 		vapidPrivateKey: vapidPrivateKey,
 		vapidSubject:    vapidSubject,
+		oauthProviders:  newOAuthProviders(googleOAuth, naverOAuth, kakaoOAuth),
 	}
 }
 
@@ -77,6 +84,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/signup", s.handleSignup)
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/auth/{provider}/start", s.handleOAuthStart)
+	mux.HandleFunc("GET /api/auth/{provider}/callback", s.handleOAuthCallback)
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("PUT /api/me/company-profile", s.handleUpsertCompanyProfile)
 	mux.HandleFunc("GET /api/me/company/members", s.handleListCompanyMembers)

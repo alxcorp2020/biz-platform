@@ -21,6 +21,7 @@
 - Phase 4 PDF 텍스트 추출 Go 이식 조사 — 실제 나라장터 PDF로 검증한 결과 순수 Go PDF 라이브러리 4종(unipdf/go-fitz/pdfcpu/ledongthuc) 전부 실사용 불가로 판단(라이선스/cgo/API부재/좌표버그), 이식 보류·PDF도 HWP처럼 Python 수동 단계로 유지(코드 변경 없음, document_extraction.go 주석에 근거 기록)
 - Phase 7(성장분석 고도화) 2단계 — 추이 차트에 기간 필터(전체/6개월/3개월) 추가, 벤치마킹 신설(프로필 완성도·파이프라인 전환율을 전체 가입 회사 익명 집계 평균과 비교, 비교 대상 5개 미만이면 비표시로 익명성 보호), 낙찰이력(scsbid) 연동 대비 업종별 평균 낙찰률 백엔드 구조 추가(데이터 없으면 응답에서 자동 생략, UI 변경 없음)
 - 플랜별 월간 알림성 이메일 발송 한도 추가 — Free 플랜은 월 20건(마감리마인더/상태변경/추천다이제스트/주간·월간 리포트만 집계, 회원가입 인증·팀 초대 등 필수 이메일은 무관하게 항상 발송), 초과분은 이메일만 조용히 스킵하고 인앱/웹푸시/SMS는 그대로 발송(다음달 1일 자동 리셋, AI분석 한도와 동일한 롤링 윈도우 방식). 한도는 하드코딩 대신 새 system_settings(key-value) 테이블에 저장해 관리자 대시보드 "플랜 설정" 섹션에서 재배포 없이 즉시 조절 가능. 관리자 대시보드에 이번달 한도 초과 스킵 건수 타일 추가
+- 간편로그인(구글/네이버/카카오) 추가 — 표준 OAuth 2.0 Authorization Code 흐름(GET /api/auth/{provider}/start·callback, state 쿠키로 CSRF 방지). 새 user_oauth_identities 테이블(users에 provider 컬럼을 직접 두지 않고 분리 — 한 계정에 여러 소셜 계정 동시 연결 가능), users.password_hash는 NULL 허용으로 완화(소셜 전용 계정 대응, handleLogin은 이 경우 social_login_only 에러 반환). 같은 이메일의 기존 계정이 있으면 자동 연결, 없으면 신규가입(회사 정보 미등록 시 온보딩 2단계로 리다이렉트). 로그인/회원가입 화면에 각 서비스 공식 브랜드 색상의 버튼 추가. GOOGLE_CLIENT_ID/SECRET, NAVER_CLIENT_ID/SECRET, KAKAO_REST_API_KEY(+선택 KAKAO_CLIENT_SECRET) 미설정 시 해당 버튼 클릭이 404를 반환할 뿐 서버는 정상 기동(다른 외부 서비스 키와 동일한 관례) — 실제 키 발급 전이라 구조/컴파일 검증까지만 완료, 발급 후 엔드투엔드 테스트 예정
 
 ## 2026-08-01
 - 최종관리자(system_admin) 대시보드 신설 (#/admin)

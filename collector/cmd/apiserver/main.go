@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -26,6 +27,7 @@ import (
 	"biz-platform/collector/internal/collector/sources/scsbid"
 	"biz-platform/collector/internal/migrate"
 	"biz-platform/collector/internal/notify"
+	"biz-platform/collector/internal/oauth"
 )
 
 func main() {
@@ -101,6 +103,19 @@ func main() {
 		logger.Warn("APP_BASE_URL is not set; 팀 초대 이메일 링크가 localhost를 가리킵니다 (운영 배포 시 반드시 설정)")
 	}
 
+	googleOAuth := oauth.NewGoogleClient(os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"), strings.TrimRight(appBaseURL, "/")+"/api/auth/google/callback")
+	if !googleOAuth.Configured() {
+		logger.Warn("GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET is not set; '구글로 로그인' 버튼은 요청 시 404를 반환합니다")
+	}
+	naverOAuth := oauth.NewNaverClient(os.Getenv("NAVER_CLIENT_ID"), os.Getenv("NAVER_CLIENT_SECRET"), strings.TrimRight(appBaseURL, "/")+"/api/auth/naver/callback")
+	if !naverOAuth.Configured() {
+		logger.Warn("NAVER_CLIENT_ID/NAVER_CLIENT_SECRET is not set; '네이버로 로그인' 버튼은 요청 시 404를 반환합니다")
+	}
+	kakaoOAuth := oauth.NewKakaoClient(os.Getenv("KAKAO_REST_API_KEY"), os.Getenv("KAKAO_CLIENT_SECRET"), strings.TrimRight(appBaseURL, "/")+"/api/auth/kakao/callback")
+	if !kakaoOAuth.Configured() {
+		logger.Warn("KAKAO_REST_API_KEY is not set; '카카오로 로그인' 버튼은 요청 시 404를 반환합니다")
+	}
+
 	scsbidSrc := newScsbidSource(logger)
 
 	vapidPublicKey := os.Getenv("VAPID_PUBLIC_KEY")
@@ -113,7 +128,7 @@ func main() {
 		logger.Warn("VAPID_SUBJECT is not set; 기본값(mailto:admin@example.com)을 씁니다 — 운영 배포 시 실제 연락처로 설정 권장")
 	}
 
-	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, smsNotifyClient, tossClient, tossClientKey, appBaseURL, scsbidSrc, vapidPublicKey, vapidPrivateKey, vapidSubject)
+	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, smsNotifyClient, tossClient, tossClientKey, appBaseURL, scsbidSrc, vapidPublicKey, vapidPrivateKey, vapidSubject, googleOAuth, naverOAuth, kakaoOAuth)
 	startBackgroundNotifications(srv, logger, scsbidSrc)
 	startBackgroundDocumentExtraction(srv, logger)
 

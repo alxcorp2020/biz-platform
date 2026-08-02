@@ -1354,6 +1354,56 @@
     color: var(--ink-soft);
     margin-top: 1.25rem;
   }
+
+  /* ---------- 간편로그인(구글/네이버/카카오) 버튼 — 각 서비스 공식
+     브랜드 색상을 그대로 쓴다(구글: 흰 배경+회색 테두리+공식 4색 G,
+     네이버: #03C75A 초록+흰 글자, 카카오: #FEE500 노랑+검정 글자).
+     실제 이동은 <a href>의 전체 페이지 리다이렉트(표준 OAuth 흐름이라
+     fetch/JS 불필요) — /api/auth/{provider}/start로 보내면 서버가
+     동의화면으로 302한다. */
+  .oauth-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1.5rem 0 1.1rem;
+    color: var(--ink-soft);
+    font-size: 0.8rem;
+  }
+  .oauth-divider::before, .oauth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .oauth-buttons { display: flex; flex-direction: column; gap: 0.6rem; }
+  .oauth-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 0.7rem 1rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-decoration: none;
+    border: 1px solid transparent;
+  }
+  .oauth-btn svg { flex: 0 0 auto; }
+  .oauth-btn-google { background: #fff; color: #3c4043; border-color: var(--border); }
+  .oauth-btn-google:hover { background: #f7f8f8; }
+  .oauth-btn-naver { background: #03C75A; color: #fff; }
+  .oauth-btn-naver:hover { background: #02b350; }
+  .oauth-btn-kakao { background: #FEE500; color: #191919; }
+  .oauth-btn-kakao:hover { background: #f5da00; }
+  .oauth-error-banner {
+    background: #fdecea;
+    color: #c0392b;
+    border: 1px solid #f5c6cb;
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
+    font-size: 0.85rem;
+    margin-bottom: 1.1rem;
+  }
   .success { color: var(--success); font-size: 0.88rem; }
 
   /* ---------- 면허·인증 ---------- */
@@ -2047,6 +2097,7 @@ const ERROR_MESSAGES = {
   password_too_short: '비밀번호는 최소 8자 이상이어야 합니다.',
   email_already_registered: '이미 가입된 이메일입니다.',
   invalid_credentials: '이메일 또는 비밀번호가 올바르지 않습니다.',
+  social_login_only: '이 계정은 소셜 로그인(구글/네이버/카카오)으로 가입되었습니다. 아래 소셜 로그인 버튼을 이용해주세요.',
   unauthorized: '로그인이 필요합니다.',
   invalid_body: '요청 형식이 올바르지 않습니다.',
   query_failed: '서버 처리 중 오류가 발생했습니다.',
@@ -4325,6 +4376,32 @@ function renderAwardHistory(container, history, hasCompetitiveOverlap) {
   `));
 }
 
+// oauthButtonsHtml — 간편로그인(구글/네이버/카카오) 버튼. renderLogin과
+// renderSignup 둘 다에서 쓴다 — 어느 화면에서 눌러도 서버 콜백은 계정이
+// 있으면 로그인, 없으면 신규가입으로 알아서 갈리므로(oauth_login.go의
+// resolveOAuthUser) "로그인 전용/가입 전용" 버튼을 따로 만들 필요가 없다.
+// 각 서비스 공식 브랜드 가이드라인 색상(구글 흰색+4색 G, 네이버
+// #03C75A, 카카오 #FEE500)을 그대로 사용.
+function oauthButtonsHtml() {
+  return `
+    <div class="oauth-divider">간편 로그인</div>
+    <div class="oauth-buttons">
+      <a href="/api/auth/google/start" class="oauth-btn oauth-btn-google">
+        <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.71c-.18-.54-.282-1.117-.282-1.71s.102-1.17.282-1.71V4.958H.957C.348 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
+        구글로 계속하기
+      </a>
+      <a href="/api/auth/naver/start" class="oauth-btn oauth-btn-naver">
+        <svg width="18" height="18" viewBox="0 0 18 18"><rect width="18" height="18" rx="3" fill="#03C75A"/><path fill="#fff" d="M10.4 9.63 7.36 5H5v8h2.6V8.37L10.64 13H13V5h-2.6z"/></svg>
+        네이버로 계속하기
+      </a>
+      <a href="/api/auth/kakao/start" class="oauth-btn oauth-btn-kakao">
+        <svg width="18" height="18" viewBox="0 0 18 18"><rect width="18" height="18" rx="3" fill="#FEE500"/><path fill="#191919" d="M9 4.2c-3.04 0-5.5 1.94-5.5 4.34 0 1.55 1.02 2.91 2.56 3.68l-.65 2.38a.24.24 0 0 0 .37.27l2.77-1.85c.14.01.29.02.45.02 3.04 0 5.5-1.94 5.5-4.34S12.04 4.2 9 4.2z"/></svg>
+        카카오로 계속하기
+      </a>
+    </div>
+  `;
+}
+
 // renderSignup — 2단계 온보딩(CTO 평가 TOP10 3번, 3분 이내 가입 목표).
 // 1단계: 이메일/비번 -> 계정 생성. 2단계: 지역/업종/기업규모 3개만
 // 필수 입력 -> 저장 즉시 홈(추천 리스트)으로 이동. 나머지 상세 프로필
@@ -4363,6 +4440,7 @@ function renderSignup(container) {
         <div id="signup-error" class="error" style="display:none"></div>
         <button type="submit" class="btn btn-primary btn-block">다음</button>
       </form>
+      ${oauthButtonsHtml()}
       <p class="auth-switch">이미 계정이 있으신가요? <a href="#/auth/login">로그인</a></p>
     </div>
   `));
@@ -4443,17 +4521,38 @@ function renderSignupProfileStep(container) {
   });
 }
 
+// renderOAuthProfileStep — 소셜 로그인(구글/네이버/카카오)으로 새로
+// 가입했거나, 이메일/비번으로 가입만 하고 회사 정보 등록을 안 끝낸 채
+// 소셜 계정을 연결한 사용자를 위한 진입점. 서버(oauth_login.go)가 이미
+// 세션 쿠키를 발급한 뒤 #/auth/oauth-profile로 리다이렉트하므로, 여기서는
+// loadMe()로 currentUser만 채우고 나면 renderSignupProfileStep(이메일
+// 가입 2단계와 완전히 동일한 화면)을 그대로 재사용한다.
+async function renderOAuthProfileStep(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  await loadMe();
+  if (!currentUser) { location.hash = '#/auth/login'; return; }
+  renderSignupProfileStep(container);
+}
+
 function renderLogin(container) {
   container.innerHTML = '';
+  // 소셜 로그인 콜백 실패 시 서버가 #/auth/login?oauthError=1로 돌려보낸다
+  // (oauth_login.go의 oauthFailureRedirect) — state 위조 시도든 provider
+  // 쪽 일시적 오류든 원인을 구분해 보여줄 방법이 없어(사용자에게 원인
+  // 상세를 노출할 필요도 없고) 안내 문구 하나로 통일.
+  const oauthFailed = location.hash.split('?')[1] === 'oauthError=1';
   container.appendChild(h(`
     <div class="auth-card">
       <h2>로그인</h2>
+      ${oauthFailed ? '<div class="oauth-error-banner">간편 로그인에 실패했습니다. 다시 시도해주세요.</div>' : ''}
       <form id="login-form" class="auth-form">
         <label>이메일<input type="email" name="email" required></label>
         <label>비밀번호<input type="password" name="password" required></label>
         <div id="login-error" class="error" style="display:none"></div>
         <button type="submit" class="btn btn-primary btn-block">로그인</button>
       </form>
+      ${oauthButtonsHtml()}
       <p class="auth-switch">계정이 없으신가요? <a href="#/auth/signup">회원가입</a></p>
     </div>
   `));
@@ -7606,6 +7705,7 @@ function route() {
   updateTabbarActiveState();
   if (path === '#/auth/signup') { renderSignup(app); return; }
   if (path === '#/auth/login') { renderLogin(app); return; }
+  if (path === '#/auth/oauth-profile') { renderOAuthProfileStep(app); return; }
   if (path === '#/me/profile') { renderProfile(app); return; }
   if (path === '#/me/bookmarks') { renderBookmarks(app); return; }
   if (path === '#/notifications') { renderNotifications(app); return; }
