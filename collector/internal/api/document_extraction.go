@@ -4,8 +4,18 @@
 //
 // analyzer/ 파이썬 파이프라인 3단계 중 앞뒤는 그대로 둔다:
 //  1. run_extraction.py(첨부파일 PDF/HWP → attachments.extracted_text) —
-//     여전히 사람이 로컬에서 주기 실행한다. HWP 파싱 라이브러리가 Go에
-//     마땅치 않고, 운영 배포(Render distroless)엔 애초에 Python이 없다.
+//     여전히 사람이 로컬에서 주기 실행한다. HWP는 애초에 Go 파싱
+//     라이브러리가 마땅치 않아 미이식. PDF도 2026-08-02에 Go 이식을
+//     실제로 조사·검증했지만 보류했다 — 이 프로젝트의 실제 나라장터
+//     PDF로 테스트한 결과, 유일하게 쓸만한 순수 Go 라이브러리인
+//     ledongthuc/pdf가 한글 문자 디코딩은 정확하지만 이 문서들이 쓰는
+//     임베디드 CID 폰트의 글자 간격(advance width) 계산이 근본적으로
+//     깨져있음을 확인했다(글자 W가 항상 0, 읽기 방향과 반대로 X좌표가
+//     감소 — 좌표 자체가 틀려서 후처리 재구성 알고리즘으로 못 고치는
+//     수준). unipdf는 상용 라이선스 필요, go-fitz(MuPDF)는 cgo 필요해
+//     `Dockerfile.apiserver`의 CGO_ENABLED=0 제약과 충돌, pdfcpu는
+//     텍스트 해석 API 자체가 없음 — 4개 후보 전부 실사용 불가로 판단.
+//     운영 배포(Render distroless)엔 애초에 Python이 없다.
 //  3. review.go(관리자 검수 화면) — review_status='review_required'를
 //     사람이 승인/반려하는 절차는 그대로 유지.
 //
