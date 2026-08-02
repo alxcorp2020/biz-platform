@@ -156,6 +156,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureOAuthIdentitiesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate user_oauth_identities table: %w", err)
 	}
+	if err := ensureBannersTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate banners table: %w", err)
+	}
 	return nil
 }
 
@@ -1102,6 +1105,40 @@ func ensureOAuthIdentitiesTable(ctx context.Context, db *sql.DB) error {
 			UNIQUE (provider, provider_user_id)
 		);
 		CREATE INDEX IF NOT EXISTS idx_user_oauth_identities_user ON user_oauth_identities(user_id);
+	`)
+	return err
+}
+
+// ensureBannersTable adds 홈 화면 배너 슬라이드(관리자 CMS 1번, banners.go의
+// handleListBanners가 공개 API로 읽는다). 테이블이 완전히 비어 있을 때만
+// (WHERE NOT EXISTS) 임시 플레이스홀더 배너 3개를 시드한다 — 이미지는
+// 아직 실제 업로드 기능(3단계)이 없어 collector/internal/webui/static/banners/
+// 아래 고정 SVG를 가리킨다. 관리자가 이후 이미지를 교체/삭제하면 테이블이
+// 더 이상 비어있지 않으므로 재배포 때마다 다시 시드되지 않는다.
+func ensureBannersTable(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS banners (
+			id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			title         TEXT NOT NULL,
+			image_url     TEXT NOT NULL,
+			link_url      TEXT,
+			display_order INTEGER NOT NULL DEFAULT 0,
+			is_active     BOOLEAN NOT NULL DEFAULT true,
+			starts_at     TIMESTAMPTZ,
+			ends_at       TIMESTAMPTZ,
+			created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+	`); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO banners (title, image_url, link_url, display_order)
+		SELECT * FROM (VALUES
+			('공공사업 AI 비서, 지금 시작하세요', '/banners/banner-1.svg', CAST(NULL AS TEXT), 0),
+			('AI 분석으로 서류 자동화', '/banners/banner-2.svg', '#/notices', 1),
+			('우리 회사에 맞는 사업, 놓치지 마세요', '/banners/banner-3.svg', '#/growth', 2)
+		) AS seed(title, image_url, link_url, display_order)
+		WHERE NOT EXISTS (SELECT 1 FROM banners);
 	`)
 	return err
 }

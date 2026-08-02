@@ -305,6 +305,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"growthSummary": map[string]int{
 			"overallCompleteness": completeness.OverallCompleteness,
 		},
+		// hasRequiredOnboardingFields — 지역/업종/기업규모(온보딩 3개
+		// 필수항목)가 다 있는지. completeness.OverallCompleteness는 이
+		// 3개를 채점하지 않는다(면허/인증/재무 등 "선택" 카테고리만 채점 —
+		// company_profile_completeness.go 참고) — 그래서 100%여도 이 3개가
+		// 비어 있을 수 있다. 홈 화면의 "프로필 미완성 안내 배너"가 더 강한
+		// 톤을 보여줄지 판단하는 데 쓴다(index.html의 profileIncompleteBannerHtml).
+		"hasRequiredOnboardingFields": profile.Region != nil && len(profile.Industry) > 0 && profile.CompanySize != nil,
 	})
 }
 

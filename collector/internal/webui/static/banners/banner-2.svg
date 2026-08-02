@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="b2title">
+  <title id="b2title">AI 분석으로 서류 자동화</title>
+  <defs>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B1526"/>
+      <stop offset="100%" stop-color="#3182F6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="360" fill="url(#g2)"/>
+  <rect x="920" y="60" width="200" height="240" rx="16" fill="#ffffff" opacity="0.08"/>
+  <rect x="956" y="98" width="128" height="14" rx="7" fill="#ffffff" opacity="0.28"/>
+  <rect x="956" y="128" width="128" height="14" rx="7" fill="#ffffff" opacity="0.28"/>
+  <rect x="956" y="158" width="84" height="14" rx="7" fill="#ffffff" opacity="0.28"/>
+  <rect x="956" y="196" width="128" height="14" rx="7" fill="#ffffff" opacity="0.16"/>
+  <rect x="956" y="226" width="100" height="14" rx="7" fill="#ffffff" opacity="0.16"/>
+  <text x="80" y="152" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif" font-size="52" font-weight="700" fill="#ffffff">AI 분석으로</text>
+  <text x="80" y="216" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif" font-size="52" font-weight="700" fill="#ffffff">서류 자동화</text>
+  <text x="80" y="264" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif" font-size="23" fill="#CBD5E1">제출서류·자격조건을 AI가 자동으로 정리합니다</text>
+</svg>

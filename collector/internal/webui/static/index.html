@@ -570,6 +570,110 @@
   }
   .home-browse-link:hover { text-decoration: underline; color: var(--accent-blue); }
 
+  /* ---------- 배너 슬라이드(홈 화면 상단, 관리자 CMS 1번) ----------
+     외부 슬라이더 라이브러리 없이 순수 CSS transform + JS 인터벌로
+     구현(이 프로젝트의 "차트도 순수 SVG" 원칙과 동일한 방향 — 불필요한
+     의존성 추가 지양). 이미지 자체는 비율(1200:360=10:3)을 aspect-ratio로
+     고정해 로딩 전/후 레이아웃이 흔들리지 않게 한다. */
+  .banner-slide {
+    position: relative;
+    max-width: 900px;
+    margin: 0 auto 1.5rem;
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    box-shadow: var(--shadow-soft);
+    aspect-ratio: 10 / 3;
+    background: var(--bg-soft);
+  }
+  .banner-slide-track {
+    display: flex;
+    height: 100%;
+    transition: transform 0.4s ease;
+  }
+  .banner-slide-item {
+    flex: 0 0 100%;
+    height: 100%;
+    display: block;
+  }
+  .banner-slide-item img { width: 100%; height: 100%; display: block; object-fit: cover; }
+  .banner-slide-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0,0,0,0.35);
+    color: #fff;
+    font-size: 1.3rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .banner-slide-arrow:hover { background: rgba(0,0,0,0.55); }
+  .banner-slide-arrow--prev { left: 0.75rem; }
+  .banner-slide-arrow--next { right: 0.75rem; }
+  .banner-slide-dots {
+    position: absolute;
+    bottom: 0.75rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 0.4rem;
+  }
+  .banner-slide-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255,255,255,0.5);
+    padding: 0;
+    cursor: pointer;
+  }
+  .banner-slide-dot.is-active { background: #fff; width: 18px; border-radius: 4px; }
+  @media (max-width: 620px) {
+    .banner-slide { border-radius: 14px; }
+    .banner-slide-arrow { width: 28px; height: 28px; font-size: 1.1rem; }
+  }
+
+  /* ---------- 프로필 미완성 안내 배너 — 배너 슬라이드보다 위, 홈 화면
+     최상단. 지역/업종/기업규모(온보딩 3개 필수항목)가 아예 없으면
+     --urgent 톤(danger 계열)으로 더 강조한다. */
+  .profile-incomplete-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    background: rgba(49,130,246,0.08);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.85rem 1.1rem;
+    margin-bottom: 1.25rem;
+    font-size: 0.87rem;
+    color: var(--navy);
+  }
+  .profile-incomplete-banner--urgent {
+    background: #fdecea;
+    border-color: #f5c6cb;
+    color: #8a2e22;
+  }
+  .profile-incomplete-banner-text { flex: 1 1 auto; }
+  .profile-incomplete-banner-cta {
+    flex: 0 0 auto;
+    font-weight: 700;
+    color: var(--accent-blue);
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .profile-incomplete-banner-cta:hover { text-decoration: underline; }
+  .profile-incomplete-banner--urgent .profile-incomplete-banner-cta { color: #c0392b; }
+  @media (max-width: 480px) {
+    .profile-incomplete-banner { flex-direction: column; align-items: flex-start; }
+  }
+
   .dash-greeting { margin-bottom: 1.75rem; }
   .dash-greeting-eyebrow { margin: 0 0 0.3rem; font-size: 0.85rem; font-weight: 600; color: var(--accent-blue); }
   .dash-greeting-title { margin: 0; font-size: 1.35rem; font-weight: 700; color: var(--ink); }
@@ -2299,8 +2403,99 @@ async function renderHome(container) {
   renderDashboard(container, data);
 }
 
+// ---------- 배너 슬라이드(홈 화면 상단, 관리자 CMS 1번) ----------
+// renderMarketingHero/renderOnboardingHero/renderDashboard 세 곳 모두에서
+// 호출한다 — 로그인 여부/프로필 유무와 무관하게 항상 같은 자리(각 화면의
+// 맨 위)에 노출되는 마케팅성 영역이라 셋이 각자 로직을 반복하는 대신 공용
+// 함수 하나로 뺐다. 배너 로딩은 비동기라 즉시 빈 슬롯(slot)만 붙이고,
+// 실패(네트워크 오류 등)해도 조용히 무시한다 — 핵심 기능이 아니므로
+// 에러 문구로 화면을 어지럽히지 않는다.
+async function renderHomeBannerSlide(container) {
+  const slot = document.createElement('div');
+  slot.className = 'home-banner-slide-slot';
+  container.appendChild(slot);
+
+  let items;
+  try {
+    const data = await apiRequest('GET', '/api/banners');
+    items = data.items || [];
+  } catch (err) {
+    return;
+  }
+  if (!items.length) return;
+  renderBannerSlideInto(slot, items);
+}
+
+function renderBannerSlideInto(slot, items) {
+  let current = 0;
+  const hasMultiple = items.length > 1;
+  slot.innerHTML = `
+    <div class="banner-slide">
+      <div class="banner-slide-track">
+        ${items.map(b => `
+          <a class="banner-slide-item" ${b.linkUrl ? `href="${escapeAttr(b.linkUrl)}"` : `href="#" onclick="return false;"`}>
+            <img src="${escapeAttr(b.imageUrl)}" alt="${escapeAttr(b.title)}" loading="lazy">
+          </a>
+        `).join('')}
+      </div>
+      ${hasMultiple ? `
+        <button type="button" class="banner-slide-arrow banner-slide-arrow--prev" aria-label="이전 배너">&lsaquo;</button>
+        <button type="button" class="banner-slide-arrow banner-slide-arrow--next" aria-label="다음 배너">&rsaquo;</button>
+        <div class="banner-slide-dots">
+          ${items.map((_, i) => `<button type="button" class="banner-slide-dot" data-index="${i}" aria-label="${i + 1}번째 배너로 이동"></button>`).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+  const track = slot.querySelector('.banner-slide-track');
+  const dots = Array.from(slot.querySelectorAll('.banner-slide-dot'));
+
+  function update() {
+    track.style.transform = `translateX(-${current * 100}%)`;
+    dots.forEach((d, i) => d.classList.toggle('is-active', i === current));
+  }
+  function go(delta) {
+    current = (current + delta + items.length) % items.length;
+    update();
+  }
+  update();
+  if (!hasMultiple) return;
+
+  slot.querySelector('.banner-slide-arrow--prev').addEventListener('click', () => go(-1));
+  slot.querySelector('.banner-slide-arrow--next').addEventListener('click', () => go(1));
+  dots.forEach((d, i) => d.addEventListener('click', () => { current = i; update(); }));
+
+  const AUTO_ADVANCE_MS = 5000;
+  let timer = setInterval(() => go(1), AUTO_ADVANCE_MS);
+  slot.addEventListener('mouseenter', () => clearInterval(timer));
+  slot.addEventListener('mouseleave', () => { timer = setInterval(() => go(1), AUTO_ADVANCE_MS); });
+}
+
+// profileIncompleteBannerHtml — dashboard.go가 이미 계산한
+// growthSummary.overallCompleteness를 그대로 쓴다(profile-completeness
+// API와 동일한 계산 로직 재사용, 별도 API 호출 없음). 다만 이 퍼센트는
+// 면허/인증/재무 등 "선택" 카테고리만 채점하고 지역/업종/기업규모(온보딩
+// 3개 필수항목)는 반영하지 않으므로(company_profile_completeness.go),
+// 100%여도 이 3개가 비어 있을 수 있다 — dashboard.go가 별도로 내려주는
+// hasRequiredOnboardingFields로 그 경우를 구분해 더 강한 톤을 보여준다.
+function profileIncompleteBannerHtml(data) {
+  const pct = (data.growthSummary && data.growthSummary.overallCompleteness) || 0;
+  const missingRequired = !data.hasRequiredOnboardingFields;
+  if (!missingRequired && pct >= 100) return '';
+  const text = missingRequired
+    ? '필수 정보를 입력해주세요. 지역·업종·기업규모를 등록해야 맞춤 공고 추천과 AI 분석을 받을 수 있습니다.'
+    : `기업 프로필을 완성하면 더 정확한 분석을 받을 수 있습니다. (현재 ${pct}%)`;
+  return `
+    <div class="profile-incomplete-banner ${missingRequired ? 'profile-incomplete-banner--urgent' : ''}">
+      <span class="profile-incomplete-banner-text">${escapeHtml(text)}</span>
+      <a href="#/me/profile" class="profile-incomplete-banner-cta">프로필 완성하기 →</a>
+    </div>
+  `;
+}
+
 function renderMarketingHero(container) {
   container.innerHTML = '';
+  renderHomeBannerSlide(container);
   container.appendChild(h(`
     <div class="home-hero">
       <p class="home-hero-eyebrow">AI 공공사업 참여판단 비서</p>
@@ -2317,6 +2512,7 @@ function renderMarketingHero(container) {
 
 function renderOnboardingHero(container) {
   container.innerHTML = '';
+  renderHomeBannerSlide(container);
   container.appendChild(h(`
     <div class="home-hero">
       <p class="home-hero-eyebrow">거의 다 왔습니다</p>
@@ -2400,6 +2596,14 @@ function pipelineStepIndicatorHtml(status) {
 // 하위호환을 유지할 이유가 없었다.
 function renderDashboard(container, data) {
   container.innerHTML = '';
+
+  // 순서: 프로필 미완성 안내(조건부) → 배너 슬라이드 → 인사말/할일.
+  // "배너 슬라이드보다 위"라는 스펙 요구사항 그대로 profileBanner를 먼저
+  // append한다(renderHomeBannerSlide는 비동기지만 slot을 먼저 붙이므로
+  // fetch가 늦게 끝나도 DOM 순서는 항상 이 append 호출 순서를 따른다).
+  const profileBannerHtml = profileIncompleteBannerHtml(data);
+  if (profileBannerHtml) container.appendChild(h(profileBannerHtml));
+  renderHomeBannerSlide(container);
 
   const s = data.summary;
   // filter는 renderPipelineList가 읽는 쿼리 파라미터 값(dashboard.go 요약

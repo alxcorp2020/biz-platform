@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="b3title">
+  <title id="b3title">우리 회사에 맞는 사업, 놓치지 마세요</title>
+  <defs>
+    <linearGradient id="g3" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#14213D"/>
+      <stop offset="100%" stop-color="#1B64DA"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="360" fill="url(#g3)"/>
+  <path d="M880 360 L1040 170 L1200 290 L1200 360 Z" fill="#ffffff" opacity="0.06"/>
+  <circle cx="1100" cy="90" r="10" fill="#ffffff" opacity="0.4"/>
+  <circle cx="1140" cy="130" r="6" fill="#ffffff" opacity="0.3"/>
+  <circle cx="1060" cy="130" r="6" fill="#ffffff" opacity="0.3"/>
+  <text x="80" y="146" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif" font-size="48" font-weight="700" fill="#ffffff">우리 회사에 맞는 사업,</text>
+  <text x="80" y="210" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif" font-size="48" font-weight="700" fill="#ffffff">놓치지 마세요</text>
+  <text x="80" y="258" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif" font-size="23" fill="#CBD5E1">성장분석으로 우리 회사의 위치를 확인해보세요</text>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="b1title">
+  <title id="b1title">공공사업 AI 비서, 지금 시작하세요</title>
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14213D"/>
+      <stop offset="100%" stop-color="#1B64DA"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="360" fill="url(#g1)"/>
+  <circle cx="1040" cy="90" r="150" fill="#3182F6" opacity="0.18"/>
+  <circle cx="990" cy="290" r="95" fill="#ffffff" opacity="0.07"/>
+  <text x="80" y="152" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif" font-size="52" font-weight="700" fill="#ffffff">공공사업 AI 비서,</text>
+  <text x="80" y="216" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif" font-size="52" font-weight="700" fill="#ffffff">지금 시작하세요</text>
+  <text x="80" y="264" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif" font-size="23" fill="#CBD5E1">AI가 우리 회사에 맞는 사업을 찾아드립니다</text>
+</svg>

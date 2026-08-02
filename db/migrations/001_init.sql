@@ -939,3 +939,22 @@ CREATE TABLE user_oauth_identities (
     UNIQUE (provider, provider_user_id)
 );
 CREATE INDEX idx_user_oauth_identities_user ON user_oauth_identities(user_id);
+
+-- ------------------------------------------------------------
+-- 홈 화면 배너 슬라이드(관리자 CMS 1번). banners.go의 handleListBanners가
+-- 공개 API(로그인 불필요)로 읽는다 — 마케팅 화면(비로그인 방문자)에도
+-- 노출되기 때문. 이미지는 지금은 collector/internal/webui/static/banners/
+-- 아래 고정 SVG 플레이스홀더를 가리키고, 관리자 CMS(3단계, #/admin/banners)
+-- 완성 후 실제 업로드 이미지로 교체 가능.
+-- ------------------------------------------------------------
+CREATE TABLE banners (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title         TEXT NOT NULL,
+    image_url     TEXT NOT NULL,
+    link_url      TEXT,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    is_active     BOOLEAN NOT NULL DEFAULT true,
+    starts_at     TIMESTAMPTZ,
+    ends_at       TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
