@@ -1396,9 +1396,13 @@
   .growth-bar-track { flex: 1; height: 10px; background: var(--bg-soft); border-radius: 6px; overflow: hidden; }
   .growth-bar-fill { height: 100%; background: var(--accent-blue); border-radius: 6px; }
   .growth-bar-value { flex: 0 0 auto; font-size: 0.82rem; font-weight: 600; color: var(--ink); min-width: 2.2rem; text-align: right; }
-  .growth-trend-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  .growth-trend-table th, .growth-trend-table td { padding: 0.45rem 0.5rem; text-align: right; border-bottom: 1px solid var(--border); }
-  .growth-trend-table th:first-child, .growth-trend-table td:first-child { text-align: left; }
+  /* ---------- 성장분석 추이 선그래프 — 도넛차트와 동일하게 외부
+     라이브러리 없이 순수 SVG(simpleLineChartHtml). ---------- */
+  .growth-chart-title { font-size: var(--text-caption); font-weight: 700; color: var(--ink-soft); margin: 0.75rem 0 0.4rem; }
+  .growth-chart-title:first-child { margin-top: 0; }
+  .growth-chart-axis-label { font-size: 9px; fill: var(--ink-soft); }
+  .growth-chart-legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem; font-size: var(--text-caption); color: var(--ink-soft); }
+  .growth-chart-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; }
   .growth-roi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-md); margin: 0.75rem 0; }
   .growth-roi-tile { padding: var(--space-md); background: #fff; border: none; border-radius: var(--radius-card); box-shadow: var(--shadow-soft); }
   .growth-roi-tile-value { font-size: 1.7rem; font-weight: 800; color: var(--ink); letter-spacing: -0.01em; }
@@ -4110,6 +4114,50 @@ function donutChartHtml(segments) {
   `;
 }
 
+// simpleLineChartHtml — 도넛차트와 같은 원칙(외부 라이브러리 없이 순수
+// SVG)으로 그리는 다중 시리즈 선그래프. series = [{colorVar, values}],
+// labels는 x축(values와 길이 동일). yMax를 안 주면 데이터 최댓값으로
+// 자동 스케일(최소 1 — 0 나눗셈 방지). 성장분석(#/growth)의 완성도·
+// 파이프라인·AI등급분포 추이 3곳에서 재사용한다.
+function simpleLineChartHtml(labels, series, yMax) {
+  const width = 560, height = 190;
+  const padding = { top: 12, right: 12, bottom: 22, left: 8 };
+  const chartW = width - padding.left - padding.right;
+  const chartH = height - padding.top - padding.bottom;
+  const n = labels.length;
+  const maxVal = yMax != null ? yMax : Math.max(1, ...series.flatMap(s => s.values));
+  const xStep = n > 1 ? chartW / (n - 1) : 0;
+  const xAt = i => padding.left + (n > 1 ? i * xStep : chartW / 2);
+  const yAt = v => padding.top + chartH - (Math.min(v, maxVal) / maxVal) * chartH;
+
+  const gridLines = [0, 0.5, 1].map(f => {
+    const y = (padding.top + chartH * (1 - f)).toFixed(1);
+    return `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`;
+  }).join('');
+
+  const seriesHtml = series.map(s => {
+    const points = s.values.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
+    const dots = s.values.map((v, i) => `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(v).toFixed(1)}" r="3" fill="var(${s.colorVar})"/>`).join('');
+    return `<polyline points="${points}" fill="none" stroke="var(${s.colorVar})" stroke-width="2"/>${dots}`;
+  }).join('');
+
+  // 라벨이 많으면(주간 데이터 누적 시) 다 그리면 겹치므로 최대 6개만
+  // 골라서 보여준다(처음/끝은 항상 포함).
+  const labelStep = Math.max(1, Math.ceil(n / 6));
+  const xLabels = labels.map((l, i) => {
+    if (i % labelStep !== 0 && i !== n - 1) return '';
+    return `<text x="${xAt(i).toFixed(1)}" y="${height - 4}" text-anchor="middle" class="growth-chart-axis-label">${escapeHtml(l)}</text>`;
+  }).join('');
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img" aria-label="추이 그래프" preserveAspectRatio="xMidYMid meet">
+      ${gridLines}
+      ${seriesHtml}
+      ${xLabels}
+    </svg>
+  `;
+}
+
 // "핵심 요약" — analyzer/ai_summarize.py(claude-sonnet-5)가 배치로 미리
 // 생성해둔 3줄 요약을 그대로 보여준다(Go/프론트 어느 쪽도 실시간으로 Claude를
 // 호출하지 않음). 아직 생성되지 않은 공고가 대부분일 수 있으므로 기존 다른
@@ -6703,32 +6751,69 @@ async function renderGrowthAnalytics(container) {
     return;
   }
 
-  const trendRows = (data.trend || []).map(t => `
-    <tr>
-      <td>${escapeHtml(t.periodType === 'monthly' ? '월간' : '주간')} ${escapeHtml(t.periodStart)}</td>
-      <td>${t.profileCompletenessScore}%</td>
-      <td>${t.pipelineStartedCount}</td>
-      <td>${t.pipelineCompletedCount}</td>
-      <td>${t.pipelineClosedCount}</td>
-    </tr>
-  `).join('');
-  const trendHtml = (data.trend || []).length ? `
-    <div class="detail-card">
-      <h3>완성도·파이프라인 성과 추이</h3>
-      <p class="license-card-meta">매주 월요일/매월 1일 생성되는 리포트를 시간순으로 모은 값입니다.</p>
-      <div style="overflow-x:auto">
-        <table class="growth-trend-table">
-          <thead><tr><th>기간</th><th>프로필 완성도</th><th>참여검토 시작</th><th>제출완료</th><th>종료</th></tr></thead>
-          <tbody>${trendRows}</tbody>
-        </table>
+  const trendPoints = data.trend || [];
+  let trendHtml;
+  if (trendPoints.length >= 2) {
+    const labels = trendPoints.map(t => t.periodStart.slice(5));
+    const completenessChart = simpleLineChartHtml(labels, [
+      { colorVar: '--accent-blue', values: trendPoints.map(t => t.profileCompletenessScore) },
+    ], 100);
+    const pipelineChart = simpleLineChartHtml(labels, [
+      { colorVar: '--accent-blue', values: trendPoints.map(t => t.pipelineStartedCount) },
+      { colorVar: '--success', values: trendPoints.map(t => t.pipelineCompletedCount) },
+      { colorVar: '--ink-soft', values: trendPoints.map(t => t.pipelineClosedCount) },
+    ]);
+    trendHtml = `
+      <div class="detail-card">
+        <h3>완성도·파이프라인 성과 추이</h3>
+        <p class="license-card-meta">매주 월요일/매월 1일 생성되는 리포트를 시간순으로 모은 값입니다.</p>
+        <p class="growth-chart-title">프로필 완성도(%)</p>
+        ${completenessChart}
+        <p class="growth-chart-title">파이프라인 성과(건)</p>
+        ${pipelineChart}
+        <div class="growth-chart-legend">
+          <span class="growth-chart-legend-item"><span class="donut-legend-dot" style="background:var(--accent-blue)"></span>참여검토 시작</span>
+          <span class="growth-chart-legend-item"><span class="donut-legend-dot" style="background:var(--success)"></span>제출완료</span>
+          <span class="growth-chart-legend-item"><span class="donut-legend-dot" style="background:var(--ink-soft)"></span>종료</span>
+        </div>
       </div>
-    </div>
-  ` : `
-    <div class="detail-card">
-      <h3>완성도·파이프라인 성과 추이</h3>
-      <p class="empty">아직 쌓인 리포트가 없습니다. 매주 월요일/매월 1일 자동 생성되면 여기 표시됩니다.</p>
-    </div>
-  `;
+    `;
+  } else if (trendPoints.length === 1) {
+    const t = trendPoints[0];
+    trendHtml = `
+      <div class="detail-card">
+        <h3>완성도·파이프라인 성과 추이</h3>
+        <p class="empty">아직 리포트가 1건뿐이라 추이를 그리기엔 이릅니다 — 완성도 ${t.profileCompletenessScore}%, 참여검토 시작 ${t.pipelineStartedCount}건. 다음 리포트가 쌓이면 그래프로 표시됩니다.</p>
+      </div>
+    `;
+  } else {
+    trendHtml = `
+      <div class="detail-card">
+        <h3>완성도·파이프라인 성과 추이</h3>
+        <p class="empty">아직 쌓인 리포트가 없습니다. 매주 월요일/매월 1일 자동 생성되면 여기 표시됩니다.</p>
+      </div>
+    `;
+  }
+
+  // AI등급분포 추이 — reports.summary에 gradeDistribution을 저장하기
+  // 시작한 이후의 리포트에만 값이 있다(그 전 리포트는 빈 배열/누락).
+  const gradeTrendPoints = trendPoints.filter(t => t.gradeDistribution && t.gradeDistribution.length);
+  let gradeTrendHtml = '<p class="license-card-meta" style="margin-top:0.75rem">등급분포 추이는 리포트가 2건 이상 쌓이면 그래프로 표시됩니다.</p>';
+  if (gradeTrendPoints.length >= 2) {
+    const labels = gradeTrendPoints.map(t => t.periodStart.slice(5));
+    const grades = Object.keys(GRADE_LABELS);
+    const series = grades.map(g => ({
+      colorVar: GRADE_TONE_COLOR_VAR[GRADE_BADGE_TONE[g]] || '--ink-soft',
+      values: gradeTrendPoints.map(t => (t.gradeDistribution.find(d => d.grade === g) || {}).count || 0),
+    }));
+    gradeTrendHtml = `
+      <p class="growth-chart-title">등급분포 추이(건)</p>
+      ${simpleLineChartHtml(labels, series)}
+      <div class="growth-chart-legend">
+        ${grades.map(g => `<span class="growth-chart-legend-item"><span class="donut-legend-dot" style="background:var(${GRADE_TONE_COLOR_VAR[GRADE_BADGE_TONE[g]] || '--ink-soft'})"></span>${escapeHtml(GRADE_LABELS[g])}</span>`).join('')}
+      </div>
+    `;
+  }
 
   const gradeSegments = (data.gradeDistribution || []).map(g => ({
     label: GRADE_LABELS[g.grade] || g.grade,
@@ -6759,6 +6844,7 @@ async function renderGrowthAnalytics(container) {
       <h3>AI 참여판정 등급 분포</h3>
       <p class="license-card-meta">현재 열려있는 공고 전체를 지금 기준으로 다시 채점한 결과입니다(실시간 스냅샷).</p>
       ${gradeDistributionHtml}
+      ${gradeTrendHtml}
     </div>
     <div class="detail-card">
       <h3>ROI (낙찰금액 대비 비용)</h3>

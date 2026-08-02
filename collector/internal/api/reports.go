@@ -60,6 +60,14 @@ type reportSummary struct {
 	// 이 필드가 추가되기 전 리포트는 0으로 남아있다(추이 그래프에서
 	// 자연히 구간 시작점으로 보임, 별도 백필 없음).
 	ProfileCompletenessScore int `json:"profileCompletenessScore"`
+	// GradeDistribution — Phase 7 고도화: AI 참여판정 등급분포도 리포트
+	// 생성 시점에 함께 스냅샷으로 저장한다(growth_analytics.go의
+	// gradeDistributionForCompany 재사용). 이전엔 성장분석 화면이 요청할
+	// 때마다 "지금 기준"으로 재계산해 시계열이 아니었는데, 이제 이
+	// 필드를 시간순으로 모으면 진짜 등급분포 추이가 된다 — 이 필드가
+	// 추가되기 전 리포트는 nil로 남는다(추이 그래프에서 그 구간만 빈
+	// 값으로 표시됨, 별도 백필 없음).
+	GradeDistribution []gradeDistributionItem `json:"gradeDistribution,omitempty"`
 }
 
 type reportItem struct {
@@ -268,6 +276,13 @@ func (s *Server) computeReportSummary(
 		s.logger.Error("report: profile completeness query failed", "error", err)
 	} else {
 		summary.ProfileCompletenessScore = completeness.OverallCompleteness
+	}
+
+	gradeDist, err := s.gradeDistributionForCompany(ctx, company)
+	if err != nil {
+		s.logger.Error("report: grade distribution query failed", "error", err)
+	} else {
+		summary.GradeDistribution = gradeDist
 	}
 
 	return &summary, nil

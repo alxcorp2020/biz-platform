@@ -22,13 +22,14 @@ import (
 )
 
 type growthTrendPoint struct {
-	PeriodType               string `json:"periodType"`
-	PeriodStart              string `json:"periodStart"`
-	PeriodEnd                string `json:"periodEnd"`
-	ProfileCompletenessScore int    `json:"profileCompletenessScore"`
-	PipelineStartedCount     int    `json:"pipelineStartedCount"`
-	PipelineCompletedCount   int    `json:"pipelineCompletedCount"`
-	PipelineClosedCount      int    `json:"pipelineClosedCount"`
+	PeriodType               string                  `json:"periodType"`
+	PeriodStart              string                  `json:"periodStart"`
+	PeriodEnd                string                  `json:"periodEnd"`
+	ProfileCompletenessScore int                     `json:"profileCompletenessScore"`
+	PipelineStartedCount     int                     `json:"pipelineStartedCount"`
+	PipelineCompletedCount   int                     `json:"pipelineCompletedCount"`
+	PipelineClosedCount      int                     `json:"pipelineClosedCount"`
+	GradeDistribution        []gradeDistributionItem `json:"gradeDistribution,omitempty"`
 }
 
 type gradeDistributionItem struct {
@@ -123,6 +124,7 @@ func (s *Server) fetchGrowthTrend(ctx context.Context, profileID string) ([]grow
 			PipelineStartedCount:     summary.PipelineStartedCount,
 			PipelineCompletedCount:   summary.PipelineCompletedCount,
 			PipelineClosedCount:      summary.PipelineClosedCount,
+			GradeDistribution:        summary.GradeDistribution,
 		})
 	}
 	return points, rows.Err()
@@ -134,6 +136,11 @@ var gradeDisplayOrder = []string{
 	gradeRecommended, gradeConditional, gradeJointVentureReview, gradeNeedsConfirmation, gradeNotRecommended,
 }
 
+// fetchGradeDistribution — 현재 시점 라이브 스냅샷(성장분석 화면의
+// "지금 기준" 도넛차트용). company를 profile에서 새로 만들어야 하므로
+// track record 조회가 한 번 더 필요하다 — reports.go의 스냅샷 저장
+// 경로(gradeDistributionForCompany를 직접 호출)는 이미 company를
+// 갖고 있어 이 조회를 중복하지 않는다.
 func (s *Server) fetchGradeDistribution(ctx context.Context, profile *companyProfileDTO) ([]gradeDistributionItem, error) {
 	var region, size sql.NullString
 	if profile.Region != nil {
@@ -149,7 +156,16 @@ func (s *Server) fetchGradeDistribution(ctx context.Context, profile *companyPro
 	company := companyScoringInput{
 		Region: region, Industry: profile.Industry, Size: size, TrackRecordMaxAmount: trackRecordMax,
 	}
+	return s.gradeDistributionForCompany(ctx, company)
+}
 
+// gradeDistributionForCompany — 현재 열려있는 공고 전체를 주어진 회사
+// 프로필 기준으로 다시 채점해 등급별로 묶는다. fetchGradeDistribution
+// (라이브 조회)과 reports.go의 computeReportSummary(주간/월간 스냅샷
+// 저장) 둘 다 이 함수를 공유한다 — 후자는 그 시점의 등급분포를
+// reports.summary에 함께 저장해 성장분석의 "AI등급분포 추이" 차트가
+// 매번 재계산이 아니라 실제 시계열이 되게 한다(growthTrendPoint 참고).
+func (s *Server) gradeDistributionForCompany(ctx context.Context, company companyScoringInput) ([]gradeDistributionItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT notice_type, region, industry, budget_amount FROM notices
 		WHERE status NOT IN ('closed','cancelled')
