@@ -2033,6 +2033,7 @@
   .landing-footer { border-top: 1px solid var(--border); padding: var(--space-xl) var(--space-lg) var(--space-lg); background: var(--bg-soft); }
   .landing-footer-top { display: flex; justify-content: space-between; gap: 2rem; flex-wrap: wrap; margin-bottom: 2rem; }
   .landing-footer-info { font-size: 0.8rem; color: var(--ink-soft); line-height: 1.9; }
+  .landing-footer-info:empty { display: none; }
   .landing-footer-info strong { color: var(--ink); }
   .landing-footer-links { display: flex; gap: 1.25rem; font-size: 0.85rem; }
   .landing-footer-bottom { border-top: 1px solid var(--border); padding-top: 1.25rem; font-size: 0.78rem; color: var(--ink-soft); }
@@ -3137,7 +3138,7 @@ async function renderLandingPage(container) {
         </div>
         <div class="landing-partnership-card">
           <h3>제휴 문의</h3>
-          <p>협회·단체·솔루션 연동 등 제휴를 원하시면 연락해주세요.<br>문의: [제휴 문의 이메일 입력 예정]</p>
+          <p>협회·단체·솔루션 연동 등 제휴를 원하시면 연락해주세요.<br><span id="landing-partnership-email-line"></span></p>
         </div>
       </div>
     </section>
@@ -3171,12 +3172,7 @@ async function renderLandingPage(container) {
     <footer class="landing-footer">
       <div class="landing-container">
         <div class="landing-footer-top">
-          <div class="landing-footer-info">
-            <strong>공공사업 AI 비서</strong> (운영사: [회사명 입력 예정])<br>
-            사업자등록번호: [000-00-00000] · 대표: [대표자명 입력 예정]<br>
-            주소: [사업장 주소 입력 예정]<br>
-            문의: [연락처/이메일 입력 예정]
-          </div>
+          <div class="landing-footer-info" id="landing-footer-info"></div>
           <div class="landing-footer-links">
             <a href="#" onclick="return false;" title="준비 중">이용약관</a>
             <a href="#" onclick="return false;" title="준비 중">개인정보처리방침</a>
@@ -3192,6 +3188,59 @@ async function renderLandingPage(container) {
   initLandingFaqToggles(container);
   initLandingRevealAnimations(container);
   renderLandingPricing(document.getElementById('landing-pricing-grid'));
+  renderLandingCompanyInfo();
+}
+
+// COMPANY_INFO_FOOTER_FIELDS — 푸터 회사정보 블록에 실제로 들어가는 7개
+// 필드(partnershipEmail은 푸터가 아니라 "제휴 문의" 카드에 별도로 쓰여서
+// 제외). "전부 비어있으면 블록 자체를 숨김" 판단도 이 7개 기준이다.
+const COMPANY_INFO_FOOTER_FIELDS = ['companyName', 'businessRegistrationNumber', 'representativeName', 'address', 'mainPhone', 'contactEmail', 'patentNumber'];
+
+// renderLandingCompanyInfo — GET /api/company-info(공개)를 읽어 푸터
+// 회사정보 블록과 "제휴 문의" 카드의 이메일 줄을 채운다. 항목별로 비어
+//있으면(null) 그 줄 자체를 안 만든다("라벨만 남는" 상태 방지) — 예를
+// 들어 대표전화만 있고 이메일이 없으면 "대표전화: 02-1234-5678" 한
+// 줄만 나오지 "· 이메일: " 같은 꼬리표가 안 남는다. 7개 필드가 전부
+// 비어있으면 footerInfoEl 자체를 비워(CSS :empty로 자동 숨김) 블록
+// 전체가 사라진다.
+async function renderLandingCompanyInfo() {
+  const footerInfoEl = document.getElementById('landing-footer-info');
+  const partnershipLineEl = document.getElementById('landing-partnership-email-line');
+  let info;
+  try {
+    info = await apiRequest('GET', '/api/company-info');
+  } catch (err) {
+    return; // 실패해도 조용히 무시 — 핵심 기능 아님, 빈 상태 그대로 둠
+  }
+
+  const hasAnyFooterField = COMPANY_INFO_FOOTER_FIELDS.some(k => info[k]);
+  if (footerInfoEl) {
+    if (!hasAnyFooterField) {
+      footerInfoEl.innerHTML = '';
+    } else {
+      const lines = [];
+      lines.push(info.companyName
+        ? `<strong>공공사업 AI 비서</strong> (운영사: ${escapeHtml(info.companyName)})`
+        : `<strong>공공사업 AI 비서</strong>`);
+      const line2 = [
+        info.businessRegistrationNumber ? `사업자등록번호: ${escapeHtml(info.businessRegistrationNumber)}` : '',
+        info.representativeName ? `대표: ${escapeHtml(info.representativeName)}` : '',
+        info.patentNumber ? `특허출원번호: ${escapeHtml(info.patentNumber)}` : '',
+      ].filter(Boolean);
+      if (line2.length) lines.push(line2.join(' · '));
+      if (info.address) lines.push(`주소: ${escapeHtml(info.address)}`);
+      const line4 = [
+        info.mainPhone ? `대표전화: ${escapeHtml(info.mainPhone)}` : '',
+        info.contactEmail ? `이메일: ${escapeHtml(info.contactEmail)}` : '',
+      ].filter(Boolean);
+      if (line4.length) lines.push(line4.join(' · '));
+      footerInfoEl.innerHTML = lines.join('<br>');
+    }
+  }
+
+  if (partnershipLineEl) {
+    partnershipLineEl.textContent = info.partnershipEmail ? `문의: ${info.partnershipEmail}` : '';
+  }
 }
 
 function renderOnboardingHero(container) {
@@ -8032,6 +8081,7 @@ async function renderAdminDashboard(container) {
         <a href="#/admin/popups" class="btn btn-secondary btn-sm">팝업 관리</a>
         <a href="#/admin/announcements" class="btn btn-secondary btn-sm">공지 게시판</a>
         <a href="#/admin/broadcast" class="btn btn-secondary btn-sm">회원 알림 메시지</a>
+        <a href="#/admin/company-info" class="btn btn-secondary btn-sm">회사 정보(랜딩페이지 푸터)</a>
       </div>
     </div>
     <div class="detail-card" id="admin-settings-section"></div>
@@ -8897,6 +8947,73 @@ function renderAnnouncementForm(slot, announcement, onDone) {
   });
 }
 
+// ---------- 관리자: 회사 정보(#/admin/company-info) ----------
+// 랜딩페이지 푸터에 표시되는 회사 정보 8개 필드. 필드 정의 하나로
+// GET 응답 채우기/폼 렌더링/PUT 페이로드 구성을 전부 처리한다 — 필드가
+// 늘어나도 이 배열 하나만 고치면 되게.
+const COMPANY_INFO_FIELDS = [
+  { key: 'companyName', label: '상호명' },
+  { key: 'businessRegistrationNumber', label: '사업자등록번호' },
+  { key: 'representativeName', label: '대표자명' },
+  { key: 'address', label: '주소' },
+  { key: 'mainPhone', label: '대표전화' },
+  { key: 'contactEmail', label: '이메일' },
+  { key: 'partnershipEmail', label: '제휴 및 제안 이메일' },
+  { key: 'patentNumber', label: '특허출원번호' },
+];
+
+async function renderAdminCompanyInfo(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/company-info');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>회사 정보</h2>
+    <div class="detail-card">
+      <p class="license-card-meta">랜딩페이지 하단 푸터에 표시되는 정보입니다. 비워두고 저장하면 해당 항목이 라벨까지 통째로 푸터에서 숨겨집니다(전부 비우면 회사정보 영역 자체가 사라집니다). 저장 즉시(재배포 없이) 랜딩페이지에 반영됩니다.</p>
+      <div class="profile-form">
+        ${COMPANY_INFO_FIELDS.map(f => `
+          <label>${escapeHtml(f.label)}<input type="text" id="ci-input-${f.key}" value="${escapeAttr(data[f.key] || '')}"></label>
+        `).join('')}
+        <div id="ci-form-error" class="error" style="display:none"></div>
+        <div id="ci-form-success" class="success" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="button" class="btn btn-primary" id="ci-save-btn">저장</button>
+        </div>
+      </div>
+    </div>
+  `));
+
+  document.getElementById('ci-save-btn').addEventListener('click', async () => {
+    const errorBox = document.getElementById('ci-form-error');
+    const successBox = document.getElementById('ci-form-success');
+    errorBox.style.display = 'none';
+    successBox.style.display = 'none';
+    const payload = {};
+    COMPANY_INFO_FIELDS.forEach(f => {
+      payload[f.key] = document.getElementById(`ci-input-${f.key}`).value;
+    });
+    try {
+      await apiRequest('PUT', '/api/admin/company-info', payload);
+      successBox.textContent = '저장했습니다. 랜딩페이지에 바로 반영됩니다.';
+      successBox.style.display = 'block';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
 // ---------- 관리자 CMS 4번: 회원 알림 메시지(#/admin/broadcast) ----------
 const BROADCAST_CHANNEL_LABELS = { email: '이메일', in_app: '인앱 알림함', push: '웹 푸시' };
 
@@ -9196,6 +9313,7 @@ function route() {
   if (path === '#/admin/popups') { renderAdminPopups(app); return; }
   if (path === '#/admin/announcements') { renderAdminAnnouncements(app); return; }
   if (path === '#/admin/broadcast') { renderAdminBroadcast(app); return; }
+  if (path === '#/admin/company-info') { renderAdminCompanyInfo(app); return; }
   if (path === '#/announcements') { renderAnnouncementList(app); return; }
   const announcementDetailMatch = path.match(/^#\/announcements\/(.+)$/);
   if (announcementDetailMatch) {

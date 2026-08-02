@@ -171,6 +171,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureAdminBroadcastEventType(ctx, db); err != nil {
 		return fmt.Errorf("migrate admin_broadcast event type: %w", err)
 	}
+	if err := ensureCompanyInfoTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_info table: %w", err)
+	}
 	return nil
 }
 
@@ -1226,6 +1229,33 @@ func ensureAdminBroadcastEventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
 			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast'));
+	`)
+	return err
+}
+
+// ensureCompanyInfoTable adds 랜딩페이지 푸터에 표시되는 회사 정보. 싱글턴
+// 테이블(항상 정확히 1행) — id를 1로 고정하고 CHECK(id=1)로 강제해 두
+// 번째 행 삽입 자체가 제약 위반으로 막힌다(별도 "지금 활성 행이 뭔지"
+// 조회 로직이 필요 없음, company_info.go는 항상 WHERE id=1로 읽고 쓴다).
+// 처음 배포 시 전부 NULL인 빈 행을 시드해둔다 — 관리자가 #/admin/company-info
+// 에서 값을 채우기 전까지 GET /api/company-info는 전부 null을 내려주고,
+// 랜딩페이지는 그 경우 항목별로(그리고 전부 비어있으면 블록 전체를)
+// 조용히 숨긴다(index.html의 renderLandingCompanyInfo 참고).
+func ensureCompanyInfoTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS company_info (
+			id                            INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+			company_name                  TEXT,
+			business_registration_number  TEXT,
+			representative_name           TEXT,
+			address                       TEXT,
+			main_phone                    TEXT,
+			contact_email                 TEXT,
+			partnership_email             TEXT,
+			patent_number                 TEXT,
+			updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		INSERT INTO company_info (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 	`)
 	return err
 }

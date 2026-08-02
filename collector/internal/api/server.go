@@ -191,6 +191,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/admin/announcements", s.handleAdminCreateAnnouncement)
 	mux.HandleFunc("PATCH /api/admin/announcements/{id}", s.handleAdminUpdateAnnouncement)
 	mux.HandleFunc("DELETE /api/admin/announcements/{id}", s.handleAdminDeleteAnnouncement)
+	mux.HandleFunc("GET /api/company-info", s.handleGetCompanyInfo)
+	mux.HandleFunc("PUT /api/admin/company-info", s.handleAdminUpdateCompanyInfo)
 
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
