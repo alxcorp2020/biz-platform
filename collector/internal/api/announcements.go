@@ -79,10 +79,16 @@ func (s *Server) handleGetAnnouncement(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, it)
 }
 
+// announcementRequest — ViewCount는 등록 시 초기값(예: 다른 게시판에서
+// 이전하면서 기존 조회수를 그대로 옮기고 싶을 때)이자 수정 시 값 자체를
+// 직접 고칠 수 있는 필드다. 음수는 허용하지 않는다(핸들러에서 검증) —
+// 그 외에는 관리자가 입력한 값을 그대로 신뢰한다(집계 로직 없이 단순
+// 대입이라 상한을 둘 이유가 없음).
 type announcementRequest struct {
-	Title    string `json:"title"`
-	Content  string `json:"content"`
-	IsPinned bool   `json:"isPinned"`
+	Title     string `json:"title"`
+	Content   string `json:"content"`
+	IsPinned  bool   `json:"isPinned"`
+	ViewCount int    `json:"viewCount"`
 }
 
 func (s *Server) handleAdminCreateAnnouncement(w http.ResponseWriter, r *http.Request) {
@@ -100,11 +106,15 @@ func (s *Server) handleAdminCreateAnnouncement(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "title_and_content_required"})
 		return
 	}
+	if req.ViewCount < 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_view_count"})
+		return
+	}
 
 	var id string
 	err := s.db.QueryRowContext(r.Context(), `
-		INSERT INTO announcements (title, content, is_pinned) VALUES ($1,$2,$3) RETURNING id`,
-		req.Title, req.Content, req.IsPinned,
+		INSERT INTO announcements (title, content, is_pinned, view_count) VALUES ($1,$2,$3,$4) RETURNING id`,
+		req.Title, req.Content, req.IsPinned, req.ViewCount,
 	).Scan(&id)
 	if err != nil {
 		s.logger.Error("admin-create-announcement: insert failed", "error", err)
@@ -130,10 +140,14 @@ func (s *Server) handleAdminUpdateAnnouncement(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "title_and_content_required"})
 		return
 	}
+	if req.ViewCount < 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_view_count"})
+		return
+	}
 
 	res, err := s.db.ExecContext(r.Context(), `
-		UPDATE announcements SET title=$1, content=$2, is_pinned=$3 WHERE id=$4`,
-		req.Title, req.Content, req.IsPinned, id)
+		UPDATE announcements SET title=$1, content=$2, is_pinned=$3, view_count=$4 WHERE id=$5`,
+		req.Title, req.Content, req.IsPinned, req.ViewCount, id)
 	if err != nil {
 		s.logger.Error("admin-update-announcement: update failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})

@@ -2362,6 +2362,7 @@ const ERROR_MESSAGES = {
   banner_not_found: '배너를 찾을 수 없습니다.',
   popup_not_found: '팝업을 찾을 수 없습니다.',
   announcement_not_found: '공지사항을 찾을 수 없습니다.',
+  invalid_view_count: '조회수는 0 이상의 숫자여야 합니다.',
   invalid_direction: '잘못된 이동 방향입니다.',
   channel_required: '발송 채널을 하나 이상 선택해주세요.',
   invalid_channel: '알 수 없는 발송 채널입니다.',
@@ -8412,6 +8413,8 @@ function renderAnnouncementForm(slot, announcement, onDone) {
         <label>내용<textarea id="announcement-content-input" rows="8">${isEdit ? escapeHtml(announcement.content) : ''}</textarea></label>
         <p class="license-card-meta" style="margin-top:-0.5rem">**굵게**, 줄바꿈, URL 자동링크만 지원합니다(간단 마크다운).</p>
         <label class="checkbox-label"><input type="checkbox" id="announcement-pinned-input" ${isEdit && announcement.isPinned ? 'checked' : ''}> 상단 고정</label>
+        <label>조회수<input type="number" min="0" step="1" id="announcement-viewcount-input" class="select-input" style="max-width:160px" value="${isEdit ? announcement.viewCount : 0}"></label>
+        <p class="license-card-meta" style="margin-top:-0.5rem">${isEdit ? '조회수를 직접 수정할 수 있습니다(실제 조회수는 상세 열람마다 자동으로 올라갑니다).' : '등록 시 조회수 초깃값을 지정할 수 있습니다(기본 0).'}</p>
         <div id="announcement-form-error" class="error" style="display:none"></div>
         <div class="license-toolbar">
           <button type="button" class="btn btn-primary" id="announcement-save-btn">저장</button>
@@ -8427,7 +8430,9 @@ function renderAnnouncementForm(slot, announcement, onDone) {
     const title = document.getElementById('announcement-title-input').value.trim();
     const content = document.getElementById('announcement-content-input').value.trim();
     if (!title || !content) { errorBox.textContent = '제목과 내용을 입력해주세요.'; errorBox.style.display = 'block'; return; }
-    const payload = { title, content, isPinned: document.getElementById('announcement-pinned-input').checked };
+    const viewCount = parseInt(document.getElementById('announcement-viewcount-input').value, 10);
+    if (isNaN(viewCount) || viewCount < 0) { errorBox.textContent = '조회수는 0 이상의 숫자여야 합니다.'; errorBox.style.display = 'block'; return; }
+    const payload = { title, content, isPinned: document.getElementById('announcement-pinned-input').checked, viewCount };
     try {
       if (isEdit) await apiRequest('PATCH', `/api/admin/announcements/${encodeURIComponent(announcement.id)}`, payload);
       else await apiRequest('POST', '/api/admin/announcements', payload);
