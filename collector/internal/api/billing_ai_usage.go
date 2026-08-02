@@ -6,6 +6,7 @@
 package api
 
 import (
+	"database/sql"
 	"net/http"
 	"time"
 
@@ -13,10 +14,19 @@ import (
 )
 
 type aiUsageItem struct {
+	ID               string    `json:"id"`
 	DocumentKind     string    `json:"documentKind"`
 	DocumentKindName string    `json:"documentKindName"`
 	OriginalFilename string    `json:"originalFilename"`
 	UploadedAt       time.Time `json:"uploadedAt"`
+	// ExtractionStatus — "success"/"failed"/"processing"(DB의 NULL을 이
+	// 값으로 바꿔서 내려준다, extraction_status 컬럼 자체엔 'processing'
+	// 값이 없음). CanRetry는 프론트가 "재시도" 버튼을 보여줄지 판단하는
+	// 값 — 실패했고 & document_kind를 알아야(재시도 시 어느 추출 함수를
+	// 부를지 결정) 재시도가 가능하다.
+	ExtractionStatus string  `json:"extractionStatus"`
+	FailureReason    *string `json:"failureReason"`
+	CanRetry         bool    `json:"canRetry"`
 }
 
 // handleGetAIUsage returns this month's AI-extraction usage: the count/limit
@@ -49,7 +59,7 @@ func (s *Server) handleGetAIUsage(w http.ResponseWriter, r *http.Request) {
 	limit := billing.Plans[plan].MaxAIAnalysisPerMonth
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT original_filename, document_kind, uploaded_at
+		SELECT id, original_filename, document_kind, uploaded_at, extraction_status, failure_reason
 		FROM company_documents
 		WHERE company_profile_id = $1 AND uploaded_at >= date_trunc('month', now())
 		ORDER BY uploaded_at DESC`, profile.ID)
@@ -62,19 +72,32 @@ func (s *Server) handleGetAIUsage(w http.ResponseWriter, r *http.Request) {
 
 	items := []aiUsageItem{}
 	for rows.Next() {
-		var filename string
-		var kind *string
+		var id, filename string
+		var kind, status, failureReason sql.NullString
 		var uploadedAt time.Time
-		if err := rows.Scan(&filename, &kind, &uploadedAt); err != nil {
+		if err := rows.Scan(&id, &filename, &kind, &uploadedAt, &status, &failureReason); err != nil {
 			continue
 		}
-		it := aiUsageItem{OriginalFilename: filename, UploadedAt: uploadedAt, DocumentKindName: "미상"}
-		if kind != nil {
-			it.DocumentKind = *kind
-			if name, ok := documentKindLabels[*kind]; ok {
+		it := aiUsageItem{
+			ID:               id,
+			OriginalFilename: filename,
+			UploadedAt:       uploadedAt,
+			DocumentKindName: "미상",
+			ExtractionStatus: "processing",
+		}
+		if kind.Valid {
+			it.DocumentKind = kind.String
+			if name, ok := documentKindLabels[kind.String]; ok {
 				it.DocumentKindName = name
 			}
 		}
+		if status.Valid {
+			it.ExtractionStatus = status.String
+		}
+		if failureReason.Valid {
+			it.FailureReason = &failureReason.String
+		}
+		it.CanRetry = it.ExtractionStatus == extractionStatusFailed && it.DocumentKind != ""
 		items = append(items, it)
 	}
 

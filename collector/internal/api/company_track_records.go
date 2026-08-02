@@ -61,9 +61,12 @@ func (s *Server) handleUploadTrackRecordDocument(w http.ResponseWriter, r *http.
 	candidate, err := s.extractTrackRecordCandidate(r.Context(), body, ext, mediaType)
 	if err != nil {
 		s.logger.Error("upload-track-record-document: claude extraction failed", "error", err)
+		reason := classifyExtractionFailureReason(err)
+		s.markDocumentExtractionResult(r.Context(), documentID, extractionStatusFailed, &reason)
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "extraction_failed", "documentId": documentID})
 		return
 	}
+	s.markDocumentExtractionResult(r.Context(), documentID, extractionStatusSuccess, nil)
 	writeJSON(w, http.StatusOK, map[string]any{"documentId": documentID, "candidate": candidate})
 }
 

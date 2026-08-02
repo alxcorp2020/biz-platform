@@ -1630,6 +1630,7 @@
   .license-card-main { display: flex; flex-direction: column; gap: 0.3rem; }
   .license-card-name { font-weight: 600; color: var(--ink); }
   .license-card-meta { font-size: 0.82rem; color: var(--ink-soft); display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .ai-usage-failure-reason { color: var(--danger); }
   .upload-guide { margin-bottom: 0.75rem; }
   .upload-guide-tips {
     font-size: 0.82rem; color: var(--ink-soft); margin: 0.3rem 0 0.5rem;
@@ -2523,6 +2524,9 @@ const ERROR_MESSAGES = {
   storage_failed: '파일 저장 중 오류가 발생했습니다.',
   extraction_failed: 'AI 분석에 실패했습니다. 직접 입력해주세요. (AI가 실제로 문서 분석을 시도했기 때문에 이번 시도는 AI 분석 한도에서 차감되었습니다)',
   ai_analysis_quota_exceeded: '이번달 AI 분석 한도를 모두 사용했습니다. 직접 입력하시거나 다음달에 다시 시도해주세요.',
+  document_not_found: '해당 서류를 찾을 수 없습니다.',
+  retry_unavailable: '이 서류는 재시도를 지원하지 않습니다(오래된 업로드 기록). 새로 업로드해주세요.',
+  original_file_missing: '원본 파일을 찾을 수 없어 재시도할 수 없습니다. 새로 업로드해주세요.',
   category_and_name_required: '구분과 명칭은 필수입니다.',
   invalid_status: '보유 상태 값이 올바르지 않습니다.',
   invalid_awarded_amount: '낙찰 금액은 0 이상의 숫자여야 합니다.',
@@ -4153,6 +4157,28 @@ function calendarDayHtml(anchor, byDate) {
 // ---------- AI 분석 사용내역 (#/ai-usage) ----------
 // 대시보드 "AI 분석 N/M건" 카드 클릭 시 이동. company_documents가 곧
 // 사용 로그다(billing_ai_usage.go 주석 참고 — 별도 로그 테이블 없음).
+// AI_USAGE_RETRY_CONFIRM_FORMS — documentKind별로 재시도 성공 시 바로
+// 이어서 보여줄 확인/저장 폼. 함수 선언은 호이스팅되므로 이 맵이 그
+// 함수들보다 텍스트상 앞에 있어도 문제없다. employee_verification의
+// renderEmployeeCountConfirmForm은 4번째 인자로 "프로필 폼" DOM을 받아
+// employeeCount 입력값도 같이 갱신하는데, 이 화면(#/ai-usage)에는 그
+// 폼이 없으므로 null을 넘긴다(위 함수가 null-safe하게 처리하도록 이미
+// 고쳐둠).
+const AI_USAGE_RETRY_CONFIRM_FORMS = {
+  license_or_certification: (slot, candidate, documentId, onSaved) => renderLicenseConfirmForm(slot, candidate, documentId, onSaved),
+  financial: (slot, candidate, documentId, onSaved) => renderFinancialForm(slot, candidate, documentId, onSaved),
+  track_record: (slot, candidate, documentId, onSaved) => renderTrackRecordForm(slot, candidate, documentId, onSaved),
+  personnel: (slot, candidate, documentId, onSaved) => renderPersonnelForm(slot, candidate, documentId, onSaved),
+  intellectual_property: (slot, candidate, documentId, onSaved) => renderIPConfirmForm(slot, candidate, documentId, onSaved),
+  employee_verification: (slot, candidate, documentId, onSaved) => renderEmployeeCountConfirmForm(slot, candidate, documentId, null),
+};
+
+function aiUsageStatusBadgeHtml(status) {
+  if (status === 'success') return '<span class="badge badge--success">성공</span>';
+  if (status === 'failed') return '<span class="badge badge--danger">실패</span>';
+  return '<span class="badge badge--gray">처리중</span>';
+}
+
 async function renderAIUsage(container) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
@@ -4173,9 +4199,12 @@ async function renderAIUsage(container) {
     ? items.map(it => `
         <div class="license-card">
           <div class="license-card-main">
-            <div class="license-card-name">${escapeHtml(it.documentKindName)}</div>
+            <div class="license-card-name">${escapeHtml(it.documentKindName)} ${aiUsageStatusBadgeHtml(it.extractionStatus)}</div>
             <div class="license-card-meta">${escapeHtml(it.originalFilename)} · ${escapeHtml(formatDateTime(it.uploadedAt))}</div>
+            ${it.extractionStatus === 'failed' && it.failureReason ? `<div class="license-card-meta ai-usage-failure-reason">${escapeHtml(it.failureReason)}</div>` : ''}
+            <div id="ai-usage-retry-slot-${escapeAttr(it.id)}"></div>
           </div>
+          ${it.canRetry ? `<div class="license-card-side"><button type="button" class="btn btn-secondary btn-sm ai-usage-retry-btn" data-id="${escapeAttr(it.id)}">재시도</button></div>` : ''}
         </div>
       `).join('')
     : '<p class="empty">이번달 분석한 서류가 없습니다.</p>';
@@ -4184,8 +4213,40 @@ async function renderAIUsage(container) {
   container.appendChild(h(`
     <h2>AI 분석 사용내역</h2>
     <p class="license-card-meta">${glossaryHtml('AI 분석')} 이번달 사용량: ${escapeHtml(limitLabel)}</p>
+    <p class="license-card-meta">실패한 항목도 AI가 실제로 문서 분석을 시도했기 때문에 한도에서 이미 차감된 상태입니다. "재시도"를 누르면 다시 분석하며, 이 또한 새로운 시도로 한도가 차감됩니다.</p>
     <div class="license-list">${rowsHtml}</div>
   `));
+
+  container.querySelectorAll('.ai-usage-retry-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const it = items.find(x => x.id === id);
+      const retrySlot = document.getElementById(`ai-usage-retry-slot-${id}`);
+      // 한 번에 하나의 재시도/확인 폼만 열리게 — 다른 행에서 열려있던
+      // 폼(license-confirm-form 등 고정 id를 쓰는 컴포넌트라 동시에 두 개가
+      // 떠 있으면 id 충돌 위험)을 먼저 정리한다.
+      container.querySelectorAll('[id^="ai-usage-retry-slot-"]').forEach(el => { el.innerHTML = ''; });
+      btn.disabled = true;
+      retrySlot.innerHTML = '';
+      retrySlot.appendChild(h('<div class="loading">재분석 중...</div>'));
+      let result;
+      try {
+        result = await apiRequest('POST', `/api/me/documents/${encodeURIComponent(id)}/retry`);
+      } catch (err) {
+        // 재시도도 실패 — 새 시도 자체가 새 사용 기록이라 목록을 새로
+        // 불러오면 이 실패도 별도 행으로 나타난다(원래 실패했던 행은
+        // 그대로 남아있고, 그 옆에 새로운 실패 행이 하나 더 생기는 식).
+        renderAIUsage(container);
+        return;
+      }
+      const renderConfirm = AI_USAGE_RETRY_CONFIRM_FORMS[it.documentKind];
+      if (renderConfirm) {
+        renderConfirm(retrySlot, result.candidate, result.documentId, () => renderAIUsage(container));
+      } else {
+        renderAIUsage(container);
+      }
+    });
+  });
 }
 
 async function renderPipelineDetail(container, id) {
@@ -6299,7 +6360,10 @@ function renderEmployeeCountConfirmForm(slot, candidate, documentId, profileForm
       const data = await apiRequest('POST', '/api/me/company-profile/employee-verification', payload);
       currentProfile.employeeCountConfidence = data.confidence;
       currentProfile.employeeCountVerifiedAt = new Date().toISOString();
-      const employeeCountInput = profileForm.querySelector('input[name="employeeCount"]');
+      // profileForm은 프로필 편집 화면에서 호출될 때만 있다(그 화면에 이미
+      // 열려있는 employeeCount 입력값도 같이 갱신하기 위함) — #/ai-usage
+      // 화면의 재시도 흐름처럼 그 폼이 없는 곳에서 호출될 때는 null.
+      const employeeCountInput = profileForm && profileForm.querySelector('input[name="employeeCount"]');
       if (employeeCountInput) employeeCountInput.value = data.employeeCount;
       slot.innerHTML = '';
       renderEmployeeCountBadge();

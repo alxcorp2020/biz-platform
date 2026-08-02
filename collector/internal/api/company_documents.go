@@ -17,6 +17,7 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -77,9 +78,12 @@ func (s *Server) handleUploadCompanyDocument(w http.ResponseWriter, r *http.Requ
 	candidate, err := s.extractLicenseCandidate(r.Context(), body, ext, mediaType)
 	if err != nil {
 		s.logger.Error("upload-document: claude extraction failed", "error", err)
+		reason := classifyExtractionFailureReason(err)
+		s.markDocumentExtractionResult(r.Context(), documentID, extractionStatusFailed, &reason)
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "extraction_failed", "documentId": documentID})
 		return
 	}
+	s.markDocumentExtractionResult(r.Context(), documentID, extractionStatusSuccess, nil)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"documentId": documentID,
@@ -107,6 +111,171 @@ var documentKindLabels = map[string]string{
 	documentKindPersonnel:              "인력/기술등급",
 	documentKindIntellectualProperty:   "지식재산권",
 	documentKindEmployeeVerification:   "4대보험 가입자명부",
+}
+
+// company_documents.extraction_status 값 — #/ai-usage 화면(billing_ai_usage.go)이
+// 성공/실패 배지를 표시하는 데 쓴다. NULL(둘 다 아닌 상태)은 "처리중"으로
+// 취급한다(정상 흐름에서는 같은 요청 안에서 곧바로 이 값 중 하나로 갱신되므로
+// 실제로 NULL이 오래 남는 경우는 거의 없다).
+const (
+	extractionStatusSuccess = "success"
+	extractionStatusFailed  = "failed"
+)
+
+// markDocumentExtractionResult persists the Claude 호출 성공/실패 결과 —
+// 실패해도 한도가 차감된다는 사실을 사용자가 #/ai-usage 화면에서 사후에
+// 확인할 수 있게 하는 최소한의 기록이다. 이 UPDATE 자체가 실패해도 이미
+// 클라이언트에는 (성공/extraction_failed) 응답을 보낸 뒤이므로 로그만
+// 남기고 별도 에러를 반환하지 않는다 — 부가 정보 기록이 주 응답 흐름에
+// 영향을 주면 안 된다.
+func (s *Server) markDocumentExtractionResult(ctx context.Context, documentID, status string, failureReason *string) {
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE company_documents SET extraction_status = $1, failure_reason = $2 WHERE id = $3`,
+		status, failureReason, documentID,
+	); err != nil {
+		s.logger.Error("mark-document-extraction-result: update failed", "error", err, "document_id", documentID)
+	}
+}
+
+// classifyExtractionFailureReason maps a raw extract*Candidate 에러(6개
+// 카테고리 전부 동일한 3가지 형태로 반환함 — extractLicenseCandidate 참고:
+// "claude api error (status %d)"로 감싼 API 에러, 감싸지지 않은 원본
+// 네트워크/타임아웃 에러, "parse tool input"(JSON 파싱 실패), "no tool_use
+// block"(모델이 유효한 결과를 안 줌))를 사용자 친화적 문구로 바꾼다. API
+// 원본 에러 메시지(상태 코드, 응답 본문 등)는 절대 그대로 노출하지 않는다.
+//
+// "parse tool input"/"no tool_use block"만 명시적으로 잡고 나머지는 전부
+// "일시적 오류"로 처리한다 — 감싸지지 않은 네트워크 에러처럼 아직 못 본
+// 에러 형태가 와도 무해한 기본값(일시적 오류)으로 떨어지게 하기 위함이다.
+func classifyExtractionFailureReason(err error) string {
+	msg := err.Error()
+	if strings.Contains(msg, "parse tool input") || strings.Contains(msg, "no tool_use block") {
+		return "문서를 인식하지 못했습니다. 스캔 품질을 확인하거나 다른 파일로 다시 시도해주세요."
+	}
+	return "일시적인 오류로 분석에 실패했습니다. 잠시 후 다시 시도해주세요."
+}
+
+// extractCandidateForKind dispatches to the category-specific extract*Candidate
+// function by document_kind — handleRetryDocumentExtraction이 재시도 대상
+// 서류의 document_kind만 보고 어느 추출 함수를 불러야 할지 알아내는 데 쓴다.
+// 반환 타입이 카테고리마다 달라 any로 받는다(호출부는 JSON으로 그대로
+// writeJSON에 넘기기만 하므로 구체 타입이 필요 없다).
+func (s *Server) extractCandidateForKind(ctx context.Context, kind string, body []byte, ext, mediaType string) (any, error) {
+	switch kind {
+	case documentKindLicenseOrCertification:
+		return s.extractLicenseCandidate(ctx, body, ext, mediaType)
+	case documentKindFinancial:
+		return s.extractFinancialCandidate(ctx, body, ext, mediaType)
+	case documentKindTrackRecord:
+		return s.extractTrackRecordCandidate(ctx, body, ext, mediaType)
+	case documentKindPersonnel:
+		return s.extractPersonnelCandidate(ctx, body, ext, mediaType)
+	case documentKindIntellectualProperty:
+		return s.extractIPCandidate(ctx, body, ext, mediaType)
+	case documentKindEmployeeVerification:
+		return s.extractEmployeeCountCandidate(ctx, body, ext, mediaType)
+	default:
+		return nil, fmt.Errorf("unknown document_kind: %q", kind)
+	}
+}
+
+// handleRetryDocumentExtraction — POST /api/me/documents/{id}/retry. 실패한
+// 업로드를 다시 분석한다(#/ai-usage 화면의 "재시도" 버튼). 이미 디스크에
+// 저장된 원본 파일(해시 기반 dedup 저장이라 계속 남아있음)을 재사용해
+// 새 멀티파트 업로드 없이 바로 Claude를 다시 부르되, 새로운 시도이므로
+// company_documents에 새 행을 만들어 한도도 새로 차감한다(원래 실패했던
+// 행은 실패 기록으로 그대로 남겨둔다 — 지우거나 갱신하지 않음).
+func (s *Server) handleRetryDocumentExtraction(w http.ResponseWriter, r *http.Request) {
+	userID, authed := s.currentUserID(r)
+	if !authed {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("retry-document: profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if profile == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
+		return
+	}
+	if profile.Role != "owner" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_only"})
+		return
+	}
+
+	ctx := r.Context()
+	id := r.PathValue("id")
+
+	var kind sql.NullString
+	var storedFilename, fileType, originalFilename, fileHash string
+	var fileSize int64
+	err = s.db.QueryRowContext(ctx, `
+		SELECT document_kind, stored_filename, file_type, original_filename, file_hash, file_size_bytes
+		FROM company_documents WHERE id = $1 AND company_profile_id = $2`,
+		id, profile.ID,
+	).Scan(&kind, &storedFilename, &fileType, &originalFilename, &fileHash, &fileSize)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "document_not_found"})
+		return
+	}
+	if err != nil {
+		s.logger.Error("retry-document: lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if !kind.Valid || kind.String == "" {
+		// document_kind 컬럼이 생기기 전(예전) 업로드 — 어느 추출 함수를
+		// 불러야 할지 알 수 없어 재시도를 지원하지 않는다.
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "retry_unavailable"})
+		return
+	}
+
+	if quotaOK, limit, err := s.checkAIAnalysisQuota(ctx, profile.ID); err != nil {
+		s.logger.Error("retry-document: AI quota check failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	} else if !quotaOK {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "ai_analysis_quota_exceeded", "limit": limit})
+		return
+	}
+
+	body, err := os.ReadFile(filepath.Join(s.attachmentDir, "company-documents", storedFilename))
+	if err != nil {
+		s.logger.Error("retry-document: read stored file failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "original_file_missing"})
+		return
+	}
+	mediaType := allowedCompanyDocumentTypes[fileType]
+
+	var documentID string
+	err = s.db.QueryRowContext(ctx, `
+		INSERT INTO company_documents (company_profile_id, original_filename, stored_filename, file_type, file_size_bytes, file_hash, document_kind)
+		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+		profile.ID, originalFilename, storedFilename, fileType, fileSize, fileHash, kind.String,
+	).Scan(&documentID)
+	if err != nil {
+		s.logger.Error("retry-document: insert failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+
+	candidate, err := s.extractCandidateForKind(ctx, kind.String, body, fileType, mediaType)
+	if err != nil {
+		s.logger.Error("retry-document: claude extraction failed", "error", err)
+		reason := classifyExtractionFailureReason(err)
+		s.markDocumentExtractionResult(ctx, documentID, extractionStatusFailed, &reason)
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "extraction_failed", "documentId": documentID})
+		return
+	}
+	s.markDocumentExtractionResult(ctx, documentID, extractionStatusSuccess, nil)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"documentId": documentID,
+		"candidate":  candidate,
+	})
 }
 
 // receiveCompanyDocument handles the part of "증빙서류 업로드" that's

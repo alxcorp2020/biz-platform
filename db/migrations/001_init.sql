@@ -395,6 +395,8 @@ CREATE TABLE company_documents (
     file_size_bytes    BIGINT NOT NULL,
     file_hash          TEXT NOT NULL,
     document_kind       TEXT,  -- 어느 업로드 엔드포인트가 만들었는지(license_or_certification/financial/track_record/personnel/intellectual_property/employee_verification) — AI 사용내역 화면에서 "어떤 서류" 표시용
+    extraction_status  TEXT CHECK (extraction_status IN ('success','failed')),  -- NULL=처리중(정상 흐름에서는 순간적). AI 분석 한도는 이 값과 무관하게 이 행이 존재하는 것 자체로 이미 차감된 상태(성공/실패 여부는 그저 표시용)
+    failure_reason     TEXT,  -- 실패 시 사용자 친화적 문구만 저장(원본 API 에러 메시지 노출 안 함) — company_documents.go의 classifyExtractionFailureReason 참고
     uploaded_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

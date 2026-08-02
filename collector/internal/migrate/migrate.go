@@ -99,6 +99,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureDocumentKindColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_documents.document_kind column: %w", err)
 	}
+	if err := ensureCompanyDocumentsExtractionStatusColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_documents extraction status columns: %w", err)
+	}
 	if err := ensureReportsTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate reports table: %w", err)
 	}
@@ -970,6 +973,25 @@ func ensureReportEventTypes(ctx context.Context, db *sql.DB) error {
 func ensureDocumentKindColumn(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE company_documents ADD COLUMN IF NOT EXISTS document_kind TEXT;
+	`)
+	return err
+}
+
+// ensureCompanyDocumentsExtractionStatusColumns adds company_documents.
+// extraction_status/failure_reason — 실패한 업로드도 한도가 차감된다는
+// 사실을 사용자가 사후에 확인할 수 있도록(#/ai-usage 화면), Claude 호출
+// 성공/실패 결과를 이제 DB에도 남긴다(기존엔 s.logger.Error 로그로만
+// 남고 DB엔 아무 흔적이 없었음). extraction_status가 NULL인 채로 남는
+// 행은 "처리중" 상태로 취급한다 — 실제로는 업로드 요청 처리 도중 서버가
+// 죽는 것 같은 드문 경우에만 NULL로 영구히 남는다(정상 흐름에서는 같은
+// HTTP 요청 안에서 곧바로 success/failed로 갱신됨). failure_reason은
+// Claude API 원본 에러 메시지를 그대로 노출하지 않고
+// classifyExtractionFailureReason(company_documents.go)이 만든 사용자
+// 친화적 문구만 저장한다.
+func ensureCompanyDocumentsExtractionStatusColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_documents ADD COLUMN IF NOT EXISTS extraction_status TEXT CHECK (extraction_status IN ('success','failed'));
+		ALTER TABLE company_documents ADD COLUMN IF NOT EXISTS failure_reason TEXT;
 	`)
 	return err
 }

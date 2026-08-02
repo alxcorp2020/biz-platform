@@ -152,6 +152,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/reports", s.handleListReports)
 	mux.HandleFunc("GET /api/growth-analytics", s.handleGetGrowthAnalytics)
 	mux.HandleFunc("GET /api/me/ai-usage", s.handleGetAIUsage)
+	mux.HandleFunc("POST /api/me/documents/{id}/retry", s.handleRetryDocumentExtraction)
 	mux.HandleFunc("GET /api/billing/config", s.handleGetBillingConfig)
 	mux.HandleFunc("POST /api/billing/checkout", s.handleBillingCheckout)
 	mux.HandleFunc("POST /api/billing/confirm", s.handleBillingConfirm)
