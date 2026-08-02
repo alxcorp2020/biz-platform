@@ -1870,6 +1870,127 @@
     main { max-width: none !important; margin: 0 !important; padding: 0 !important; }
     .report-page { border: none; box-shadow: none; padding: 0; max-width: none; }
   }
+
+  /* ---------- 랜딩페이지(비로그인 첫 화면) — 지금 앱(로그인 후 대시보드)
+     과 완전히 독립된 레이아웃. body.is-landing일 때 기존 앱 셸(사이드바/
+     헤더/탭바/전역 프로필 배너)을 숨기고 #app을 전체 폭으로 연다 —
+     @media print이 인쇄 시 같은 요소들을 숨기는 것과 같은 원리를 화면
+     표시에도 적용했다. 섹션 내부 너비는 .landing-container가 관리하므로
+     main의 기본 max-width/padding은 여기서 전부 해제한다. */
+  body.is-landing .sidebar,
+  body.is-landing .site-header,
+  body.is-landing .tabbar,
+  body.is-landing #global-profile-banner {
+    display: none !important;
+  }
+  body.is-landing main#app {
+    margin-left: 0 !important;
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  body.is-landing main#app > * { max-width: none; margin: 0; }
+
+  .landing-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.25rem var(--space-lg); border-bottom: 1px solid var(--border);
+  }
+  .landing-logo { font-size: 1.15rem; font-weight: 700; color: var(--navy); text-decoration: none; white-space: nowrap; }
+  .landing-header-actions { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+  .landing-header-actions .home-cta-secondary,
+  .landing-header-actions .home-cta-primary { padding: 0.55rem 1.2rem; font-size: 0.85rem; }
+
+  .landing-section { padding: var(--space-xl) var(--space-lg); }
+  .landing-section--alt { background: var(--bg-soft); }
+  .landing-container { max-width: 1100px; margin: 0 auto; }
+  .landing-section-eyebrow { text-align: center; font-size: 0.85rem; font-weight: 700; color: var(--accent-blue); margin: 0 0 0.6rem; }
+  .landing-section-title { text-align: center; font-size: 1.6rem; font-weight: 800; color: var(--navy); margin: 0 0 0.75rem; line-height: 1.4; }
+  .landing-section-desc { text-align: center; font-size: 0.98rem; color: var(--ink-soft); max-width: 640px; margin: 0 auto 2.5rem; line-height: 1.75; }
+
+  .landing-hero { text-align: center; padding: 5rem var(--space-lg) 4rem; }
+  .landing-hero-inner { max-width: 720px; margin: 0 auto; }
+  .landing-hero-eyebrow { font-size: 0.9rem; font-weight: 700; color: var(--accent-blue); margin: 0 0 1rem; }
+  .landing-hero-title { font-size: 2.4rem; font-weight: 800; color: var(--navy); line-height: 1.4; margin: 0 0 1.25rem; }
+  .landing-hero-desc { font-size: 1.05rem; color: var(--ink-soft); margin: 0 0 2.25rem; line-height: 1.75; }
+  .landing-hero-actions { display: flex; justify-content: center; gap: 0.85rem; flex-wrap: wrap; }
+  .landing-hero-actions .home-cta-primary,
+  .landing-hero-actions .home-cta-secondary { padding: 0.85rem 1.9rem; font-size: 1rem; }
+
+  .landing-problem-stat { display: flex; align-items: center; justify-content: center; gap: 1.5rem; margin: 2rem 0 0; flex-wrap: wrap; }
+  .landing-problem-num { font-size: 3rem; font-weight: 800; color: var(--ink); }
+  .landing-problem-num--result { color: var(--accent-blue); }
+  .landing-problem-arrow { font-size: 2rem; color: var(--ink-soft); }
+  .landing-problem-num-label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); margin-top: 0.35rem; }
+
+  .landing-features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 1.5rem; }
+  .landing-feature-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 1.75rem 1.5rem; box-shadow: var(--shadow-soft); }
+  .landing-feature-icon { width: 44px; height: 44px; border-radius: 12px; background: rgba(49,130,246,0.1); color: var(--accent-blue); display: flex; align-items: center; justify-content: center; margin-bottom: 1rem; }
+  .landing-feature-icon svg { width: 24px; height: 24px; }
+  .landing-feature-title { font-size: 1.02rem; font-weight: 700; color: var(--ink); margin: 0 0 0.5rem; }
+  .landing-feature-desc { font-size: 0.87rem; color: var(--ink-soft); line-height: 1.6; margin: 0; }
+
+  .landing-case-disclaimer { text-align: center; font-size: 0.8rem; color: var(--ink-soft); margin: -1.5rem 0 2rem; }
+  .landing-cases-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap: 1.5rem; margin-bottom: 2.5rem; }
+  .landing-case-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 1.75rem 1.5rem; box-shadow: var(--shadow-soft); }
+  .landing-case-badge { display: inline-block; font-size: 0.72rem; font-weight: 700; color: var(--ink-soft); background: var(--bg-soft); padding: 0.2rem 0.55rem; border-radius: 6px; margin-bottom: 0.75rem; }
+  .landing-case-title { font-size: 0.95rem; font-weight: 700; color: var(--ink); margin: 0 0 0.5rem; }
+  .landing-case-desc { font-size: 0.87rem; color: var(--ink-soft); line-height: 1.6; margin: 0; }
+  .landing-partnership-card { text-align: center; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 2rem; box-shadow: var(--shadow-soft); max-width: 560px; margin: 0 auto; }
+  .landing-partnership-card h3 { margin: 0 0 0.5rem; color: var(--navy); font-size: 1.05rem; }
+  .landing-partnership-card p { margin: 0; color: var(--ink-soft); font-size: 0.9rem; line-height: 1.7; }
+
+  .landing-faq-list { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.75rem; }
+  .landing-faq-item { background: #fff; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .landing-faq-question {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    padding: 1.1rem 1.35rem; background: none; border: none; cursor: pointer;
+    font-size: 0.95rem; font-weight: 700; color: var(--ink); text-align: left;
+  }
+  .landing-faq-icon { flex-shrink: 0; font-size: 1.2rem; line-height: 1; color: var(--ink-soft); transition: transform 0.25s ease; }
+  .landing-faq-item.is-open .landing-faq-icon { transform: rotate(45deg); }
+  .landing-faq-answer { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; padding: 0 1.35rem; }
+  .landing-faq-answer p { margin: 0 0 1.25rem; font-size: 0.88rem; color: var(--ink-soft); line-height: 1.7; }
+  .landing-faq-item.is-open .landing-faq-answer { max-height: 240px; }
+
+  .landing-pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 1.25rem; }
+  .landing-plan-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 1.75rem 1.5rem; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; }
+  .landing-plan-card--highlight { border-color: var(--accent-blue); box-shadow: 0 4px 20px rgba(49,130,246,0.15); }
+  .landing-plan-name { font-size: 1rem; font-weight: 700; color: var(--navy); margin: 0 0 0.4rem; }
+  .landing-plan-price { font-size: 1.6rem; font-weight: 800; color: var(--ink); margin: 0 0 1rem; }
+  .landing-plan-price small { font-size: 0.8rem; font-weight: 500; color: var(--ink-soft); }
+  .landing-plan-features { list-style: none; margin: 0 0 1.5rem; padding: 0; flex: 1; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem; color: var(--ink-soft); }
+  .landing-plan-features li::before { content: '✓ '; color: var(--success); font-weight: 700; }
+  .landing-pricing-grid .home-cta-primary { text-align: center; }
+
+  .landing-footer { border-top: 1px solid var(--border); padding: var(--space-xl) var(--space-lg) var(--space-lg); background: var(--bg-soft); }
+  .landing-footer-top { display: flex; justify-content: space-between; gap: 2rem; flex-wrap: wrap; margin-bottom: 2rem; }
+  .landing-footer-info { font-size: 0.8rem; color: var(--ink-soft); line-height: 1.9; }
+  .landing-footer-info strong { color: var(--ink); }
+  .landing-footer-links { display: flex; gap: 1.25rem; font-size: 0.85rem; }
+  .landing-footer-bottom { border-top: 1px solid var(--border); padding-top: 1.25rem; font-size: 0.78rem; color: var(--ink-soft); }
+
+  /* 스크롤 reveal(부드러운 페이드인) — IntersectionObserver로 뷰포트
+     진입 시 .is-visible을 붙인다(initLandingRevealAnimations). 모션에
+     민감한 사용자를 위해 prefers-reduced-motion에서는 애니메이션 없이
+     바로 보이게 한다. */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.7s ease, transform 0.7s ease; }
+  .reveal.is-visible { opacity: 1; transform: translateY(0); }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+  }
+
+  @media (max-width: 640px) {
+    .landing-header { padding: 1rem 1.25rem; gap: 0.5rem; }
+    .landing-logo { font-size: 0.95rem; }
+    .landing-header-actions { gap: 0.5rem; }
+    .landing-header-actions .home-cta-secondary,
+    .landing-header-actions .home-cta-primary { padding: 0.5rem 0.75rem; font-size: 0.78rem; }
+    .landing-hero { padding: 3rem 1.25rem 2.5rem; }
+    .landing-hero-title { font-size: 1.6rem; }
+    .landing-section { padding: 3rem 1.25rem; }
+    .landing-section-title { font-size: 1.3rem; }
+    .landing-footer { padding: 2.5rem 1.25rem 1.5rem; }
+    .landing-footer-top { flex-direction: column; gap: 1.25rem; }
+  }
 </style>
 </head>
 <body>
@@ -2506,7 +2627,7 @@ async function renderHome(container) {
     data = await apiRequest('GET', '/api/dashboard');
   } catch (err) {
     if (err.status === 401) {
-      renderMarketingHero(container);
+      renderLandingPage(container);
       return;
     }
     container.innerHTML = '';
@@ -2526,7 +2647,7 @@ async function renderHome(container) {
 // 팝업(관리자 CMS 5번)과 배너 레이어(1번)는 둘 다 화면 전체를 덮는
 // 오버레이라 동시에 뜨면 서로 가린다 — 팝업(관리자가 시의성 있게 등록한
 // 공지)을 우선하고, 오늘 안 닫은 팝업이 없을 때만 배너를 보여준다.
-// renderMarketingHero/renderOnboardingHero/renderDashboard는 이 함수
+// renderLandingPage/renderOnboardingHero/renderDashboard는 이 함수
 // 하나만 호출한다.
 async function renderHomeOverlay() {
   const shownPopup = await tryRenderPopupLayer();
@@ -2592,7 +2713,7 @@ async function tryRenderPopupLayer() {
 }
 
 // ---------- 배너 레이어(홈 화면 진입 시 오버레이 팝업, 관리자 CMS 1번) ----------
-// renderMarketingHero/renderOnboardingHero/renderDashboard 세 곳 모두에서
+// renderLandingPage/renderOnboardingHero/renderDashboard 세 곳 모두에서
 // 호출한다 — 홈 화면에 진입할 때마다(로그인/프로필 유무 무관) 화면
 // 전체를 덮는 오버레이로 뜬다. 페이지 안 인라인 요소가 아니라
 // document.body에 직접 붙는 전역 레이어라(#app이 route()에 갈아끼워져도
@@ -2727,24 +2848,220 @@ async function renderGlobalProfileBanner() {
   `;
 }
 
-function renderMarketingHero(container) {
-  container.innerHTML = '';
-  renderHomeOverlay();
-  container.appendChild(h(`
-    <div class="home-hero">
-      <p class="home-hero-eyebrow">AI 공공사업 참여판단 비서</p>
-      <h2 class="home-hero-title">우리 회사가 지금 참여할 수 있는 공공사업,<br>AI가 대신 찾아드립니다.</h2>
-      <p class="home-hero-desc">공고를 하나하나 읽어보는 대신, 회사 정보를 한 번만 등록하면 AI가 참여 가능성을 분석하고 부족한 조건까지 알려드립니다.</p>
-      <div class="home-hero-actions">
-        <a href="#/auth/signup" class="home-cta-primary">무료로 시작하기</a>
-        <a href="#/auth/login" class="home-cta-secondary">로그인</a>
-      </div>
-      <a href="#/notices" class="home-browse-link">또는 전체 공고 목록 바로 보기 →</a>
+// ---------- 랜딩페이지(비로그인 첫 화면) ----------
+// 지금 앱(로그인 후 대시보드)과 완전히 독립된 레이아웃 — body.is-landing
+// 클래스로 사이드바/헤더/탭바를 숨기고 이 함수가 자체 헤더+푸터를 그린다
+// (CSS는 "랜딩페이지" 주석 블록 참고). renderOnboardingHero/renderDashboard가
+// is-landing을 다시 지운다 — 로그인 직후처럼 같은 '#/' 경로에서 렌더 분기만
+// 바뀌는 경우 route()의 "path !== '#/'일 때만 정리" 로직으로는 안 잡히기
+// 때문에, 세 분기 함수 각자가 자기 상태를 명시적으로 맞춘다.
+const LANDING_FEATURES = [
+  { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>', title: 'AI 자동 분석', desc: '공고 원문을 AI가 읽고 참여 가능성을 자동으로 판정합니다.' },
+  { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 10l2 2 4-4"/><line x1="8" y1="16" x2="16" y2="16"/></svg>', title: '서류 자동 체크리스트', desc: '공고별로 필요한 서류를 자동으로 뽑아 빠짐없이 챙길 수 있습니다.' },
+  { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', title: '팀 협업(파이프라인)', desc: '여러 담당자가 함께 참여 진행 상황을 관리하고 공유합니다.' },
+  { icon: SIDEBAR_ICONS.bell, title: '마감 알림', desc: '제출 마감을 이메일·인앱 알림·웹 푸시로 미리 알려드립니다.' },
+  { icon: SIDEBAR_ICONS.calendar, title: '캘린더 연동', desc: '마감 일정을 캘린더에서 한눈에 확인할 수 있습니다.' },
+  { icon: SIDEBAR_ICONS.chart, title: '성장 분석 리포트', desc: '우리 회사의 참여 성과와 완성도를 데이터로 확인합니다.' },
+];
+
+const LANDING_CASES = [
+  { tag: 'IT 서비스 기업', title: '검토 시간을 줄이고, 놓치는 공고 없이', desc: '매일 아침 공고를 하나하나 확인하던 담당자가, AI가 걸러준 목록만 검토하는 방식으로 업무를 바꿨습니다.' },
+  { tag: '건설·엔지니어링 기업', title: '여러 담당자가 한 화면에서', desc: '지사별로 따로 관리하던 참여 검토 현황을 파이프라인 하나로 모아 팀원들과 함께 확인합니다.' },
+  { tag: '지역 소상공인 컨설팅', title: '지원사업까지 함께', desc: '나라장터 공고뿐 아니라 기업마당 지원사업 공고까지 같이 챙기며 놓치는 기회를 줄였습니다.' },
+];
+
+const LANDING_FAQS = [
+  { q: '무료로 얼마나 쓸 수 있나요?', a: 'Free 플랜은 파이프라인 3건까지 무료로 이용하실 수 있습니다. 공고 검색과 참여 가능성 확인은 별도 비용 없이 계속 쓰실 수 있고, AI 정밀분석·서류자동화가 더 필요하시면 유료 플랜으로 업그레이드하시면 됩니다.' },
+  { q: '실제 나라장터 데이터인가요?', a: '네, 조달청 나라장터 공식 API를 통해 공고 데이터를 수집합니다. 기업마당 등 지자체·중앙부처 지원사업 공고도 함께 제공합니다.' },
+  { q: 'AI 분석이 얼마나 정확한가요?', a: 'AI는 공고 원문에 명시된 조건(지역·업종·자격요건 등)을 근거로 참여 가능성을 판단합니다. 다만 이는 참고용 1차 필터이며 최종 확정 판정이 아닙니다 — 실제 참여 여부는 반드시 발주기관 공고 원문과 공식 안내를 직접 확인해주세요.' },
+  { q: '결제는 어떻게 하나요?', a: '토스페이먼츠를 통해 안전하게 결제하실 수 있으며, 매월 자동으로 결제됩니다. 플랜은 언제든 업그레이드·다운그레이드하실 수 있습니다.' },
+  { q: '환불이 가능한가요?', a: '결제 후 서비스를 전혀 사용하지 않으셨다면(AI 분석 미사용, 파이프라인 신규 등록 없음) 전액 환불이 가능합니다. 이미 서비스를 이용하신 경우에는 환불 대신 구독 해지를 신청하시면 다음 결제부터 요금이 청구되지 않습니다.' },
+];
+
+function initLandingFaqToggles(container) {
+  container.querySelectorAll('.landing-faq-item').forEach(item => {
+    item.querySelector('.landing-faq-question').addEventListener('click', () => {
+      item.classList.toggle('is-open');
+    });
+  });
+}
+
+// initLandingRevealAnimations — 스크롤하며 섹션이 하나씩 부드럽게
+// 나타나는 효과. 외부 애니메이션 라이브러리 없이 IntersectionObserver +
+// CSS transition만으로 구현(이 프로젝트의 "차트도 순수 SVG, 슬라이더도
+// 순수 CSS/JS" 원칙과 동일한 방향). 뷰포트에 한 번 들어오면 그걸로 끝 —
+// 스크롤을 위아래로 왔다갔다해도 다시 숨겨지지 않는다(반짝임 방지).
+function initLandingRevealAnimations(container) {
+  const targets = container.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) {
+    targets.forEach(el => el.classList.add('is-visible'));
+    return;
+  }
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  targets.forEach(el => observer.observe(el));
+}
+
+// renderLandingPricing — 요금제 데이터는 /api/billing/config(공개 API,
+// #/billing/plans의 renderPricingPlans와 같은 출처)를 그대로 재사용해
+// 두 화면의 가격/기능 정보가 어긋나지 않게 한다. 랜딩페이지는 항상
+// 비로그인 상태이므로 "구독하기" 대신 전부 "가입하기"(#/auth/signup)로
+// 보낸다 — 결제는 로그인 후 #/billing/plans에서 진행.
+async function renderLandingPricing(gridEl) {
+  let config;
+  try {
+    config = await apiRequest('GET', '/api/billing/config');
+  } catch (err) {
+    gridEl.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+    return;
+  }
+  gridEl.innerHTML = config.plans.map(p => `
+    <div class="landing-plan-card${p.plan === 'pro' ? ' landing-plan-card--highlight' : ''}">
+      <h3 class="landing-plan-name">${escapeHtml(p.name)}</h3>
+      <p class="landing-plan-price">${p.amount > 0 ? escapeHtml(formatBudget(p.amount)) + '<small>/월</small>' : '무료'}</p>
+      <ul class="landing-plan-features">${(PLAN_FEATURES[p.plan] || []).map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>
+      <a href="#/auth/signup" class="home-cta-primary">가입하기</a>
     </div>
+  `).join('');
+}
+
+async function renderLandingPage(container) {
+  document.body.classList.add('is-landing');
+  renderHomeOverlay();
+
+  const year = new Date().getFullYear();
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <header class="landing-header">
+      <a href="#/" class="landing-logo">공공사업 AI 비서</a>
+      <div class="landing-header-actions">
+        <a href="#/auth/login" class="home-cta-secondary">로그인</a>
+        <a href="#/auth/signup" class="home-cta-primary">무료로 시작하기</a>
+      </div>
+    </header>
+
+    <section class="landing-hero reveal">
+      <div class="landing-hero-inner">
+        <p class="landing-hero-eyebrow">AI 공공사업 참여판단 비서</p>
+        <h1 class="landing-hero-title">공공사업 참여,<br>AI가 먼저 검토합니다</h1>
+        <p class="landing-hero-desc">나라장터 공고를 AI가 분석해서 참여 가능성을 판단하고, 서류·일정·팀협업까지 한번에</p>
+        <div class="landing-hero-actions">
+          <a href="#/auth/signup" class="home-cta-primary">무료로 시작하기</a>
+          <a href="#/notices" class="home-cta-secondary">전체 공고 둘러보기</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-section reveal">
+      <div class="landing-container">
+        <p class="landing-section-eyebrow">이런 고민, 있으셨나요</p>
+        <h2 class="landing-section-title">매일 수백 건의 공고를<br>일일이 확인하기 어려우셨나요?</h2>
+        <p class="landing-section-desc">나라장터에는 하루에도 수백 건의 공고가 새로 올라옵니다. 지역·업종·자격조건을 일일이 대조하다 보면 정작 서류를 준비할 시간이 부족해지죠.</p>
+        <div class="landing-problem-stat">
+          <div><span class="landing-problem-num">500건</span><span class="landing-problem-num-label">오늘의 신규 공고</span></div>
+          <span class="landing-problem-arrow">&rarr;</span>
+          <div><span class="landing-problem-num landing-problem-num--result">7건</span><span class="landing-problem-num-label">우리 회사가 참여 가능한 공고</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-section landing-section--alt reveal">
+      <div class="landing-container">
+        <p class="landing-section-eyebrow">핵심 기능</p>
+        <h2 class="landing-section-title">공고 분석부터 팀 협업까지,<br>AI 비서 하나로</h2>
+        <div class="landing-features-grid">
+          ${LANDING_FEATURES.map(f => `
+            <div class="landing-feature-card">
+              <div class="landing-feature-icon">${f.icon}</div>
+              <h3 class="landing-feature-title">${escapeHtml(f.title)}</h3>
+              <p class="landing-feature-desc">${escapeHtml(f.desc)}</p>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-section reveal">
+      <div class="landing-container">
+        <p class="landing-section-eyebrow">활용 시나리오</p>
+        <h2 class="landing-section-title">이렇게 활용할 수 있어요</h2>
+        <p class="landing-case-disclaimer">아래는 실제 고객 사례가 아닌, 서비스 활용 방식을 보여드리기 위한 예시입니다.</p>
+        <div class="landing-cases-grid">
+          ${LANDING_CASES.map(c => `
+            <div class="landing-case-card">
+              <span class="landing-case-badge">예시 · ${escapeHtml(c.tag)}</span>
+              <h3 class="landing-case-title">${escapeHtml(c.title)}</h3>
+              <p class="landing-case-desc">${escapeHtml(c.desc)}</p>
+            </div>
+          `).join('')}
+        </div>
+        <div class="landing-partnership-card">
+          <h3>제휴 문의</h3>
+          <p>협회·단체·솔루션 연동 등 제휴를 원하시면 연락해주세요.<br>문의: [제휴 문의 이메일 입력 예정]</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-section landing-section--alt reveal">
+      <div class="landing-container">
+        <p class="landing-section-eyebrow">자주 묻는 질문</p>
+        <h2 class="landing-section-title">FAQ</h2>
+        <div class="landing-faq-list">
+          ${LANDING_FAQS.map((f, i) => `
+            <div class="landing-faq-item" data-index="${i}">
+              <button type="button" class="landing-faq-question">
+                <span>${escapeHtml(f.q)}</span>
+                <span class="landing-faq-icon">+</span>
+              </button>
+              <div class="landing-faq-answer"><p>${escapeHtml(f.a)}</p></div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-section reveal">
+      <div class="landing-container">
+        <p class="landing-section-eyebrow">요금제</p>
+        <h2 class="landing-section-title">우리 회사에 맞는 플랜을 선택하세요</h2>
+        <div class="landing-pricing-grid" id="landing-pricing-grid"><div class="loading">불러오는 중...</div></div>
+      </div>
+    </section>
+
+    <footer class="landing-footer">
+      <div class="landing-container">
+        <div class="landing-footer-top">
+          <div class="landing-footer-info">
+            <strong>공공사업 AI 비서</strong> (운영사: [회사명 입력 예정])<br>
+            사업자등록번호: [000-00-00000] · 대표: [대표자명 입력 예정]<br>
+            주소: [사업장 주소 입력 예정]<br>
+            문의: [연락처/이메일 입력 예정]
+          </div>
+          <div class="landing-footer-links">
+            <a href="#" onclick="return false;" title="준비 중">이용약관</a>
+            <a href="#" onclick="return false;" title="준비 중">개인정보처리방침</a>
+          </div>
+        </div>
+        <div class="landing-footer-bottom">
+          &copy; ${year} 공공사업 AI 비서. All rights reserved.
+        </div>
+      </div>
+    </footer>
   `));
+
+  initLandingFaqToggles(container);
+  initLandingRevealAnimations(container);
+  renderLandingPricing(document.getElementById('landing-pricing-grid'));
 }
 
 function renderOnboardingHero(container) {
+  document.body.classList.remove('is-landing');
   container.innerHTML = '';
   renderHomeOverlay();
   container.appendChild(h(`
@@ -2829,6 +3146,7 @@ function pipelineStepIndicatorHtml(status) {
 // 집계(readyCount 등)는 더 이상 없다 — 이 응답을 쓰는 화면은 여기뿐이라
 // 하위호환을 유지할 이유가 없었다.
 function renderDashboard(container, data) {
+  document.body.classList.remove('is-landing');
   container.innerHTML = '';
   // 프로필 미완성 안내는 이제 #global-profile-banner(전역, #app 밖)가
   // 담당한다 — route()가 매 페이지 이동마다 renderGlobalProfileBanner()를
@@ -8711,6 +9029,11 @@ function route() {
   if (path !== '#/') {
     document.getElementById('banner-layer-overlay')?.remove();
     document.body.style.overflow = '';
+    // 랜딩페이지(is-landing)도 같은 이유로 방어적으로 정리한다 —
+    // renderOnboardingHero/renderDashboard가 이미 지우지만, 링크 클릭
+    // 없이 주소창에 직접 다른 경로를 입력하는 경우처럼 그 함수들을 안
+    // 거치는 경로 전환에서도 사이드바가 계속 숨어있지 않도록 이중 안전장치.
+    document.body.classList.remove('is-landing');
   }
   if (path === '#/auth/signup') { renderSignup(app); return; }
   if (path === '#/auth/login') { renderLogin(app); return; }
