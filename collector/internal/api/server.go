@@ -158,6 +158,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/admin/tech-spec", s.handleAdminTechSpec)
 	mux.HandleFunc("GET /api/admin/integrations", s.handleAdminIntegrations)
 	mux.HandleFunc("GET /api/admin/notification-failures", s.handleAdminNotificationFailures)
+	mux.HandleFunc("GET /api/admin/settings", s.handleAdminGetSettings)
+	mux.HandleFunc("PUT /api/admin/settings/free-plan-email-limit", s.handleAdminSetFreePlanEmailLimit)
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))
 }

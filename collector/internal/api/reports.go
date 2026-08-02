@@ -342,13 +342,20 @@ func (s *Server) sendReportEmail(ctx context.Context, profileID, periodType stri
 		return
 	}
 
+	emailAllowed := s.checkEmailNotificationQuota(ctx, profileID)
 	for _, m := range members {
-		sendErr := s.notify.Send(ctx, m.email, subject, body)
-		status, errMsg := "sent", sql.NullString{}
-		if sendErr != nil {
-			status = "failed"
-			errMsg = sql.NullString{String: sendErr.Error(), Valid: true}
-			s.logger.Error("report: send failed", "recipient", m.email, "error", sendErr)
+		var status string
+		var errMsg sql.NullString
+		if emailAllowed {
+			sendErr := s.notify.Send(ctx, m.email, subject, body)
+			status = "sent"
+			if sendErr != nil {
+				status = "failed"
+				errMsg = sql.NullString{String: sendErr.Error(), Valid: true}
+				s.logger.Error("report: send failed", "recipient", m.email, "error", sendErr)
+			}
+		} else {
+			status = "skipped_quota"
 		}
 		if _, logErr := s.db.ExecContext(ctx, `
 			INSERT INTO notification_log (event_type, channel, recipient_email, user_id, subject, status, error_message)

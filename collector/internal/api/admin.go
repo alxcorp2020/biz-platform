@@ -65,6 +65,11 @@ type adminDashboardResponse struct {
 	RevenueThisMonthKRW int64              `json:"revenueThisMonthKRW"`
 	AIAnalysisThisMonth int                `json:"aiAnalysisThisMonth"`
 	RecentPayments      []adminPaymentItem `json:"recentPayments"`
+	// EmailQuotaSkippedThisMonth — Free 플랜 월간 알림성 이메일 한도
+	// 초과로 이메일 채널만 조용히 생략된 건수(notifications.go의
+	// logSkippedEmailNotification이 남김). 운영 가시성 목적 — 이 숫자가
+	// 계속 크면 한도를 올릴지 검토하라는 신호.
+	EmailQuotaSkippedThisMonth int `json:"emailQuotaSkippedThisMonth"`
 }
 
 func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
@@ -119,6 +124,15 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp.RecentPayments = recentPayments
+
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM notification_log
+		WHERE status = 'skipped_quota' AND created_at >= date_trunc('month', now())`,
+	).Scan(&resp.EmailQuotaSkippedThisMonth); err != nil {
+		s.logger.Error("admin-dashboard: email quota skipped query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
 
 	writeJSON(w, http.StatusOK, resp)
 }

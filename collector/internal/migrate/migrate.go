@@ -147,6 +147,12 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensurePushSubscriptionsTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate push_subscriptions table: %w", err)
 	}
+	if err := ensureSystemSettingsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate system_settings table: %w", err)
+	}
+	if err := ensureNotificationLogSkippedStatus(ctx, db); err != nil {
+		return fmt.Errorf("migrate notification_log skipped status: %w", err)
+	}
 	return nil
 }
 
@@ -1029,6 +1035,41 @@ func ensurePushSubscriptionsTable(ctx context.Context, db *sql.DB) error {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
 		CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
+	`)
+	return err
+}
+
+// ensureSystemSettingsTable adds a generic key-value table for admin-tunable
+// runtime settings — 첫 사용처는 Free 플랜 월간 알림성 이메일 한도
+// (free_plan_email_limit, notifications.go의 checkEmailNotificationQuota가
+// 읽음)지만, 앞으로 다른 설정도 같은 테이블에 추가할 수 있게 범용으로
+// 만들었다. 기본값(20)을 시드해둬 관리자가 아직 값을 설정하지 않은
+// 새 배포에서도 즉시 동작한다.
+func ensureSystemSettingsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS system_settings (
+			key        TEXT PRIMARY KEY,
+			value      TEXT NOT NULL,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		INSERT INTO system_settings (key, value) VALUES ('free_plan_email_limit', '20')
+			ON CONFLICT (key) DO NOTHING;
+	`)
+	return err
+}
+
+// ensureNotificationLogSkippedStatus widens notification_log.status's CHECK
+// to allow 'skipped_quota' — Free 플랜이 월간 알림성 이메일 한도를 넘겨
+// 이메일 채널만 조용히 생략할 때(에러 아님, notification_log에는 남겨서
+// 관리자가 "이번달 한도 초과로 스킵된 건수"를 볼 수 있게 함) 쓴다.
+// status는 이 CHECK를 이전에 넓힌 적이 없어(event_type과 달리 단일
+// 마이그레이션) ensureDeadlineD7EventType류의 "여러 단계가 서로 좁히는"
+// 버그 위험이 없다.
+func ensureNotificationLogSkippedStatus(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_status_check;
+		ALTER TABLE notification_log ADD CONSTRAINT notification_log_status_check
+			CHECK (status IN ('sent','failed','skipped_quota'));
 	`)
 	return err
 }

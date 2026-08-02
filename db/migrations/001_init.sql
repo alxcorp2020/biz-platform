@@ -661,7 +661,10 @@ CREATE TABLE notification_log (
     pipeline_entry_id  UUID REFERENCES notice_pipeline_entries(id),
     notice_id          UUID REFERENCES notices(id),
     subject            TEXT NOT NULL,
-    status             TEXT NOT NULL CHECK (status IN ('sent','failed')),
+    -- 'skipped_quota': Free 플랜 월간 알림성 이메일 한도 초과로 이메일
+    -- 채널만 조용히 생략(인앱/푸시는 정상 발송) — notifications.go의
+    -- checkEmailNotificationQuota 참고.
+    status             TEXT NOT NULL CHECK (status IN ('sent','failed','skipped_quota')),
     error_message      TEXT,
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT notification_log_recipient_check CHECK (recipient_email IS NOT NULL OR recipient_phone IS NOT NULL)
@@ -903,3 +906,16 @@ CREATE TABLE push_subscriptions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_push_subscriptions_user ON push_subscriptions(user_id);
+
+-- ------------------------------------------------------------
+-- 관리자가 재배포 없이 조절하는 런타임 설정값. 첫 사용처는
+-- free_plan_email_limit(Free 플랜 월간 알림성 이메일 한도, 기본 20) —
+-- notifications.go의 checkEmailNotificationQuota가 읽는다. 값 검증(숫자
+-- 여부 등)은 애플리케이션 레벨에서 하고, 이 테이블 자체는 범용 key-value.
+-- ------------------------------------------------------------
+CREATE TABLE system_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO system_settings (key, value) VALUES ('free_plan_email_limit', '20');

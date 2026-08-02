@@ -53,6 +53,99 @@ func (s *Server) smsAllowedForPlan(ctx context.Context, profileID string) bool {
 	return plan != billing.PlanFree
 }
 
+// notificationEmailEventTypes — Free 플랜 월간 이메일 한도에 실제로
+// 포함되는 이벤트 종류(요구사항 확정: "알림성 이메일만"). 팀 초대
+// (team_invite/team_invite_accepted) 같은 필수/운영성 이메일은 이 목록에
+// 넣지 않는다 — 그 발송 경로들은 애초에 checkEmailNotificationQuota를
+// 거치지 않으므로(company_team.go 참고) 한도와 무관하게 항상 나간다.
+var notificationEmailEventTypes = []string{
+	notifyEventDeadlineD7, notifyEventDeadlineD3, notifyEventDeadlineD1,
+	notifyEventAssigneeStatusChange, notifyEventRecommendationDigest,
+	notifyEventWeeklyReport, notifyEventMonthlyReport,
+}
+
+// checkEmailNotificationQuota — Free 플랜 월간 알림성 이메일 한도(기본
+// 20건, 관리자가 system_settings.free_plan_email_limit로 조절 가능 —
+// system_settings.go 참고). 유료 플랜은 무제한. 한도 조회/집계 실패
+// 시에는 막지 않는다(fail open) — SMS 게이트(smsAllowedForPlan)와 반대
+// 판단인 이유: SMS는 건당 실비용이 있어 실수로 더 보내면 손해지만,
+// 이메일은 한도 오판으로 "덜 보내는" 쪽이 사용자 경험을 더 해친다.
+func (s *Server) checkEmailNotificationQuota(ctx context.Context, profileID string) bool {
+	plan, err := s.effectivePlan(ctx, profileID)
+	if err != nil {
+		s.logger.Error("notify: effective plan lookup failed for email quota gate", "error", err)
+		return true
+	}
+	if plan != billing.PlanFree {
+		return true
+	}
+	limit, err := s.getSystemSettingInt(ctx, freePlanEmailLimitSettingKey, defaultFreePlanEmailLimit)
+	if err != nil {
+		s.logger.Error("notify: email limit setting lookup failed", "error", err)
+		return true
+	}
+	if limit < 0 {
+		return true // 관리자가 음수를 넣으면 무제한으로 취급(확장 여지)
+	}
+	count, err := s.countNotificationEmailsThisMonth(ctx, profileID)
+	if err != nil {
+		s.logger.Error("notify: email quota count query failed", "error", err)
+		return true
+	}
+	return count < limit
+}
+
+// countNotificationEmailsThisMonth counts this calendar month's successfully
+// sent notification-emails for one org — notification_log엔 company_profile_id가
+// 직접 없어(담당자 단위 이벤트는 contact_id, 회원 단위 이벤트는 user_id로만
+// 남음, notification_log 테이블 주석 참고) 양쪽 경로를 LEFT JOIN으로 모두
+// 확인한다. checkAIAnalysisQuota(billing.go)와 동일하게 "이번 달 1일부터"
+// 롤링 집계라 별도 리셋 배치가 필요 없다 — 매월 1일이 지나면 자연히 0부터
+// 다시 센다.
+// countNotificationEmailsThisMonth — recommendation_digest는 다이제스트
+// 이메일 1통에 매칭된 공고마다 notification_log 행을 하나씩 남긴다
+// (fetchDigestedNoticeIDs가 "그 공고를 이미 다이제스트했는지"를 notice_id
+// 단위로 추적해야 해서 — 이 로깅 구조 자체는 바꾸지 않는다). 그래서 단순히
+// count(*)를 하면 다이제스트 한 통을 여러 통으로 잘못 세게 된다 —
+// recommendation_digest만 (수신자, 제목, 날짜) 기준으로 묶어서 "실제
+// 보낸 이메일 수"로 정규화하고, 나머지 이벤트(행 1개 = 이메일 1통이 이미
+// 성립)는 그대로 센다.
+func (s *Server) countNotificationEmailsThisMonth(ctx context.Context, profileID string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT count(DISTINCT
+			CASE WHEN nl.event_type = $1
+				THEN nl.recipient_email || '|' || nl.subject || '|' || nl.created_at::date::text
+				ELSE nl.id::text
+			END
+		)
+		FROM notification_log nl
+		LEFT JOIN company_contacts cc ON cc.id = nl.contact_id
+		LEFT JOIN company_members cm ON cm.user_id = nl.user_id
+		WHERE nl.channel = 'email' AND nl.status = 'sent'
+		  AND nl.created_at >= date_trunc('month', now())
+		  AND nl.event_type = ANY($2)
+		  AND (cc.company_profile_id = $3 OR cm.company_profile_id = $3)`,
+		notifyEventRecommendationDigest, pq.Array(notificationEmailEventTypes), profileID,
+	).Scan(&count)
+	return count, err
+}
+
+// logSkippedEmailNotification records that an email was intentionally
+// skipped (not a failure) so the admin dashboard can show "이번달 한도
+// 초과로 스킵된 발송 건수"(admin.go의 handleAdminDashboard 참고) — 아무
+// 흔적도 안 남기면 운영자가 "왜 이 회사만 이메일이 안 갔지"를 알 방법이
+// 없다.
+func (s *Server) logSkippedEmailNotification(ctx context.Context, eventType, recipientEmail string, userID, contactID, pipelineEntryID, noticeID *string, subject string) {
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO notification_log (event_type, channel, recipient_email, user_id, contact_id, pipeline_entry_id, notice_id, subject, status)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'skipped_quota')`,
+		eventType, notifyChannelEmail, recipientEmail, userID, contactID, pipelineEntryID, noticeID, subject,
+	); err != nil {
+		s.logger.Error("notify: skipped-quota log insert failed", "error", err)
+	}
+}
+
 // RunDailyNotifications is the entry point cmd/apiserver calls on a daily
 // ticker (see notify.NextDailyRun). Each sub-batch logs its own errors and
 // keeps going — one failing batch shouldn't block the others.
@@ -151,15 +244,20 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 		// 대상 전부가 같은 회사(t.profileID)라 타깃당 한 번만 조회 — 담당자마다
 		// 반복 조회하지 않는다.
 		smsAllowed := s.smsAllowedForPlan(ctx, t.profileID)
+		emailAllowed := s.checkEmailNotificationQuota(ctx, t.profileID)
 		for _, c := range contacts {
 			contactID := c.id
 			if c.emailEnabled && c.email != "" && !c.emailAlreadySent {
 				subject := fmt.Sprintf("[제출마감 D-%d] %s", offsetDays, t.title)
-				body := fmt.Sprintf(
-					"<p>제출마감이 D-%d 남은 참여 건이 있습니다.</p><p><b>%s</b></p><p>발주기관: %s</p>",
-					offsetDays, html.EscapeString(t.title), html.EscapeString(t.org.String),
-				)
-				s.sendNotificationEmail(ctx, eventType, c.email, nil, &contactID, &entryID, &noticeID, subject, body)
+				if emailAllowed {
+					body := fmt.Sprintf(
+						"<p>제출마감이 D-%d 남은 참여 건이 있습니다.</p><p><b>%s</b></p><p>발주기관: %s</p>",
+						offsetDays, html.EscapeString(t.title), html.EscapeString(t.org.String),
+					)
+					s.sendNotificationEmail(ctx, eventType, c.email, nil, &contactID, &entryID, &noticeID, subject, body)
+				} else {
+					s.logSkippedEmailNotification(ctx, eventType, c.email, nil, &contactID, &entryID, &noticeID, subject)
+				}
 			}
 			if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
 				msg := fmt.Sprintf("[제출마감 D-%d] %s 제출마감이 D-%d일 남았습니다.", offsetDays, truncateForSMS(t.title, 25), offsetDays)
@@ -368,12 +466,18 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 			// Phase 6: 다이제스트는 이미 회원 단위(m.userID)라 sendPushToUser를 직접 쓴다.
 			s.sendPushToUser(ctx, m.userID, subject, inAppBody, "/#/notices")
 
-			sendErr := s.notify.Send(ctx, m.email, subject, body)
-			status, errMsg := "sent", sql.NullString{}
-			if sendErr != nil {
-				status = "failed"
-				errMsg = sql.NullString{String: sendErr.Error(), Valid: true}
-				s.logger.Error("notify: digest send failed", "recipient", m.email, "error", sendErr)
+			var status string
+			var errMsg sql.NullString
+			if s.checkEmailNotificationQuota(ctx, p.profileID) {
+				sendErr := s.notify.Send(ctx, m.email, subject, body)
+				status = "sent"
+				if sendErr != nil {
+					status = "failed"
+					errMsg = sql.NullString{String: sendErr.Error(), Valid: true}
+					s.logger.Error("notify: digest send failed", "recipient", m.email, "error", sendErr)
+				}
+			} else {
+				status = "skipped_quota"
 			}
 			for _, n := range matched {
 				if _, logErr := s.db.ExecContext(ctx, `
@@ -477,15 +581,20 @@ func (s *Server) notifyAssigneeStatusChange(ctx context.Context, profileID, pipe
 		return
 	}
 	smsAllowed := s.smsAllowedForPlan(ctx, profileID)
+	emailAllowed := s.checkEmailNotificationQuota(ctx, profileID)
 	for _, c := range contacts {
 		contactID := c.id
 		if c.emailEnabled && c.email != "" && !c.emailAlreadySent {
 			subject := fmt.Sprintf("[상태변경] %s", noticeTitle)
-			body := fmt.Sprintf(
-				"<p><b>%s</b>의 참여 상태가 <b>%s</b>(으)로 변경되었습니다.</p>",
-				html.EscapeString(noticeTitle), html.EscapeString(newStatus),
-			)
-			s.sendNotificationEmail(ctx, notifyEventAssigneeStatusChange, c.email, nil, &contactID, &pipelineEntryID, &noticeID, subject, body)
+			if emailAllowed {
+				body := fmt.Sprintf(
+					"<p><b>%s</b>의 참여 상태가 <b>%s</b>(으)로 변경되었습니다.</p>",
+					html.EscapeString(noticeTitle), html.EscapeString(newStatus),
+				)
+				s.sendNotificationEmail(ctx, notifyEventAssigneeStatusChange, c.email, nil, &contactID, &pipelineEntryID, &noticeID, subject, body)
+			} else {
+				s.logSkippedEmailNotification(ctx, notifyEventAssigneeStatusChange, c.email, nil, &contactID, &pipelineEntryID, &noticeID, subject)
+			}
 		}
 		if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
 			msg := fmt.Sprintf("[상태변경] %s %s(으)로 변경", truncateForSMS(noticeTitle, 25), newStatus)

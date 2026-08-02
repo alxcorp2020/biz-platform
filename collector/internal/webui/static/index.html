@@ -6995,6 +6995,7 @@ async function renderAdminDashboard(container) {
     { label: '이번달 신규가입', value: data.newMembersThisMonth + '명' },
     { label: '이번달 결제 매출', value: formatBudget(data.revenueThisMonthKRW) },
     { label: '이번달 AI 분석 사용', value: data.aiAnalysisThisMonth + '건' },
+    { label: '이번달 이메일 한도 초과 스킵', value: data.emailQuotaSkippedThisMonth + '건' },
   ];
   const tilesHtml = tiles.map(t => `
     <div class="dash-tile">
@@ -7038,14 +7039,57 @@ async function renderAdminDashboard(container) {
         <a href="#/admin/integrations" class="btn btn-secondary btn-sm">외부 연동/API 현황</a>
       </div>
     </div>
+    <div class="detail-card" id="admin-settings-section"></div>
     <div class="detail-card" id="admin-changelog-section"></div>
     <div class="detail-card" id="admin-system-status-section"></div>
     <div class="detail-card" id="admin-notification-failures-section"></div>
   `));
 
+  renderAdminSettingsSection(document.getElementById('admin-settings-section'));
   renderAdminSystemStatus(document.getElementById('admin-system-status-section'));
   renderAdminChangelogSection(document.getElementById('admin-changelog-section'));
   renderAdminNotificationFailures(document.getElementById('admin-notification-failures-section'));
+}
+
+// renderAdminSettingsSection — 재배포 없이 조절하는 런타임 설정
+// (system_settings 테이블). 첫 항목은 Free 플랜 월간 알림성 이메일
+// 한도뿐이지만 카드 자체는 "플랜 설정"으로 이름 붙여 다음 설정이
+// 추가돼도 이 안에 같이 넣을 수 있게 열어뒀다.
+async function renderAdminSettingsSection(container) {
+  container.innerHTML = '<h3>플랜 설정</h3><div class="loading">불러오는 중...</div>';
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/settings');
+  } catch (err) {
+    container.innerHTML = `<h3>플랜 설정</h3><p class="error">${escapeHtml(err.message)}</p>`;
+    return;
+  }
+  container.innerHTML = `
+    <h3>플랜 설정</h3>
+    <label>Free 플랜 월간 알림성 이메일 한도(건)
+      <p class="license-card-meta" style="margin-top:0.2rem">마감리마인더·상태변경·추천다이제스트·주간/월간 리포트 이메일에만 적용됩니다. 유료 플랜은 항상 무제한이고, 팀 초대 등 필수 이메일은 이 한도와 무관하게 항상 발송됩니다. 값을 바꾸면 다음 발송부터 바로 적용됩니다(재배포 불필요).</p>
+      <input type="number" min="0" step="1" id="free-plan-email-limit-input" class="select-input" style="max-width:160px" value="${escapeAttr(String(data.freePlanEmailLimit))}">
+    </label>
+    <div class="license-toolbar" style="margin-top:0.6rem">
+      <button type="button" class="btn btn-primary btn-sm" id="save-free-plan-email-limit-btn">저장</button>
+    </div>
+    <div id="admin-settings-result"></div>
+  `;
+  const resultBox = document.getElementById('admin-settings-result');
+  document.getElementById('save-free-plan-email-limit-btn').addEventListener('click', async () => {
+    const input = document.getElementById('free-plan-email-limit-input');
+    const value = parseInt(input.value, 10);
+    if (isNaN(value) || value < 0) {
+      resultBox.innerHTML = '<p class="error">0 이상의 숫자를 입력해주세요.</p>';
+      return;
+    }
+    try {
+      await apiRequest('PUT', '/api/admin/settings/free-plan-email-limit', { value });
+      resultBox.innerHTML = `<p class="success">저장했습니다 — Free 플랜 월간 이메일 한도가 ${value}건으로 적용됩니다.</p>`;
+    } catch (err) {
+      resultBox.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+    }
+  });
 }
 
 // renderAdminNotificationFailures — Phase 5 2단계: notification_log의 최근
