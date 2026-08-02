@@ -987,13 +987,15 @@ func ensureDocumentKindColumn(ctx context.Context, db *sql.DB) error {
 }
 
 // ensureCompanyDocumentsExtractionStatusColumns adds company_documents.
-// extraction_status/failure_reason — 실패한 업로드도 한도가 차감된다는
-// 사실을 사용자가 사후에 확인할 수 있도록(#/ai-usage 화면), Claude 호출
-// 성공/실패 결과를 이제 DB에도 남긴다(기존엔 s.logger.Error 로그로만
-// 남고 DB엔 아무 흔적이 없었음). extraction_status가 NULL인 채로 남는
-// 행은 "처리중" 상태로 취급한다 — 실제로는 업로드 요청 처리 도중 서버가
-// 죽는 것 같은 드문 경우에만 NULL로 영구히 남는다(정상 흐름에서는 같은
-// HTTP 요청 안에서 곧바로 success/failed로 갱신됨). failure_reason은
+// extraction_status/failure_reason — 실패/성공 여부를 사용자가 사후에
+// 확인할 수 있도록(#/ai-usage 화면), Claude 호출 결과를 이제 DB에도
+// 남긴다(기존엔 s.logger.Error 로그로만 남고 DB엔 아무 흔적이 없었음).
+// extraction_status='success'인 행만 AI 분석 한도로 카운트된다
+// (countAIAnalysisThisMonth, billing.go — 2026-08-03 정책: 실패는 어떤
+// 이유든 한도를 절대 차감하지 않음). extraction_status가 NULL인 채로
+// 남는 행은 "처리중" 상태로 취급한다 — 실제로는 업로드 요청 처리 도중
+// 서버가 죽는 것 같은 드문 경우에만 NULL로 영구히 남는다(정상 흐름에서는
+// 같은 HTTP 요청 안에서 곧바로 success/failed로 갱신됨). failure_reason은
 // Claude API 원본 에러 메시지를 그대로 노출하지 않고
 // classifyExtractionFailureReason(company_documents.go)이 만든 사용자
 // 친화적 문구만 저장한다.

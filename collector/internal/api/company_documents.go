@@ -29,6 +29,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -123,11 +124,11 @@ const (
 )
 
 // markDocumentExtractionResult persists the Claude 호출 성공/실패 결과 —
-// 실패해도 한도가 차감된다는 사실을 사용자가 #/ai-usage 화면에서 사후에
-// 확인할 수 있게 하는 최소한의 기록이다. 이 UPDATE 자체가 실패해도 이미
-// 클라이언트에는 (성공/extraction_failed) 응답을 보낸 뒤이므로 로그만
-// 남기고 별도 에러를 반환하지 않는다 — 부가 정보 기록이 주 응답 흐름에
-// 영향을 주면 안 된다.
+// countAIAnalysisThisMonth(billing.go)가 이 값으로 한도 카운트 여부를
+// 결정하고(success만 카운트), #/ai-usage 화면이 사용자에게 사후에 성공/실패를
+// 보여주는 근거이기도 하다. 이 UPDATE 자체가 실패해도 이미 클라이언트에는
+// (성공/extraction_failed) 응답을 보낸 뒤이므로 로그만 남기고 별도 에러를
+// 반환하지 않는다 — 부가 정보 기록이 주 응답 흐름에 영향을 주면 안 된다.
 func (s *Server) markDocumentExtractionResult(ctx context.Context, documentID, status string, failureReason *string) {
 	if _, err := s.db.ExecContext(ctx, `
 		UPDATE company_documents SET extraction_status = $1, failure_reason = $2 WHERE id = $3`,
@@ -153,6 +154,38 @@ func classifyExtractionFailureReason(err error) string {
 		return "문서를 인식하지 못했습니다. 스캔 품질을 확인하거나 다른 파일로 다시 시도해주세요."
 	}
 	return "일시적인 오류로 분석에 실패했습니다. 잠시 후 다시 시도해주세요."
+}
+
+// fileRetryRateLimitWindow/fileRetryRateLimitMaxFailures — 비용 남용 방지
+// 장치(2026-08-03 정책: 실패는 한도를 안 깎으므로, 이게 없으면 같은 문제
+// 파일을 무한정 재시도해도 아무 제약이 없다). 한도와는 완전히 별개다.
+const (
+	fileRetryRateLimitWindow      = time.Hour
+	fileRetryRateLimitMaxFailures = 3
+)
+
+// checkFileRetryRateLimit — 같은 조직이 같은 파일(file_hash)로 최근
+// fileRetryRateLimitWindow(1시간) 안에 fileRetryRateLimitMaxFailures(3)회
+// 이상 실패했으면 그 파일에 한해 더 이상 시도(신규 업로드든 재시도든)를
+// 막는다. 별도 "차단 해제 시각" 컬럼 없이 조회 시점마다 "최근 1시간 안의
+// 실패 횟수"를 다시 세는 방식이라(company_documents.extraction_status='failed'
+// AND uploaded_at >= now()-1시간), 오래된 실패가 창(window) 밖으로 밀려나면
+// 배치/스케줄 없이 자연히 다시 허용된다("1시간 지나면 다시 시도 가능"을
+// 그대로 구현). 같은 파일 내용이라도 조직이 다르면 서로 영향을 안 주도록
+// company_profile_id로 스코프한다(디스크 저장은 해시로 전역 dedup되지만,
+// "이 조직이 이 파일로 반복 실패 중"이라는 판단은 조직 단위가 맞다).
+func (s *Server) checkFileRetryRateLimit(ctx context.Context, profileID, fileHash string) (ok bool, err error) {
+	var failureCount int
+	err = s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM company_documents
+		WHERE company_profile_id = $1 AND file_hash = $2 AND extraction_status = 'failed'
+		  AND uploaded_at >= now() - ($3 * interval '1 second')`,
+		profileID, fileHash, fileRetryRateLimitWindow.Seconds(),
+	).Scan(&failureCount)
+	if err != nil {
+		return false, err
+	}
+	return failureCount < fileRetryRateLimitMaxFailures, nil
 }
 
 // extractCandidateForKind dispatches to the category-specific extract*Candidate
@@ -182,9 +215,13 @@ func (s *Server) extractCandidateForKind(ctx context.Context, kind string, body 
 // handleRetryDocumentExtraction — POST /api/me/documents/{id}/retry. 실패한
 // 업로드를 다시 분석한다(#/ai-usage 화면의 "재시도" 버튼). 이미 디스크에
 // 저장된 원본 파일(해시 기반 dedup 저장이라 계속 남아있음)을 재사용해
-// 새 멀티파트 업로드 없이 바로 Claude를 다시 부르되, 새로운 시도이므로
-// company_documents에 새 행을 만들어 한도도 새로 차감한다(원래 실패했던
-// 행은 실패 기록으로 그대로 남겨둔다 — 지우거나 갱신하지 않음).
+// 새 멀티파트 업로드 없이 바로 Claude를 다시 부르며, company_documents에
+// 새 행을 만든다(원래 실패했던 행은 이력으로 그대로 남겨둔다 — 지우거나
+// 갱신하지 않음). 이 재시도가 다시 실패하면 한도는 전혀 안 깎이고
+// (2026-08-03 정책), 성공하면 그 성공 건 하나가 카운트된다 — 같은 파일을
+// 몇 번을 재시도하든 결국 성공하기 전까지는 비용만 발생하고 한도는 그대로인
+// 상황을 막기 위해 checkFileRetryRateLimit(같은 파일 해시 1시간 내 3회
+// 이상 실패 시 그 파일 재시도 차단)을 여기서도 검사한다.
 func (s *Server) handleRetryDocumentExtraction(w http.ResponseWriter, r *http.Request) {
 	userID, authed := s.currentUserID(r)
 	if !authed {
@@ -230,6 +267,15 @@ func (s *Server) handleRetryDocumentExtraction(w http.ResponseWriter, r *http.Re
 		// document_kind 컬럼이 생기기 전(예전) 업로드 — 어느 추출 함수를
 		// 불러야 할지 알 수 없어 재시도를 지원하지 않는다.
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "retry_unavailable"})
+		return
+	}
+
+	if ok, err := s.checkFileRetryRateLimit(ctx, profile.ID, fileHash); err != nil {
+		s.logger.Error("retry-document: retry rate limit check failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	} else if !ok {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "file_retry_blocked"})
 		return
 	}
 
@@ -368,6 +414,16 @@ func (s *Server) receiveCompanyDocument(w http.ResponseWriter, r *http.Request, 
 
 	sum := sha256.Sum256(body)
 	hash := hex.EncodeToString(sum[:])
+
+	if ok, err := s.checkFileRetryRateLimit(r.Context(), profile.ID, hash); err != nil {
+		s.logger.Error("upload-document: retry rate limit check failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return nil, "", nil, "", "", false
+	} else if !ok {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "file_retry_blocked"})
+		return nil, "", nil, "", "", false
+	}
+
 	storedKey := hash + "." + ext
 	if err := s.writeCompanyDocumentFile(storedKey, body); err != nil {
 		s.logger.Error("upload-document: write to disk failed", "error", err)

@@ -135,9 +135,11 @@ func (s *Server) checkPipelineEntryQuota(ctx context.Context, profileID string) 
 // comment for why these 6 endpoints specifically). "Effective" 한도는
 // effectiveAIAnalysisLimit이 결정한다 — 관리자가 이번달 임시조정을 걸어뒀으면
 // 그 값, 아니면 플랜 기본값(관리자 화면에서 오버라이드됐을 수 있음).
-// company_documents 카운트는 계속 이번 달 시작 이후 업로드 행 수(매 업로드가
-// Claude 호출 1건과 정확히 대응하므로 별도 로그 테이블 없이 정확한 사용량
-// 신호가 된다).
+// company_documents 카운트는 성공(extraction_status='success')한 업로드만
+// 센다(countAIAnalysisThisMonth) — 실패는 이유를 막론하고 절대 한도를
+// 깎지 않는다(2026-08-03 정책). 실패 건이 반복되는 비용 남용은 여기가 아니라
+// checkFileRetryRateLimit(company_documents.go, 같은 파일 해시가 1시간 안에
+// 3회 이상 실패하면 그 파일에 한해 재시도를 막음)이 별도로 막는다.
 func (s *Server) checkAIAnalysisQuota(ctx context.Context, profileID string) (ok bool, limit int, err error) {
 	plan, err := s.effectivePlan(ctx, profileID)
 	if err != nil {
@@ -160,15 +162,24 @@ func (s *Server) checkAIAnalysisQuota(ctx context.Context, profileID string) (ok
 	return count < max, max, nil
 }
 
-// countAIAnalysisThisMonth counts company_documents rows uploaded since the
-// start of the current calendar month — shared by checkAIAnalysisQuota
-// (billing.go), dashboard.go's "AI 분석 N/M건" summary tile, and
-// billing_ai_usage.go's usage-history screen, so all three always agree.
+// countAIAnalysisThisMonth counts company_documents rows *successfully
+// extracted* (extraction_status='success') since the start of the current
+// calendar month — shared by checkAIAnalysisQuota(billing.go), dashboard.go's
+// "AI 분석 N/M건" summary tile, and billing_ai_usage.go's usage-history
+// screen, so all three always agree.
+//
+// 정책(2026-08-03, 사용자 확정): "AI 분석 실패는 절대 한도를 차감하면 안
+// 된다" — 예전엔 Claude API를 실제로 호출만 했으면(성공/실패 무관) 한도가
+// 깎였는데, 그 정책을 폐기했다. 이제 실패(extraction_status='failed') 또는
+// 아직 처리중(NULL)인 행은 몇 번을 시도해도 절대 한도에 안 잡히고, 오직
+// 성공한 분석만 카운트된다. 비용 남용 방지는 한도가 아니라 별도의 파일
+// 단위 재시도 제한(checkFileRetryRateLimit, company_documents.go)이 담당한다.
 func (s *Server) countAIAnalysisThisMonth(ctx context.Context, profileID string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
 		SELECT count(*) FROM company_documents
-		WHERE company_profile_id = $1 AND uploaded_at >= date_trunc('month', now())`,
+		WHERE company_profile_id = $1 AND uploaded_at >= date_trunc('month', now())
+		  AND extraction_status = 'success'`,
 		profileID,
 	).Scan(&count)
 	return count, err

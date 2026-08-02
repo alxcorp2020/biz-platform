@@ -2525,7 +2525,8 @@ const ERROR_MESSAGES = {
   file_empty: '빈 파일은 업로드할 수 없습니다. (AI 분석 한도가 차감되지 않았습니다)',
   file_read_failed: '파일을 읽는 중 오류가 발생했습니다.',
   storage_failed: '파일 저장 중 오류가 발생했습니다.',
-  extraction_failed: 'AI 분석에 실패했습니다. 직접 입력해주세요. (AI가 실제로 문서 분석을 시도했기 때문에 이번 시도는 AI 분석 한도에서 차감되었습니다)',
+  extraction_failed: '분석에 실패했습니다. 직접 입력해주세요. (한도가 차감되지 않았습니다)',
+  file_retry_blocked: '이 파일은 반복 실패하고 있어 잠시 후 다시 시도하거나 직접 입력해주세요.',
   ai_analysis_quota_exceeded: '이번달 AI 분석 한도를 모두 사용했습니다. 직접 입력하시거나 다음달에 다시 시도해주세요.',
   document_not_found: '해당 서류를 찾을 수 없습니다.',
   retry_unavailable: '이 서류는 재시도를 지원하지 않습니다(오래된 업로드 기록). 새로 업로드해주세요.',
@@ -4222,7 +4223,7 @@ async function renderAIUsage(container) {
   container.appendChild(h(`
     <h2>AI 분석 사용내역</h2>
     <p class="license-card-meta">${glossaryHtml('AI 분석')} 이번달 사용량: ${escapeHtml(limitLabel)}</p>
-    <p class="license-card-meta">실패한 항목도 AI가 실제로 문서 분석을 시도했기 때문에 한도에서 이미 차감된 상태입니다. "재시도"를 누르면 다시 분석하며, 이 또한 새로운 시도로 한도가 차감됩니다.</p>
+    <p class="license-card-meta">실패한 항목은 한도가 차감되지 않습니다 — 성공적으로 분석된 건만 이번달 사용량에 잡힙니다. "재시도"를 누르면 다시 분석하며, 이때도 성공해야만 사용량에 반영됩니다. 단, 같은 파일로 짧은 시간 안에 반복 실패하면 비용 남용 방지를 위해 그 파일의 재시도가 잠시 제한될 수 있습니다.</p>
     <div class="license-list">${rowsHtml}</div>
   `));
 
@@ -4242,9 +4243,19 @@ async function renderAIUsage(container) {
       try {
         result = await apiRequest('POST', `/api/me/documents/${encodeURIComponent(id)}/retry`);
       } catch (err) {
-        // 재시도도 실패 — 새 시도 자체가 새 사용 기록이라 목록을 새로
-        // 불러오면 이 실패도 별도 행으로 나타난다(원래 실패했던 행은
-        // 그대로 남아있고, 그 옆에 새로운 실패 행이 하나 더 생기는 식).
+        if (err.code === 'file_retry_blocked') {
+          // 이 경우는 시도 자체가 안 됐다(새 company_documents 행이 안 생김)
+          // — 목록을 새로고침해도 아무 변화가 안 보이므로, 왜 막혔는지
+          // 여기 바로 보여줘야 한다.
+          retrySlot.innerHTML = '';
+          retrySlot.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+          btn.disabled = false;
+          return;
+        }
+        // 재시도가 다시 실패한 경우(extraction_failed) — 새 시도 자체가 새
+        // 이력이라 목록을 새로 불러오면 이 실패도 별도 행으로 나타난다
+        // (원래 실패했던 행은 그대로 남아있고, 그 옆에 새로운 실패 행이
+        // 하나 더 생기는 식).
         renderAIUsage(container);
         return;
       }

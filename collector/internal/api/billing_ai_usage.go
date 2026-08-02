@@ -1,8 +1,10 @@
 // billing_ai_usage.go — 대시보드 "AI 분석 N/M건" 카드 + 클릭 시 이번달
 // 실제 사용 내역(어떤 서류를 언제 분석했는지) 화면. company_documents가
-// 곧 사용 로그다(checkAIAnalysisQuota의 근거와 동일 — 업로드 1건 = Claude
-// 호출 1건, 별도 로그 테이블 없음). owner/member 둘 다 조회 가능 — 읽기
-// 전용 정보라 handleGetSubscription과 같은 접근 범위.
+// 곧 사용 로그다(별도 로그 테이블 없음) — 단, "사용량"으로 카운트되는 건
+// 그중 extraction_status='success'인 행뿐이다(countAIAnalysisThisMonth,
+// billing.go — 2026-08-03 정책: 실패는 한도를 안 깎음). 실패/처리중 건도
+// items 목록에는 계속 나오지만 usedCount에는 안 잡힌다. owner/member 둘 다
+// 조회 가능 — 읽기 전용 정보라 handleGetSubscription과 같은 접근 범위.
 package api
 
 import (
@@ -104,8 +106,18 @@ func (s *Server) handleGetAIUsage(w http.ResponseWriter, r *http.Request) {
 		items = append(items, it)
 	}
 
+	// usedCount는 반드시 성공한 것만(countAIAnalysisThisMonth, billing.go —
+	// 2026-08-03 정책: 실패는 한도를 안 깎음) — len(items)를 쓰면 안 된다.
+	// items 목록 자체는 이력 확인용이라 실패/처리중 건도 계속 그대로 보여준다.
+	usedCount, err := s.countAIAnalysisThisMonth(ctx, profile.ID)
+	if err != nil {
+		s.logger.Error("get-ai-usage: used count query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"usedCount": len(items),
+		"usedCount": usedCount,
 		"limit":     limit, // -1 = 무제한, 0 = 이 플랜에서 이용 불가(Free)
 		"items":     items,
 	})
