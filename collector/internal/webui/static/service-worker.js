@@ -49,22 +49,40 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+// fetchBrandName — 서버가 payload에 title을 안 실어 보낸 경우에만 쓰는
+// 최후의 대비책(서버 발신 로직은 항상 명시적 title을 채워 보내므로 정상
+// 경로에서는 거의 안 탄다). 서비스워커는 페이지의 currentBrandName 전역을
+// 못 보므로 공개 API(/api/company-info)를 직접 불러 브랜드명이 바뀌어도
+// 여기 값이 낡지 않게 한다. 네트워크 자체가 실패하면(오프라인 등)
+// 진짜 최후의 하드코딩 기본값으로 떨어진다.
+async function fetchBrandName() {
+  try {
+    const res = await fetch('/api/company-info');
+    const data = await res.json();
+    return data.brandName || '공공사업 AI 비서';
+  } catch (e) {
+    return '공공사업 AI 비서';
+  }
+}
+
 self.addEventListener('push', (event) => {
   if (!event.data) return;
-  let payload;
-  try {
-    payload = event.data.json();
-  } catch (e) {
-    payload = { title: '공공사업 AI 비서', body: event.data.text() };
-  }
-  const title = payload.title || '공공사업 AI 비서';
-  const options = {
-    body: payload.body || '',
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
-    data: { url: payload.url || '/' },
-  };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil((async () => {
+    let payload;
+    try {
+      payload = event.data.json();
+    } catch (e) {
+      payload = { title: null, body: event.data.text() };
+    }
+    const title = payload.title || await fetchBrandName();
+    const options = {
+      body: payload.body || '',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      data: { url: payload.url || '/' },
+    };
+    return self.registration.showNotification(title, options);
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {

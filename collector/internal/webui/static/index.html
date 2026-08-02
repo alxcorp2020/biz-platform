@@ -2625,6 +2625,13 @@ function applyBrandName(name) {
   document.querySelectorAll('.brand-name-text').forEach(el => {
     el.textContent = currentBrandName;
   });
+  // 스크린샷 alt 텍스트 중 브랜드명이 들어가는 것들(랜딩 히어로/스포트라이트
+  // 대시보드 이미지) — HTML을 새로 그릴 때는 이미 currentBrandName으로
+  // 채워 넣지만, 그 뒤(예: loadBrandName의 fetch가 나중에 도착)에도 stale
+  // 값이 안 남게 여기서 한 번 더 맞춰준다.
+  document.querySelectorAll('[data-brand-alt-suffix]').forEach(el => {
+    el.alt = currentBrandName + el.getAttribute('data-brand-alt-suffix');
+  });
 }
 
 // loadBrandName — 앱 부팅 시(loadMe()와 별개로, 로그인 여부와 무관하게)
@@ -2973,7 +2980,9 @@ const LANDING_FEATURE_SPOTLIGHTS = [
     title: '오늘 할 일을 한눈에',
     desc: '로그인하면 바로 오늘 확인해야 할 공고와 파이프라인 현황을 보여드립니다. 마감 임박, 서류 미비, 담당자 미지정 건을 놓치지 않도록 정리해드립니다.',
     image: '/screenshots/dashboard.png',
-    alt: '공공사업 AI 비서 홈 대시보드 화면 — 오늘 해야 할 일 목록과 참여검토 대기, 마감임박 등 요약 카드',
+    // altSuffix — 이 이미지만 alt에 브랜드명이 들어간다(나머지 2개는
+    // 화면 내용만 설명). 렌더 시 currentBrandName + altSuffix로 조합.
+    altSuffix: ' 홈 대시보드 화면 — 오늘 해야 할 일 목록과 참여검토 대기, 마감임박 등 요약 카드',
   },
   {
     eyebrow: '핵심 기능 · 팀 협업',
@@ -3099,7 +3108,7 @@ async function renderLandingPage(container) {
             <span class="landing-browser-dot landing-browser-dot--yellow"></span>
             <span class="landing-browser-dot landing-browser-dot--green"></span>
           </div>
-          <img src="/screenshots/dashboard.png" alt="공공사업 AI 비서 홈 대시보드 실제 화면">
+          <img src="/screenshots/dashboard.png" alt="${escapeAttr(currentBrandName)} 홈 대시보드 실제 화면" data-brand-alt-suffix="${escapeAttr(' 홈 대시보드 실제 화면')}">
         </div>
       </div>
     </section>
@@ -3133,7 +3142,7 @@ async function renderLandingPage(container) {
                   <span class="landing-browser-dot landing-browser-dot--yellow"></span>
                   <span class="landing-browser-dot landing-browser-dot--green"></span>
                 </div>
-                <img src="${escapeAttr(f.image)}" alt="${escapeAttr(f.alt)}" loading="lazy">
+                <img src="${escapeAttr(f.image)}" alt="${escapeAttr(f.altSuffix ? currentBrandName + f.altSuffix : f.alt)}"${f.altSuffix ? ` data-brand-alt-suffix="${escapeAttr(f.altSuffix)}"` : ''} loading="lazy">
               </div>
             </div>
           </div>

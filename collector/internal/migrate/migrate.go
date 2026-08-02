@@ -156,6 +156,14 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureOAuthIdentitiesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate user_oauth_identities table: %w", err)
 	}
+	// company_info(브랜드명 포함)는 banners 시드가 그 값을 읽어가므로
+	// ensureBannersTable보다 먼저 만들어야 한다.
+	if err := ensureCompanyInfoTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_info table: %w", err)
+	}
+	if err := ensureCompanyInfoBrandNameColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_info.brand_name column: %w", err)
+	}
 	if err := ensureBannersTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate banners table: %w", err)
 	}
@@ -170,12 +178,6 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	}
 	if err := ensureAdminBroadcastEventType(ctx, db); err != nil {
 		return fmt.Errorf("migrate admin_broadcast event type: %w", err)
-	}
-	if err := ensureCompanyInfoTable(ctx, db); err != nil {
-		return fmt.Errorf("migrate company_info table: %w", err)
-	}
-	if err := ensureCompanyInfoBrandNameColumn(ctx, db); err != nil {
-		return fmt.Errorf("migrate company_info.brand_name column: %w", err)
 	}
 	return nil
 }
@@ -1132,7 +1134,12 @@ func ensureOAuthIdentitiesTable(ctx context.Context, db *sql.DB) error {
 // (WHERE NOT EXISTS) 임시 플레이스홀더 배너 3개를 시드한다 — 이미지는
 // 아직 실제 업로드 기능(3단계)이 없어 collector/internal/webui/static/banners/
 // 아래 고정 SVG를 가리킨다. 관리자가 이후 이미지를 교체/삭제하면 테이블이
-// 더 이상 비어있지 않으므로 재배포 때마다 다시 시드되지 않는다.
+// 더 이상 비어있지 않으므로 재배포 때마다 다시 시드되지 않는다. 첫 배너
+// 문구는 그 시점의 company_info.brand_name을 그대로 박아 넣는다(이후
+// company_info에서 최종 브랜드명으로 바꿔도 이미 시드된 이 배너 행은
+// 자동으로 안 바뀜 — 관리자가 #/admin/banners에서 직접 고치면 됨,
+// company_info 테이블이 이 함수보다 먼저 만들어져야 하므로 Apply()에서
+// ensureBannersTable을 ensureCompanyInfoTable 뒤로 옮겨뒀다).
 func ensureBannersTable(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS banners (
@@ -1152,7 +1159,7 @@ func ensureBannersTable(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO banners (title, image_url, link_url, display_order)
 		SELECT * FROM (VALUES
-			('공공사업 AI 비서, 지금 시작하세요', '/banners/banner-1.svg', CAST(NULL AS TEXT), 0),
+			((SELECT brand_name FROM company_info WHERE id = 1) || ', 지금 시작하세요', '/banners/banner-1.svg', CAST(NULL AS TEXT), 0),
 			('AI 분석으로 서류 자동화', '/banners/banner-2.svg', '#/notices', 1),
 			('우리 회사에 맞는 사업, 놓치지 마세요', '/banners/banner-3.svg', '#/growth', 2)
 		) AS seed(title, image_url, link_url, display_order)
