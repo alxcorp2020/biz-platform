@@ -19,6 +19,8 @@ import (
 	"strings"
 
 	"github.com/lib/pq"
+
+	"biz-platform/collector/internal/billing"
 )
 
 const (
@@ -36,6 +38,20 @@ const (
 // 마감이 임박해도 더 이상 챙길 필요가 없어 알림 대상에서 제외한다 —
 // dashboard.go의 pipelineActiveStatuses와 동일한 판단.
 var pipelineActiveForNotification = pipelineActiveStatuses
+
+// smsAllowedForPlan — Phase 6: SMS는 유료 플랜 전용(Free는 이메일+웹푸시만).
+// 담당자 알림 설정 UI는 그대로 두고(company_contacts.smsEnabled 토글 자체는
+// 안 막음) 발송 직전에만 거른다 — Free 사용자가 SMS 토글을 켜놨거나
+// 다운그레이드 후에도 남아있어도 실제 비용(Aligo 건당 과금)이 발생하지
+// 않게 하는 안전장치. 조회 실패 시에도 안전하게(비용 발생 방지 우선) 막는다.
+func (s *Server) smsAllowedForPlan(ctx context.Context, profileID string) bool {
+	plan, err := s.effectivePlan(ctx, profileID)
+	if err != nil {
+		s.logger.Error("notify: effective plan lookup failed for SMS gate", "error", err)
+		return false
+	}
+	return plan != billing.PlanFree
+}
 
 // RunDailyNotifications is the entry point cmd/apiserver calls on a daily
 // ticker (see notify.NextDailyRun). Each sub-batch logs its own errors and
@@ -132,6 +148,9 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 			s.logger.Error("notify: contact lookup failed", "error", err)
 			continue
 		}
+		// 대상 전부가 같은 회사(t.profileID)라 타깃당 한 번만 조회 — 담당자마다
+		// 반복 조회하지 않는다.
+		smsAllowed := s.smsAllowedForPlan(ctx, t.profileID)
 		for _, c := range contacts {
 			contactID := c.id
 			if c.emailEnabled && c.email != "" && !c.emailAlreadySent {
@@ -142,7 +161,7 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 				)
 				s.sendNotificationEmail(ctx, eventType, c.email, nil, &contactID, &entryID, &noticeID, subject, body)
 			}
-			if c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
+			if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
 				msg := fmt.Sprintf("[제출마감 D-%d] %s 제출마감이 D-%d일 남았습니다.", offsetDays, truncateForSMS(t.title, 25), offsetDays)
 				s.sendNotificationSMS(ctx, eventType, c.phone, nil, &contactID, &entryID, &noticeID, msg)
 			}
@@ -457,6 +476,7 @@ func (s *Server) notifyAssigneeStatusChange(ctx context.Context, profileID, pipe
 		s.logger.Error("notify: assignee-status-change contact lookup failed", "error", err)
 		return
 	}
+	smsAllowed := s.smsAllowedForPlan(ctx, profileID)
 	for _, c := range contacts {
 		contactID := c.id
 		if c.emailEnabled && c.email != "" && !c.emailAlreadySent {
@@ -467,7 +487,7 @@ func (s *Server) notifyAssigneeStatusChange(ctx context.Context, profileID, pipe
 			)
 			s.sendNotificationEmail(ctx, notifyEventAssigneeStatusChange, c.email, nil, &contactID, &pipelineEntryID, &noticeID, subject, body)
 		}
-		if c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
+		if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
 			msg := fmt.Sprintf("[상태변경] %s %s(으)로 변경", truncateForSMS(noticeTitle, 25), newStatus)
 			s.sendNotificationSMS(ctx, notifyEventAssigneeStatusChange, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
 		}
