@@ -670,6 +670,70 @@
     .banner-slide-arrow { width: 28px; height: 28px; font-size: 1.1rem; }
   }
 
+  /* ---------- 팝업 레이어(관리자 CMS 5번) — 배너와 같은
+     .banner-layer-overlay(전체화면 dim)를 공유하고, 안쪽 카드만
+     다르다(캐러셀 대신 이미지+텍스트 공지). 배너와 팝업이 동시에 뜨는
+     일은 없다(renderHomeOverlay가 팝업 우선, 없으면 배너). */
+  .popup-layer-card {
+    background: #fff;
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    max-width: 420px;
+    width: 100%;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    display: flex;
+    flex-direction: column;
+    max-height: 85vh;
+  }
+  .popup-layer-image { width: 100%; max-height: 220px; object-fit: cover; display: block; }
+  .popup-layer-body { padding: 1.25rem; overflow-y: auto; }
+  .popup-layer-title { margin: 0 0 0.75rem; font-size: 1.1rem; font-weight: 700; color: var(--navy); }
+  .popup-layer-content { font-size: 0.92rem; line-height: 1.65; color: var(--ink); }
+  .popup-layer-content a { color: var(--accent-blue); }
+  .popup-layer-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.85rem 1.25rem;
+    border-top: 1px solid var(--border);
+  }
+  .popup-layer-footer .checkbox-label { font-size: 0.82rem; color: var(--ink-soft); }
+
+  /* ---------- 관리자 CMS 목록(배너/팝업/공지) 공용 행 스타일 ---------- */
+  .cms-list { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; }
+  .cms-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #fff;
+    flex-wrap: wrap;
+  }
+  .cms-row-thumb {
+    width: 96px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: 6px;
+    background: var(--bg-soft);
+    flex-shrink: 0;
+  }
+  .cms-row-main { flex: 1 1 240px; min-width: 0; }
+  .cms-row-title { font-weight: 700; font-size: 0.95rem; color: var(--ink); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .cms-row-meta { font-size: 0.8rem; color: var(--ink-soft); margin-top: 0.25rem; }
+  .cms-row-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; flex-shrink: 0; }
+  .cms-form-card {
+    max-width: 640px;
+    margin: 1rem 0;
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-soft);
+  }
+  .cms-form-card h3 { margin-top: 0; }
+
   /* ---------- 프로필 미완성 안내 배너 — #app 밖의 #global-profile-banner에
      렌더링되어 라우트 변경과 무관하게 모든 화면 최상단에 항상 붙어있다
      (position: sticky — 스크롤해도 계속 보임). 데스크톱(≥900px)에서는
@@ -1828,6 +1892,7 @@
     <div class="header-right" id="header-right">
       <nav class="header-links">
         <a href="#/notices">전체 공고</a>
+        <a href="#/announcements">공지사항</a>
       </nav>
       <nav id="auth-nav" class="auth-nav"></nav>
     </div>
@@ -1913,6 +1978,7 @@ const SIDEBAR_ICONS = {
   chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>',
   calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
   bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+  notice: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-5v12l-18-5z"/><path d="M11 13.5V19a2 2 0 0 0 4 0v-.5"/></svg>',
 };
 // SIDEBAR_MENU — 원래 5개 고정이었으나(모바일 TABBAR_MENU와의 통일된
 // 제약), 성장분석 추가 시 사용자가 "임베드"가 아니라 "새 메뉴 항목"을
@@ -1929,6 +1995,7 @@ const SIDEBAR_MENU = [
   { path: '#/me/profile', label: '기업 프로필', icon: 'profile' },
   { path: '#/growth', label: '성장분석', icon: 'chart' },
   { path: '#/me/subscription', label: '구독 관리', icon: 'card' },
+  { path: '#/announcements', label: '공지사항', icon: 'notice' },
 ];
 // 모바일 하단 탭바 — PC 사이드바와 다른 5개 구성(요청사항). '진행중'/
 // '내정보'는 사이드바의 파이프라인/프로필과 동일 라우트. '관심공고'가
@@ -2290,6 +2357,15 @@ const ERROR_MESSAGES = {
   invitation_not_pending: '이미 처리된 초대입니다.',
   invitation_expired: '만료된 초대입니다.',
   invitation_not_found: '초대를 찾을 수 없습니다.',
+  title_and_image_required: '제목과 이미지를 입력해주세요.',
+  title_and_content_required: '제목과 내용을 입력해주세요.',
+  banner_not_found: '배너를 찾을 수 없습니다.',
+  popup_not_found: '팝업을 찾을 수 없습니다.',
+  announcement_not_found: '공지사항을 찾을 수 없습니다.',
+  invalid_direction: '잘못된 이동 방향입니다.',
+  channel_required: '발송 채널을 하나 이상 선택해주세요.',
+  invalid_channel: '알 수 없는 발송 채널입니다.',
+  invalid_target_plan: '알 수 없는 대상 플랜입니다.',
 };
 
 const ELIGIBILITY_RESULT_LABELS = {
@@ -2445,6 +2521,75 @@ async function renderHome(container) {
   renderDashboard(container, data);
 }
 
+// ---------- 홈 진입 오버레이 오케스트레이션 ----------
+// 팝업(관리자 CMS 5번)과 배너 레이어(1번)는 둘 다 화면 전체를 덮는
+// 오버레이라 동시에 뜨면 서로 가린다 — 팝업(관리자가 시의성 있게 등록한
+// 공지)을 우선하고, 오늘 안 닫은 팝업이 없을 때만 배너를 보여준다.
+// renderMarketingHero/renderOnboardingHero/renderDashboard는 이 함수
+// 하나만 호출한다.
+async function renderHomeOverlay() {
+  const shownPopup = await tryRenderPopupLayer();
+  if (!shownPopup) {
+    await renderHomeBannerSlide();
+  }
+}
+
+// simpleMarkdownToHtml — 팝업 콘텐츠용 최소 마크다운(굵게, 링크 자동
+// 인식, 줄바꿈)만 지원한다. 복잡한 리치텍스트 에디터 라이브러리는
+// 스펙에서 명시적으로 지양 — 반드시 escapeHtml로 먼저 이스케이프한
+// 뒤 최소 태그만 허용해 관리자가 입력한 텍스트로 인한 XSS를 막는다.
+function simpleMarkdownToHtml(text) {
+  let out = escapeHtml(text);
+  out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  out = out.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  out = out.replace(/\n/g, '<br>');
+  return out;
+}
+
+// tryRenderPopupLayer — 활성 팝업 중 오늘 아직 "하루 보지 않기"로 안 닫은
+// 첫 번째 것을 오버레이로 띄운다. 뭔가 보여줬으면 true를 돌려줘
+// renderHomeOverlay가 배너를 건너뛰게 한다.
+async function tryRenderPopupLayer() {
+  let items;
+  try {
+    const data = await apiRequest('GET', '/api/popups');
+    items = data.items || [];
+  } catch (err) {
+    return false;
+  }
+  const today = todayDateString();
+  const popup = items.find(p => localStorage.getItem(`popup_dismissed_${p.id}_${today}`) !== '1');
+  if (!popup) return false;
+
+  document.getElementById('banner-layer-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'banner-layer-overlay';
+  overlay.className = 'banner-layer-overlay';
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+  overlay.innerHTML = `
+    <div class="popup-layer-card">
+      ${popup.imageUrl ? `<img src="${escapeAttr(popup.imageUrl)}" alt="" class="popup-layer-image">` : ''}
+      <div class="popup-layer-body">
+        <h3 class="popup-layer-title">${escapeHtml(popup.title)}</h3>
+        <div class="popup-layer-content">${simpleMarkdownToHtml(popup.content)}</div>
+      </div>
+      <div class="popup-layer-footer">
+        <label class="checkbox-label"><input type="checkbox" id="popup-dismiss-today-input"> 오늘 하루 보지 않기</label>
+        <button type="button" class="btn btn-secondary btn-sm" id="popup-close-btn">닫기</button>
+      </div>
+    </div>
+  `;
+  overlay.querySelector('#popup-close-btn').addEventListener('click', () => {
+    if (overlay.querySelector('#popup-dismiss-today-input').checked) {
+      localStorage.setItem(`popup_dismissed_${popup.id}_${today}`, '1');
+    }
+    document.body.style.overflow = '';
+    overlay.remove();
+  });
+  return true;
+}
+
 // ---------- 배너 레이어(홈 화면 진입 시 오버레이 팝업, 관리자 CMS 1번) ----------
 // renderMarketingHero/renderOnboardingHero/renderDashboard 세 곳 모두에서
 // 호출한다 — 홈 화면에 진입할 때마다(로그인/프로필 유무 무관) 화면
@@ -2583,7 +2728,7 @@ async function renderGlobalProfileBanner() {
 
 function renderMarketingHero(container) {
   container.innerHTML = '';
-  renderHomeBannerSlide();
+  renderHomeOverlay();
   container.appendChild(h(`
     <div class="home-hero">
       <p class="home-hero-eyebrow">AI 공공사업 참여판단 비서</p>
@@ -2600,7 +2745,7 @@ function renderMarketingHero(container) {
 
 function renderOnboardingHero(container) {
   container.innerHTML = '';
-  renderHomeBannerSlide();
+  renderHomeOverlay();
   container.appendChild(h(`
     <div class="home-hero">
       <p class="home-hero-eyebrow">거의 다 왔습니다</p>
@@ -2687,7 +2832,7 @@ function renderDashboard(container, data) {
   // 프로필 미완성 안내는 이제 #global-profile-banner(전역, #app 밖)가
   // 담당한다 — route()가 매 페이지 이동마다 renderGlobalProfileBanner()를
   // 호출하므로 여기서 따로 그릴 필요가 없다.
-  renderHomeBannerSlide();
+  renderHomeOverlay();
 
   const s = data.summary;
   // filter는 renderPipelineList가 읽는 쿼리 파라미터 값(dashboard.go 요약
@@ -7427,6 +7572,15 @@ async function renderAdminDashboard(container) {
         <a href="#/admin/integrations" class="btn btn-secondary btn-sm">외부 연동/API 현황</a>
       </div>
     </div>
+    <div class="detail-card">
+      <h3>콘텐츠 관리(CMS)</h3>
+      <div class="license-toolbar" style="flex-wrap:wrap">
+        <a href="#/admin/banners" class="btn btn-secondary btn-sm">배너 관리</a>
+        <a href="#/admin/popups" class="btn btn-secondary btn-sm">팝업 관리</a>
+        <a href="#/admin/announcements" class="btn btn-secondary btn-sm">공지 게시판</a>
+        <a href="#/admin/broadcast" class="btn btn-secondary btn-sm">회원 알림 메시지</a>
+      </div>
+    </div>
     <div class="detail-card" id="admin-settings-section"></div>
     <div class="detail-card" id="admin-changelog-section"></div>
     <div class="detail-card" id="admin-system-status-section"></div>
@@ -7847,6 +8001,556 @@ async function renderAdminIntegrations(container) {
   `));
 }
 
+// ---------- 관리자 CMS 3번: 배너 관리(#/admin/banners) ----------
+function toDatetimeLocalValue(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function fromDatetimeLocalValue(v) {
+  return v ? new Date(v).toISOString() : null;
+}
+function cmsPeriodLabel(startsAt, endsAt) {
+  if (!startsAt && !endsAt) return '노출기간 제한 없음';
+  const fmt = (d) => d ? new Date(d).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '무제한';
+  return `노출기간: ${fmt(startsAt)} ~ ${fmt(endsAt)}`;
+}
+
+async function renderAdminBanners(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/banners');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    if (err.status === 403) { container.appendChild(h('<p class="error">관리자 권한이 필요합니다.</p>')); return; }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>배너 관리</h2>
+    <div class="detail-card">
+      <p class="license-card-meta">홈 화면 진입 시 뜨는 오버레이 레이어에 노출되는 슬라이드입니다. 화살표로 노출 순서를 바꿀 수 있습니다.</p>
+      <div class="license-toolbar">
+        <button type="button" id="banner-add-btn" class="btn btn-primary">새 배너 추가</button>
+      </div>
+      <div id="banner-form-slot"></div>
+      <div class="cms-list" id="banner-list"></div>
+    </div>
+  `));
+  renderBannerListInto(document.getElementById('banner-list'), data.items || [], container);
+  document.getElementById('banner-add-btn').addEventListener('click', () => {
+    renderBannerForm(document.getElementById('banner-form-slot'), null, () => renderAdminBanners(container));
+  });
+}
+
+function renderBannerListInto(listEl, items, container) {
+  if (!items.length) { listEl.innerHTML = '<p class="empty">등록된 배너가 없습니다.</p>'; return; }
+  listEl.innerHTML = items.map(b => `
+    <div class="cms-row" data-id="${escapeAttr(b.id)}">
+      <img class="cms-row-thumb" src="${escapeAttr(b.imageUrl)}" alt="">
+      <div class="cms-row-main">
+        <div class="cms-row-title">${escapeHtml(b.title)} <span class="badge ${b.isActive ? 'badge--success' : 'badge--gray'}">${b.isActive ? '활성' : '비활성'}</span></div>
+        <div class="cms-row-meta">${b.linkUrl ? '연결: ' + escapeHtml(b.linkUrl) : '연결 링크 없음'} · ${cmsPeriodLabel(b.startsAt, b.endsAt)}</div>
+      </div>
+      <div class="cms-row-actions">
+        <button type="button" class="btn btn-secondary btn-sm banner-move-up-btn">&uarr;</button>
+        <button type="button" class="btn btn-secondary btn-sm banner-move-down-btn">&darr;</button>
+        <button type="button" class="btn btn-secondary btn-sm banner-edit-btn">수정</button>
+        <button type="button" class="btn btn-secondary btn-sm banner-delete-btn">삭제</button>
+      </div>
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll('.cms-row').forEach(row => {
+    const id = row.dataset.id;
+    const banner = items.find(b => b.id === id);
+    row.querySelector('.banner-move-up-btn').addEventListener('click', async () => {
+      try { await apiRequest('POST', `/api/admin/banners/${encodeURIComponent(id)}/move`, { direction: 'up' }); renderAdminBanners(container); }
+      catch (err) { alert(err.message); }
+    });
+    row.querySelector('.banner-move-down-btn').addEventListener('click', async () => {
+      try { await apiRequest('POST', `/api/admin/banners/${encodeURIComponent(id)}/move`, { direction: 'down' }); renderAdminBanners(container); }
+      catch (err) { alert(err.message); }
+    });
+    row.querySelector('.banner-edit-btn').addEventListener('click', () => {
+      renderBannerForm(document.getElementById('banner-form-slot'), banner, () => renderAdminBanners(container));
+    });
+    row.querySelector('.banner-delete-btn').addEventListener('click', async () => {
+      if (!confirm('이 배너를 삭제할까요?')) return;
+      try { await apiRequest('DELETE', `/api/admin/banners/${encodeURIComponent(id)}`); renderAdminBanners(container); }
+      catch (err) { alert(err.message); }
+    });
+  });
+}
+
+function renderBannerForm(slot, banner, onDone) {
+  const isEdit = !!banner;
+  slot.innerHTML = `
+    <div class="cms-form-card">
+      <h3>${isEdit ? '배너 수정' : '새 배너'}</h3>
+      <div class="profile-form">
+        <label>제목<input type="text" id="banner-title-input" value="${isEdit ? escapeAttr(banner.title) : ''}"></label>
+        <label>이미지(jpg/png/webp)
+          <input type="file" id="banner-image-input" accept=".jpg,.jpeg,.png,.webp">
+        </label>
+        <div id="banner-image-preview">${isEdit ? `<img src="${escapeAttr(banner.imageUrl)}" style="max-width:240px;border-radius:8px;margin-top:0.5rem">` : ''}</div>
+        <label>연결 링크(선택, 예: #/notices)<input type="text" id="banner-link-input" value="${isEdit && banner.linkUrl ? escapeAttr(banner.linkUrl) : ''}"></label>
+        <label>노출 시작(선택)<input type="datetime-local" id="banner-starts-input" value="${isEdit ? toDatetimeLocalValue(banner.startsAt) : ''}"></label>
+        <label>노출 종료(선택)<input type="datetime-local" id="banner-ends-input" value="${isEdit ? toDatetimeLocalValue(banner.endsAt) : ''}"></label>
+        <label class="checkbox-label"><input type="checkbox" id="banner-active-input" ${(!isEdit || banner.isActive) ? 'checked' : ''}> 활성화</label>
+        <div id="banner-form-error" class="error" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="button" class="btn btn-primary" id="banner-save-btn">저장</button>
+          <button type="button" class="btn btn-secondary" id="banner-cancel-btn">취소</button>
+        </div>
+      </div>
+    </div>
+  `;
+  let uploadedImageUrl = isEdit ? banner.imageUrl : '';
+
+  document.getElementById('banner-image-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const preview = document.getElementById('banner-image-preview');
+    preview.innerHTML = '<span class="loading">업로드 중...</span>';
+    try {
+      const data = await uploadCompanyRecordDocument('/api/admin/cms-images', file);
+      uploadedImageUrl = data.imageUrl;
+      preview.innerHTML = `<img src="${escapeAttr(uploadedImageUrl)}" style="max-width:240px;border-radius:8px">`;
+    } catch (err) {
+      preview.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+    }
+  });
+  document.getElementById('banner-cancel-btn').addEventListener('click', () => { slot.innerHTML = ''; });
+  document.getElementById('banner-save-btn').addEventListener('click', async () => {
+    const errorBox = document.getElementById('banner-form-error');
+    errorBox.style.display = 'none';
+    const title = document.getElementById('banner-title-input').value.trim();
+    if (!title) { errorBox.textContent = '제목을 입력해주세요.'; errorBox.style.display = 'block'; return; }
+    if (!uploadedImageUrl) { errorBox.textContent = '이미지를 업로드해주세요.'; errorBox.style.display = 'block'; return; }
+    const payload = {
+      title, imageUrl: uploadedImageUrl,
+      linkUrl: document.getElementById('banner-link-input').value.trim() || null,
+      isActive: document.getElementById('banner-active-input').checked,
+      startsAt: fromDatetimeLocalValue(document.getElementById('banner-starts-input').value),
+      endsAt: fromDatetimeLocalValue(document.getElementById('banner-ends-input').value),
+    };
+    try {
+      if (isEdit) await apiRequest('PATCH', `/api/admin/banners/${encodeURIComponent(banner.id)}`, payload);
+      else await apiRequest('POST', '/api/admin/banners', payload);
+      slot.innerHTML = '';
+      onDone();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+// ---------- 관리자 CMS 5번: 팝업 관리(#/admin/popups) ----------
+async function renderAdminPopups(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/popups');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    if (err.status === 403) { container.appendChild(h('<p class="error">관리자 권한이 필요합니다.</p>')); return; }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>팝업 관리</h2>
+    <div class="detail-card">
+      <p class="license-card-meta">홈 화면 진입 시 뜨는 공지형 팝업입니다. 배너보다 우선 노출되며(둘 다 활성 상태여도 팝업이 먼저), 사용자가 "오늘 하루 보지 않기"를 체크하고 닫으면 그날은 다시 안 뜹니다.</p>
+      <div class="license-toolbar">
+        <button type="button" id="popup-add-btn" class="btn btn-primary">새 팝업 추가</button>
+      </div>
+      <div id="popup-form-slot"></div>
+      <div class="cms-list" id="popup-list"></div>
+    </div>
+  `));
+  renderPopupListInto(document.getElementById('popup-list'), data.items || [], container);
+  document.getElementById('popup-add-btn').addEventListener('click', () => {
+    renderPopupForm(document.getElementById('popup-form-slot'), null, () => renderAdminPopups(container));
+  });
+}
+
+function renderPopupListInto(listEl, items, container) {
+  if (!items.length) { listEl.innerHTML = '<p class="empty">등록된 팝업이 없습니다.</p>'; return; }
+  listEl.innerHTML = items.map(p => `
+    <div class="cms-row" data-id="${escapeAttr(p.id)}">
+      ${p.imageUrl ? `<img class="cms-row-thumb" src="${escapeAttr(p.imageUrl)}" alt="">` : ''}
+      <div class="cms-row-main">
+        <div class="cms-row-title">${escapeHtml(p.title)} <span class="badge ${p.isActive ? 'badge--success' : 'badge--gray'}">${p.isActive ? '활성' : '비활성'}</span></div>
+        <div class="cms-row-meta">${cmsPeriodLabel(p.startsAt, p.endsAt)}</div>
+      </div>
+      <div class="cms-row-actions">
+        <button type="button" class="btn btn-secondary btn-sm popup-edit-btn">수정</button>
+        <button type="button" class="btn btn-secondary btn-sm popup-delete-btn">삭제</button>
+      </div>
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll('.cms-row').forEach(row => {
+    const id = row.dataset.id;
+    const popup = items.find(p => p.id === id);
+    row.querySelector('.popup-edit-btn').addEventListener('click', () => {
+      renderPopupForm(document.getElementById('popup-form-slot'), popup, () => renderAdminPopups(container));
+    });
+    row.querySelector('.popup-delete-btn').addEventListener('click', async () => {
+      if (!confirm('이 팝업을 삭제할까요?')) return;
+      try { await apiRequest('DELETE', `/api/admin/popups/${encodeURIComponent(id)}`); renderAdminPopups(container); }
+      catch (err) { alert(err.message); }
+    });
+  });
+}
+
+function renderPopupForm(slot, popup, onDone) {
+  const isEdit = !!popup;
+  slot.innerHTML = `
+    <div class="cms-form-card">
+      <h3>${isEdit ? '팝업 수정' : '새 팝업'}</h3>
+      <div class="profile-form">
+        <label>제목<input type="text" id="popup-title-input" value="${isEdit ? escapeAttr(popup.title) : ''}"></label>
+        <label>이미지(선택, jpg/png/webp)
+          <input type="file" id="popup-image-input" accept=".jpg,.jpeg,.png,.webp">
+        </label>
+        <div id="popup-image-preview">${isEdit && popup.imageUrl ? `<img src="${escapeAttr(popup.imageUrl)}" style="max-width:240px;border-radius:8px;margin-top:0.5rem">` : ''}</div>
+        <label>내용<textarea id="popup-content-input" rows="6">${isEdit ? escapeHtml(popup.content) : ''}</textarea></label>
+        <p class="license-card-meta" style="margin-top:-0.5rem">**굵게**, 줄바꿈, URL 자동링크만 지원합니다(간단 마크다운).</p>
+        <label>노출 시작(선택)<input type="datetime-local" id="popup-starts-input" value="${isEdit ? toDatetimeLocalValue(popup.startsAt) : ''}"></label>
+        <label>노출 종료(선택)<input type="datetime-local" id="popup-ends-input" value="${isEdit ? toDatetimeLocalValue(popup.endsAt) : ''}"></label>
+        <label class="checkbox-label"><input type="checkbox" id="popup-active-input" ${(!isEdit || popup.isActive) ? 'checked' : ''}> 활성화</label>
+        <div id="popup-form-error" class="error" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="button" class="btn btn-primary" id="popup-save-btn">저장</button>
+          <button type="button" class="btn btn-secondary" id="popup-cancel-btn">취소</button>
+        </div>
+      </div>
+    </div>
+  `;
+  let uploadedImageUrl = isEdit ? (popup.imageUrl || '') : '';
+
+  document.getElementById('popup-image-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const preview = document.getElementById('popup-image-preview');
+    preview.innerHTML = '<span class="loading">업로드 중...</span>';
+    try {
+      const data = await uploadCompanyRecordDocument('/api/admin/cms-images', file);
+      uploadedImageUrl = data.imageUrl;
+      preview.innerHTML = `<img src="${escapeAttr(uploadedImageUrl)}" style="max-width:240px;border-radius:8px">`;
+    } catch (err) {
+      preview.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+    }
+  });
+  document.getElementById('popup-cancel-btn').addEventListener('click', () => { slot.innerHTML = ''; });
+  document.getElementById('popup-save-btn').addEventListener('click', async () => {
+    const errorBox = document.getElementById('popup-form-error');
+    errorBox.style.display = 'none';
+    const title = document.getElementById('popup-title-input').value.trim();
+    const content = document.getElementById('popup-content-input').value.trim();
+    if (!title || !content) { errorBox.textContent = '제목과 내용을 입력해주세요.'; errorBox.style.display = 'block'; return; }
+    const payload = {
+      title, content, imageUrl: uploadedImageUrl || null,
+      isActive: document.getElementById('popup-active-input').checked,
+      startsAt: fromDatetimeLocalValue(document.getElementById('popup-starts-input').value),
+      endsAt: fromDatetimeLocalValue(document.getElementById('popup-ends-input').value),
+    };
+    try {
+      if (isEdit) await apiRequest('PATCH', `/api/admin/popups/${encodeURIComponent(popup.id)}`, payload);
+      else await apiRequest('POST', '/api/admin/popups', payload);
+      slot.innerHTML = '';
+      onDone();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+// ---------- 공지 게시판(관리자 CMS 6번) — 사용자용 #/announcements ----------
+async function renderAnnouncementList(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/announcements');
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+  const items = data.items || [];
+  const rowsHtml = items.length ? `<div class="notice-list">${items.map(a => `
+    <a class="row-card" href="#/announcements/${encodeURIComponent(a.id)}">
+      <div class="row-card-main">
+        <div class="row-card-title">${a.isPinned ? '<span class="badge badge--warn">고정</span> ' : ''}${escapeHtml(a.title)}</div>
+        <div class="row-card-subtitle">${new Date(a.createdAt).toLocaleDateString('ko-KR')} · 조회 ${a.viewCount}</div>
+      </div>
+    </a>
+  `).join('')}</div>` : '<p class="empty">등록된 공지사항이 없습니다.</p>';
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <h2>공지사항</h2>
+    <div class="detail-card">${rowsHtml}</div>
+  `));
+}
+
+async function renderAnnouncementDetail(container, id) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let a;
+  try {
+    a = await apiRequest('GET', `/api/announcements/${encodeURIComponent(id)}`);
+  } catch (err) {
+    container.innerHTML = '';
+    if (err.status === 404) { container.appendChild(h('<p class="error">공지사항을 찾을 수 없습니다.</p>')); return; }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/announcements" class="back-link">&larr; 공지사항 목록으로</a>
+    <div class="detail-card">
+      <h2>${a.isPinned ? '<span class="badge badge--warn">고정</span> ' : ''}${escapeHtml(a.title)}</h2>
+      <p class="license-card-meta">${new Date(a.createdAt).toLocaleString('ko-KR')} · 조회 ${a.viewCount}</p>
+      <div class="popup-layer-content">${simpleMarkdownToHtml(a.content)}</div>
+    </div>
+  `));
+}
+
+// ---------- 관리자 CMS 6번: 공지 게시판 관리(#/admin/announcements) ----------
+async function renderAdminAnnouncements(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/announcements');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>공지 게시판 관리</h2>
+    <div class="detail-card">
+      <div class="license-toolbar">
+        <button type="button" id="announcement-add-btn" class="btn btn-primary">새 공지 작성</button>
+      </div>
+      <div id="announcement-form-slot"></div>
+      <div class="cms-list" id="announcement-list"></div>
+    </div>
+  `));
+
+  // 관리자 화면은 내용까지 필요하므로(수정 버튼) 목록 응답(제목만)과 별개로
+  // 각 공지 상세를 미리 불러오지 않고, 수정 버튼을 누른 시점에 GET으로
+  // 가져온다(handleGetAnnouncement가 조회수를 올리지만, 관리자 조회도
+  // "읽음"으로 치는 게 이상하지 않아 별도 API를 만들지 않았다).
+  renderAnnouncementAdminListInto(document.getElementById('announcement-list'), data.items || [], container);
+  document.getElementById('announcement-add-btn').addEventListener('click', () => {
+    renderAnnouncementForm(document.getElementById('announcement-form-slot'), null, () => renderAdminAnnouncements(container));
+  });
+}
+
+function renderAnnouncementAdminListInto(listEl, items, container) {
+  if (!items.length) { listEl.innerHTML = '<p class="empty">등록된 공지사항이 없습니다.</p>'; return; }
+  listEl.innerHTML = items.map(a => `
+    <div class="cms-row" data-id="${escapeAttr(a.id)}">
+      <div class="cms-row-main">
+        <div class="cms-row-title">${a.isPinned ? '<span class="badge badge--warn">고정</span> ' : ''}${escapeHtml(a.title)}</div>
+        <div class="cms-row-meta">${new Date(a.createdAt).toLocaleDateString('ko-KR')} · 조회 ${a.viewCount}</div>
+      </div>
+      <div class="cms-row-actions">
+        <button type="button" class="btn btn-secondary btn-sm announcement-edit-btn">수정</button>
+        <button type="button" class="btn btn-secondary btn-sm announcement-delete-btn">삭제</button>
+      </div>
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll('.cms-row').forEach(row => {
+    const id = row.dataset.id;
+    row.querySelector('.announcement-edit-btn').addEventListener('click', async () => {
+      try {
+        const detail = await apiRequest('GET', `/api/announcements/${encodeURIComponent(id)}`);
+        renderAnnouncementForm(document.getElementById('announcement-form-slot'), detail, () => renderAdminAnnouncements(container));
+      } catch (err) { alert(err.message); }
+    });
+    row.querySelector('.announcement-delete-btn').addEventListener('click', async () => {
+      if (!confirm('이 공지사항을 삭제할까요?')) return;
+      try { await apiRequest('DELETE', `/api/announcements/${encodeURIComponent(id)}`); renderAdminAnnouncements(container); }
+      catch (err) { alert(err.message); }
+    });
+  });
+}
+
+function renderAnnouncementForm(slot, announcement, onDone) {
+  const isEdit = !!announcement;
+  slot.innerHTML = `
+    <div class="cms-form-card">
+      <h3>${isEdit ? '공지 수정' : '새 공지 작성'}</h3>
+      <div class="profile-form">
+        <label>제목<input type="text" id="announcement-title-input" value="${isEdit ? escapeAttr(announcement.title) : ''}"></label>
+        <label>내용<textarea id="announcement-content-input" rows="8">${isEdit ? escapeHtml(announcement.content) : ''}</textarea></label>
+        <p class="license-card-meta" style="margin-top:-0.5rem">**굵게**, 줄바꿈, URL 자동링크만 지원합니다(간단 마크다운).</p>
+        <label class="checkbox-label"><input type="checkbox" id="announcement-pinned-input" ${isEdit && announcement.isPinned ? 'checked' : ''}> 상단 고정</label>
+        <div id="announcement-form-error" class="error" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="button" class="btn btn-primary" id="announcement-save-btn">저장</button>
+          <button type="button" class="btn btn-secondary" id="announcement-cancel-btn">취소</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('announcement-cancel-btn').addEventListener('click', () => { slot.innerHTML = ''; });
+  document.getElementById('announcement-save-btn').addEventListener('click', async () => {
+    const errorBox = document.getElementById('announcement-form-error');
+    errorBox.style.display = 'none';
+    const title = document.getElementById('announcement-title-input').value.trim();
+    const content = document.getElementById('announcement-content-input').value.trim();
+    if (!title || !content) { errorBox.textContent = '제목과 내용을 입력해주세요.'; errorBox.style.display = 'block'; return; }
+    const payload = { title, content, isPinned: document.getElementById('announcement-pinned-input').checked };
+    try {
+      if (isEdit) await apiRequest('PATCH', `/api/admin/announcements/${encodeURIComponent(announcement.id)}`, payload);
+      else await apiRequest('POST', '/api/admin/announcements', payload);
+      slot.innerHTML = '';
+      onDone();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+// ---------- 관리자 CMS 4번: 회원 알림 메시지(#/admin/broadcast) ----------
+const BROADCAST_CHANNEL_LABELS = { email: '이메일', in_app: '인앱 알림함', push: '웹 푸시' };
+
+async function renderAdminBroadcast(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/broadcasts');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    if (err.status === 403) { container.appendChild(h('<p class="error">관리자 권한이 필요합니다.</p>')); return; }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>회원 알림 메시지</h2>
+    <div class="detail-card">
+      <h3>새 메시지 작성</h3>
+      <p class="license-card-meta">선택한 채널로 대상 회원 전원에게 즉시 발송됩니다. 발송 후에는 취소할 수 없습니다.</p>
+      <div class="profile-form">
+        <label>대상
+          <select id="broadcast-target-input" class="select-input">
+            <option value="">전체 회원</option>
+            <option value="free">Free 플랜</option>
+            <option value="basic">Basic 플랜</option>
+            <option value="pro">Pro 플랜</option>
+            <option value="business">Business 플랜</option>
+          </select>
+        </label>
+        <label>제목<input type="text" id="broadcast-title-input"></label>
+        <label>내용<textarea id="broadcast-content-input" rows="6"></textarea></label>
+        <div class="field-group">
+          <span class="field-group-label">발송 채널(중복 선택 가능)</span>
+          <label class="checkbox-label"><input type="checkbox" class="broadcast-channel-input" value="email"> 이메일</label>
+          <label class="checkbox-label"><input type="checkbox" class="broadcast-channel-input" value="in_app" checked> 인앱 알림함</label>
+          <label class="checkbox-label"><input type="checkbox" class="broadcast-channel-input" value="push"> 웹 푸시</label>
+        </div>
+        <div id="broadcast-form-error" class="error" style="display:none"></div>
+        <div id="broadcast-form-success" class="success" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="button" class="btn btn-primary" id="broadcast-send-btn">지금 발송</button>
+        </div>
+      </div>
+    </div>
+    <div class="detail-card">
+      <h3>발송 이력</h3>
+      <div id="broadcast-history"></div>
+    </div>
+  `));
+
+  renderBroadcastHistoryInto(document.getElementById('broadcast-history'), data.items || []);
+
+  document.getElementById('broadcast-send-btn').addEventListener('click', async () => {
+    const errorBox = document.getElementById('broadcast-form-error');
+    const successBox = document.getElementById('broadcast-form-success');
+    errorBox.style.display = 'none';
+    successBox.style.display = 'none';
+    const title = document.getElementById('broadcast-title-input').value.trim();
+    const content = document.getElementById('broadcast-content-input').value.trim();
+    const channels = Array.from(document.querySelectorAll('.broadcast-channel-input:checked')).map(el => el.value);
+    if (!title || !content) { errorBox.textContent = '제목과 내용을 입력해주세요.'; errorBox.style.display = 'block'; return; }
+    if (!channels.length) { errorBox.textContent = '발송 채널을 하나 이상 선택해주세요.'; errorBox.style.display = 'block'; return; }
+    if (!confirm('선택한 대상에게 즉시 발송합니다. 계속할까요?')) return;
+
+    const btn = document.getElementById('broadcast-send-btn');
+    btn.disabled = true;
+    btn.textContent = '발송 중...';
+    try {
+      const result = await apiRequest('POST', '/api/admin/broadcasts', {
+        title, content,
+        targetPlan: document.getElementById('broadcast-target-input').value,
+        channels,
+      });
+      successBox.textContent = `${result.recipientCount}명에게 발송했습니다.`;
+      successBox.style.display = 'block';
+      document.getElementById('broadcast-title-input').value = '';
+      document.getElementById('broadcast-content-input').value = '';
+      const refreshed = await apiRequest('GET', '/api/admin/broadcasts');
+      renderBroadcastHistoryInto(document.getElementById('broadcast-history'), refreshed.items || []);
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '지금 발송';
+    }
+  });
+}
+
+function renderBroadcastHistoryInto(el, items) {
+  if (!items.length) { el.innerHTML = '<p class="empty">발송 이력이 없습니다.</p>'; return; }
+  el.innerHTML = `<div class="table-scroll"><table class="report-table">
+    <thead><tr><th>제목</th><th>대상</th><th>채널</th><th>수신자</th><th>발송자</th><th>발송일시</th></tr></thead>
+    <tbody>${items.map(b => `
+      <tr>
+        <td>${escapeHtml(b.title)}</td>
+        <td>${b.targetPlan ? escapeHtml(PLAN_DISPLAY_NAMES[b.targetPlan] || b.targetPlan) : '전체 회원'}</td>
+        <td>${(b.channels || []).map(c => escapeHtml(BROADCAST_CHANNEL_LABELS[c] || c)).join(', ')}</td>
+        <td>${b.recipientCount}명</td>
+        <td>${escapeHtml(b.createdByEmail)}</td>
+        <td>${new Date(b.createdAt).toLocaleString('ko-KR')}</td>
+      </tr>
+    `).join('')}</tbody>
+  </table></div>`;
+}
+
 // renderTeamSection — 팀 관리(구성원 목록 + owner면 초대 폼/제거 버튼).
 // 별도 최상위 메뉴를 추가하지 않고 "구독관리" 화면에 통합했다(플랜에 따라
 // 팀 정원이 달라지므로 맥락상 여기가 자연스럽고, 사이드바 메뉴 5개 이내
@@ -7993,6 +8697,16 @@ function route() {
   updateSidebarActiveState();
   updateTabbarActiveState();
   renderGlobalProfileBanner();
+  // 배너/팝업 오버레이(renderHomeOverlay)는 document.body에 직접 붙어
+  // #app 밖에 있어 route()가 페이지를 갈아끼워도 저절로 안 없어진다 —
+  // 홈이 아닌 다른 화면으로 이동하면(관리자 화면 등) 지난 방문에서 뜬
+  // 오버레이가 뒤 화면을 계속 가리는 버그가 있어, 홈이 아닌 경로로 갈
+  // 때는 항상 정리한다. "오늘 하루 보지 않기"로 닫은 게 아니라면 다시
+  // 홈으로 돌아왔을 때는 renderHomeOverlay가 새로 판단해서 다시 띄운다.
+  if (path !== '#/') {
+    document.getElementById('banner-layer-overlay')?.remove();
+    document.body.style.overflow = '';
+  }
   if (path === '#/auth/signup') { renderSignup(app); return; }
   if (path === '#/auth/login') { renderLogin(app); return; }
   if (path === '#/auth/oauth-profile') { renderOAuthProfileStep(app); return; }
@@ -8016,6 +8730,16 @@ function route() {
   if (path === '#/admin/members') { renderAdminMembers(app); return; }
   if (path === '#/admin/tech-spec') { renderAdminTechSpec(app); return; }
   if (path === '#/admin/integrations') { renderAdminIntegrations(app); return; }
+  if (path === '#/admin/banners') { renderAdminBanners(app); return; }
+  if (path === '#/admin/popups') { renderAdminPopups(app); return; }
+  if (path === '#/admin/announcements') { renderAdminAnnouncements(app); return; }
+  if (path === '#/admin/broadcast') { renderAdminBroadcast(app); return; }
+  if (path === '#/announcements') { renderAnnouncementList(app); return; }
+  const announcementDetailMatch = path.match(/^#\/announcements\/(.+)$/);
+  if (announcementDetailMatch) {
+    renderAnnouncementDetail(app, decodeURIComponent(announcementDetailMatch[1]));
+    return;
+  }
   const adminMemberDetailMatch = path.match(/^#\/admin\/members\/(.+)$/);
   if (adminMemberDetailMatch) {
     renderAdminMemberDetail(app, decodeURIComponent(adminMemberDetailMatch[1]));

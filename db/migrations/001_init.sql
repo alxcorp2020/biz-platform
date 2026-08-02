@@ -652,7 +652,7 @@ CREATE TABLE notification_log (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_type         TEXT NOT NULL CHECK (event_type IN
                             ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-                             'weekly_report','monthly_report','team_invite','team_invite_accepted')),
+                             'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast')),
     channel            TEXT NOT NULL DEFAULT 'email' CHECK (channel IN ('email','sms')),
     recipient_email    TEXT,
     recipient_phone    TEXT,
@@ -957,4 +957,52 @@ CREATE TABLE banners (
     starts_at     TIMESTAMPTZ,
     ends_at       TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ------------------------------------------------------------
+-- 관리자 CMS 5번(팝업 관리) — 홈 화면 진입 시 배너보다 우선 노출되는
+-- 공지형 오버레이. image_url은 선택(텍스트만 있는 팝업 가능). "오늘 하루
+-- 보지 않기"는 서버에 상태를 안 두고 클라이언트 localStorage
+-- (popup_dismissed_{id}_{date})로만 처리한다.
+-- ------------------------------------------------------------
+CREATE TABLE popups (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title      TEXT NOT NULL,
+    image_url  TEXT,
+    content    TEXT NOT NULL,
+    is_active  BOOLEAN NOT NULL DEFAULT true,
+    starts_at  TIMESTAMPTZ,
+    ends_at    TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ------------------------------------------------------------
+-- 관리자 CMS 6번(공지 게시판). 사용자용 #/announcements(목록/상세, 조회
+-- 시 view_count 증가)와 관리자용 #/admin/announcements(CRUD)가 이 테이블
+-- 하나를 공유한다 — 비공개/임시저장 개념이 없다.
+-- ------------------------------------------------------------
+CREATE TABLE announcements (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title      TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    is_pinned  BOOLEAN NOT NULL DEFAULT false,
+    view_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_announcements_pinned_created ON announcements(is_pinned DESC, created_at DESC);
+
+-- ------------------------------------------------------------
+-- 관리자 CMS 4번(회원 알림 메시지) 발송 이력. 실제 발송은 기존 알림
+-- 인프라(notify.Client/in_app_notifications/push_notifications.go)를
+-- 재사용하고, 이 테이블은 "언제 누구에게 무엇을 보냈는지"만 남긴다.
+-- ------------------------------------------------------------
+CREATE TABLE broadcast_messages (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title           TEXT NOT NULL,
+    content         TEXT NOT NULL,
+    target_plan     TEXT, -- NULL = 전체 회원, 값 있으면 free/basic/pro/business 중 하나만 대상
+    channels        TEXT[] NOT NULL,
+    recipient_count INTEGER NOT NULL DEFAULT 0,
+    created_by      UUID NOT NULL REFERENCES users(id),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

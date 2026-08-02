@@ -159,6 +159,18 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureBannersTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate banners table: %w", err)
 	}
+	if err := ensurePopupsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate popups table: %w", err)
+	}
+	if err := ensureAnnouncementsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate announcements table: %w", err)
+	}
+	if err := ensureBroadcastMessagesTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate broadcast_messages table: %w", err)
+	}
+	if err := ensureAdminBroadcastEventType(ctx, db); err != nil {
+		return fmt.Errorf("migrate admin_broadcast event type: %w", err)
+	}
 	return nil
 }
 
@@ -1139,6 +1151,81 @@ func ensureBannersTable(ctx context.Context, db *sql.DB) error {
 			('우리 회사에 맞는 사업, 놓치지 마세요', '/banners/banner-3.svg', '#/growth', 2)
 		) AS seed(title, image_url, link_url, display_order)
 		WHERE NOT EXISTS (SELECT 1 FROM banners);
+	`)
+	return err
+}
+
+// ensurePopupsTable adds 관리자 CMS 5번(팝업 관리). banners와 달리 노출
+// 위치가 "홈 진입 시 오버레이 레이어" 하나뿐이라 display_order/시드 데이터가
+// 없다 — 관리자가 직접 만들기 전까지는 빈 테이블(팝업 없음)이 정상 상태.
+func ensurePopupsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS popups (
+			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			title      TEXT NOT NULL,
+			image_url  TEXT,
+			content    TEXT NOT NULL,
+			is_active  BOOLEAN NOT NULL DEFAULT true,
+			starts_at  TIMESTAMPTZ,
+			ends_at    TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+	`)
+	return err
+}
+
+// ensureAnnouncementsTable adds 관리자 CMS 6번(공지 게시판) — 사용자용
+// #/announcements(목록/상세, 조회수 증가)와 관리자용 #/admin/announcements
+// (CRUD) 양쪽이 이 테이블 하나를 공유한다(별도 관리자 전용 컬럼 없음).
+func ensureAnnouncementsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS announcements (
+			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			title      TEXT NOT NULL,
+			content    TEXT NOT NULL,
+			is_pinned  BOOLEAN NOT NULL DEFAULT false,
+			view_count INTEGER NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_announcements_pinned_created ON announcements(is_pinned DESC, created_at DESC);
+	`)
+	return err
+}
+
+// ensureBroadcastMessagesTable adds 관리자 CMS 4번(회원 알림 메시지) 발송
+// 이력. 실제 발송(이메일/인앱/푸시)은 기존 알림 인프라(notify.Client,
+// insertInAppNotification, sendPushToUser)를 그대로 재사용하고, 이 테이블은
+// "언제 누구에게 무엇을 보냈는지"만 남긴다 — notification_log(채널별 1행)와
+// 달리 발송 1회 = 이 테이블 1행이라 관리자 화면의 발송 이력 목록에 바로 쓸 수
+// 있다. channels는 배열(이메일/인앱/푸시 중복선택 가능이라 단일 컬럼 부적합).
+func ensureBroadcastMessagesTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS broadcast_messages (
+			id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			title           TEXT NOT NULL,
+			content         TEXT NOT NULL,
+			target_plan     TEXT, -- NULL = 전체 회원, 값 있으면 free/basic/pro/business 중 하나만 대상
+			channels        TEXT[] NOT NULL,
+			recipient_count INTEGER NOT NULL DEFAULT 0,
+			created_by      UUID NOT NULL REFERENCES users(id),
+			created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+	`)
+	return err
+}
+
+// ensureAdminBroadcastEventType widens notification_log.event_type's CHECK
+// to allow 'admin_broadcast'(broadcast.go가 이메일 채널 발송을 기록할 때
+// 씀). 항상 지금까지의 전체 누적 목록을 다시 쓴다 — event_type CHECK를
+// 여러 마이그레이션이 각자의 좁은 목록으로 갈아치우면, 나중 마이그레이션이
+// 먼저 만든 값을 가진 행이 있을 때 재실행(replay) 시 위반이 나는 버그가
+// 과거에 실제로 있었다(ensureTeamInviteEventTypes 주석 참고).
+func ensureAdminBroadcastEventType(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
+		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
+			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast'));
 	`)
 	return err
 }
