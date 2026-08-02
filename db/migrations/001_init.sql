@@ -1006,3 +1006,25 @@ CREATE TABLE broadcast_messages (
     created_by      UUID NOT NULL REFERENCES users(id),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ------------------------------------------------------------
+-- 랜딩페이지 푸터/사이트 전체 브랜드명에 쓰이는 회사 정보. 항상 정확히
+-- 1행(id=1, CHECK로 강제 — 싱글턴). brand_name만 NOT NULL(사이트
+-- 곳곳에 항상 뭔가는 표시돼야 해서 비워둘 수 없음, 기본값은 지금 쓰는
+-- 가칭). 나머지 7개(회사정보)는 전부 NULL 허용 — 비워두면 랜딩페이지
+-- 푸터에서 항목별로(그리고 전부 비면 블록 전체가) 숨겨진다.
+-- ------------------------------------------------------------
+CREATE TABLE company_info (
+    id                            INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    brand_name                    TEXT NOT NULL DEFAULT '공공사업 AI 비서',
+    company_name                  TEXT,
+    business_registration_number  TEXT,
+    representative_name           TEXT,
+    address                       TEXT,
+    main_phone                    TEXT,
+    contact_email                 TEXT,
+    partnership_email             TEXT,
+    patent_number                 TEXT,
+    updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO company_info (id) VALUES (1);

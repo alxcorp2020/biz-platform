@@ -193,6 +193,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /api/admin/announcements/{id}", s.handleAdminDeleteAnnouncement)
 	mux.HandleFunc("GET /api/company-info", s.handleGetCompanyInfo)
 	mux.HandleFunc("PUT /api/admin/company-info", s.handleAdminUpdateCompanyInfo)
+	// 정적 파일(webui.Handler(), "/" 캐치올)보다 이 정확 경로가 우선
+	// 매칭된다(Go 1.22+ ServeMux 규칙) — static/manifest.json 파일은 이제
+	// 안 쓰임(브랜드명이 바뀔 때마다 즉시 반영되도록 매 요청마다 DB에서
+	// 새로 만듦).
+	mux.HandleFunc("GET /manifest.json", s.handleManifest)
 
 	mux.Handle("/", webui.Handler())
 	return withLogging(s.logger, withCORS(mux))

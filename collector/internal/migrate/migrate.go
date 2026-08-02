@@ -174,6 +174,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureCompanyInfoTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_info table: %w", err)
 	}
+	if err := ensureCompanyInfoBrandNameColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_info.brand_name column: %w", err)
+	}
 	return nil
 }
 
@@ -1256,6 +1259,20 @@ func ensureCompanyInfoTable(ctx context.Context, db *sql.DB) error {
 			updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
 		INSERT INTO company_info (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+	`)
+	return err
+}
+
+// ensureCompanyInfoBrandNameColumn adds company_info.brand_name — 다른 7개
+// 필드(회사정보)와 달리 이 값은 비워둘 수 없다(NOT NULL DEFAULT). 사이트
+// 곳곳(브라우저 탭 제목, 헤더, 사이드바, 랜딩페이지 로고/푸터)에 항상
+// 뭔가는 표시돼야 하기 때문 — 지금 쓰는 가칭 "공공사업 AI 비서"를
+// 기본값으로 시드해, 관리자가 실제 브랜드명을 확정하기 전까지도 화면이
+// 깨지지 않는다. ADD COLUMN ... NOT NULL DEFAULT는 기존 행(id=1)에도
+// 자동으로 이 기본값을 채운다.
+func ensureCompanyInfoBrandNameColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_info ADD COLUMN IF NOT EXISTS brand_name TEXT NOT NULL DEFAULT '공공사업 AI 비서';
 	`)
 	return err
 }

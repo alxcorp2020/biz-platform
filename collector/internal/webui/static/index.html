@@ -2074,7 +2074,7 @@
   <div class="header-inner">
     <a href="#/" class="brand-link">
       <p class="brand-eyebrow">우리 회사에 맞는 사업을 AI가 찾아드립니다</p>
-      <h1 class="brand-title">공공사업 AI 비서</h1>
+      <h1 class="brand-title brand-name-text">공공사업 AI 비서</h1>
     </a>
     <!-- 899px 이하에서만 보이는 햄버거 토글(.mobile-menu-toggle CSS) —
          900px 이상은 .site-header 자체가 안 보여서(사이드바가 대신함)
@@ -2096,7 +2096,7 @@
      기존 상단 헤더가 그대로 쓰인다. -->
 <nav class="sidebar" id="sidebar">
   <a href="#/" class="sidebar-brand">
-    <span class="sidebar-brand-title">공공사업 AI 비서</span>
+    <span class="sidebar-brand-title brand-name-text">공공사업 AI 비서</span>
   </a>
   <div class="sidebar-menu" id="sidebar-menu"></div>
   <div class="sidebar-footer" id="sidebar-footer"></div>
@@ -2604,6 +2604,41 @@ async function apiRequest(method, url, body) {
 let currentUser = null;
 let currentProfile = null;
 
+// ---------- 브랜드명(관리자 #/admin/company-info에서 편집) ----------
+// 지금은 가칭 "공공사업 AI 비서"라 나중에 실제 브랜드명이 정해지면
+// 코드 곳곳을 일일이 고치지 않고 이 값 하나만 바꾸면 되게 만들었다.
+// DEFAULT_BRAND_NAME은 fetch 자체가 실패했을 때(네트워크 오류 등)
+// 화면이 빈 문자열로 깨지지 않게 하는 최후의 폴백 — 정상 동작 시에는
+// 항상 DB의 company_info.brand_name(NOT NULL) 값을 쓴다.
+const DEFAULT_BRAND_NAME = '공공사업 AI 비서';
+let currentBrandName = DEFAULT_BRAND_NAME;
+
+// applyBrandName — document.title과 .brand-name-text 클래스가 붙은 모든
+// 요소(헤더 로고, 사이드바 로고, 랜딩페이지 로고/푸터 저작권 표시)의
+// 텍스트를 한 번에 갱신한다. 동기 함수라 렌더 함수가 새 DOM을 만든
+// 직후 바로 다시 호출해도 저렴하다(랜딩페이지가 매번 그렇게 함 —
+// fetch를 새로 안 하고 이미 알고 있는 currentBrandName을 새 DOM에
+// 즉시 적용).
+function applyBrandName(name) {
+  currentBrandName = (name && name.trim()) || DEFAULT_BRAND_NAME;
+  document.title = currentBrandName;
+  document.querySelectorAll('.brand-name-text').forEach(el => {
+    el.textContent = currentBrandName;
+  });
+}
+
+// loadBrandName — 앱 부팅 시(loadMe()와 별개로, 로그인 여부와 무관하게)
+// 한 번 호출해 브랜드명을 읽어온다. 공개 API라 비로그인 방문자도
+// 정상적으로 최신 브랜드명을 본다.
+async function loadBrandName() {
+  try {
+    const data = await apiRequest('GET', '/api/company-info');
+    applyBrandName(data.brandName);
+  } catch (err) {
+    applyBrandName(null);
+  }
+}
+
 async function loadMe() {
   try {
     const data = await apiRequest('GET', '/api/me');
@@ -3039,7 +3074,7 @@ async function renderLandingPage(container) {
   container.innerHTML = '';
   container.appendChild(h(`
     <header class="landing-header">
-      <a href="#/" class="landing-logo">공공사업 AI 비서</a>
+      <a href="#/" class="landing-logo brand-name-text">공공사업 AI 비서</a>
       <div class="landing-header-actions">
         <a href="#/auth/login" class="home-cta-secondary">로그인</a>
         <a href="#/auth/signup" class="home-cta-primary">무료로 시작하기</a>
@@ -3179,7 +3214,7 @@ async function renderLandingPage(container) {
           </div>
         </div>
         <div class="landing-footer-bottom">
-          &copy; ${year} 공공사업 AI 비서. All rights reserved.
+          &copy; ${year} <span class="brand-name-text">공공사업 AI 비서</span>. All rights reserved.
         </div>
       </div>
     </footer>
@@ -3188,6 +3223,11 @@ async function renderLandingPage(container) {
   initLandingFaqToggles(container);
   initLandingRevealAnimations(container);
   renderLandingPricing(document.getElementById('landing-pricing-grid'));
+  // 이미 알고 있는 값(currentBrandName)을 새로 만들어진 로고/저작권
+  // 텍스트에 즉시 적용 — loadBrandName()의 fetch가 아직 안 끝났으면
+  // 일단 기본값(가칭)으로 보이다가, renderLandingCompanyInfo()가 실제
+  // 값으로 다시 갱신한다.
+  applyBrandName(currentBrandName);
   renderLandingCompanyInfo();
 }
 
@@ -3213,6 +3253,11 @@ async function renderLandingCompanyInfo() {
     return; // 실패해도 조용히 무시 — 핵심 기능 아님, 빈 상태 그대로 둠
   }
 
+  // 이 fetch는 이미 브랜드명(info.brandName)도 함께 받아왔으니, 별도
+  // 요청 없이 헤더/사이드바/로고까지 한 번에 최신화한다(loadBrandName이
+  // 부트 시점에 이미 한 번 호출하지만, 여기서 또 불러도 멱등이라 무해).
+  applyBrandName(info.brandName);
+
   const hasAnyFooterField = COMPANY_INFO_FOOTER_FIELDS.some(k => info[k]);
   if (footerInfoEl) {
     if (!hasAnyFooterField) {
@@ -3220,8 +3265,8 @@ async function renderLandingCompanyInfo() {
     } else {
       const lines = [];
       lines.push(info.companyName
-        ? `<strong>공공사업 AI 비서</strong> (운영사: ${escapeHtml(info.companyName)})`
-        : `<strong>공공사업 AI 비서</strong>`);
+        ? `<strong>${escapeHtml(currentBrandName)}</strong> (운영사: ${escapeHtml(info.companyName)})`
+        : `<strong>${escapeHtml(currentBrandName)}</strong>`);
       const line2 = [
         info.businessRegistrationNumber ? `사업자등록번호: ${escapeHtml(info.businessRegistrationNumber)}` : '',
         info.representativeName ? `대표: ${escapeHtml(info.representativeName)}` : '',
@@ -8980,6 +9025,14 @@ async function renderAdminCompanyInfo(container) {
     <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
     <h2>회사 정보</h2>
     <div class="detail-card">
+      <h3>브랜드명 <span class="badge badge--warn">필수</span></h3>
+      <p class="license-card-meta">사이트 전체(브라우저 탭 제목, 헤더·사이드바 로고, 랜딩페이지 로고·저작권 표시, 홈 화면 추가 시 앱 이름)에 표시되는 이름입니다. 지금은 가칭("${escapeHtml(DEFAULT_BRAND_NAME)}")이 기본값으로 들어가 있습니다 — 비워둘 수 없습니다.</p>
+      <div class="profile-form">
+        <label>브랜드명<input type="text" id="ci-input-brandName" value="${escapeAttr(data.brandName || '')}"></label>
+      </div>
+    </div>
+    <div class="detail-card">
+      <h3>회사 정보(랜딩페이지 푸터)</h3>
       <p class="license-card-meta">랜딩페이지 하단 푸터에 표시되는 정보입니다. 비워두고 저장하면 해당 항목이 라벨까지 통째로 푸터에서 숨겨집니다(전부 비우면 회사정보 영역 자체가 사라집니다). 저장 즉시(재배포 없이) 랜딩페이지에 반영됩니다.</p>
       <div class="profile-form">
         ${COMPANY_INFO_FIELDS.map(f => `
@@ -8999,12 +9052,19 @@ async function renderAdminCompanyInfo(container) {
     const successBox = document.getElementById('ci-form-success');
     errorBox.style.display = 'none';
     successBox.style.display = 'none';
-    const payload = {};
+    const brandName = document.getElementById('ci-input-brandName').value.trim();
+    if (!brandName) {
+      errorBox.textContent = '브랜드명은 비워둘 수 없습니다.';
+      errorBox.style.display = 'block';
+      return;
+    }
+    const payload = { brandName };
     COMPANY_INFO_FIELDS.forEach(f => {
       payload[f.key] = document.getElementById(`ci-input-${f.key}`).value;
     });
     try {
       await apiRequest('PUT', '/api/admin/company-info', payload);
+      applyBrandName(brandName);
       successBox.textContent = '저장했습니다. 랜딩페이지에 바로 반영됩니다.';
       successBox.style.display = 'block';
     } catch (err) {
@@ -9385,6 +9445,7 @@ if ('serviceWorker' in navigator) {
 }
 
 loadMe();
+loadBrandName();
 route();
 </script>
 </body>
