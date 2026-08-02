@@ -286,22 +286,39 @@ func (s *Server) handleAdminListMembers(w http.ResponseWriter, r *http.Request) 
 }
 
 type adminMemberDetail struct {
-	ID               string               `json:"id"`
-	Email            string               `json:"email"`
-	Role             string               `json:"role"`
-	CreatedAt        time.Time            `json:"createdAt"`
-	LastLoginAt      *time.Time           `json:"lastLoginAt"`
-	CompanyProfileID *string              `json:"companyProfileId"`
-	Plan             string               `json:"plan"`
-	PlanName         string               `json:"planName"`
-	PaymentHistory   []paymentHistoryItem `json:"paymentHistory"`
-	PipelineEntries  []pipelineEntry      `json:"pipelineEntries"`
+	ID                            string               `json:"id"`
+	Email                         string               `json:"email"`
+	Role                          string               `json:"role"`
+	CreatedAt                     time.Time            `json:"createdAt"`
+	LastLoginAt                   *time.Time           `json:"lastLoginAt"`
+	DeactivatedAt                 *time.Time           `json:"deactivatedAt"`
+	CompanyProfileID              *string              `json:"companyProfileId"`
+	Plan                          string               `json:"plan"`
+	PlanName                      string               `json:"planName"`
+	SubscriptionStatus            string               `json:"subscriptionStatus"`
+	PaymentHistory                []paymentHistoryItem `json:"paymentHistory"`
+	PipelineEntries               []pipelineEntry      `json:"pipelineEntries"`
+	ThisMonthAIAnalysisCount      int                  `json:"thisMonthAIAnalysisCount"`
+	ThisMonthPipelineCreatedCount int                  `json:"thisMonthPipelineCreatedCount"`
+	CompanyContacts               []contactItem        `json:"companyContacts"`
+	TeamMembers                   []companyMemberItem  `json:"teamMembers"`
+	// IsOrgOwner/OtherTeamMemberCount — "탈퇴 처리" 버튼을 누르기 전에
+	// 관리자가 맥락을 미리 볼 수 있게(실제 차단은 서버가 항상 다시
+	// 검사한다 — owner이고 다른 팀원이 있으면 탈퇴 거부).
+	IsOrgOwner                  bool    `json:"isOrgOwner"`
+	OtherTeamMemberCount        int     `json:"otherTeamMemberCount"`
+	AIAnalysisLimit             int     `json:"aiAnalysisLimit"` // 이번달 실효 한도(개별 조정 반영)
+	CustomAIAnalysisLimit       *int    `json:"customAIAnalysisLimit"`
+	CustomAIAnalysisLimitMonth  *string `json:"customAIAnalysisLimitMonth"`
+	CustomAIAnalysisLimitReason *string `json:"customAIAnalysisLimitReason"`
+	CustomAIAnalysisLimitActive bool    `json:"customAIAnalysisLimitActive"` // month가 이번달과 일치하는지
 }
 
-// handleAdminGetMember — GET /api/admin/members/{id}. 읽기 전용(수정
-// 기능은 이번 범위 밖 — 사용자 요청). 결제이력/파이프라인은 이 계정이
-// 속한 "조직 전체"의 것을 보여준다(개인 소유 데이터가 아니라 조직
-// 단위 데이터라서 — 팀기능 원칙과 동일).
+// handleAdminGetMember — GET /api/admin/members/{id}. 결제이력/파이프라인/
+// 담당자/팀원은 이 계정이 속한 "조직 전체"의 것을 보여준다(개인 소유
+// 데이터가 아니라 조직 단위 데이터라서 — 팀기능 원칙과 동일). 조회는
+// 여전히 읽기 전용이고, 실제 변경(탈퇴 처리/한도 조정)은 별도 엔드포인트
+// (admin_member_actions.go)를 통해서만 일어난다.
 func (s *Server) handleAdminGetMember(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireSystemAdmin(w, r); !ok {
 		return
@@ -310,14 +327,14 @@ func (s *Server) handleAdminGetMember(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var detail adminMemberDetail
-	var lastLogin sql.NullTime
-	var companyProfileID sql.NullString
+	var lastLogin, deactivatedAt sql.NullTime
+	var companyProfileID, teamRole sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.email, u.role, u.created_at, u.last_login_at, cm.company_profile_id
+		SELECT u.id, u.email, u.role, u.created_at, u.last_login_at, u.deactivated_at, cm.company_profile_id, cm.role
 		FROM users u
 		LEFT JOIN company_members cm ON cm.user_id = u.id
 		WHERE u.id = $1`, memberID,
-	).Scan(&detail.ID, &detail.Email, &detail.Role, &detail.CreatedAt, &lastLogin, &companyProfileID)
+	).Scan(&detail.ID, &detail.Email, &detail.Role, &detail.CreatedAt, &lastLogin, &deactivatedAt, &companyProfileID, &teamRole)
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "member_not_found"})
 		return
@@ -330,10 +347,16 @@ func (s *Server) handleAdminGetMember(w http.ResponseWriter, r *http.Request) {
 	if lastLogin.Valid {
 		detail.LastLoginAt = &lastLogin.Time
 	}
+	if deactivatedAt.Valid {
+		detail.DeactivatedAt = &deactivatedAt.Time
+	}
+	detail.IsOrgOwner = teamRole.Valid && teamRole.String == "owner"
 	detail.Plan = string(billing.PlanFree)
 	detail.PlanName = billing.Plans[billing.PlanFree].Name
 	detail.PaymentHistory = []paymentHistoryItem{}
 	detail.PipelineEntries = []pipelineEntry{}
+	detail.CompanyContacts = []contactItem{}
+	detail.TeamMembers = []companyMemberItem{}
 
 	if !companyProfileID.Valid {
 		writeJSON(w, http.StatusOK, detail)
@@ -341,6 +364,15 @@ func (s *Server) handleAdminGetMember(w http.ResponseWriter, r *http.Request) {
 	}
 	profileID := companyProfileID.String
 	detail.CompanyProfileID = &profileID
+
+	if detail.IsOrgOwner {
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM company_members WHERE company_profile_id = $1 AND user_id != $2`,
+			profileID, memberID,
+		).Scan(&detail.OtherTeamMemberCount); err != nil {
+			s.logger.Error("admin-get-member: other team member count failed", "error", err)
+		}
+	}
 
 	planStr, status, _, expiresAt, _, _, err := s.currentSubscription(ctx, profileID)
 	if err != nil {
@@ -351,6 +383,82 @@ func (s *Server) handleAdminGetMember(w http.ResponseWriter, r *http.Request) {
 	effective := effectivePlanFromRow(planStr, status, expiresAt)
 	detail.Plan = string(effective)
 	detail.PlanName = billing.Plans[effective].Name
+	detail.SubscriptionStatus = displayStatus(status, expiresAt)
+
+	if aiLimit, err := s.effectiveAIAnalysisLimit(ctx, profileID, effective); err != nil {
+		s.logger.Error("admin-get-member: AI limit lookup failed", "error", err)
+	} else {
+		detail.AIAnalysisLimit = aiLimit
+	}
+	if count, err := s.countAIAnalysisThisMonth(ctx, profileID); err != nil {
+		s.logger.Error("admin-get-member: AI usage count failed", "error", err)
+	} else {
+		detail.ThisMonthAIAnalysisCount = count
+	}
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM notice_pipeline_entries
+		WHERE company_profile_id = $1 AND created_at >= date_trunc('month', now())`,
+		profileID,
+	).Scan(&detail.ThisMonthPipelineCreatedCount); err != nil {
+		s.logger.Error("admin-get-member: pipeline created-this-month count failed", "error", err)
+	}
+
+	var customLimit sql.NullInt64
+	var customMonth, customReason sql.NullString
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT custom_ai_analysis_limit, custom_ai_analysis_limit_month, custom_ai_analysis_limit_reason
+		 FROM company_profiles WHERE id = $1`, profileID,
+	).Scan(&customLimit, &customMonth, &customReason); err != nil {
+		s.logger.Error("admin-get-member: custom AI limit lookup failed", "error", err)
+	} else {
+		if customLimit.Valid {
+			v := int(customLimit.Int64)
+			detail.CustomAIAnalysisLimit = &v
+		}
+		if customMonth.Valid {
+			detail.CustomAIAnalysisLimitMonth = &customMonth.String
+			detail.CustomAIAnalysisLimitActive = customMonth.String == time.Now().Format("2006-01")
+		}
+		if customReason.Valid {
+			detail.CustomAIAnalysisLimitReason = &customReason.String
+		}
+	}
+
+	contactRows, err := s.db.QueryContext(ctx,
+		contactSelect+` WHERE company_profile_id = $1 ORDER BY is_default DESC, created_at ASC`, profileID)
+	if err != nil {
+		s.logger.Error("admin-get-member: contacts query failed", "error", err)
+	} else {
+		for contactRows.Next() {
+			c, err := scanContact(contactRows)
+			if err != nil {
+				s.logger.Error("admin-get-member: contact scan failed", "error", err)
+				continue
+			}
+			detail.CompanyContacts = append(detail.CompanyContacts, *c)
+		}
+		contactRows.Close()
+	}
+
+	teamRows, err := s.db.QueryContext(ctx, `
+		SELECT cm.id, cm.user_id, u.email, cm.role, cm.created_at
+		FROM company_members cm
+		JOIN users u ON u.id = cm.user_id
+		WHERE cm.company_profile_id = $1
+		ORDER BY (cm.role = 'owner') DESC, cm.created_at`, profileID)
+	if err != nil {
+		s.logger.Error("admin-get-member: team members query failed", "error", err)
+	} else {
+		for teamRows.Next() {
+			var it companyMemberItem
+			if err := teamRows.Scan(&it.ID, &it.UserID, &it.Email, &it.Role, &it.CreatedAt); err != nil {
+				s.logger.Error("admin-get-member: team member scan failed", "error", err)
+				continue
+			}
+			detail.TeamMembers = append(detail.TeamMembers, it)
+		}
+		teamRows.Close()
+	}
 
 	payRows, err := s.db.QueryContext(ctx, `
 		SELECT pl.id, pl.toss_order_id, pl.amount, pl.status, pl.requested_at, pl.approved_at, pl.payment_method

@@ -115,7 +115,7 @@ func (s *Server) checkPipelineEntryQuota(ctx context.Context, profileID string) 
 	if err != nil {
 		return false, 0, err
 	}
-	max := billing.Plans[plan].MaxPipelineEntries
+	max := s.effectivePlanInfo(ctx, plan).MaxPipelineEntries
 	if max < 0 {
 		return true, -1, nil
 	}
@@ -129,20 +129,24 @@ func (s *Server) checkPipelineEntryQuota(ctx context.Context, profileID string) 
 	return count < max, max, nil
 }
 
-// checkAIAnalysisQuota enforces plan.MaxAIAnalysisPerMonth before an
+// checkAIAnalysisQuota enforces the effective AI 분석 한도 before an
 // AI-extraction document upload (license/cert, financials, track-records,
-// personnel, employee-verification — see PlanInfo doc comment for why these
-// 5 endpoints specifically). Counts company_documents rows uploaded since
-// the start of the current calendar month — every upload triggers exactly
-// one Claude call regardless of whether the user later confirms the
-// extracted candidate, so it's an accurate usage signal without needing a
-// separate log table.
+// personnel, intellectual-property, employee-verification — see PlanInfo doc
+// comment for why these 6 endpoints specifically). "Effective" 한도는
+// effectiveAIAnalysisLimit이 결정한다 — 관리자가 이번달 임시조정을 걸어뒀으면
+// 그 값, 아니면 플랜 기본값(관리자 화면에서 오버라이드됐을 수 있음).
+// company_documents 카운트는 계속 이번 달 시작 이후 업로드 행 수(매 업로드가
+// Claude 호출 1건과 정확히 대응하므로 별도 로그 테이블 없이 정확한 사용량
+// 신호가 된다).
 func (s *Server) checkAIAnalysisQuota(ctx context.Context, profileID string) (ok bool, limit int, err error) {
 	plan, err := s.effectivePlan(ctx, profileID)
 	if err != nil {
 		return false, 0, err
 	}
-	max := billing.Plans[plan].MaxAIAnalysisPerMonth
+	max, err := s.effectiveAIAnalysisLimit(ctx, profileID, plan)
+	if err != nil {
+		return false, 0, err
+	}
 	if max < 0 {
 		return true, -1, nil
 	}
@@ -178,17 +182,17 @@ func (s *Server) countAIAnalysisThisMonth(ctx context.Context, profileID string)
 func (s *Server) handleGetBillingConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tossClientKey": s.tossClientKey,
-		"plans":         billingPlansForConfig(),
+		"plans":         s.billingPlansForConfig(r.Context()),
 	})
 }
 
-// billingPlansForConfig renders billing.Plans in billing.PlanOrder order —
-// map iteration order isn't stable, and the pricing page needs a fixed
-// low-to-high display order.
-func billingPlansForConfig() []map[string]any {
+// billingPlansForConfig renders billing.Plans(관리자 오버라이드 반영,
+// effectivePlanInfo) in billing.PlanOrder order — map iteration order isn't
+// stable, and the pricing page needs a fixed low-to-high display order.
+func (s *Server) billingPlansForConfig(ctx context.Context) []map[string]any {
 	out := make([]map[string]any, 0, len(billing.PlanOrder))
 	for _, p := range billing.PlanOrder {
-		info := billing.Plans[p]
+		info := s.effectivePlanInfo(ctx, p)
 		out = append(out, map[string]any{
 			"plan":                  string(p),
 			"name":                  info.Name,
@@ -230,8 +234,16 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 	// 그대로 노출하면 실제로는 Free로 막히는 기능을 이용 가능한 것처럼
 	// 잘못 보여주게 된다(실제 차단 로직 자체는 이 버그의 영향을 받지
 	// 않았음 — effectivePlan을 직접 쓰는 checkPipelineEntryQuota/
-	// checkAIAnalysisQuota는 원래도 정확했다).
-	limits := billing.Plans[effectivePlanFromRow(plan, status, expiresAt)]
+	// checkAIAnalysisQuota는 원래도 정확했다). effectivePlanInfo로
+	// 관리자 오버라이드(#/admin/plan-settings)도 반영한다.
+	effPlan := effectivePlanFromRow(plan, status, expiresAt)
+	limits := s.effectivePlanInfo(r.Context(), effPlan)
+	// AI 분석 한도는 개별 회원 임시조정(#/admin/members/{id})까지 한 번 더
+	// 반영 — checkAIAnalysisQuota/billing_ai_usage.go/dashboard.go와 항상
+	// 같은 숫자를 보여줘야 한다.
+	if aiLimit, err := s.effectiveAIAnalysisLimit(r.Context(), profile.ID, effPlan); err == nil {
+		limits.MaxAIAnalysisPerMonth = aiLimit
+	}
 
 	var pendingPlanStr, pendingPlanName *string
 	if pendingPlan != nil {
@@ -428,7 +440,10 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_plan"})
 		return
 	}
-	info := billing.Plans[plan]
+	// 가격은 관리자가 #/admin/plan-settings에서 바꿨을 수 있으니 항상 그
+	// 순간의 값(effectivePlanInfo)으로 견적을 낸다 — 클라이언트가 보낸
+	// 값은 절대 안 믿는다는 원칙(파일 상단 주석)은 그대로 유지.
+	info := s.effectivePlanInfo(r.Context(), plan)
 
 	orderID, err := billing.EncodeOrderID(plan)
 	if err != nil {
@@ -517,7 +532,11 @@ func (s *Server) handleBillingConfirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_order_id"})
 		return
 	}
-	info := billing.Plans[plan]
+	// checkout 때와 동일하게 그 순간의(관리자 오버라이드 반영) 가격과 대조한다.
+	// 가격이 checkout~confirm 사이에 바뀌면(드문 관리자 조작 타이밍) 이미
+	// 승인된 결제가 amount_mismatch로 거부될 수 있다는 걸 알고 있음 —
+	// 가격 변경 자체가 드문 관리자 행위라 감수 가능한 리스크로 판단.
+	info := s.effectivePlanInfo(r.Context(), plan)
 	if req.Amount != info.AmountKRW {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "amount_mismatch"})
 		return
@@ -713,7 +732,7 @@ func (s *Server) ApplyScheduledDowngrades(ctx context.Context) (int, error) {
 			UPDATE subscriptions
 			SET plan = $1, started_at = $2, expires_at = $3, amount = $4, pending_plan = NULL
 			WHERE id = $5`,
-			string(plan), t.expiresAt, newExpiresAt, billing.Plans[plan].AmountKRW, t.id,
+			string(plan), t.expiresAt, newExpiresAt, s.effectivePlanInfo(ctx, plan).AmountKRW, t.id,
 		); err != nil {
 			s.logger.Error("apply-scheduled-downgrade: update failed", "subscriptionId", t.id, "error", err)
 			continue

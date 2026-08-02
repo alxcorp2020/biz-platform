@@ -168,9 +168,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	var userID string
 	var passwordHash sql.NullString
+	var deactivatedAt sql.NullTime
 	err := s.db.QueryRowContext(r.Context(),
-		`SELECT id, password_hash FROM users WHERE email = $1`, email,
-	).Scan(&userID, &passwordHash)
+		`SELECT id, password_hash, deactivated_at FROM users WHERE email = $1`, email,
+	).Scan(&userID, &passwordHash, &deactivatedAt)
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return
@@ -178,6 +179,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("login: query failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	// 관리자가 탈퇴 처리한 계정 — 이메일 자체가 익명화되어 원래 이메일로는
+	// 이 SELECT가 애초에 못 찾는 게 정상이지만(admin_member_actions.go),
+	// 명시적으로도 한 번 더 막는다(방어적 이중 체크).
+	if deactivatedAt.Valid {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "account_deactivated"})
 		return
 	}
 

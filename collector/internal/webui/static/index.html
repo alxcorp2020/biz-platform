@@ -80,6 +80,9 @@
   .btn-secondary:disabled { opacity: 0.5; cursor: default; }
   .btn-ghost { background: none; border-color: transparent; color: var(--ink-soft); padding: 0.6rem 0.9rem; }
   .btn-ghost:hover { color: var(--ink); }
+  .btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+  .btn-danger:hover { opacity: 0.9; }
+  .btn-danger:disabled { opacity: 0.5; cursor: default; }
   .btn-block { display: flex; width: 100%; }
   .btn-sm { padding: 0.5rem 1rem; font-size: var(--text-caption); border-radius: 8px; }
 
@@ -2536,6 +2539,12 @@ const ERROR_MESSAGES = {
   payment_provider_not_configured: '결제 시스템 설정에 문제가 있어 환불을 처리할 수 없습니다. 관리자에게 문의해주세요.',
   toss_cancel_failed: '결제 취소 처리에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해주세요.',
   no_pending_cancellation: '신청된 해지가 없습니다.',
+  account_deactivated: '탈퇴 처리된 계정입니다. 로그인할 수 없습니다.',
+  member_not_found: '해당 회원을 찾을 수 없습니다.',
+  already_deactivated: '이미 탈퇴 처리된 회원입니다.',
+  owner_has_other_members: '이 회원은 조직의 소유자이고 다른 팀원이 남아있어 탈퇴 처리할 수 없습니다. 먼저 팀원을 정리하거나 소유권을 이전해주세요.',
+  invalid_value: '입력한 값이 올바르지 않습니다.',
+  reason_required: '조정 사유를 입력해주세요.',
   already_used: '이미 서비스를 이용하신 내역이 있어 환불이 불가합니다.',
   invalid_issued_at: '발급일 형식이 올바르지 않습니다(YYYY-MM-DD).',
   invalid_document_type: '증빙서류 종류 값이 올바르지 않습니다.',
@@ -8190,6 +8199,7 @@ async function renderAdminDashboard(container) {
       <div class="license-toolbar" style="flex-wrap:wrap">
         <a href="#/admin/tech-spec" class="btn btn-secondary btn-sm">기술 스펙</a>
         <a href="#/admin/integrations" class="btn btn-secondary btn-sm">외부 연동/API 현황</a>
+        <a href="#/admin/plan-settings" class="btn btn-secondary btn-sm">플랜 한도/가격 설정</a>
       </div>
     </div>
     <div class="detail-card">
@@ -8251,6 +8261,99 @@ async function renderAdminSettingsSection(container) {
       resultBox.innerHTML = `<p class="success">저장했습니다 — Free 플랜 월간 이메일 한도가 ${value}건으로 적용됩니다.</p>`;
     } catch (err) {
       resultBox.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+    }
+  });
+}
+
+// PLAN_SETTINGS_FIELDS — #/admin/plan-settings 화면 구성. 각 key는 서버
+// GET/PUT /api/admin/plan-settings의 JSON 필드명과 정확히 일치해야 한다
+// (collector/internal/api/plan_settings.go의 planOverridesByPlan). min은
+// 입력 검증 하한 — 한도류는 -1(무제한)까지, 가격은 0부터 허용.
+const PLAN_SETTINGS_FIELDS = [
+  { plan: 'free', label: 'Free', fields: [
+    { key: 'freePipelineLimit', label: '파이프라인 등록 한도(건)', min: -1 },
+    { key: 'freeAiAnalysisLimit', label: 'AI 분석 월 한도(건)', min: -1 },
+  ] },
+  { plan: 'basic', label: 'Basic', fields: [
+    { key: 'basicAiAnalysisLimit', label: 'AI 분석 월 한도(건)', min: -1 },
+    { key: 'basicPriceKrw', label: '월 결제 금액(원)', min: 0 },
+  ] },
+  { plan: 'pro', label: 'Pro', fields: [
+    { key: 'proAiAnalysisLimit', label: 'AI 분석 월 한도(건)', min: -1 },
+    { key: 'proPriceKrw', label: '월 결제 금액(원)', min: 0 },
+  ] },
+  { plan: 'business', label: 'Business', fields: [
+    { key: 'businessAiAnalysisLimit', label: 'AI 분석 월 한도(건)', min: -1 },
+    { key: 'businessPriceKrw', label: '월 결제 금액(원)', min: 0 },
+    { key: 'businessMemberLimit', label: '팀원 최대 인원(owner 포함)', min: -1 },
+  ] },
+];
+
+// renderAdminPlanSettings — #/admin/plan-settings. 파이프라인/AI분석 한도,
+// 가격, 팀원 한도를 재배포 없이 조정한다 — 저장 즉시 결제(checkout/confirm),
+// 한도체크(checkAIAnalysisQuota 등), 요금제 화면(#/billing/plans, 랜딩페이지)
+// 전부에 반영된다(effectivePlanInfo가 매번 DB에서 직접 읽음, 캐시 없음).
+async function renderAdminPlanSettings(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/plan-settings');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    if (err.status === 403) { container.appendChild(h('<p class="error">관리자 권한이 필요합니다.</p>')); return; }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>플랜 한도/가격 설정</h2>
+    <p class="license-card-meta">한도 필드에 -1을 입력하면 무제한입니다. 저장하면 재배포 없이 바로 반영됩니다(결제 금액도 포함 — 가격을 바꾸면 그 순간부터 신규 결제에 새 가격이 적용됩니다, 기존 구독자의 이미 낸 결제에는 영향 없음).</p>
+    ${PLAN_SETTINGS_FIELDS.map(group => `
+      <div class="detail-card">
+        <h3>${escapeHtml(group.label)}</h3>
+        <div class="profile-form">
+          ${group.fields.map(f => `
+            <label>${escapeHtml(f.label)}<input type="number" step="1" min="${f.min}" id="plan-setting-${f.key}" value="${escapeAttr(String(data[f.key]))}"></label>
+          `).join('')}
+        </div>
+      </div>
+    `).join('')}
+    <div id="plan-settings-error" class="error" style="display:none"></div>
+    <div id="plan-settings-success" class="success" style="display:none"></div>
+    <div class="license-toolbar">
+      <button type="button" class="btn btn-primary" id="plan-settings-save-btn">저장</button>
+    </div>
+  `));
+
+  document.getElementById('plan-settings-save-btn').addEventListener('click', async () => {
+    const errorBox = document.getElementById('plan-settings-error');
+    const successBox = document.getElementById('plan-settings-success');
+    errorBox.style.display = 'none';
+    successBox.style.display = 'none';
+    const payload = {};
+    for (const group of PLAN_SETTINGS_FIELDS) {
+      for (const f of group.fields) {
+        const raw = document.getElementById(`plan-setting-${f.key}`).value;
+        const v = parseInt(raw, 10);
+        if (isNaN(v) || v < f.min) {
+          errorBox.textContent = `"${f.label}" 값이 올바르지 않습니다(최소 ${f.min}).`;
+          errorBox.style.display = 'block';
+          return;
+        }
+        payload[f.key] = v;
+      }
+    }
+    try {
+      await apiRequest('PUT', '/api/admin/plan-settings', payload);
+      successBox.textContent = '저장했습니다. 재배포 없이 바로 반영됩니다.';
+      successBox.style.display = 'block';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
     }
   });
 }
@@ -8449,12 +8552,14 @@ async function renderAdminMembers(container) {
   });
 }
 
-// renderAdminMemberDetail — 읽기 전용(수정 기능 없음, 요청 범위 밖).
-// 결제이력/파이프라인은 이 계정이 속한 조직 전체 데이터 — 개인이 아니라
-// 조직 단위 데이터라서(팀기능 원칙). 파이프라인 카드는 일부러 pipelineListRowHtml을
-// 재사용하지 않는다 — 그건 클릭 시 #/pipeline/{id}로 이동하는데, 관리자
-// 계정은 그 조직 멤버가 아니라서 접근 권한 검사(handleGetPipelineEntry)에
-// 걸려 404가 뜬다 — 그래서 클릭 불가능한 순수 카드로만 보여준다.
+// renderAdminMemberDetail — 조회는 대부분 읽기 전용이지만, 이번 확장으로
+// "탈퇴 처리"와 "이번달 AI 분석 한도 임시조정" 두 가지 변경 작업이
+// 추가됐다(admin_member_actions.go). 결제이력/파이프라인/담당자/팀원은
+// 이 계정이 속한 조직 전체 데이터 — 개인이 아니라 조직 단위 데이터라서
+// (팀기능 원칙). 파이프라인 카드는 일부러 pipelineListRowHtml을 재사용하지
+// 않는다 — 그건 클릭 시 #/pipeline/{id}로 이동하는데, 관리자 계정은 그
+// 조직 멤버가 아니라서 접근 권한 검사(handleGetPipelineEntry)에 걸려
+// 404가 뜬다 — 그래서 클릭 불가능한 순수 카드로만 보여준다.
 async function renderAdminMemberDetail(container, id) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
@@ -8495,17 +8600,47 @@ async function renderAdminMemberDetail(container, id) {
     </div>
   `).join('');
 
+  const contactRows = (data.companyContacts || []).map(c => `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(c.name)} ${c.isDefault ? '<span class="badge badge--blue">기본</span>' : ''}</div>
+        <div class="license-card-meta">${[c.email, c.phone].filter(Boolean).map(escapeHtml).join(' · ') || '연락처 미등록'}</div>
+      </div>
+    </div>
+  `).join('');
+
+  const teamRows = (data.teamMembers || []).map(m => `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(m.email)} <span class="badge ${m.role === 'owner' ? 'badge--blue' : 'badge--gray'}">${m.role === 'owner' ? '소유자' : '팀원'}</span></div>
+        <div class="license-card-meta">합류일 ${escapeHtml(formatDateTime(m.createdAt))}</div>
+      </div>
+    </div>
+  `).join('');
+
+  const deactivated = !!data.deactivatedAt;
+
   container.innerHTML = '';
   container.appendChild(h(`
     <a href="#/admin/members" class="back-link">&larr; 회원 목록으로</a>
     <div class="detail-card">
-      <p class="detail-eyebrow">${escapeHtml(data.role)}</p>
-      <h2>${escapeHtml(data.email)}</h2>
+      <p class="detail-eyebrow">${escapeHtml(data.role)}${data.isOrgOwner ? ' · 조직 소유자' : ''}</p>
+      <h2>${escapeHtml(data.email)} ${deactivated ? '<span class="badge badge--danger">탈퇴됨</span>' : ''}</h2>
       <dl class="detail-meta">
         <div><dt>가입일</dt><dd>${escapeHtml(formatDateTime(data.createdAt))}</dd></div>
         <div><dt>마지막 로그인</dt><dd>${data.lastLoginAt ? escapeHtml(formatDateTime(data.lastLoginAt)) : '기록 없음'}</dd></div>
-        <div><dt>플랜</dt><dd>${escapeHtml(data.planName)}</dd></div>
+        <div><dt>플랜</dt><dd>${escapeHtml(data.planName)}${data.subscriptionStatus ? ` (${escapeHtml(data.subscriptionStatus)})` : ''}</dd></div>
+        <div><dt>이번달 AI 분석</dt><dd>${data.thisMonthAIAnalysisCount}건 / 한도 ${data.aiAnalysisLimit < 0 ? '무제한' : data.aiAnalysisLimit + '건'}${data.customAIAnalysisLimitActive ? ' <span class="badge badge--blue">임시조정 적용중</span>' : ''}</dd></div>
+        <div><dt>이번달 파이프라인 생성</dt><dd>${data.thisMonthPipelineCreatedCount}건</dd></div>
       </dl>
+    </div>
+    <div class="detail-card">
+      <h3>담당자</h3>
+      <div class="license-list">${contactRows || '<p class="empty">등록된 담당자가 없습니다.</p>'}</div>
+    </div>
+    <div class="detail-card">
+      <h3>팀원</h3>
+      <div class="license-list">${teamRows || '<p class="empty">소속된 조직이 없거나 팀원이 없습니다.</p>'}</div>
     </div>
     <div class="detail-card">
       <h3>결제 이력</h3>
@@ -8515,7 +8650,94 @@ async function renderAdminMemberDetail(container, id) {
       <h3>파이프라인 현황</h3>
       <div class="license-list">${pipelineRows || '<p class="empty">파이프라인 이력이 없습니다.</p>'}</div>
     </div>
+    <div class="detail-card">
+      <h3>이번달 AI 분석 한도 임시조정</h3>
+      <p class="license-card-meta">이번 달에만 적용되며 다음 달이 되면 자동으로 플랜 기본 한도로 되돌아갑니다. 변경 이력은 감사로그에 남습니다.</p>
+      ${data.customAIAnalysisLimitActive ? `<p class="license-card-meta">현재 적용 중: <strong>${data.customAIAnalysisLimit}건</strong> · 사유: ${escapeHtml(data.customAIAnalysisLimitReason || '-')}</p>` : ''}
+      ${data.companyProfileId ? `
+        <div class="profile-form">
+          <label>이번달 한도(건, -1=무제한)<input type="number" step="1" min="-1" id="ai-limit-input" value="${data.customAIAnalysisLimitActive ? escapeAttr(String(data.customAIAnalysisLimit)) : ''}" placeholder="비워두면 플랜 기본값(${data.aiAnalysisLimit < 0 ? '무제한' : data.aiAnalysisLimit}건) 사용"></label>
+          <label>조정 사유<input type="text" id="ai-limit-reason" value="${escapeAttr(data.customAIAnalysisLimitReason || '')}" placeholder="예: 실적 증빙 자료 재작업으로 임시 상향"></label>
+          <div id="ai-limit-error" class="error" style="display:none"></div>
+          <div id="ai-limit-success" class="success" style="display:none"></div>
+          <div class="license-toolbar">
+            <button type="button" class="btn btn-primary btn-sm" id="ai-limit-save-btn">적용</button>
+            ${data.customAIAnalysisLimitActive ? '<button type="button" class="btn btn-secondary btn-sm" id="ai-limit-clear-btn">해제</button>' : ''}
+          </div>
+        </div>
+      ` : '<p class="empty">기업 프로필이 없어 한도 조정을 적용할 수 없습니다.</p>'}
+    </div>
+    <div class="detail-card">
+      <h3>탈퇴 처리</h3>
+      <p class="license-card-meta">계정을 비활성화하고 개인정보(이메일/비밀번호/전화번호)를 익명화합니다. 결제이력·감사기록·조직 데이터는 법적 보관을 위해 그대로 유지됩니다. <strong>되돌릴 수 없습니다.</strong></p>
+      <div id="deactivate-error" class="error" style="display:none"></div>
+      <div class="license-toolbar">
+        <button type="button" class="btn btn-danger btn-sm" id="deactivate-btn" ${deactivated ? 'disabled' : ''}>${deactivated ? '이미 탈퇴 처리됨' : '탈퇴 처리'}</button>
+      </div>
+    </div>
   `));
+
+  if (data.companyProfileId) {
+    document.getElementById('ai-limit-save-btn').addEventListener('click', async () => {
+      const errorBox = document.getElementById('ai-limit-error');
+      const successBox = document.getElementById('ai-limit-success');
+      errorBox.style.display = 'none';
+      successBox.style.display = 'none';
+      const rawLimit = document.getElementById('ai-limit-input').value.trim();
+      const reason = document.getElementById('ai-limit-reason').value.trim();
+      if (rawLimit === '') {
+        errorBox.textContent = '한도 값을 입력해주세요(해제하려면 "해제" 버튼을 눌러주세요).';
+        errorBox.style.display = 'block';
+        return;
+      }
+      const limit = parseInt(rawLimit, 10);
+      if (isNaN(limit) || limit < -1) {
+        errorBox.textContent = '한도는 -1 이상의 정수여야 합니다.';
+        errorBox.style.display = 'block';
+        return;
+      }
+      if (!reason) {
+        errorBox.textContent = '조정 사유를 입력해주세요.';
+        errorBox.style.display = 'block';
+        return;
+      }
+      try {
+        await apiRequest('PUT', '/api/admin/members/' + encodeURIComponent(id) + '/ai-limit', { limit, reason });
+        successBox.textContent = '적용했습니다.';
+        successBox.style.display = 'block';
+        renderAdminMemberDetail(container, id);
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.style.display = 'block';
+      }
+    });
+    const clearBtn = document.getElementById('ai-limit-clear-btn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', async () => {
+        try {
+          await apiRequest('PUT', '/api/admin/members/' + encodeURIComponent(id) + '/ai-limit', { limit: null, reason: '' });
+          renderAdminMemberDetail(container, id);
+        } catch (err) {
+          const errorBox = document.getElementById('ai-limit-error');
+          errorBox.textContent = err.message;
+          errorBox.style.display = 'block';
+        }
+      });
+    }
+  }
+
+  document.getElementById('deactivate-btn').addEventListener('click', async () => {
+    if (!confirm(`정말로 ${data.email} 회원을 탈퇴 처리하시겠습니까?\n\n계정이 즉시 비활성화되어 로그인할 수 없게 되고, 개인정보(이메일/비밀번호/전화번호)가 익명화됩니다.\n결제이력과 조직 데이터는 유지되지만, 이 작업 자체는 되돌릴 수 없습니다.`)) return;
+    const errorBox = document.getElementById('deactivate-error');
+    errorBox.style.display = 'none';
+    try {
+      await apiRequest('POST', '/api/admin/members/' + encodeURIComponent(id) + '/deactivate');
+      renderAdminMemberDetail(container, id);
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
 }
 
 // renderAdminTechSpec — #/admin/tech-spec. 백엔드(admin_meta.go)가 go.mod/
@@ -9447,6 +9669,7 @@ function route() {
   if (path === '#/admin/announcements') { renderAdminAnnouncements(app); return; }
   if (path === '#/admin/broadcast') { renderAdminBroadcast(app); return; }
   if (path === '#/admin/company-info') { renderAdminCompanyInfo(app); return; }
+  if (path === '#/admin/plan-settings') { renderAdminPlanSettings(app); return; }
   if (path === '#/announcements') { renderAnnouncementList(app); return; }
   const announcementDetailMatch = path.match(/^#\/announcements\/(.+)$/);
   if (announcementDetailMatch) {

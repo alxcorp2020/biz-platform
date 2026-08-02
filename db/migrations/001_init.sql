@@ -284,7 +284,8 @@ CREATE TABLE users (
     phone_number    TEXT,
     sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_login_at   TIMESTAMPTZ -- 관리자 화면(admin.go)의 회원목록용. 이 컬럼이 생기기 전 로그인은 기록이 없어 NULL로 남는다(과거 소급 불가).
+    last_login_at   TIMESTAMPTZ, -- 관리자 화면(admin.go)의 회원목록용. 이 컬럼이 생기기 전 로그인은 기록이 없어 NULL로 남는다(과거 소급 불가).
+    deactivated_at  TIMESTAMPTZ -- 관리자 회원 탈퇴 처리(admin_member_actions.go) 표식. NOT NULL이면 로그인 영구 차단(handleLogin/handleOAuthCallback). 탈퇴 시 email/password_hash/phone_number도 익명화되지만 행 자체는 지우지 않는다(payment_log/audit_logs FK 참조 + 법적 보관기간 고려).
 );
 
 -- user_id는 최초 생성자 참조로만 남는다(과거 호환) — 실제 "누가 이
@@ -313,7 +314,14 @@ CREATE TABLE company_profiles (
     sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false, -- 더 이상 알림에 쓰이지 않음(위와 동일한 이유로 컬럼만 유지)
     notification_days_before INTEGER[] NOT NULL DEFAULT '{3,1}', -- 제출마감 리마인더 D-N 선택(7/3/1 중 다중선택)
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- 관리자 개별 회원 한도조정(#/admin/members/{id}, admin_member_actions.go).
+    -- custom_ai_analysis_limit_month는 'YYYY-MM' 문자열 — 이 값이 조회 시점의
+    -- 현재 월과 일치할 때만 오버라이드가 적용되고, 달이 바뀌면 별도 배치 없이
+    -- 자동으로 플랜 기본 한도로 되돌아간다(api.effectiveAIAnalysisLimit).
+    custom_ai_analysis_limit        INTEGER,
+    custom_ai_analysis_limit_month  TEXT,
+    custom_ai_analysis_limit_reason TEXT
 );
 
 -- ------------------------------------------------------------
@@ -921,6 +929,20 @@ CREATE TABLE system_settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 INSERT INTO system_settings (key, value) VALUES ('free_plan_email_limit', '20');
+
+-- 플랜별 한도/가격(#/admin/plan-settings, api/plan_settings.go의
+-- planOverridesByPlan) — 값이 없을 때의 기본값(billing.Plans, billing/plan.go)과
+-- 정확히 같은 값으로 시드해 이 기능이 생기기 전과 동일하게 시작한다.
+INSERT INTO system_settings (key, value) VALUES
+    ('free_pipeline_limit', '3'),
+    ('free_ai_analysis_limit', '0'),
+    ('basic_ai_analysis_limit', '5'),
+    ('basic_price_krw', '19900'),
+    ('pro_ai_analysis_limit', '20'),
+    ('pro_price_krw', '49000'),
+    ('business_ai_analysis_limit', '60'),
+    ('business_price_krw', '99000'),
+    ('business_member_limit', '3');
 
 -- ------------------------------------------------------------
 -- 간편로그인(구글/네이버/카카오). users에 provider/provider_id 컬럼을

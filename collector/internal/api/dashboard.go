@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"github.com/lib/pq"
-
-	"biz-platform/collector/internal/billing"
 )
 
 // dashboardNoticeScanLimit is a safety cap on how many active notices get
@@ -273,7 +271,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("dashboard: plan lookup failed", "error", err)
 	}
-	aiLimit := billing.Plans[plan].MaxAIAnalysisPerMonth
+	aiLimit, err := s.effectiveAIAnalysisLimit(ctx, profileID, plan)
+	if err != nil {
+		s.logger.Error("dashboard: AI limit lookup failed", "error", err)
+	}
 	aiUsed, err := s.countAIAnalysisThisMonth(ctx, profileID)
 	if err != nil {
 		s.logger.Error("dashboard: AI usage count failed", "error", err)

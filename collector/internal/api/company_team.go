@@ -1,5 +1,7 @@
-// company_team.go — 팀기능: 한 조직(company_profiles)에 최대 3명(Business
-// 플랜)/1명(Free·Basic·Pro, 본인뿐)까지 소속. 권한 2단계 — owner(초대·
+// company_team.go — 팀기능: 한 조직(company_profiles)에 기본 최대 3명(Business
+// 플랜)/1명(Free·Basic·Pro, 본인뿐)까지 소속(business_member_limit,
+// #/admin/plan-settings에서 관리자가 조정 가능 — plan_settings.go의
+// effectivePlanInfo(...).MaxTeamMembers 참고). 권한 2단계 — owner(초대·
 // 구성원 관리, 구독 관리, 그 외 전체 데이터 쓰기), member(파이프라인
 // 조회+참여만, 그 외는 읽기 전용). 초대는 이메일 링크(Resend 재사용) +
 // 무작위 토큰이고, 받은 사람이 그 링크로 가입/로그인하면 자동 합류한다.
@@ -22,8 +24,6 @@ import (
 	"time"
 
 	"github.com/lib/pq"
-
-	"biz-platform/collector/internal/billing"
 )
 
 const invitationValidity = 7 * 24 * time.Hour
@@ -36,16 +36,6 @@ const (
 	notifyEventTeamInvite         = "team_invite"
 	notifyEventTeamInviteAccepted = "team_invite_accepted"
 )
-
-// maxTeamMembers returns how many company_members rows (owner 포함) an org
-// on this effective plan may have — Business만 팀(최대 3명), 나머지는
-// 본인 1명뿐이라는 스펙을 그대로 상수화.
-func maxTeamMembers(plan billing.Plan) int {
-	if plan == billing.PlanBusiness {
-		return 3
-	}
-	return 1
-}
 
 func generateInvitationToken() (string, error) {
 	b := make([]byte, 32)
@@ -201,7 +191,7 @@ func (s *Server) handleCreateInvitation(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
-	limit := maxTeamMembers(plan)
+	limit := s.effectivePlanInfo(r.Context(), plan).MaxTeamMembers
 
 	var occupiedSeats int
 	if err := s.db.QueryRowContext(r.Context(), `
@@ -386,7 +376,7 @@ func (s *Server) handleAcceptInvitation(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
-	if memberCount >= maxTeamMembers(plan) {
+	if memberCount >= s.effectivePlanInfo(r.Context(), plan).MaxTeamMembers {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "team_size_limit_exceeded"})
 		return
 	}

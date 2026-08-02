@@ -133,6 +133,24 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 관리자가 탈퇴 처리한 계정은 user_oauth_identities 행을 일부러 안
+	// 지운다(admin_member_actions.go 주석 참고 — 지우면 resolveOAuthUser가
+	// "새 계정"으로 오인해 원래 이메일로 재가입을 허용해버려 탈퇴가
+	// 무력화된다). 그래서 여기서 명시적으로 확인해야 실제로 로그인이
+	// 막힌다 — 이메일/비밀번호 로그인(handleLogin)처럼 이메일 자체가
+	// 바뀌어서 자연히 막히는 부수효과가 없다.
+	var deactivatedAt sql.NullTime
+	if err := s.db.QueryRowContext(r.Context(), `SELECT deactivated_at FROM users WHERE id = $1`, userID).Scan(&deactivatedAt); err != nil {
+		s.logger.Error("oauth-callback: deactivation check failed", "error", err)
+		http.Redirect(w, r, s.oauthFailureRedirect(), http.StatusFound)
+		return
+	}
+	if deactivatedAt.Valid {
+		s.logger.Warn("oauth-callback: deactivated account attempted login", "provider", provider, "userId", userID)
+		http.Redirect(w, r, s.oauthFailureRedirect(), http.StatusFound)
+		return
+	}
+
 	// 관리자 화면(admin.go) 회원목록의 "마지막 로그인" 근거 — handleLogin과
 	// 동일하게 실패해도 로그인 자체를 막지 않는다.
 	if _, err := s.db.ExecContext(r.Context(), `UPDATE users SET last_login_at = now() WHERE id = $1`, userID); err != nil {

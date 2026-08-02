@@ -153,6 +153,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureSystemSettingsTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate system_settings table: %w", err)
 	}
+	if err := ensurePlanSettingsSeed(ctx, db); err != nil {
+		return fmt.Errorf("migrate plan settings seed: %w", err)
+	}
 	if err := ensureNotificationLogSkippedStatus(ctx, db); err != nil {
 		return fmt.Errorf("migrate notification_log skipped status: %w", err)
 	}
@@ -183,6 +186,12 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	// company_info와 banners가 둘 다 있어야 하므로 맨 마지막에 실행.
 	if err := ensureBannersBrandNameTokenBackfill(ctx, db); err != nil {
 		return fmt.Errorf("migrate banners brand_name token backfill: %w", err)
+	}
+	if err := ensureUserDeactivationColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate users.deactivated_at column: %w", err)
+	}
+	if err := ensureCompanyProfileCustomAILimitColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_profiles custom AI limit columns: %w", err)
 	}
 	return nil
 }
@@ -1104,6 +1113,63 @@ func ensureSystemSettingsTable(ctx context.Context, db *sql.DB) error {
 		);
 		INSERT INTO system_settings (key, value) VALUES ('free_plan_email_limit', '20')
 			ON CONFLICT (key) DO NOTHING;
+	`)
+	return err
+}
+
+// ensurePlanSettingsSeed seeds system_settings rows for every plan-level 값
+// (#/admin/plan-settings, api/plan_settings.go의 planSettingsByPlan과
+// 키 이름이 정확히 일치해야 함) — 관리자가 아직 한 번도 안 바꾼 새 배포에서
+// 지금 billing.Plans에 하드코딩된 값과 정확히 같은 값으로 시작하도록
+// ON CONFLICT DO NOTHING으로 시드한다(즉 이 마이그레이션 자체는 기존 동작을
+// 하나도 안 바꾼다 — 바뀌는 건 "이제부터 관리자가 이 값을 조정할 수 있다"는
+// 것뿐). free_ai_analysis_limit은 0으로 시드하는데, 이건 billing.Plans의
+// 실제 현재 값(Free는 AI분석 자체가 0건 = 이용 불가)과 일치시킨 것이다.
+func ensurePlanSettingsSeed(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO system_settings (key, value) VALUES
+			('free_pipeline_limit', '3'),
+			('free_ai_analysis_limit', '0'),
+			('basic_ai_analysis_limit', '5'),
+			('basic_price_krw', '19900'),
+			('pro_ai_analysis_limit', '20'),
+			('pro_price_krw', '49000'),
+			('business_ai_analysis_limit', '60'),
+			('business_price_krw', '99000'),
+			('business_member_limit', '3')
+		ON CONFLICT (key) DO NOTHING;
+	`)
+	return err
+}
+
+// ensureUserDeactivationColumn adds users.deactivated_at — 관리자 회원 탈퇴
+// 처리(admin_member_deactivate.go)의 표식. NULL이 아니면 그 계정은 로그인이
+// 영구히 막힌다(handleLogin/handleOAuthCallback이 확인). 계정을 실제로
+// DELETE하지 않는 이유: 결제이력(payment_log)·감사기록(audit_logs) 등은
+// 법적 보관기간을 고려해 유지해야 하고, 그 테이블들이 이 users 행을
+// FK로 참조하기 때문이다(참조 무결성 유지).
+func ensureUserDeactivationColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
+	`)
+	return err
+}
+
+// ensureCompanyProfileCustomAILimitColumns adds company_profiles.
+// custom_ai_analysis_limit(관리자가 "이번달 한도 임시조정"으로 지정한 값,
+// NULL이면 오버라이드 없음)/custom_ai_analysis_limit_month(어느 달
+// 오버라이드인지, 'YYYY-MM' 문자열 — DATE 대신 이 형식을 쓴 이유는
+// api.effectiveAIAnalysisLimit이 time.Now().Format("2006-01")과 순수
+// 문자열 비교만 하면 되게 해서, 타임존 경계 근처의 DATE 비교 오차 걱정을
+// 아예 없애기 위함)/custom_ai_analysis_limit_reason(관리자가 남긴 사유,
+// 화면에 표시용 — 전체 변경 이력은 audit_logs에 별도로 남는다)을 추가한다.
+// 다음 달이 되면(현재 월 문자열과 안 맞으면) 자동으로 플랜 기본값으로
+// 되돌아간다(별도 배치/스케줄 불필요 — 조회 시점에 매번 비교).
+func ensureCompanyProfileCustomAILimitColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS custom_ai_analysis_limit INTEGER;
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS custom_ai_analysis_limit_month TEXT;
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS custom_ai_analysis_limit_reason TEXT;
 	`)
 	return err
 }

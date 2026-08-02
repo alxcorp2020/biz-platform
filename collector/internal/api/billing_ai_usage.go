@@ -9,8 +9,6 @@ import (
 	"database/sql"
 	"net/http"
 	"time"
-
-	"biz-platform/collector/internal/billing"
 )
 
 type aiUsageItem struct {
@@ -56,7 +54,12 @@ func (s *Server) handleGetAIUsage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
-	limit := billing.Plans[plan].MaxAIAnalysisPerMonth
+	limit, err := s.effectiveAIAnalysisLimit(ctx, profile.ID, plan)
+	if err != nil {
+		s.logger.Error("get-ai-usage: limit lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, original_filename, document_kind, uploaded_at, extraction_status, failure_reason
