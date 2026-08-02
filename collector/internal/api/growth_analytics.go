@@ -11,6 +11,9 @@
 //     이유는 그건 "우리가 받은 돈"이 아니라 "발주기관이 배정한
 //     예산"이라 실제 낙찰금액과 다를 수 있기 때문 — 부정확한 ROI보다
 //     "아직 입력 안 됨(0건)"이 낫다는 판단.
+//   - Phase 7 2단계: 벤치마킹(전체 가입 회사 익명 집계 평균 대비 우리
+//     회사 위치)과 낙찰이력(scsbid) 연동 준비 구조를 추가했다 — 아래
+//     minBenchmarkCompanies/fetchIndustryAwardBenchmark 주석 참고.
 package api
 
 import (
@@ -19,6 +22,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 type growthTrendPoint struct {
@@ -44,10 +49,37 @@ type growthROI struct {
 	Ratio              *float64 `json:"ratio"` // TotalAwardedAmount / TotalPaidAmount, null이면 결제 이력이 없어 계산 불가
 }
 
+// minBenchmarkCompanies — 벤치마크 지표(비교 대상 회사 수)가 이 값
+// 미만이면 평균을 보여주지 않는다. 회사 수가 적을 때 "평균"을 보여주면
+// 사실상 특정 소수 회사(경쟁사)의 데이터를 역산할 수 있어 익명성이
+// 깨진다 — 요구사항 확정 사항.
+const minBenchmarkCompanies = 5
+
+// benchmarkMetric — 지표 하나의 벤치마크 결과. Available=false면
+// companyCount만 보여주고 averageValue는 비워서(프론트가 "비교 데이터
+// 부족" 안내만 하도록) 익명성을 지킨다. ourValue는 비교 가능 여부와
+// 무관하게 항상 채운다(우리 회사 자기 수치는 항상 보여줘도 무방).
+type benchmarkMetric struct {
+	Available    bool     `json:"available"`
+	CompanyCount int      `json:"companyCount"`
+	AverageValue *float64 `json:"averageValue,omitempty"`
+	OurValue     *float64 `json:"ourValue,omitempty"`
+}
+
+type growthBenchmark struct {
+	MinCompanyCount     int             `json:"minCompanyCount"`
+	ProfileCompleteness benchmarkMetric `json:"profileCompleteness"`
+	PipelineConversion  benchmarkMetric `json:"pipelineConversion"`
+}
+
 type growthAnalyticsResponse struct {
 	Trend             []growthTrendPoint      `json:"trend"`
 	GradeDistribution []gradeDistributionItem `json:"gradeDistribution"`
 	ROI               growthROI               `json:"roi"`
+	Benchmark         growthBenchmark         `json:"benchmark"`
+	// IndustryAwardBenchmark — scsbid 연동 준비(아래 fetchIndustryAwardBenchmark
+	// 주석 참고). 지금은 notice_award_history가 비어있어 항상 nil.
+	IndustryAwardBenchmark *industryAwardBenchmark `json:"industryAwardBenchmark,omitempty"`
 }
 
 // handleGetGrowthAnalytics — GET /api/growth-analytics. 읽기 전용이라
@@ -89,8 +121,44 @@ func (s *Server) handleGetGrowthAnalytics(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	completeness, err := s.computeProfileCompleteness(ctx, profile.ID, profile.Industry)
+	if err != nil {
+		s.logger.Error("growth-analytics: completeness query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	completenessBenchmark, err := s.fetchCompletenessBenchmark(ctx, profile.ID, completeness.OverallCompleteness)
+	if err != nil {
+		s.logger.Error("growth-analytics: completeness benchmark query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	conversionBenchmark, err := s.fetchConversionBenchmark(ctx, profile.ID)
+	if err != nil {
+		s.logger.Error("growth-analytics: conversion benchmark query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+
+	// Phase 7 2단계: 낙찰이력(scsbid) 연동 준비 — notice_award_history가
+	// 아직 비어있어(수집기 미승인) 지금은 항상 nil을 반환하고 응답에서
+	// 빠진다(omitempty). 프론트는 이 필드를 아직 참조하지 않는다 —
+	// 데이터가 채워지기 시작하면 자동으로 값이 실리므로, 그때 프론트만
+	// 추가로 작업하면 된다.
+	industryAwardBenchmark, err := s.fetchIndustryAwardBenchmark(ctx, profile.Industry)
+	if err != nil {
+		s.logger.Error("growth-analytics: industry award benchmark query failed", "error", err)
+		// 이 필드는 부가 정보라 실패해도 나머지 응답은 그대로 반환한다.
+	}
+
 	writeJSON(w, http.StatusOK, growthAnalyticsResponse{
 		Trend: trend, GradeDistribution: distribution, ROI: roi,
+		Benchmark: growthBenchmark{
+			MinCompanyCount:     minBenchmarkCompanies,
+			ProfileCompleteness: completenessBenchmark,
+			PipelineConversion:  conversionBenchmark,
+		},
+		IndustryAwardBenchmark: industryAwardBenchmark,
 	})
 }
 
@@ -228,4 +296,135 @@ func (s *Server) fetchROI(ctx context.Context, profileID string) (growthROI, err
 		roi.Ratio = &ratio
 	}
 	return roi, nil
+}
+
+// fetchCompletenessBenchmark averages every OTHER company's most recent
+// reports.summary.profileCompletenessScore (회사당 최신 리포트 1건만 —
+// DISTINCT ON) and compares it against ourScore(요청 시점 실시간 계산,
+// handleGetGrowthAnalytics가 이미 구했음). 우리 회사 자신은 평균에서
+// 제외한다 — 자기 자신과 비교하는 건 의미가 없다.
+func (s *Server) fetchCompletenessBenchmark(ctx context.Context, profileID string, ourScore int) (benchmarkMetric, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT ON (company_profile_id) summary
+		FROM reports
+		WHERE company_profile_id != $1
+		ORDER BY company_profile_id, period_start DESC`,
+		profileID,
+	)
+	if err != nil {
+		return benchmarkMetric{}, err
+	}
+	defer rows.Close()
+
+	sum, count := 0, 0
+	for rows.Next() {
+		var summaryRaw []byte
+		if err := rows.Scan(&summaryRaw); err != nil {
+			continue
+		}
+		var summary reportSummary
+		if err := json.Unmarshal(summaryRaw, &summary); err != nil {
+			continue
+		}
+		sum += summary.ProfileCompletenessScore
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return benchmarkMetric{}, err
+	}
+
+	our := float64(ourScore)
+	if count < minBenchmarkCompanies {
+		return benchmarkMetric{CompanyCount: count, OurValue: &our}, nil
+	}
+	avg := float64(sum) / float64(count)
+	return benchmarkMetric{Available: true, CompanyCount: count, AverageValue: &avg, OurValue: &our}, nil
+}
+
+// fetchConversionBenchmark computes each company's all-time "제출 전환율"
+// (제출완료/낙찰/탈락까지 도달한 비율 — 아직 진행 중이거나 보류/제외로
+// 끝난 건은 분자에서 뺀다) and averages every OTHER company's rate against
+// ours. 파이프라인 엔트리가 하나도 없는 회사는 분모가 0이라 애초에 비율을
+// 정의할 수 없어 평균 계산에서 제외한다(우리 회사가 그런 경우도 동일).
+func (s *Server) fetchConversionBenchmark(ctx context.Context, profileID string) (benchmarkMetric, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT company_profile_id,
+			count(*) AS total,
+			count(*) FILTER (WHERE status IN ('제출완료','낙찰','탈락')) AS submitted
+		FROM notice_pipeline_entries
+		GROUP BY company_profile_id`,
+	)
+	if err != nil {
+		return benchmarkMetric{}, err
+	}
+	defer rows.Close()
+
+	var ourValue *float64
+	sum, count := 0.0, 0
+	for rows.Next() {
+		var pid string
+		var total, submitted int
+		if err := rows.Scan(&pid, &total, &submitted); err != nil {
+			continue
+		}
+		if total == 0 {
+			continue
+		}
+		rate := float64(submitted) / float64(total)
+		if pid == profileID {
+			r := rate
+			ourValue = &r
+			continue
+		}
+		sum += rate
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return benchmarkMetric{}, err
+	}
+
+	if count < minBenchmarkCompanies {
+		return benchmarkMetric{CompanyCount: count, OurValue: ourValue}, nil
+	}
+	avg := sum / float64(count)
+	return benchmarkMetric{Available: true, CompanyCount: count, AverageValue: &avg, OurValue: ourValue}, nil
+}
+
+type industryAwardBenchmark struct {
+	SampleCount      int      `json:"sampleCount"`
+	AverageAwardRate *float64 `json:"averageAwardRate,omitempty"`
+}
+
+// fetchIndustryAwardBenchmark — Phase 7 2단계: 낙찰이력(scsbid) 연동
+// 준비. scsbid 수집기가 아직 미승인이라 notice_award_history가 항상
+// 비어있고, 이 함수는 지금은 항상 (nil, nil)을 반환한다 — 승인되면
+// 수집기가 이 테이블을 채우기 시작하는 순간 자동으로 값이 채워진다.
+//
+// 회사 단위(우리 회사의 실제 낙찰률)가 아니라 업종 단위 평균으로 설계한
+// 이유: company_profiles에 "회사명"(사업자등록증 상호) 컬럼이 아예 없다
+// (업종/지역/규모 등 속성만 저장) — notice_award_history.winner_name과
+// 매칭할 방법이 없다. 정확한 자사 낙찰률을 보여주려면 company_profiles에
+// 회사명 컬럼을 먼저 추가해야 하는데, 이번 단계 범위 밖이라 남겨둔다.
+// 대신 이미 양쪽에 다 있는 industry로 "우리 업종 평균 낙찰률"을 계산한다.
+func (s *Server) fetchIndustryAwardBenchmark(ctx context.Context, industries []string) (*industryAwardBenchmark, error) {
+	if len(industries) == 0 {
+		return nil, nil
+	}
+	var count int
+	var avgRate sql.NullFloat64
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*), avg(award_rate) FROM notice_award_history
+		WHERE industry = ANY($1) AND award_rate IS NOT NULL`,
+		pq.Array(industries),
+	).Scan(&count, &avgRate); err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, nil
+	}
+	result := &industryAwardBenchmark{SampleCount: count}
+	if avgRate.Valid {
+		result.AverageAwardRate = &avgRate.Float64
+	}
+	return result, nil
 }
