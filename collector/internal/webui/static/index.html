@@ -570,18 +570,31 @@
   }
   .home-browse-link:hover { text-decoration: underline; color: var(--accent-blue); }
 
-  /* ---------- 배너 슬라이드(홈 화면 상단, 관리자 CMS 1번) ----------
-     외부 슬라이더 라이브러리 없이 순수 CSS transform + JS 인터벌로
-     구현(이 프로젝트의 "차트도 순수 SVG" 원칙과 동일한 방향 — 불필요한
-     의존성 추가 지양). 이미지 자체는 비율(1200:360=10:3)을 aspect-ratio로
-     고정해 로딩 전/후 레이아웃이 흔들리지 않게 한다. */
+  /* ---------- 배너 레이어(홈 화면 진입 시 오버레이 팝업, 관리자 CMS
+     1번) ---------- 외부 슬라이더/모달 라이브러리 없이 순수 CSS +
+     JS 인터벌로 구현(이 프로젝트의 "차트도 순수 SVG" 원칙과 동일한
+     방향 — 불필요한 의존성 추가 지양). 화면 전체를 덮는 반투명 배경
+     위에 캐러셀 카드가 뜨고, 닫기(X) 버튼으로만 닫힌다(배경 클릭으로는
+     안 닫힘 — "뒤 선택 못하게" 요구사항 그대로 강제 차단). z-index는
+     사이드바(10)/전역 프로필 배너(15)보다 훨씬 높게 둬서 항상 최상단. */
+  .banner-layer-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(11,21,38,0.65);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
   .banner-slide {
     position: relative;
-    max-width: 900px;
-    margin: 0 auto 1.5rem;
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto;
     border-radius: var(--radius-card);
     overflow: hidden;
-    box-shadow: var(--shadow-soft);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.35);
     aspect-ratio: 10 / 3;
     background: var(--bg-soft);
   }
@@ -2432,13 +2445,14 @@ async function renderHome(container) {
   renderDashboard(container, data);
 }
 
-// ---------- 배너 슬라이드(홈 화면 상단, 관리자 CMS 1번) ----------
+// ---------- 배너 레이어(홈 화면 진입 시 오버레이 팝업, 관리자 CMS 1번) ----------
 // renderMarketingHero/renderOnboardingHero/renderDashboard 세 곳 모두에서
-// 호출한다 — 로그인 여부/프로필 유무와 무관하게 항상 같은 자리(각 화면의
-// 맨 위)에 노출되는 마케팅성 영역이라 셋이 각자 로직을 반복하는 대신 공용
-// 함수 하나로 뺐다. 배너 로딩은 비동기라 즉시 빈 슬롯(slot)만 붙이고,
-// 실패(네트워크 오류 등)해도 조용히 무시한다 — 핵심 기능이 아니므로
-// 에러 문구로 화면을 어지럽히지 않는다.
+// 호출한다 — 홈 화면에 진입할 때마다(로그인/프로필 유무 무관) 화면
+// 전체를 덮는 오버레이로 뜬다. 페이지 안 인라인 요소가 아니라
+// document.body에 직접 붙는 전역 레이어라(#app이 route()에 갈아끼워져도
+// 무관), 여러 홈 변형 함수가 중복 호출해도 이미 떠 있으면 하나만
+// 남도록 매번 기존 오버레이를 먼저 제거한다. 실패(네트워크 오류 등)해도
+// 조용히 무시한다 — 핵심 기능이 아니므로 에러 문구를 띄우지 않는다.
 //
 // "오늘 하루 보지 않기" — 닫기(×) 버튼을 누르면 localStorage에 오늘
 // 날짜를 저장하고, 같은 날 안에는 다시 렌더링 자체를 건너뛴다(API 호출도
@@ -2449,12 +2463,9 @@ function todayDateString() {
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
-async function renderHomeBannerSlide(container) {
+async function renderHomeBannerSlide() {
+  document.getElementById('banner-layer-overlay')?.remove();
   if (localStorage.getItem(BANNER_DISMISS_KEY) === todayDateString()) return;
-
-  const slot = document.createElement('div');
-  slot.className = 'home-banner-slide-slot';
-  container.appendChild(slot);
 
   let items;
   try {
@@ -2464,13 +2475,19 @@ async function renderHomeBannerSlide(container) {
     return;
   }
   if (!items.length) return;
-  renderBannerSlideInto(slot, items);
+
+  const overlay = document.createElement('div');
+  overlay.id = 'banner-layer-overlay';
+  overlay.className = 'banner-layer-overlay';
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+  renderBannerSlideInto(overlay, items);
 }
 
-function renderBannerSlideInto(slot, items) {
+function renderBannerSlideInto(overlay, items) {
   let current = 0;
   const hasMultiple = items.length > 1;
-  slot.innerHTML = `
+  overlay.innerHTML = `
     <div class="banner-slide">
       <div class="banner-slide-track">
         ${items.map(b => `
@@ -2489,8 +2506,8 @@ function renderBannerSlideInto(slot, items) {
       ` : ''}
     </div>
   `;
-  const track = slot.querySelector('.banner-slide-track');
-  const dots = Array.from(slot.querySelectorAll('.banner-slide-dot'));
+  const track = overlay.querySelector('.banner-slide-track');
+  const dots = Array.from(overlay.querySelectorAll('.banner-slide-dot'));
   let timer = null;
 
   function update() {
@@ -2503,21 +2520,24 @@ function renderBannerSlideInto(slot, items) {
   }
   update();
 
-  slot.querySelector('.banner-slide-close').addEventListener('click', () => {
+  // 닫기는 X 버튼으로만 — 배경(오버레이) 클릭으로는 안 닫히게 해서
+  // "뒤 선택 못하게" 요구사항을 그대로 지킨다.
+  overlay.querySelector('.banner-slide-close').addEventListener('click', () => {
     localStorage.setItem(BANNER_DISMISS_KEY, todayDateString());
     if (timer) clearInterval(timer);
-    slot.innerHTML = '';
+    document.body.style.overflow = '';
+    overlay.remove();
   });
   if (!hasMultiple) return;
 
-  slot.querySelector('.banner-slide-arrow--prev').addEventListener('click', () => go(-1));
-  slot.querySelector('.banner-slide-arrow--next').addEventListener('click', () => go(1));
+  overlay.querySelector('.banner-slide-arrow--prev').addEventListener('click', () => go(-1));
+  overlay.querySelector('.banner-slide-arrow--next').addEventListener('click', () => go(1));
   dots.forEach((d, i) => d.addEventListener('click', () => { current = i; update(); }));
 
   const AUTO_ADVANCE_MS = 5000;
   timer = setInterval(() => go(1), AUTO_ADVANCE_MS);
-  slot.addEventListener('mouseenter', () => clearInterval(timer));
-  slot.addEventListener('mouseleave', () => { timer = setInterval(() => go(1), AUTO_ADVANCE_MS); });
+  overlay.addEventListener('mouseenter', () => clearInterval(timer));
+  overlay.addEventListener('mouseleave', () => { timer = setInterval(() => go(1), AUTO_ADVANCE_MS); });
 }
 
 // ---------- 전역 프로필 미완성 안내 배너 ----------
@@ -2563,7 +2583,7 @@ async function renderGlobalProfileBanner() {
 
 function renderMarketingHero(container) {
   container.innerHTML = '';
-  renderHomeBannerSlide(container);
+  renderHomeBannerSlide();
   container.appendChild(h(`
     <div class="home-hero">
       <p class="home-hero-eyebrow">AI 공공사업 참여판단 비서</p>
@@ -2580,7 +2600,7 @@ function renderMarketingHero(container) {
 
 function renderOnboardingHero(container) {
   container.innerHTML = '';
-  renderHomeBannerSlide(container);
+  renderHomeBannerSlide();
   container.appendChild(h(`
     <div class="home-hero">
       <p class="home-hero-eyebrow">거의 다 왔습니다</p>
@@ -2667,7 +2687,7 @@ function renderDashboard(container, data) {
   // 프로필 미완성 안내는 이제 #global-profile-banner(전역, #app 밖)가
   // 담당한다 — route()가 매 페이지 이동마다 renderGlobalProfileBanner()를
   // 호출하므로 여기서 따로 그릴 필요가 없다.
-  renderHomeBannerSlide(container);
+  renderHomeBannerSlide();
 
   const s = data.summary;
   // filter는 renderPipelineList가 읽는 쿼리 파라미터 값(dashboard.go 요약
