@@ -1899,14 +1899,18 @@
   .landing-header-actions .home-cta-secondary,
   .landing-header-actions .home-cta-primary { padding: 0.55rem 1.2rem; font-size: 0.85rem; }
 
-  .landing-section { padding: var(--space-xl) var(--space-lg); }
+  /* 섹션 간 상하 여백 — 기존(var(--space-xl)=3rem) 대비 약 2배. 랜딩페이지
+     전용 값이라 앱 전역에서 쓰는 --space-xl 자체는 건드리지 않는다(다른
+     화면에 영향 없게). */
+  .landing-section { padding: 6rem var(--space-lg); }
   .landing-section--alt { background: var(--bg-soft); }
+  .landing-section--tint { background: linear-gradient(180deg, rgba(49,130,246,0.06), rgba(49,130,246,0.02)); }
   .landing-container { max-width: 1100px; margin: 0 auto; }
   .landing-section-eyebrow { text-align: center; font-size: 0.85rem; font-weight: 700; color: var(--accent-blue); margin: 0 0 0.6rem; }
   .landing-section-title { text-align: center; font-size: 1.6rem; font-weight: 800; color: var(--navy); margin: 0 0 0.75rem; line-height: 1.4; }
   .landing-section-desc { text-align: center; font-size: 0.98rem; color: var(--ink-soft); max-width: 640px; margin: 0 auto 2.5rem; line-height: 1.75; }
 
-  .landing-hero { text-align: center; padding: 5rem var(--space-lg) 4rem; }
+  .landing-hero { text-align: center; padding: 7.5rem var(--space-lg) 4rem; }
   .landing-hero-inner { max-width: 720px; margin: 0 auto; }
   .landing-hero-eyebrow { font-size: 0.9rem; font-weight: 700; color: var(--accent-blue); margin: 0 0 1rem; }
   .landing-hero-title { font-size: 2.4rem; font-weight: 800; color: var(--navy); line-height: 1.4; margin: 0 0 1.25rem; }
@@ -1915,11 +1919,76 @@
   .landing-hero-actions .home-cta-primary,
   .landing-hero-actions .home-cta-secondary { padding: 0.85rem 1.9rem; font-size: 1rem; }
 
+  /* ---------- 브라우저 프레임(맥 스타일 창틀) — 실제 제품 스크린샷을
+     감싸는 공용 컴포넌트. 히어로의 기울어진 버전과 스포트라이트 섹션의
+     평평한 버전이 이 클래스를 공유한다. */
+  .landing-browser-frame {
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(20,33,61,0.18);
+    border: 1px solid var(--border);
+    background: #fff;
+  }
+  .landing-browser-frame-bar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0.65rem 0.9rem;
+    background: #F0F1F3;
+    border-bottom: 1px solid var(--border);
+  }
+  .landing-browser-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .landing-browser-dot--red { background: #FF5F57; }
+  .landing-browser-dot--yellow { background: #FEBC2E; }
+  .landing-browser-dot--green { background: #28C840; }
+  .landing-browser-frame img { display: block; width: 100%; height: auto; }
+
+  /* 히어로 비주얼 — 대시보드 화면이 살짝 기울어진 채 떠 있는 느낌
+     (perspective + rotate). 뒤에 흐린 브랜드 컬러 glow를 깔아 입체감을
+     더한다. */
+  .landing-hero-visual {
+    position: relative;
+    max-width: 880px;
+    margin: 4rem auto 0;
+    perspective: 1800px;
+  }
+  .landing-hero-visual-glow {
+    position: absolute;
+    inset: -10% -5% -5%;
+    background: radial-gradient(60% 60% at 50% 40%, rgba(49,130,246,0.35), rgba(49,130,246,0) 70%);
+    filter: blur(40px);
+    z-index: -1;
+  }
+  .landing-hero-frame {
+    transform: rotateX(9deg) rotateY(-7deg) scale(0.97);
+    transition: transform 0.5s ease;
+  }
+  @media (max-width: 900px) {
+    .landing-hero-frame { transform: none; }
+  }
+
   .landing-problem-stat { display: flex; align-items: center; justify-content: center; gap: 1.5rem; margin: 2rem 0 0; flex-wrap: wrap; }
   .landing-problem-num { font-size: 3rem; font-weight: 800; color: var(--ink); }
   .landing-problem-num--result { color: var(--accent-blue); }
   .landing-problem-arrow { font-size: 2rem; color: var(--ink-soft); }
   .landing-problem-num-label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); margin-top: 0.35rem; }
+
+  /* ---------- 기능 스포트라이트 — 핵심 기능 중 화면이 있는 것들은 하나씩
+     크게(제목+설명+스크린샷), 텍스트/이미지 좌우를 번갈아 배치한다.
+     나머지는 아래 .landing-features-grid(기존 카드형)에 남는다. */
+  .landing-feature-spotlight + .landing-feature-spotlight { padding-top: 0; }
+  .landing-feature-spotlight-inner {
+    display: flex; align-items: center; gap: 3.5rem;
+  }
+  .landing-feature-spotlight-inner.is-reverse { flex-direction: row-reverse; }
+  .landing-feature-spotlight-text { flex: 1 1 360px; min-width: 0; }
+  .landing-feature-spotlight-visual { flex: 1 1 480px; min-width: 0; }
+  .landing-feature-spotlight-eyebrow { font-size: 0.85rem; font-weight: 700; color: var(--accent-blue); margin: 0 0 0.75rem; }
+  .landing-feature-spotlight-title { font-size: 1.7rem; font-weight: 800; color: var(--navy); line-height: 1.4; margin: 0 0 1rem; }
+  .landing-feature-spotlight-desc { font-size: 1rem; color: var(--ink-soft); line-height: 1.8; margin: 0; }
+  @media (max-width: 900px) {
+    .landing-feature-spotlight-inner,
+    .landing-feature-spotlight-inner.is-reverse { flex-direction: column; gap: 2rem; }
+    .landing-feature-spotlight-text { text-align: center; }
+  }
 
   .landing-features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 1.5rem; }
   .landing-feature-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 1.75rem 1.5rem; box-shadow: var(--shadow-soft); }
@@ -1984,10 +2053,12 @@
     .landing-header-actions { gap: 0.5rem; }
     .landing-header-actions .home-cta-secondary,
     .landing-header-actions .home-cta-primary { padding: 0.5rem 0.75rem; font-size: 0.78rem; }
-    .landing-hero { padding: 3rem 1.25rem 2.5rem; }
+    .landing-hero { padding: 4rem 1.25rem 2.5rem; }
     .landing-hero-title { font-size: 1.6rem; }
-    .landing-section { padding: 3rem 1.25rem; }
+    .landing-hero-visual { margin-top: 2.5rem; }
+    .landing-section { padding: 4rem 1.25rem; }
     .landing-section-title { font-size: 1.3rem; }
+    .landing-feature-spotlight-title { font-size: 1.35rem; }
     .landing-footer { padding: 2.5rem 1.25rem 1.5rem; }
     .landing-footer-top { flex-direction: column; gap: 1.25rem; }
   }
@@ -2855,13 +2926,41 @@ async function renderGlobalProfileBanner() {
 // is-landing을 다시 지운다 — 로그인 직후처럼 같은 '#/' 경로에서 렌더 분기만
 // 바뀌는 경우 route()의 "path !== '#/'일 때만 정리" 로직으로는 안 잡히기
 // 때문에, 세 분기 함수 각자가 자기 상태를 명시적으로 맞춘다.
+// LANDING_FEATURE_SPOTLIGHTS — 실제 화면 스크린샷이 있는 3개 기능은 하나씩
+// 크게(제목+설명+스크린샷) 보여준다. 이미지는 헤드리스 브라우저로 실제
+// 로그인 화면을 찍어 static/screenshots/에 저장한 것(placeholder/목업
+// 아님) — 조회 방법은 CHANGELOG 참고. alt는 스크린샷이 실제로 보여주는
+// 내용을 그대로 설명한다(스크린리더 사용자에게도 같은 정보 제공).
+const LANDING_FEATURE_SPOTLIGHTS = [
+  {
+    eyebrow: '핵심 기능 · AI 분석 & 오늘의 업무',
+    title: '오늘 할 일을 한눈에',
+    desc: '로그인하면 바로 오늘 확인해야 할 공고와 파이프라인 현황을 보여드립니다. 마감 임박, 서류 미비, 담당자 미지정 건을 놓치지 않도록 정리해드립니다.',
+    image: '/screenshots/dashboard.png',
+    alt: '공공사업 AI 비서 홈 대시보드 화면 — 오늘 해야 할 일 목록과 참여검토 대기, 마감임박 등 요약 카드',
+  },
+  {
+    eyebrow: '핵심 기능 · 팀 협업',
+    title: '파이프라인으로 함께 관리',
+    desc: '검토전부터 낙찰까지, 여러 담당자가 진행 상황을 칸반 보드에서 한눈에 확인합니다. 카드를 옮기기만 하면 상태가 바로 바뀝니다.',
+    image: '/screenshots/pipeline-kanban.png',
+    alt: '진행 중 사업 파이프라인 칸반 보드 화면 — 검토전, 참여검토, 승인대기, 준비중 컬럼별 카드',
+  },
+  {
+    eyebrow: '핵심 기능 · 성장 분석',
+    title: '데이터로 보는 우리 회사의 성장',
+    desc: '프로필 완성도와 파이프라인 성과 추이를 시계열 차트로 보여드립니다. 지난달과 비교해 우리 회사가 얼마나 성장했는지 바로 확인할 수 있습니다.',
+    image: '/screenshots/growth-analytics.png',
+    alt: '성장분석 화면 — 프로필 완성도와 파이프라인 성과 추이 선그래프',
+  },
+];
+
+// LANDING_FEATURES — 화면 스크린샷 없이 기존 카드 그리드로 보여줄
+// 나머지 기능.
 const LANDING_FEATURES = [
-  { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>', title: 'AI 자동 분석', desc: '공고 원문을 AI가 읽고 참여 가능성을 자동으로 판정합니다.' },
   { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 10l2 2 4-4"/><line x1="8" y1="16" x2="16" y2="16"/></svg>', title: '서류 자동 체크리스트', desc: '공고별로 필요한 서류를 자동으로 뽑아 빠짐없이 챙길 수 있습니다.' },
-  { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', title: '팀 협업(파이프라인)', desc: '여러 담당자가 함께 참여 진행 상황을 관리하고 공유합니다.' },
   { icon: SIDEBAR_ICONS.bell, title: '마감 알림', desc: '제출 마감을 이메일·인앱 알림·웹 푸시로 미리 알려드립니다.' },
   { icon: SIDEBAR_ICONS.calendar, title: '캘린더 연동', desc: '마감 일정을 캘린더에서 한눈에 확인할 수 있습니다.' },
-  { icon: SIDEBAR_ICONS.chart, title: '성장 분석 리포트', desc: '우리 회사의 참여 성과와 완성도를 데이터로 확인합니다.' },
 ];
 
 const LANDING_CASES = [
@@ -2956,6 +3055,17 @@ async function renderLandingPage(container) {
           <a href="#/notices" class="home-cta-secondary">전체 공고 둘러보기</a>
         </div>
       </div>
+      <div class="landing-hero-visual">
+        <div class="landing-hero-visual-glow"></div>
+        <div class="landing-browser-frame landing-hero-frame">
+          <div class="landing-browser-frame-bar">
+            <span class="landing-browser-dot landing-browser-dot--red"></span>
+            <span class="landing-browser-dot landing-browser-dot--yellow"></span>
+            <span class="landing-browser-dot landing-browser-dot--green"></span>
+          </div>
+          <img src="/screenshots/dashboard.png" alt="공공사업 AI 비서 홈 대시보드 실제 화면">
+        </div>
+      </div>
     </section>
 
     <section class="landing-section reveal">
@@ -2971,10 +3081,34 @@ async function renderLandingPage(container) {
       </div>
     </section>
 
+    ${LANDING_FEATURE_SPOTLIGHTS.map((f, i) => `
+      <section class="landing-section landing-feature-spotlight ${i % 2 === 0 ? 'landing-section--tint' : ''} reveal">
+        <div class="landing-container">
+          <div class="landing-feature-spotlight-inner${i % 2 === 1 ? ' is-reverse' : ''}">
+            <div class="landing-feature-spotlight-text">
+              <p class="landing-feature-spotlight-eyebrow">${escapeHtml(f.eyebrow)}</p>
+              <h2 class="landing-feature-spotlight-title">${escapeHtml(f.title)}</h2>
+              <p class="landing-feature-spotlight-desc">${escapeHtml(f.desc)}</p>
+            </div>
+            <div class="landing-feature-spotlight-visual">
+              <div class="landing-browser-frame">
+                <div class="landing-browser-frame-bar">
+                  <span class="landing-browser-dot landing-browser-dot--red"></span>
+                  <span class="landing-browser-dot landing-browser-dot--yellow"></span>
+                  <span class="landing-browser-dot landing-browser-dot--green"></span>
+                </div>
+                <img src="${escapeAttr(f.image)}" alt="${escapeAttr(f.alt)}" loading="lazy">
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    `).join('')}
+
     <section class="landing-section landing-section--alt reveal">
       <div class="landing-container">
-        <p class="landing-section-eyebrow">핵심 기능</p>
-        <h2 class="landing-section-title">공고 분석부터 팀 협업까지,<br>AI 비서 하나로</h2>
+        <p class="landing-section-eyebrow">더 있어요</p>
+        <h2 class="landing-section-title">놓치지 않도록, 꼼꼼하게</h2>
         <div class="landing-features-grid">
           ${LANDING_FEATURES.map(f => `
             <div class="landing-feature-card">
