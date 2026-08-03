@@ -5796,14 +5796,16 @@ function renderSignup(container, isBack) {
 function renderSignupProfileStep(container, opts) {
   opts = opts || {};
   const fromEmailStep1 = !!opts.fromEmailStep1;
-  // 1단계(is-auth, 카드만 있는 심플 레이아웃)와 달리 이 2단계는 일반
-  // 사이드바 레이아웃으로 보여준다 — hash가 '#/auth/signup' 그대로 유지된
-  // 채(이메일 가입 경로) container만 갈아끼우는 구조라 route()의 방어적
-  // is-auth 정리를 안 거치므로 여기서 직접 제거한다. 소셜 로그인 경로
-  // (#/auth/oauth-profile, renderOAuthProfileStep이 이 함수를 재사용)는
-  // 애초에 route()가 이미 is-auth를 지운 뒤 들어오므로 두 경로가 항상
-  // 같은 레이아웃으로 보이게 통일된다.
-  document.body.classList.remove('is-auth');
+  // 1단계와 마찬가지로 사이드바/헤더/탭바를 숨기고 카드만 화면 중앙에
+  // 띄운다(is-auth). 이메일 가입 경로(hash가 '#/auth/signup' 그대로
+  // 유지된 채 container만 갈아끼움)는 1단계에서 이미 붙여둔 is-auth가
+  // 그대로 남아있어 별도 처리가 필요 없고, 소셜 로그인 경로
+  // (#/auth/oauth-profile)는 route()가 dispatch 직전에 동기적으로
+  // 붙여준다(app.js route() 참고) — 둘 다 이미 붙어있는 상태로 여기
+  // 들어오므로 이 함수 자신은 굳이 다시 추가하지 않아도 되지만, 이
+  // 함수를 다른 경로에서 직접 호출하게 되는 경우에도 항상 올바르게
+  // 동작하도록 방어적으로 한 번 더 명시한다.
+  document.body.classList.add('is-auth');
   container.innerHTML = '';
   const d = signupStep2Data || {};
   const selectedIndustry = new Set(d.industry || []);
@@ -10186,13 +10188,16 @@ function route() {
   }
   // 로그인/가입 화면(is-auth)도 같은 이유로 방어적으로 정리 — renderLogin/
   // renderSignup이 진입 시 추가하지만, 그 두 화면이 아닌 경로로 바로
-  // 넘어갈 때(로그인 성공 후 등) 여기서 확실히 지운다.
-  if (path !== '#/auth/login' && path !== '#/auth/signup') {
+  // 넘어갈 때(로그인 성공 후 등) 여기서 확실히 지운다. #/auth/oauth-profile은
+  // renderOAuthProfileStep이 async(loadMe() 재호출)라, is-auth를 그 함수
+  // 내부에서만 붙이면 await 도중 사이드바가 잠깐 보이는 깜빡임이 생길 수
+  // 있어 — dispatch 직전 여기서 동기적으로 먼저 붙여둔다.
+  if (path !== '#/auth/login' && path !== '#/auth/signup' && path !== '#/auth/oauth-profile') {
     document.body.classList.remove('is-auth');
   }
   if (path === '#/auth/signup') { renderSignup(app); return; }
   if (path === '#/auth/login') { renderLogin(app); return; }
-  if (path === '#/auth/oauth-profile') { renderOAuthProfileStep(app); return; }
+  if (path === '#/auth/oauth-profile') { document.body.classList.add('is-auth'); renderOAuthProfileStep(app); return; }
   if (path === '#/me/profile') { renderProfile(app); return; }
   if (path === '#/me/bookmarks') { renderBookmarks(app); return; }
   if (path === '#/notifications') { renderNotifications(app); return; }
