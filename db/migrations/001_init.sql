@@ -311,6 +311,35 @@ CREATE TABLE phone_verifications (
 -- 조회(검증 시) 둘 다 이 인덱스로 커버된다.
 CREATE INDEX idx_phone_verifications_phone ON phone_verifications(phone_number, created_at DESC);
 
+-- 아이디(이메일) 찾기/비밀번호 찾기(2026-08-04) 공용 남용 방지 테이블.
+-- 두 조회 모두 OTP 재확인 없이 동작해(find_email.go/password_reset.go)
+-- phone_verifications와 같은 기준(같은 identifier 1분 1회, 1일 5회)으로
+-- 전화번호/이메일 무차별 대입 시도를 늦춘다. kind로 두 기능을 구분해
+-- 같은 identifier라도(이론상 겹칠 일은 없지만) 서로 한도를 침범하지 않는다.
+CREATE TABLE auth_lookup_attempts (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    kind         TEXT NOT NULL CHECK (kind IN ('find_email','reset_password')),
+    identifier   TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_auth_lookup_attempts_lookup ON auth_lookup_attempts(kind, identifier, created_at DESC);
+
+-- 비밀번호 찾기(2026-08-04) 재설정 토큰. token_hash — 평문 저장하지 않는다
+-- (phone_verifications.code_hash와 같은 이유, SHA-256으로 충분). 1시간
+-- 유효, used_at이 채워지면 1회용 소모 완료(재사용 불가). 소셜로그인
+-- 전용 계정(password_hash NULL)은 애초에 이 테이블에 행이 생기지 않는다
+-- (password_reset.go의 handleResetPasswordRequest가 그 경우 발송 자체를
+-- 건너뛴다 — 단, 응답은 계정 존재/전용여부와 무관하게 항상 동일).
+CREATE TABLE password_reset_tokens (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES users(id),
+    token_hash  TEXT NOT NULL,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    used_at     TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_password_reset_tokens_hash ON password_reset_tokens(token_hash);
+
 -- user_id는 최초 생성자 참조로만 남는다(과거 호환) — 실제 "누가 이
 -- 프로필에 접근 가능한가"는 아래 company_members가 단일 진실 공급원이다
 -- (팀기능: 회사=company_profiles 1건에 여러 users가 소속). 알림 설정
@@ -685,7 +714,7 @@ CREATE TABLE notification_log (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_type         TEXT NOT NULL CHECK (event_type IN
                             ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-                             'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast')),
+                             'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset')),
     channel            TEXT NOT NULL DEFAULT 'email' CHECK (channel IN ('email','sms')),
     recipient_email    TEXT,
     recipient_phone    TEXT,

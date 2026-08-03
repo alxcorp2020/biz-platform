@@ -205,6 +205,12 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensurePhoneVerificationTables(ctx, db); err != nil {
 		return fmt.Errorf("migrate phone verification tables: %w", err)
 	}
+	if err := ensureAuthLookupAndPasswordResetTables(ctx, db); err != nil {
+		return fmt.Errorf("migrate auth lookup/password reset tables: %w", err)
+	}
+	if err := ensurePasswordResetEventType(ctx, db); err != nil {
+		return fmt.Errorf("migrate password reset event type: %w", err)
+	}
 	return nil
 }
 
@@ -1494,6 +1500,48 @@ func ensurePhoneVerificationTables(ctx context.Context, db *sql.DB) error {
 			created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
 		CREATE INDEX IF NOT EXISTS idx_phone_verifications_phone ON phone_verifications(phone_number, created_at DESC);
+	`)
+	return err
+}
+
+// ensureAuthLookupAndPasswordResetTables — 아이디(이메일) 찾기/비밀번호
+// 찾기(2026-08-04) 신규 기능. auth_lookup_attempts는 두 기능 공용 남용
+// 방지 테이블(phoneVerificationRateLimited와 같은 기준 — 같은 identifier
+// 1분 1회, 1일 5회, find_email.go/password_reset.go의 authLookupRateLimited
+// 참고). password_reset_tokens는 재설정 링크 토큰(평문 대신 SHA-256 해시만
+// 저장, 1시간 유효, 1회용).
+func ensureAuthLookupAndPasswordResetTables(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS auth_lookup_attempts (
+			id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			kind         TEXT NOT NULL CHECK (kind IN ('find_email','reset_password')),
+			identifier   TEXT NOT NULL,
+			created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_auth_lookup_attempts_lookup ON auth_lookup_attempts(kind, identifier, created_at DESC);
+		CREATE TABLE IF NOT EXISTS password_reset_tokens (
+			id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id     UUID NOT NULL REFERENCES users(id),
+			token_hash  TEXT NOT NULL,
+			expires_at  TIMESTAMPTZ NOT NULL,
+			used_at     TIMESTAMPTZ,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_hash ON password_reset_tokens(token_hash);
+	`)
+	return err
+}
+
+// ensurePasswordResetEventType widens notification_log.event_type's CHECK
+// to allow 'password_reset'(password_reset.go가 재설정 이메일 발송 결과를
+// 기록할 때 씀). ensureAdminBroadcastEventType과 같은 이유로 항상 지금까지의
+// 전체 누적 목록을 다시 쓴다(재실행 시 위반 방지).
+func ensurePasswordResetEventType(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
+		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
+			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset'));
 	`)
 	return err
 }
