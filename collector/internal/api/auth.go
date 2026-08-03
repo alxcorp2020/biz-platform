@@ -427,13 +427,16 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 
 	if existing == nil {
 		// 최초 생성(=회원가입 완료) 시점에는 개인 휴대폰번호(users.phone_number,
-		// 가입 2단계에서 signup-agreement가 먼저 저장)와 사업자 대표전화번호
-		// (이 요청의 phoneNumber)가 둘 다 이미 있어야 한다 — UI는 항상 이
-		// 순서(signup-agreement → company-profile)로 호출하지만, 이 서버측
-		// 체크가 없으면 그 순서를 안 지키는 어떤 경로(다른 화면, 직접 API
-		// 호출 등)로도 "전화번호 입력 없이 가입 완료"가 가능해진다 —
+		// 가입 2단계에서 signup-agreement가 먼저 저장)가 이미 있어야 한다 —
+		// UI는 항상 이 순서(signup-agreement → company-profile)로 호출하지만,
+		// 이 서버측 체크가 없으면 그 순서를 안 지키는 어떤 경로(다른 화면,
+		// 직접 API 호출 등)로도 "전화번호 입력 없이 가입 완료"가 가능해진다 —
 		// oauth_login.go의 hasProfile 판정이 company_members 존재 여부만
 		// 보기 때문에, 여기서 막지 않으면 그 판정을 우회하는 셈이 된다.
+		// 사업자 대표전화번호(req.PhoneNumber)는 지역/업종/기업규모와 같이
+		// 선택 입력이라 여기서 필수로 강제하지 않는다(가입 2단계 화면의
+		// "가입하기" 버튼 활성화 조건과 일치시킴 — 사용자가 가입 마찰을
+		// 줄이기 위해 명시적으로 선택사항으로 확정).
 		var personalPhone sql.NullString
 		if err := s.db.QueryRowContext(r.Context(), `SELECT phone_number FROM users WHERE id = $1`, userID).Scan(&personalPhone); err != nil {
 			s.logger.Error("company-profile: personal phone lookup failed", "error", err)
@@ -442,10 +445,6 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 		}
 		if !personalPhone.Valid || strings.TrimSpace(personalPhone.String) == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone_number_required"})
-			return
-		}
-		if req.PhoneNumber == nil || strings.TrimSpace(*req.PhoneNumber) == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "business_phone_required"})
 			return
 		}
 
