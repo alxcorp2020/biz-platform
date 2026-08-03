@@ -1912,6 +1912,30 @@
   }
   body.is-landing main#app > * { max-width: none; margin: 0; }
 
+  /* ---------- 로그인/회원가입(is-auth) — is-landing과 같은 원리로 앱 셸을
+     숨기되, 화면을 꽉 채우는 대신 카드 하나를 화면 중앙(세로까지)에
+     띄운다. 배경은 --bg 톤 그대로 두어 심플하게 유지. ---------- */
+  body.is-auth .sidebar,
+  body.is-auth .site-header,
+  body.is-auth .tabbar,
+  body.is-auth #global-profile-banner {
+    display: none !important;
+  }
+  body.is-auth main#app {
+    margin-left: 0 !important;
+    max-width: none !important;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-lg) !important;
+    background: var(--bg);
+  }
+  .auth-page-logo {
+    display: block; text-align: center; font-size: 1.15rem; font-weight: 800;
+    color: var(--navy); text-decoration: none; margin-bottom: 1.25rem;
+  }
+
   .landing-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 1.25rem var(--space-lg); border-bottom: 1px solid var(--border);
@@ -5598,8 +5622,10 @@ async function acceptPendingInviteIfAny() {
 }
 
 function renderSignup(container) {
+  document.body.classList.add('is-auth');
   container.innerHTML = '';
   container.appendChild(h(`
+    <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
     <div class="auth-card">
       <h2>회원가입</h2>
       <div class="wizard-step-indicator">${stepIndicatorHtml(0, 2, '이메일·비밀번호')}</div>
@@ -5654,6 +5680,14 @@ function renderSignup(container) {
 // 판정을 낼 수 있으므로, 완료 즉시 가치(추천 공고 리스트)를 보여줄 수
 // 있다는 게 핵심.
 function renderSignupProfileStep(container) {
+  // 1단계(is-auth, 카드만 있는 심플 레이아웃)와 달리 이 2단계는 일반
+  // 사이드바 레이아웃으로 보여준다 — hash가 '#/auth/signup' 그대로 유지된
+  // 채(이메일 가입 경로) container만 갈아끼우는 구조라 route()의 방어적
+  // is-auth 정리를 안 거치므로 여기서 직접 제거한다. 소셜 로그인 경로
+  // (#/auth/oauth-profile, renderOAuthProfileStep이 이 함수를 재사용)는
+  // 애초에 route()가 이미 is-auth를 지운 뒤 들어오므로 두 경로가 항상
+  // 같은 레이아웃으로 보이게 통일된다.
+  document.body.classList.remove('is-auth');
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="auth-card">
@@ -5740,6 +5774,7 @@ async function renderOAuthProfileStep(container) {
 }
 
 function renderLogin(container) {
+  document.body.classList.add('is-auth');
   container.innerHTML = '';
   // 소셜 로그인 콜백 실패 시 서버가 #/auth/login?oauthError=1로 돌려보낸다
   // (oauth_login.go의 oauthFailureRedirect) — state 위조 시도든 provider
@@ -5747,6 +5782,7 @@ function renderLogin(container) {
   // 상세를 노출할 필요도 없고) 안내 문구 하나로 통일.
   const oauthFailed = location.hash.split('?')[1] === 'oauthError=1';
   container.appendChild(h(`
+    <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
     <div class="auth-card">
       <h2>로그인</h2>
       ${oauthFailed ? '<div class="oauth-error-banner">간편 로그인에 실패했습니다. 다시 시도해주세요.</div>' : ''}
@@ -9863,9 +9899,32 @@ async function renderInviteAccept(container) {
   }
 }
 
+// PUBLIC_ROUTES — 비로그인 상태로 접근 가능한 라우트(요청사항 [1]).
+// 이 목록/isPublicRoute에 없는 모든 경로는 currentUser가 없으면 route()가
+// #/auth/login으로 즉시 리다이렉트한다(각 render 함수가 API 401을 받고서야
+// 뒤늦게 리다이렉트하던 이전 방식과 달리, 렌더 자체를 아예 시작 안 함 —
+// 예를 들어 #/notices는 서버(handleListNotices)가 원래 비로그인도 200을
+// 주는 옵셔널 인증 설계라 이전엔 그대로 새어나갔다). #/billing/plans(요금
+// 비교)와 #/invite(팀 초대 미리보기)는 사용자 확인 후 의도적으로 공개
+// 유지 — 전자는 가입 전 가격 비교가 마케팅 퍼널상 필요하고, 후자는 계정
+// 없는 사람도 초대 내용을 먼저 봐야 하기 때문(단, "참여하기" 버튼 자체는
+// renderInviteAccept가 currentUser 유무로 이미 분기해 로그인 후에만 활성화).
+const PUBLIC_ROUTES = new Set([
+  '#/', '#/announcements', '#/terms', '#/privacy',
+  '#/auth/signup', '#/auth/login', '#/invite',
+  '#/billing/plans', '#/billing/fail',
+]);
+function isPublicRoute(path) {
+  return PUBLIC_ROUTES.has(path) || path.startsWith('#/announcements/');
+}
+
 function route() {
   const hash = location.hash || '#/';
   const path = hash.split('?')[0];
+  if (!isPublicRoute(path) && !currentUser) {
+    location.hash = '#/auth/login';
+    return;
+  }
   updateSidebarActiveState();
   updateTabbarActiveState();
   renderGlobalProfileBanner();
@@ -9883,6 +9942,12 @@ function route() {
     // 없이 주소창에 직접 다른 경로를 입력하는 경우처럼 그 함수들을 안
     // 거치는 경로 전환에서도 사이드바가 계속 숨어있지 않도록 이중 안전장치.
     document.body.classList.remove('is-landing');
+  }
+  // 로그인/가입 화면(is-auth)도 같은 이유로 방어적으로 정리 — renderLogin/
+  // renderSignup이 진입 시 추가하지만, 그 두 화면이 아닌 경로로 바로
+  // 넘어갈 때(로그인 성공 후 등) 여기서 확실히 지운다.
+  if (path !== '#/auth/login' && path !== '#/auth/signup') {
+    document.body.classList.remove('is-auth');
   }
   if (path === '#/auth/signup') { renderSignup(app); return; }
   if (path === '#/auth/login') { renderLogin(app); return; }
@@ -9986,9 +10051,16 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/service-worker.js').catch(() => { /* 미지원 브라우저는 조용히 무시 */ });
 }
 
-loadMe();
+// loadMe()는 async라 await 없이 호출하면 route()가 currentUser 확정 전에
+// 먼저 실행돼버린다 — route()의 로그인 필수 라우트 가드(isPublicRoute)는
+// currentUser를 동기적으로 읽고 판단하므로, 이 순서가 안 지켜지면 실제로
+// 로그인된 사용자도 새로고침할 때마다 한 박자 #/auth/login으로 잘못
+// 튕겨나간다. loadBrandName()은 currentUser와 무관해 순서 상관없다.
 loadBrandName();
-route();
+(async () => {
+  await loadMe();
+  route();
+})();
 </script>
 </body>
 </html>
