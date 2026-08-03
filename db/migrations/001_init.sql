@@ -732,6 +732,39 @@ CREATE TABLE audit_logs (
 CREATE INDEX idx_audit_logs_actor ON audit_logs(actor_user_id, created_at);
 
 -- ------------------------------------------------------------
+-- 이용약관/개인정보처리방침 동의 기록 + 버전 관리(회원가입 개선, legal_documents.go/signup_agreement.go)
+-- ------------------------------------------------------------
+CREATE TABLE terms_agreements (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL REFERENCES users(id),
+    terms_version   TEXT NOT NULL,  -- 동의 시점의 legal_documents(type='terms') 활성 버전 — 클라이언트가 아니라 서버가 그 순간 조회해서 기록(변조 방지)
+    privacy_version TEXT NOT NULL,  -- 위와 동일, type='privacy'
+    agreed_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ip_address      TEXT  -- 선택 정보(법적 증빙 보조용). X-Forwarded-For 기반이라 위조 가능성이 있어 보안 판단에는 안 씀
+);
+CREATE INDEX idx_terms_agreements_user ON terms_agreements(user_id, agreed_at);
+
+-- type('terms'/'privacy')별로 is_active=true인 행이 항상 최대 1개인 것은
+-- DB 제약이 아니라 애플리케이션(handleAdminPublishLegalDocument)이
+-- 트랜잭션으로 보장한다. 이전 버전은 삭제되지 않고 이력으로 남는다.
+-- content 안의 {brand_name}/{company_name}/{business_registration_number}/
+-- {representative_name}/{address}/{main_phone}/{contact_email} 토큰은
+-- 조회 시점에 company_info 값으로 치환된다(중복 관리 방지).
+--
+-- ⚠️ 초기 시드 콘텐츠(collector/internal/migrate/legal_documents_seed.go)는
+-- 표준 템플릿 기반 초안이며, 실제 발행 전 반드시 법률 전문가 검토가 필요하다.
+CREATE TABLE legal_documents (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type           TEXT NOT NULL CHECK (type IN ('terms','privacy')),
+    version        TEXT NOT NULL,
+    content        TEXT NOT NULL,
+    effective_date DATE NOT NULL,
+    is_active      BOOLEAN NOT NULL DEFAULT false,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_legal_documents_type_active ON legal_documents(type, is_active);
+
+-- ------------------------------------------------------------
 -- 결제/구독 (토스페이먼츠, OAuth 없는 결제창 API 개별연동 방식 — billing.go 참고)
 --
 -- subscriptions는 company_profile_id당 1행(UNIQUE)만 유지한다.

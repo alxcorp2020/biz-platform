@@ -89,6 +89,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/auth/{provider}/callback", s.handleOAuthCallback)
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("PUT /api/me/company-profile", s.handleUpsertCompanyProfile)
+	mux.HandleFunc("POST /api/me/signup-agreement", s.handleSignupAgreement)
 	mux.HandleFunc("GET /api/me/company/members", s.handleListCompanyMembers)
 	mux.HandleFunc("DELETE /api/me/company/members/{id}", s.handleRemoveCompanyMember)
 	mux.HandleFunc("POST /api/me/company/invitations", s.handleCreateInvitation)
@@ -197,6 +198,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/admin/announcements/{id}", s.handleAdminUpdateAnnouncement)
 	mux.HandleFunc("DELETE /api/admin/announcements/{id}", s.handleAdminDeleteAnnouncement)
 	mux.HandleFunc("GET /api/company-info", s.handleGetCompanyInfo)
+	mux.HandleFunc("GET /api/legal-documents/{type}", s.handleGetLegalDocument)
+	mux.HandleFunc("GET /api/admin/legal-documents", s.handleAdminListLegalDocuments)
+	mux.HandleFunc("POST /api/admin/legal-documents", s.handleAdminPublishLegalDocument)
 	mux.HandleFunc("PUT /api/admin/company-info", s.handleAdminUpdateCompanyInfo)
 	// 정적 파일(webui.Handler(), "/" 캐치올)보다 이 정확 경로가 우선
 	// 매칭된다(Go 1.22+ ServeMux 규칙) — static/manifest.json 파일은 이제

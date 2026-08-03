@@ -1634,6 +1634,24 @@
   .license-card-name { font-weight: 600; color: var(--ink); }
   .license-card-meta { font-size: 0.82rem; color: var(--ink-soft); display: flex; gap: 0.5rem; flex-wrap: wrap; }
   .ai-usage-failure-reason { color: var(--danger); }
+
+  /* 약관/개인정보처리방침 전문(#/terms, #/privacy, 관리자 미리보기 공용) */
+  .legal-doc-page { max-width: 760px; margin: 0 auto; }
+  .legal-doc-content { line-height: 1.7; color: var(--ink); }
+  .legal-doc-content h1 { font-size: 1.5rem; margin: 1.6rem 0 0.8rem; }
+  .legal-doc-content h2 { font-size: 1.2rem; margin: 1.4rem 0 0.6rem; border-top: 1px solid var(--border); padding-top: 1.2rem; }
+  .legal-doc-content h3 { font-size: 1.05rem; margin: 1rem 0 0.4rem; }
+  .legal-doc-content p { margin: 0.4rem 0; }
+  .legal-doc-content ul { margin: 0.4rem 0; padding-left: 1.4rem; }
+  .legal-doc-content li { margin: 0.2rem 0; }
+  .legal-doc-content blockquote {
+    margin: 0.8rem 0; padding: 0.8rem 1rem; background: var(--bg-soft);
+    border-left: 3px solid var(--warn); border-radius: 6px; color: var(--ink-soft);
+  }
+  .legal-doc-content hr { border: none; border-top: 1px solid var(--border); margin: 1.2rem 0; }
+  .legal-doc-table { width: 100%; border-collapse: collapse; margin: 0.6rem 0; font-size: 0.9rem; }
+  .legal-doc-table th, .legal-doc-table td { border: 1px solid var(--border); padding: 0.5rem 0.7rem; text-align: left; }
+  .legal-doc-table th { background: var(--bg-soft); }
   .upload-guide { margin-bottom: 0.75rem; }
   .upload-guide-tips {
     font-size: 0.82rem; color: var(--ink-soft); margin: 0.3rem 0 0.5rem;
@@ -2549,6 +2567,12 @@ const ERROR_MESSAGES = {
   already_used: '이미 서비스를 이용하신 내역이 있어 환불이 불가합니다.',
   invalid_issued_at: '발급일 형식이 올바르지 않습니다(YYYY-MM-DD).',
   invalid_document_type: '증빙서류 종류 값이 올바르지 않습니다.',
+  invalid_phone_number: '연락처 형식이 올바르지 않습니다. (예: 010-1234-5678)',
+  agreement_required: '이용약관과 개인정보 수집·이용에 모두 동의해야 가입할 수 있습니다.',
+  invalid_legal_document_type: '문서 종류 값이 올바르지 않습니다.',
+  legal_document_not_found: '아직 게시된 문서가 없습니다.',
+  version_and_content_required: '버전과 본문 내용을 모두 입력해주세요.',
+  invalid_effective_date: '시행일 형식이 올바르지 않습니다.',
   invalid_ip_type: '지식재산권 종류 값이 올바르지 않습니다.',
   title_required: '명칭은 필수입니다.',
   invalid_expires_at: '유효기간 형식이 올바르지 않습니다(YYYY-MM-DD).',
@@ -2794,6 +2818,81 @@ function simpleMarkdownToHtml(text) {
   out = out.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
   out = out.replace(/\n/g, '<br>');
   return out;
+}
+
+// legalMarkdownToHtml — 이용약관/개인정보처리방침처럼 제목(#~###)·목록(-)·
+// 표(|...|)·인용(>)이 있는 긴 문서용 마크다운 렌더러. simpleMarkdownToHtml
+// (팝업용, 굵게+줄바꿈+URL만 지원)보다 풍부하지만 여전히 라이브러리 없이
+// 직접 구현한 최소 파서다 — legal_documents_seed.go의 시드 콘텐츠 구조에
+// 맞춰 딱 필요한 문법만 지원한다(중첩 목록, 인라인 코드 등은 미지원).
+function legalMarkdownToHtml(text) {
+  function inlineFormat(s) {
+    let out = escapeHtml(s);
+    out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    out = out.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    return out;
+  }
+  const lines = text.split('\n');
+  const out = [];
+  let inList = false;
+  let tableRows = [];
+  let tableRowIndex = 0;
+  function closeList() { if (inList) { out.push('</ul>'); inList = false; } }
+  function closeTable() {
+    if (tableRows.length) { out.push('<table class="legal-doc-table">' + tableRows.join('') + '</table>'); tableRows = []; tableRowIndex = 0; }
+  }
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^###\s+/.test(trimmed)) { closeList(); closeTable(); out.push(`<h3>${inlineFormat(trimmed.replace(/^###\s+/, ''))}</h3>`); continue; }
+    if (/^##\s+/.test(trimmed)) { closeList(); closeTable(); out.push(`<h2>${inlineFormat(trimmed.replace(/^##\s+/, ''))}</h2>`); continue; }
+    if (/^#\s+/.test(trimmed)) { closeList(); closeTable(); out.push(`<h1>${inlineFormat(trimmed.replace(/^#\s+/, ''))}</h1>`); continue; }
+    if (/^>\s?/.test(trimmed)) { closeList(); closeTable(); out.push(`<blockquote>${inlineFormat(trimmed.replace(/^>\s?/, ''))}</blockquote>`); continue; }
+    if (/^-\s+/.test(trimmed)) {
+      closeTable();
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push(`<li>${inlineFormat(trimmed.replace(/^-\s+/, ''))}</li>`);
+      continue;
+    }
+    if (/^\|.*\|$/.test(trimmed)) {
+      closeList();
+      const cells = trimmed.slice(1, -1).split('|').map(c => c.trim());
+      if (cells.every(c => /^-+$/.test(c))) { continue; } // 헤더 구분선(|---|---|) 무시
+      const tag = tableRowIndex === 0 ? 'th' : 'td';
+      tableRows.push('<tr>' + cells.map(c => `<${tag}>${inlineFormat(c)}</${tag}>`).join('') + '</tr>');
+      tableRowIndex++;
+      continue;
+    }
+    closeList();
+    closeTable();
+    if (trimmed === '---') { out.push('<hr>'); continue; }
+    if (trimmed === '') { continue; }
+    out.push(`<p>${inlineFormat(trimmed)}</p>`);
+  }
+  closeList();
+  closeTable();
+  return out.join('\n');
+}
+
+// renderLegalDocument — #/terms, #/privacy(공개, 로그인 불필요). 회원가입
+// 2단계의 "보기" 링크가 새 탭으로 여기를 연다. docType은 'terms'|'privacy'.
+async function renderLegalDocument(container, docType) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let data;
+  try {
+    data = await apiRequest('GET', `/api/legal-documents/${docType}`);
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="legal-doc-page">
+      <p class="license-card-meta">버전 ${escapeHtml(data.version)} · 시행일 ${escapeHtml(data.effectiveDate)}</p>
+      <div class="legal-doc-content">${legalMarkdownToHtml(data.content)}</div>
+    </div>
+  `));
 }
 
 // tryRenderPopupLayer — 활성 팝업 중 오늘 아직 "하루 보지 않기"로 안 닫은
@@ -3232,8 +3331,8 @@ async function renderLandingPage(container) {
         <div class="landing-footer-top">
           <div class="landing-footer-info" id="landing-footer-info"></div>
           <div class="landing-footer-links">
-            <a href="#" onclick="return false;" title="준비 중">이용약관</a>
-            <a href="#" onclick="return false;" title="준비 중">개인정보처리방침</a>
+            <a href="#/terms">이용약관</a>
+            <a href="#/privacy">개인정보처리방침</a>
           </div>
         </div>
         <div class="landing-footer-bottom">
@@ -5540,9 +5639,14 @@ function renderSignup(container) {
   });
 }
 
-// renderSignupProfileStep — 2단계: 지역/업종/기업규모 3개만. 이 3개만으로
-// 이미 있는 규칙엔진(scoring.go)이 지역+업종 판정을 낼 수 있으므로, 완료
-// 즉시 가치(추천 공고 리스트)를 보여줄 수 있다는 게 핵심.
+// renderSignupProfileStep — 2단계: 지역/업종/기업규모 + 연락처 + 필수
+// 약관동의. 이메일 가입자와 소셜 로그인 가입자(renderOAuthProfileStep이
+// 이 함수를 그대로 재사용) 둘 다 반드시 거치는 유일한 화면이라, 연락처
+// 등록과 약관동의를 여기 넣었다 — 1단계(이메일/비밀번호 폼)는 소셜
+// 로그인 가입자가 거치지 않으므로 여기 넣으면 안 됨.
+// 지역/업종/기업규모 3개만으로 이미 있는 규칙엔진(scoring.go)이 지역+업종
+// 판정을 낼 수 있으므로, 완료 즉시 가치(추천 공고 리스트)를 보여줄 수
+// 있다는 게 핵심.
 function renderSignupProfileStep(container) {
   container.innerHTML = '';
   container.appendChild(h(`
@@ -5561,13 +5665,27 @@ function renderSignupProfileStep(container) {
           </div>
         </div>
         <label>기업 규모<input type="text" name="companySize" required placeholder="소기업/소상공인/중기업 등"></label>
+        <label>연락처(휴대폰번호)<input type="tel" name="phoneNumber" required pattern="010-\\d{4}-\\d{4}" placeholder="010-1234-5678"></label>
+        <div class="field-group">
+          <label class="checkbox-label"><input type="checkbox" id="signup-terms-agree" required> 이용약관에 동의합니다 (필수) <a href="#/terms" target="_blank" rel="noopener">보기</a></label>
+          <label class="checkbox-label"><input type="checkbox" id="signup-privacy-agree" required> 개인정보 수집 및 이용에 동의합니다 (필수) <a href="#/privacy" target="_blank" rel="noopener">보기</a></label>
+        </div>
         <div id="signup-profile-error" class="error" style="display:none"></div>
-        <button type="submit" class="btn btn-primary btn-block">완료하고 추천 공고 보기</button>
+        <button type="submit" class="btn btn-primary btn-block" id="signup-profile-submit-btn" disabled>완료하고 추천 공고 보기</button>
       </form>
     </div>
   `));
   const form = document.getElementById('signup-profile-form');
   const errorBox = document.getElementById('signup-profile-error');
+  const submitBtn = document.getElementById('signup-profile-submit-btn');
+  const termsCheckbox = document.getElementById('signup-terms-agree');
+  const privacyCheckbox = document.getElementById('signup-privacy-agree');
+  function updateSubmitEnabled() {
+    submitBtn.disabled = !(termsCheckbox.checked && privacyCheckbox.checked);
+  }
+  termsCheckbox.addEventListener('change', updateSubmitEnabled);
+  privacyCheckbox.addEventListener('change', updateSubmitEnabled);
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errorBox.style.display = 'none';
@@ -5578,7 +5696,17 @@ function renderSignupProfileStep(container) {
       errorBox.style.display = 'block';
       return;
     }
+    if (!termsCheckbox.checked || !privacyCheckbox.checked) {
+      errorBox.textContent = '이용약관과 개인정보 수집·이용에 모두 동의해야 가입할 수 있습니다.';
+      errorBox.style.display = 'block';
+      return;
+    }
     try {
+      await apiRequest('POST', '/api/me/signup-agreement', {
+        phoneNumber: fd.get('phoneNumber'),
+        termsAgreed: termsCheckbox.checked,
+        privacyAgreed: privacyCheckbox.checked,
+      });
       const data = await apiRequest('PUT', '/api/me/company-profile', {
         region: fd.get('region'), industry, companySize: fd.get('companySize'),
       });
@@ -8211,6 +8339,7 @@ async function renderAdminDashboard(container) {
         <a href="#/admin/tech-spec" class="btn btn-secondary btn-sm">기술 스펙</a>
         <a href="#/admin/integrations" class="btn btn-secondary btn-sm">외부 연동/API 현황</a>
         <a href="#/admin/plan-settings" class="btn btn-secondary btn-sm">플랜 한도/가격 설정</a>
+        <a href="#/admin/legal-documents" class="btn btn-secondary btn-sm">약관 관리</a>
       </div>
     </div>
     <div class="detail-card">
@@ -8362,6 +8491,103 @@ async function renderAdminPlanSettings(container) {
       await apiRequest('PUT', '/api/admin/plan-settings', payload);
       successBox.textContent = '저장했습니다. 재배포 없이 바로 반영됩니다.';
       successBox.style.display = 'block';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+// renderAdminLegalDocuments — #/admin/legal-documents. 이용약관/개인정보
+// 처리방침을 각각 새 버전으로 발행(즉시 활성화, 이전 버전은 이력으로
+// 보존)할 수 있다. 발행 폼은 현재 활성 버전의 내용을 기본값으로 채워서
+// 관리자가 기존 문서를 고쳐서 재발행하는 흐름을 기본으로 상정한다.
+async function renderAdminLegalDocuments(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/legal-documents');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    if (err.status === 403) { container.appendChild(h('<p class="error">관리자 권한이 필요합니다.</p>')); return; }
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const items = data.items || [];
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>약관 관리</h2>
+    <p class="license-card-meta" style="color:var(--danger)">⚠️ ${escapeHtml(data.draftWarning || '')}</p>
+    <div id="legal-doc-section-terms" class="detail-card"></div>
+    <div id="legal-doc-section-privacy" class="detail-card"></div>
+  `));
+
+  renderLegalDocumentTypeSection(document.getElementById('legal-doc-section-terms'), 'terms', '이용약관',
+    items.filter(i => i.type === 'terms'), container);
+  renderLegalDocumentTypeSection(document.getElementById('legal-doc-section-privacy'), 'privacy', '개인정보처리방침',
+    items.filter(i => i.type === 'privacy'), container);
+}
+
+function renderLegalDocumentTypeSection(sectionEl, docType, label, historyItems, container) {
+  const active = historyItems.find(i => i.isActive);
+  const past = historyItems.filter(i => !i.isActive);
+  sectionEl.innerHTML = `
+    <h3>${escapeHtml(label)}</h3>
+    ${active
+      ? `<p class="license-card-meta">현재 활성 버전: <strong>${escapeHtml(active.version)}</strong> · 시행일 ${escapeHtml(active.effectiveDate)}</p>`
+      : '<p class="empty">아직 발행된 버전이 없습니다.</p>'}
+    <div class="profile-form">
+      <label>버전<input type="text" id="legal-${docType}-version" value="${escapeAttr(todayDateString())}"></label>
+      <label>시행일<input type="date" id="legal-${docType}-effective-date" value="${escapeAttr(todayDateString())}"></label>
+      <label>본문(마크다운 — #/##/###, 목록 -, 표 |, 인용 &gt;, 굵게 ** 지원. {brand_name}/{company_name}/{business_registration_number}/{representative_name}/{address}/{main_phone}/{contact_email} 토큰은 회사 정보(#/admin/company-info) 값으로 자동 치환됩니다)
+        <textarea id="legal-${docType}-content" rows="16" style="font-family:monospace;font-size:0.85rem">${escapeHtml(active ? active.content : '')}</textarea>
+      </label>
+      <div id="legal-${docType}-error" class="error" style="display:none"></div>
+      <div id="legal-${docType}-success" class="success" style="display:none"></div>
+      <div class="license-toolbar">
+        <button type="button" class="btn btn-primary btn-sm" id="legal-${docType}-publish-btn">새 버전 발행</button>
+        <a href="#/${docType}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">현재 버전 미리보기</a>
+      </div>
+    </div>
+    ${past.length ? `
+      <details style="margin-top:1rem">
+        <summary>이전 버전 이력 (${past.length}건)</summary>
+        <div class="license-list">
+          ${past.map(p => `
+            <div class="license-card">
+              <div class="license-card-main">
+                <div class="license-card-name">${escapeHtml(p.version)}</div>
+                <div class="license-card-meta">시행일 ${escapeHtml(p.effectiveDate)} · 등록 ${escapeHtml(formatDateTime(p.createdAt))}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </details>
+    ` : ''}
+  `;
+
+  document.getElementById(`legal-${docType}-publish-btn`).addEventListener('click', async () => {
+    const errorBox = document.getElementById(`legal-${docType}-error`);
+    const successBox = document.getElementById(`legal-${docType}-success`);
+    errorBox.style.display = 'none';
+    successBox.style.display = 'none';
+    const version = document.getElementById(`legal-${docType}-version`).value.trim();
+    const effectiveDate = document.getElementById(`legal-${docType}-effective-date`).value;
+    const content = document.getElementById(`legal-${docType}-content`).value;
+    if (!version || !content.trim() || !effectiveDate) {
+      errorBox.textContent = '버전·시행일·본문을 모두 입력해주세요.';
+      errorBox.style.display = 'block';
+      return;
+    }
+    if (!confirm(`"${label}" 새 버전(${version})을 발행하시겠습니까? 발행 즉시 사용자 화면(#/${docType})에 반영됩니다.`)) return;
+    try {
+      await apiRequest('POST', '/api/admin/legal-documents', { type: docType, version, content, effectiveDate });
+      renderAdminLegalDocuments(container);
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -9681,7 +9907,10 @@ function route() {
   if (path === '#/admin/broadcast') { renderAdminBroadcast(app); return; }
   if (path === '#/admin/company-info') { renderAdminCompanyInfo(app); return; }
   if (path === '#/admin/plan-settings') { renderAdminPlanSettings(app); return; }
+  if (path === '#/admin/legal-documents') { renderAdminLegalDocuments(app); return; }
   if (path === '#/announcements') { renderAnnouncementList(app); return; }
+  if (path === '#/terms') { renderLegalDocument(app, 'terms'); return; }
+  if (path === '#/privacy') { renderLegalDocument(app, 'privacy'); return; }
   const announcementDetailMatch = path.match(/^#\/announcements\/(.+)$/);
   if (announcementDetailMatch) {
     renderAnnouncementDetail(app, decodeURIComponent(announcementDetailMatch[1]));

@@ -193,6 +193,85 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureCompanyProfileCustomAILimitColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_profiles custom AI limit columns: %w", err)
 	}
+	if err := ensureTermsAgreementsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate terms_agreements table: %w", err)
+	}
+	if err := ensureLegalDocumentsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate legal_documents table: %w", err)
+	}
+	if err := ensureLegalDocumentsSeed(ctx, db); err != nil {
+		return fmt.Errorf("migrate legal_documents seed: %w", err)
+	}
+	return nil
+}
+
+// ensureTermsAgreementsTable adds terms_agreements — 회원가입 시(2단계,
+// 이메일/소셜 가입 공통) 이용약관·개인정보처리방침 동의를 각각 어느
+// 버전에 동의했는지 기록한다. 나중에 약관이 바뀌면 이 기록을 근거로
+// "재동의가 필요한 사용자"를 가려낼 수 있다(재동의 강제 플로우 자체는
+// 이번 범위 밖 — 기록만 남겨둔다). ip_address는 선택 정보(요청 헤더에서
+// 얻을 수 있으면 기록, 못 얻으면 NULL)라 NOT NULL을 안 건다.
+func ensureTermsAgreementsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS terms_agreements (
+			id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id         UUID NOT NULL REFERENCES users(id),
+			terms_version   TEXT NOT NULL,
+			privacy_version TEXT NOT NULL,
+			agreed_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+			ip_address      TEXT
+		);
+		CREATE INDEX IF NOT EXISTS idx_terms_agreements_user ON terms_agreements(user_id, agreed_at);
+	`)
+	return err
+}
+
+// ensureLegalDocumentsTable adds legal_documents — 이용약관/개인정보처리방침의
+// 버전 이력 테이블(관리자 #/admin/legal-documents에서 관리). 같은 type
+// ('terms'/'privacy')에서 is_active=true인 행은 항상 최대 1개여야 하는데,
+// 이 불변식은 DB 제약이 아니라 애플리케이션(handleAdminPublishLegalDocument,
+// legal_documents.go)이 트랜잭션으로 보장한다 — 새 버전을 발행하면 그
+// 트랜잭션 안에서 기존 활성 버전을 비활성화하고 새 행을 활성으로 삽입.
+// 이전 버전은 삭제되지 않고 계속 남아 이력으로 조회 가능하다.
+func ensureLegalDocumentsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS legal_documents (
+			id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			type           TEXT NOT NULL CHECK (type IN ('terms','privacy')),
+			version        TEXT NOT NULL,
+			content        TEXT NOT NULL,
+			effective_date DATE NOT NULL,
+			is_active      BOOLEAN NOT NULL DEFAULT false,
+			created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_legal_documents_type_active ON legal_documents(type, is_active);
+	`)
+	return err
+}
+
+// ensureLegalDocumentsSeed seeds the initial 이용약관/개인정보처리방침 버전
+// (legalDocumentsSeed.go의 initialTermsContent/initialPrivacyContent) —
+// WHERE NOT EXISTS로 각 type마다 한 번만, 이미 관리자가 새 버전을 발행한
+// 뒤에는(행이 이미 있으므로) 다시 덮어쓰지 않는다. **주의: 이 초기
+// 콘텐츠는 표준 템플릿 기반 초안이며, 실제 서비스에 발행하기 전 반드시
+// 법률 전문가 검토가 필요하다** — legalDocumentsSeed.go 상단 주석과
+// 문서 본문 첫 줄에도 동일한 경고를 남겨뒀다.
+func ensureLegalDocumentsSeed(ctx context.Context, db *sql.DB) error {
+	for _, doc := range []struct {
+		docType, version, content string
+	}{
+		{"terms", initialLegalDocumentVersion, initialTermsContent},
+		{"privacy", initialLegalDocumentVersion, initialPrivacyContent},
+	} {
+		if _, err := db.ExecContext(ctx, `
+			INSERT INTO legal_documents (type, version, content, effective_date, is_active)
+			SELECT $1, $2, $3, CURRENT_DATE, true
+			WHERE NOT EXISTS (SELECT 1 FROM legal_documents WHERE type = $1)`,
+			doc.docType, doc.version, doc.content,
+		); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
