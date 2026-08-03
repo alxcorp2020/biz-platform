@@ -310,7 +310,7 @@ CREATE TABLE company_profiles (
     max_performance_amount  BIGINT, -- 최근 3년 최대 실적
     credit_rating           TEXT,
     email_notifications_enabled BOOLEAN NOT NULL DEFAULT true, -- 추천 공고 다이제스트 전용(마감 리마인더/상태변경 알림은 company_contacts 담당자별 설정으로 이전됨)
-    phone_number            TEXT, -- 더 이상 알림에 쓰이지 않음(담당자별 SMS로 대체) — 과거 값 보존 목적으로만 컬럼 유지
+    phone_number            TEXT, -- 사업자 대표전화번호(회사 단위). 개인 휴대폰번호는 users.phone_number. 한동안 조직 알림 채널로도 쓰이다 담당자별 SMS(company_contacts)로 대체돼 미사용이었으나, 회원가입 2단계(업체정보)에서 필수 항목으로 다시 쓰기 시작함
     sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false, -- 더 이상 알림에 쓰이지 않음(위와 동일한 이유로 컬럼만 유지)
     notification_days_before INTEGER[] NOT NULL DEFAULT '{3,1}', -- 제출마감 리마인더 D-N 선택(7/3/1 중 다중선택)
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),

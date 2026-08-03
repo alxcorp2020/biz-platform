@@ -293,7 +293,7 @@ CREATE TABLE company_profiles (
     max_performance_amount  BIGINT, -- 최근 3년 최대 실적
     credit_rating           TEXT,
     email_notifications_enabled BOOLEAN NOT NULL DEFAULT true,
-    phone_number            TEXT,
+    phone_number            TEXT, -- 사업자 대표전화번호(회사 단위). 개인 휴대폰번호는 users.phone_number
     sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()

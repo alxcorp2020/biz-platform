@@ -1746,7 +1746,8 @@
   .profile-summary-value { font-size: var(--text-body); font-weight: 600; color: var(--ink); text-align: right; }
   .wizard-step-indicator { display: flex; justify-content: center; margin-bottom: var(--space-lg); }
   .wizard-nav { display: flex; gap: var(--space-sm); margin-top: var(--space-md); }
-  .wizard-nav #wizard-next, .wizard-nav #wizard-submit { margin-left: auto; }
+  .wizard-nav #wizard-next, .wizard-nav #wizard-submit,
+  .wizard-nav #signup-profile-submit-btn { margin-left: auto; }
 
   /* ---------- 프로필 완성도/신뢰도 요약 카드 ---------- */
   .profile-completeness-card { padding: 1.25rem 1.5rem; }
@@ -2637,6 +2638,8 @@ const ERROR_MESSAGES = {
   invalid_document_type: '증빙서류 종류 값이 올바르지 않습니다.',
   invalid_phone_number: '연락처 형식이 올바르지 않습니다. (예: 010-1234-5678)',
   agreement_required: '이용약관과 개인정보 수집·이용에 모두 동의해야 가입할 수 있습니다.',
+  phone_number_required: '휴대폰번호를 먼저 등록해주세요.',
+  business_phone_required: '사업자 대표전화번호를 입력해주세요.',
   invalid_legal_document_type: '문서 종류 값이 올바르지 않습니다.',
   legal_document_not_found: '아직 게시된 문서가 없습니다.',
   version_and_content_required: '버전과 본문 내용을 모두 입력해주세요.',
@@ -5665,20 +5668,38 @@ async function acceptPendingInviteIfAny() {
   }
 }
 
-function renderSignup(container) {
+// signupStep1Data / signupStep2Data — 이메일 가입 마법사에서 "이전으로"
+// 왕복해도 입력값이 안 날아가게 모듈 레벨에 잠깐 들고 있는다. 계정 생성
+// (POST /api/auth/signup)은 이제 1단계가 아니라 2단계 "가입하기"를
+// 눌러야 비로소 일어난다 — 그 전엔 서버에 아무것도 안 남으므로, 뒤로가기
+// 후 다시 "다음 단계"를 눌러도 이메일 중복가입 같은 문제 없이 그냥 폼을
+// 다시 그리기만 하면 된다.
+let signupStep1Data = null;
+let signupStep2Data = null;
+
+// renderSignup — 1단계: 계정 정보(휴대폰번호/이메일/비밀번호). 이 화면은
+// 소셜 로그인 가입자는 거치지 않는다(구글/네이버/카카오가 이메일을 이미
+// 주므로) — 그래서 개인 휴대폰번호를 여기서만 물어보면 소셜 가입자는
+// 영원히 휴대폰번호를 등록할 기회가 없다. 대신 2단계(renderSignupProfileStep)
+// 가 signupStep1Data 유무로 "이미 1단계를 거쳤는지"를 판단해, 안 거친
+// 경우(소셜 가입)에만 그 화면에서 휴대폰번호 입력란을 보여준다.
+function renderSignup(container, isBack) {
+  if (!isBack) { signupStep1Data = null; signupStep2Data = null; }
   document.body.classList.add('is-auth');
   container.innerHTML = '';
+  const d = signupStep1Data || {};
   container.appendChild(h(`
     <div class="auth-card">
       <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
       <h2>회원가입</h2>
-      <div class="wizard-step-indicator">${stepIndicatorHtml(0, 2, '이메일·비밀번호')}</div>
+      <div class="wizard-step-indicator">${stepIndicatorHtml(0, 2, '계정 정보')}</div>
       <form id="signup-form" class="auth-form">
-        <label>이메일<input type="email" name="email" required></label>
-        <label>비밀번호 (최소 8자)<input type="password" name="password" minlength="8" required></label>
-        <label>비밀번호 확인<input type="password" name="passwordConfirm" minlength="8" required></label>
+        <label>휴대폰번호<input type="tel" name="phoneNumber" required pattern="010-\\d{4}-\\d{4}" placeholder="010-1234-5678" value="${escapeAttr(d.phoneNumber || '')}"></label>
+        <label>이메일<input type="email" name="email" required value="${escapeAttr(d.email || '')}"></label>
+        <label>비밀번호 (최소 8자)<input type="password" name="password" minlength="8" required value="${escapeAttr(d.password || '')}"></label>
+        <label>비밀번호 확인<input type="password" name="passwordConfirm" minlength="8" required value="${escapeAttr(d.password || '')}"></label>
         <div id="signup-error" class="error" style="display:none"></div>
-        <button type="submit" class="btn btn-primary btn-block">다음</button>
+        <button type="submit" class="btn btn-primary btn-block">다음 단계</button>
       </form>
       ${oauthButtonsHtml()}
       <p class="auth-switch">이미 계정이 있으신가요? <a href="#/auth/login">로그인</a></p>
@@ -5695,35 +5716,54 @@ function renderSignup(container) {
       errorBox.style.display = 'block';
       return;
     }
-    try {
-      const data = await apiRequest('POST', '/api/auth/signup', {
-        email: fd.get('email'), password: fd.get('password'),
-      });
-      currentUser = { id: data.id, email: data.email, role: 'user', plan: 'free' };
-      currentProfile = null;
-      renderHeader();
-      if (pendingInviteToken) {
+    signupStep1Data = {
+      phoneNumber: fd.get('phoneNumber'),
+      email: fd.get('email'),
+      password: fd.get('password'),
+    };
+    if (pendingInviteToken) {
+      // 팀 초대로 들어온 가입은 이미 있는 조직에 합류하는 것이라 업체정보
+      // 입력이 필요 없다 — 계정만 즉시 만들고 초대를 수락한 뒤 바로 홈으로
+      // (예전부터 있던 동작, 2단계를 아예 거치지 않는다).
+      try {
+        const data = await apiRequest('POST', '/api/auth/signup', {
+          email: signupStep1Data.email, password: signupStep1Data.password,
+        });
+        currentUser = { id: data.id, email: data.email, role: 'user', plan: 'free' };
+        currentProfile = null;
+        renderHeader();
         await acceptPendingInviteIfAny();
         location.hash = '#/';
-      } else {
-        renderSignupProfileStep(container);
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.style.display = 'block';
       }
-    } catch (err) {
-      errorBox.textContent = err.message;
-      errorBox.style.display = 'block';
+      return;
     }
+    renderSignupProfileStep(container, { fromEmailStep1: true });
   });
 }
 
-// renderSignupProfileStep — 2단계: 지역/업종/기업규모 + 연락처 + 필수
-// 약관동의. 이메일 가입자와 소셜 로그인 가입자(renderOAuthProfileStep이
-// 이 함수를 그대로 재사용) 둘 다 반드시 거치는 유일한 화면이라, 연락처
-// 등록과 약관동의를 여기 넣었다 — 1단계(이메일/비밀번호 폼)는 소셜
-// 로그인 가입자가 거치지 않으므로 여기 넣으면 안 됨.
-// 지역/업종/기업규모 3개만으로 이미 있는 규칙엔진(scoring.go)이 지역+업종
-// 판정을 낼 수 있으므로, 완료 즉시 가치(추천 공고 리스트)를 보여줄 수
-// 있다는 게 핵심.
-function renderSignupProfileStep(container) {
+// renderSignupProfileStep — 2단계: 업체정보(지역/업종/기업규모/사업자
+// 대표전화) + 필수 약관동의. 이메일 가입자와 소셜 로그인 가입자
+// (renderOAuthProfileStep이 이 함수를 그대로 재사용) 둘 다 반드시 거치는
+// 유일한 화면이다. 계정 생성 자체도 이 화면의 "가입하기"에서 처음
+// 일어난다(fromEmailStep1인 경우) — 1단계는 이제 client-side 검증만
+// 하고 서버에 아무것도 안 남기므로, "이전으로" 왕복이 자유롭다.
+//
+// 개인 휴대폰번호 입력란은 fromEmailStep1일 때만 숨긴다 — 이메일 가입
+// 자는 1단계에서 이미 받았으므로 여기서 또 물어보지 않고 그 값을 그대로
+// 제출에 실어 보낸다. 소셜 로그인 가입자는 1단계가 아예 없으므로(구글/
+// 네이버/카카오 콜백이 계정을 이미 만들고 바로 이 화면으로 보냄) 여기서
+// 반드시 물어봐야 한다 — 안 그러면 소셜 가입 계정은 휴대폰번호를 영원히
+// 등록할 기회가 없다.
+//
+// 지역/업종/기업규모 3개만으로 이미 있는 규칙엔진(eligibility.go)이
+// 지역+업종 판정을 낼 수 있으므로, 완료 즉시 가치(추천 공고 리스트)를
+// 보여줄 수 있다는 게 핵심.
+function renderSignupProfileStep(container, opts) {
+  opts = opts || {};
+  const fromEmailStep1 = !!opts.fromEmailStep1;
   // 1단계(is-auth, 카드만 있는 심플 레이아웃)와 달리 이 2단계는 일반
   // 사이드바 레이아웃으로 보여준다 — hash가 '#/auth/signup' 그대로 유지된
   // 채(이메일 가입 경로) container만 갈아끼우는 구조라 route()의 방어적
@@ -5733,29 +5773,45 @@ function renderSignupProfileStep(container) {
   // 같은 레이아웃으로 보이게 통일된다.
   document.body.classList.remove('is-auth');
   container.innerHTML = '';
+  const d = signupStep2Data || {};
+  const selectedIndustry = new Set(d.industry || []);
   container.appendChild(h(`
     <div class="auth-card">
-      <h2>회사 정보</h2>
-      <div class="wizard-step-indicator">${stepIndicatorHtml(1, 2, '회사 정보')}</div>
+      <h2>업체 정보</h2>
+      <div class="wizard-step-indicator">${stepIndicatorHtml(1, 2, '업체 정보')}</div>
       <p class="auth-step-hint">이 3가지만 있으면 바로 맞춤 추천 공고를 볼 수 있어요. 면허·인증·재무 등 나머지 정보는 나중에 채워도 됩니다.</p>
       <form id="signup-profile-form" class="auth-form">
-        <label>사업자 지역<input type="text" name="region" required placeholder="예: 서울, 부산, 전국"></label>
+        <label>사업자 지역
+          <select name="region" class="select-input" required>
+            <option value="" disabled ${d.region ? '' : 'selected'}>지역 선택</option>
+            ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === d.region ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
+          </select>
+        </label>
         <div class="field-group">
           <span class="field-group-label">업종 (겸업 시 여러 개 선택 가능)</span>
           <div class="checkbox-grid">
             ${INDUSTRY_GROUPS.map(g => `
-              <label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}"> ${escapeHtml(g)}</label>
+              <label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}" ${selectedIndustry.has(g) ? 'checked' : ''}> ${escapeHtml(g)}</label>
             `).join('')}
           </div>
         </div>
-        <label>기업 규모<input type="text" name="companySize" required placeholder="소기업/소상공인/중기업 등"></label>
-        <label>연락처(휴대폰번호)<input type="tel" name="phoneNumber" required pattern="010-\\d{4}-\\d{4}" placeholder="010-1234-5678"></label>
+        <label>기업 규모
+          <select name="companySize" class="select-input" required>
+            <option value="" disabled ${d.companySize ? '' : 'selected'}>기업 규모 선택</option>
+            ${COMPANY_SIZE_OPTIONS.map(sz => `<option value="${escapeAttr(sz)}" ${sz === d.companySize ? 'selected' : ''}>${escapeHtml(sz)}</option>`).join('')}
+          </select>
+        </label>
+        ${fromEmailStep1 ? '' : `<label>연락처(휴대폰번호)<input type="tel" name="phoneNumber" required pattern="010-\\d{4}-\\d{4}" placeholder="010-1234-5678" value="${escapeAttr(d.phoneNumber || '')}"></label>`}
+        <label>연락처(사업자 대표전화번호)<input type="tel" name="businessPhone" required placeholder="02-1234-5678" value="${escapeAttr(d.businessPhone || '')}"></label>
         <div class="field-group">
           <label class="checkbox-label"><input type="checkbox" id="signup-terms-agree" required> 이용약관에 동의합니다 (필수) <a href="#/terms" target="_blank" rel="noopener">보기</a></label>
           <label class="checkbox-label"><input type="checkbox" id="signup-privacy-agree" required> 개인정보 수집 및 이용에 동의합니다 (필수) <a href="#/privacy" target="_blank" rel="noopener">보기</a></label>
         </div>
         <div id="signup-profile-error" class="error" style="display:none"></div>
-        <button type="submit" class="btn btn-primary btn-block" id="signup-profile-submit-btn" disabled>완료하고 추천 공고 보기</button>
+        <div class="wizard-nav">
+          ${fromEmailStep1 ? '<button type="button" class="btn btn-secondary" id="signup-profile-back-btn">이전으로</button>' : ''}
+          <button type="submit" class="btn btn-primary ${fromEmailStep1 ? '' : 'btn-block'}" id="signup-profile-submit-btn" disabled>가입하기</button>
+        </div>
       </form>
     </div>
   `));
@@ -5769,6 +5825,20 @@ function renderSignupProfileStep(container) {
   }
   termsCheckbox.addEventListener('change', updateSubmitEnabled);
   privacyCheckbox.addEventListener('change', updateSubmitEnabled);
+
+  const backBtn = document.getElementById('signup-profile-back-btn');
+  if (backBtn) {
+    backBtn.addEventListener('click', () => {
+      const fd = new FormData(form);
+      signupStep2Data = {
+        region: fd.get('region') || '',
+        industry: fd.getAll('industry'),
+        companySize: fd.get('companySize') || '',
+        businessPhone: fd.get('businessPhone') || '',
+      };
+      renderSignup(container, true);
+    });
+  }
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -5785,16 +5855,28 @@ function renderSignupProfileStep(container) {
       errorBox.style.display = 'block';
       return;
     }
+    const personalPhone = fromEmailStep1 ? signupStep1Data.phoneNumber : fd.get('phoneNumber');
     try {
+      if (fromEmailStep1) {
+        const data = await apiRequest('POST', '/api/auth/signup', {
+          email: signupStep1Data.email, password: signupStep1Data.password,
+        });
+        currentUser = { id: data.id, email: data.email, role: 'user', plan: 'free' };
+        currentProfile = null;
+        renderHeader();
+      }
       await apiRequest('POST', '/api/me/signup-agreement', {
-        phoneNumber: fd.get('phoneNumber'),
+        phoneNumber: personalPhone,
         termsAgreed: termsCheckbox.checked,
         privacyAgreed: privacyCheckbox.checked,
       });
       const data = await apiRequest('PUT', '/api/me/company-profile', {
         region: fd.get('region'), industry, companySize: fd.get('companySize'),
+        phoneNumber: fd.get('businessPhone'),
       });
       currentProfile = data.companyProfile;
+      signupStep1Data = null;
+      signupStep2Data = null;
       location.hash = '#/';
     } catch (err) {
       errorBox.textContent = err.message;
@@ -5808,7 +5890,8 @@ function renderSignupProfileStep(container) {
 // 소셜 계정을 연결한 사용자를 위한 진입점. 서버(oauth_login.go)가 이미
 // 세션 쿠키를 발급한 뒤 #/auth/oauth-profile로 리다이렉트하므로, 여기서는
 // loadMe()로 currentUser만 채우고 나면 renderSignupProfileStep(이메일
-// 가입 2단계와 완전히 동일한 화면)을 그대로 재사용한다.
+// 가입 2단계와 거의 동일한 화면, 다만 1단계가 없었으므로 휴대폰번호
+// 입력란이 추가로 보인다)을 그대로 재사용한다.
 async function renderOAuthProfileStep(container) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
@@ -5868,6 +5951,11 @@ const INDUSTRY_GROUPS = [
   '시설관리/유지보수', '환경/폐기물', '생활서비스', '전문서비스', '교육', '기타',
 ];
 
+// eligibility.go의 smallBusinessSize("소기업")와 정확히 일치해야 하는
+// 항목이 하나 있어(중소기업기본법 기준 통용 5단계) 자유 텍스트가 아니라
+// 고정된 select 옵션으로 관리한다.
+const COMPANY_SIZE_OPTIONS = ['소상공인', '소기업', '중기업', '중견기업', '대기업'];
+
 function fillProfileForm(form, profile) {
   if (!profile) return;
   form.businessType.value = (profile.businessType || []).join(', ');
@@ -5880,6 +5968,7 @@ function fillProfileForm(form, profile) {
   form.revenueAmount.value = profile.revenueAmount ?? '';
   form.employeeCount.value = profile.employeeCount ?? '';
   form.companySize.value = profile.companySize || '';
+  form.businessPhone.value = profile.phoneNumber || '';
   form.licenses.value = (profile.licenses || []).join(', ');
   form.certifications.value = (profile.certifications || []).join(', ');
   form.directProductionCert.checked = !!profile.directProductionCert;
@@ -6387,6 +6476,7 @@ function renderProfileSummaryCard(container) {
     ['업종', fmtList(p.industry)],
     ['업력', p.businessAgeYears != null ? `${p.businessAgeYears}년` : '-'],
     ['기업 규모', p.companySize || '-'],
+    ['사업자 대표전화번호', p.phoneNumber || '-'],
     ['매출액', fmtMoney(p.revenueAmount)],
     ['직원 수', p.employeeCount != null ? `${p.employeeCount}명` : '-'],
     ['최근 3년 최대 실적', fmtMoney(p.maxPerformanceAmount)],
@@ -6438,7 +6528,13 @@ function openProfileEditModal(summaryContainer) {
           </div>
         </div>
         <label>업력(년)<input type="number" step="0.1" name="businessAgeYears"></label>
-        <label>기업 규모<input type="text" name="companySize" placeholder="소기업/소상공인/중기업 등"></label>
+        <label>기업 규모
+          <select name="companySize" class="select-input">
+            <option value="">선택 안 함</option>
+            ${COMPANY_SIZE_OPTIONS.map(sz => `<option value="${escapeAttr(sz)}">${escapeHtml(sz)}</option>`).join('')}
+          </select>
+        </label>
+        <label>연락처(사업자 대표전화번호)<input type="tel" name="businessPhone" placeholder="02-1234-5678"></label>
       </div>
       <div class="wizard-step" data-step="1">
         <label>매출액(원)<input type="number" name="revenueAmount"></label>
@@ -6532,6 +6628,7 @@ function openProfileEditModal(summaryContainer) {
       directProductionCert: fd.get('directProductionCert') === 'on',
       maxPerformanceAmount: toNum(fd.get('maxPerformanceAmount')),
       creditRating: fd.get('creditRating') || null,
+      phoneNumber: fd.get('businessPhone') || null,
     };
     try {
       const data = await apiRequest('PUT', '/api/me/company-profile', payload);

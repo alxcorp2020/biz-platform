@@ -383,6 +383,10 @@ type companyProfileRequest struct {
 	DirectProductionCert bool     `json:"directProductionCert"`
 	MaxPerformanceAmount *int64   `json:"maxPerformanceAmount"`
 	CreditRating         *string  `json:"creditRating"`
+	// PhoneNumber — 사업자 대표전화번호(회사 단위, 개인 휴대폰번호인
+	// users.phone_number와 별개). 회원가입 2단계(업체정보)에서 필수로
+	// 받기 시작했고, 이후 "회사정보 수정" 화면에서도 같은 필드를 공유한다.
+	PhoneNumber *string `json:"phoneNumber"`
 }
 
 // handleUpsertCompanyProfile creates the org on first call(문서상 "회사
@@ -422,6 +426,29 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 	}
 
 	if existing == nil {
+		// 최초 생성(=회원가입 완료) 시점에는 개인 휴대폰번호(users.phone_number,
+		// 가입 2단계에서 signup-agreement가 먼저 저장)와 사업자 대표전화번호
+		// (이 요청의 phoneNumber)가 둘 다 이미 있어야 한다 — UI는 항상 이
+		// 순서(signup-agreement → company-profile)로 호출하지만, 이 서버측
+		// 체크가 없으면 그 순서를 안 지키는 어떤 경로(다른 화면, 직접 API
+		// 호출 등)로도 "전화번호 입력 없이 가입 완료"가 가능해진다 —
+		// oauth_login.go의 hasProfile 판정이 company_members 존재 여부만
+		// 보기 때문에, 여기서 막지 않으면 그 판정을 우회하는 셈이 된다.
+		var personalPhone sql.NullString
+		if err := s.db.QueryRowContext(r.Context(), `SELECT phone_number FROM users WHERE id = $1`, userID).Scan(&personalPhone); err != nil {
+			s.logger.Error("company-profile: personal phone lookup failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		if !personalPhone.Valid || strings.TrimSpace(personalPhone.String) == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone_number_required"})
+			return
+		}
+		if req.PhoneNumber == nil || strings.TrimSpace(*req.PhoneNumber) == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "business_phone_required"})
+			return
+		}
+
 		tx, err := s.db.BeginTx(r.Context(), nil)
 		if err != nil {
 			s.logger.Error("company-profile: begin tx failed", "error", err)
@@ -435,12 +462,12 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 			INSERT INTO company_profiles (
 				user_id, business_type, region, industry, business_age_years,
 				revenue_amount, employee_count, company_size, licenses, certifications,
-				direct_production_cert, max_performance_amount, credit_rating
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+				direct_production_cert, max_performance_amount, credit_rating, phone_number
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 			RETURNING id`,
 			userID, businessType, req.Region, industry, req.BusinessAgeYears,
 			req.RevenueAmount, req.EmployeeCount, req.CompanySize, licenses, certifications,
-			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating,
+			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating, req.PhoneNumber,
 		).Scan(&newID); err != nil {
 			s.logger.Error("company-profile: insert failed", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
@@ -469,11 +496,11 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 				business_type = $2, region = $3, industry = $4, business_age_years = $5,
 				revenue_amount = $6, employee_count = $7, company_size = $8, licenses = $9,
 				certifications = $10, direct_production_cert = $11,
-				max_performance_amount = $12, credit_rating = $13
+				max_performance_amount = $12, credit_rating = $13, phone_number = $14
 			WHERE id = $1`,
 			existing.ID, businessType, req.Region, industry, req.BusinessAgeYears,
 			req.RevenueAmount, req.EmployeeCount, req.CompanySize, licenses, certifications,
-			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating)
+			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating, req.PhoneNumber)
 		if err != nil {
 			s.logger.Error("company-profile: update failed", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
