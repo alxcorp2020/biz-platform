@@ -10688,6 +10688,30 @@ function route() {
     location.hash = '#/auth/login';
     return;
   }
+  // 회원가입/온보딩 단계 게이트 3개(약관동의/이메일인증/사업자등록) 공용
+  // 예외 목록. ⚠️2026-08-04 사고 이력: 원래 게이트마다 "자기 화면"만 예외로
+  // 뒀었는데(예: 이메일인증 게이트는 오직 verify-email-pending만 예외),
+  // 그러면 사용자가 게이트A가 보낸 화면에 도착하자마자 게이트B가 "그 화면은
+  // 내 예외 목록에 없다"며 또 다른 화면으로 돌려보내고, 그 화면에서는 다시
+  // 게이트A가 돌려보내는 식으로 **두 게이트가 서로를 무한 핑퐁**시켜 —
+  // route()가 dispatch 테이블(실제 화면 렌더링)에 영영 도달 못 하고
+  // location.hash만 계속 바뀌면서 #app 콘텐츠는 완전히 빈 화면으로 남았다
+  // (사이드바는 부팅 시 한 번만 그려져서 정상으로 보이는 게 더 헷갈리게
+  // 만들었음). 예: 이메일가입은 onboarded=true·emailVerified=false로
+  // 시작 → verify-email-pending으로 보내짐 → 거기서 회사프로필 게이트가
+  // "그 경로는 내 예외 아님"이라며 onboarding/business-registration으로
+  // 보냄 → 거기서 다시 이메일인증 게이트가 verify-email-pending으로
+  // 돌려보냄 → 무한반복. 소셜로그인도 oauth-profile↔business-registration
+  // 사이에서 똑같이 발생. 그래서 세 게이트 전부 "온보딩 흐름에 속한 화면
+  // 전체"를 하나의 공용 목록으로 공유하도록 고쳤다 — 이러면 사용자가 그
+  // 목록 안의 아무 화면에 있든 다른 게이트가 절대 가로채지 않고, 실제
+  // 앱 화면(#/notices 등)으로 나가려 할 때만 "아직 안 끝난 단계"의 화면으로
+  // 정확히 한 번만 리다이렉트된다.
+  const AUTH_ONBOARDING_ROUTES = new Set([
+    '#/auth/oauth-profile', '#/auth/verify-email-pending', '#/auth/verify-email',
+    '#/onboarding/business-registration', '#/onboarding/complete',
+    '#/terms', '#/privacy',
+  ]);
   // 소셜 로그인(구글/네이버/카카오)은 콜백(oauth_login.go)이 계정을 즉시
   // 만들고 세션을 발급하므로, 약관동의(온보딩 화면, renderOAuthOnboardingStep)
   // 를 마치기 전에도 currentUser는 있는 상태가 될 수 있다 — 이 틈을 타
@@ -10699,10 +10723,7 @@ function route() {
   // terms_agreements 존재 여부로 계산해서 내려줌, auth.go의 handleMe 참고).
   // role==='user'(일반 회원가입 사용자)만 대상이다 — system_admin/operator/
   // analyst 등 내부 운영 계정은 원래부터 이 온보딩을 거치지 않도록 설계됨.
-  // #/terms·#/privacy는 온보딩 화면의 "보기" 링크가 새 탭으로 열므로 예외
-  // 처리(안 그러면 그 탭도 곧바로 온보딩으로 튕겨서 약관을 못 봄).
-  const ONBOARDING_EXEMPT_ROUTES = new Set(['#/auth/oauth-profile', '#/terms', '#/privacy']);
-  if (currentUser && currentUser.role === 'user' && !currentUser.onboarded && !ONBOARDING_EXEMPT_ROUTES.has(path)) {
+  if (currentUser && currentUser.role === 'user' && !currentUser.onboarded && !AUTH_ONBOARDING_ROUTES.has(path)) {
     location.hash = '#/auth/oauth-profile';
     return;
   }
@@ -10711,8 +10732,7 @@ function route() {
   // 온보딩 가드와 같은 방식으로 대부분의 화면 접근을 막는다. 소셜
   // 로그인은 제공자가 이미 검증한 이메일이라 email_verified가 계정 생성
   // 시점에 바로 true라 이 가드 대상이 아니다.
-  const EMAIL_VERIFICATION_EXEMPT_ROUTES = new Set(['#/auth/verify-email-pending', '#/auth/verify-email', '#/terms', '#/privacy']);
-  if (currentUser && currentUser.role === 'user' && !currentUser.emailVerified && !EMAIL_VERIFICATION_EXEMPT_ROUTES.has(path)) {
+  if (currentUser && currentUser.role === 'user' && !currentUser.emailVerified && !AUTH_ONBOARDING_ROUTES.has(path)) {
     location.hash = '#/auth/verify-email-pending';
     return;
   }
@@ -10723,10 +10743,8 @@ function route() {
   // 승격시켰다. currentProfile은 loadMe()가 이미 채워둔 전역 상태(company_profiles
   // 존재 여부의 유일한 신호)라 별도 필드를 새로 만들 필요 없이 그대로
   // 재사용한다. role==='user'만 대상(내부 운영 계정은 회사 프로필 개념
-  // 자체가 없어 대상 아님). #/onboarding/business-registration(등록 화면
-  // 자체, 직접 입력 폴백도 이 화면 안에 있음)과 #/terms·#/privacy만 예외.
-  const COMPANY_PROFILE_EXEMPT_ROUTES = new Set(['#/onboarding/business-registration', '#/onboarding/complete', '#/terms', '#/privacy']);
-  if (currentUser && currentUser.role === 'user' && !currentProfile && !COMPANY_PROFILE_EXEMPT_ROUTES.has(path)) {
+  // 자체가 없어 대상 아님).
+  if (currentUser && currentUser.role === 'user' && !currentProfile && !AUTH_ONBOARDING_ROUTES.has(path)) {
     location.hash = '#/onboarding/business-registration';
     return;
   }

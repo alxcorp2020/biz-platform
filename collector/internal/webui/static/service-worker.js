@@ -3,7 +3,7 @@
 // 등 실시간성이 생명인 데이터)은 절대 캐시하지 않는다. 목적은 오프라인
 // 상태에서도 화면 골격(예: 로그인 화면)만은 뜨게 하는 것 — 그 안의 실제
 // 데이터는 네트워크 없이는 여전히 못 불러온다.
-const CACHE_NAME = 'app-shell-v1';
+const CACHE_NAME = 'app-shell-v2'; // v2: chrome-extension:// 스킴 요청을 캐시에 넣으려다 나던 예외 수정(2026-08-04)
 const APP_SHELL_URLS = ['/', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -26,6 +26,13 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+  // 서비스워커의 fetch 이벤트는 이 페이지 안에서 일어나는 모든 네트워크
+  // 요청을 가로챈다 — 페이지 자체의 요청뿐 아니라, 사용자가 설치한 다른
+  // 브라우저 확장 프로그램이 이 탭 컨텍스트에서 만드는 chrome-extension://
+  // 스킴 요청까지 포함된다. Cache API는 http(s) 스킴만 지원해서
+  // cache.put()에 그런 요청을 넘기면 예외가 난다 — 이 서비스워커와 무관한
+  // 요청이니 아예 손대지 않고 그냥 통과시킨다.
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
   if (url.pathname.startsWith('/api/')) return; // 데이터는 절대 캐시하지 않음 — 네트워크 요청 그대로 통과
 
   // 페이지 이동(SPA는 해시 라우팅이라 실제 네트워크 요청은 항상 '/')은
