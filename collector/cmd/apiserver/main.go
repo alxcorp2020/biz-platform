@@ -100,7 +100,7 @@ func main() {
 	appBaseURL := os.Getenv("APP_BASE_URL")
 	if appBaseURL == "" {
 		appBaseURL = "http://localhost:" + port
-		logger.Warn("APP_BASE_URL is not set; 팀 초대 이메일 링크가 localhost를 가리킵니다 (운영 배포 시 반드시 설정)")
+		logger.Warn("APP_BASE_URL is not set; 팀 초대 이메일 링크가 localhost를 가리키고, 소셜 로그인(구글/네이버/카카오) redirect_uri도 http://localhost.../api/auth/{provider}/callback로 만들어집니다 — 이 값이 각 제공자 콘솔에 등록된 리다이렉트 URI와 다르면 로그인 화면에서 '리다이렉트 URI 불일치' 에러가 납니다. 운영 배포 시 반드시 실제 공개 URL로 설정할 것")
 	}
 
 	googleOAuth := oauth.NewGoogleClient(os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"), strings.TrimRight(appBaseURL, "/")+"/api/auth/google/callback")
