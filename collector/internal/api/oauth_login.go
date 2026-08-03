@@ -160,20 +160,24 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	s.setSessionCookie(w, userID)
 
 	// 2026-08-03 온보딩 재설계 이후로는 "온보딩 완료" 기준이 회사 프로필
-	// 존재 여부가 아니라 휴대폰번호 SMS 인증 완료 여부다(회사 정보 입력은
-	// 가입과 완전히 분리됨 — 사업자등록증 온보딩이나 나중에 수동 입력으로
-	// 처리). 아직 인증이 안 된 계정(신규 소셜 가입이거나, 예전에 이메일
-	// 가입만 하고 이 단계를 안 끝낸 계정 둘 다 포함)은 휴대폰 인증+약관동의
-	// 화면(renderOAuthProfileStep, index.html)으로 보낸다.
-	var phoneVerified bool
+	// 존재 여부가 아니다(회사 정보 입력은 가입과 완전히 분리됨 — 사업자등록증
+	// 온보딩이나 나중에 수동 입력으로 처리). 아직 온보딩을 안 마친 계정은
+	// 약관동의(+휴대폰 인증, 켜져있을 때만) 화면(renderOAuthProfileStep,
+	// index.html)으로 보낸다. 2026-08-04부터는 phone_verified_at이 아니라
+	// terms_agreements 행 존재 여부로 판단한다 — 관리자가 휴대폰 인증을
+	// 끌 수 있게 되면서(system_settings.go) phone_verified_at만으로는
+	// "온보딩을 마쳤는지"를 알 수 없어졌다(그 계정은 인증 자체를 영원히
+	// 안 할 수 있음). 이렇게 안 바꾸면 이미 약관동의까지 마친 재방문
+	// 사용자도 로그인할 때마다 매번 온보딩 화면으로 튕기게 된다.
+	var onboarded bool
 	if err := s.db.QueryRowContext(r.Context(),
-		`SELECT phone_verified_at IS NOT NULL FROM users WHERE id = $1`, userID,
-	).Scan(&phoneVerified); err != nil {
-		s.logger.Error("oauth-callback: phone verification check failed", "error", err)
+		`SELECT EXISTS (SELECT 1 FROM terms_agreements WHERE user_id = $1)`, userID,
+	).Scan(&onboarded); err != nil {
+		s.logger.Error("oauth-callback: onboarded check failed", "error", err)
 	}
 
 	target := "/#/"
-	if !phoneVerified {
+	if !onboarded {
 		target = "/#/auth/oauth-profile"
 	}
 	http.Redirect(w, r, strings.TrimRight(s.appBaseURL, "/")+target, http.StatusFound)
@@ -215,8 +219,12 @@ func (s *Server) resolveOAuthUser(ctx context.Context, provider, providerUserID,
 		if email == "" {
 			return "", fmt.Errorf("provider %s did not return a verified email and no existing identity matched", provider)
 		}
+		// email_verified_at을 즉시 채운다 — 여기 도달했다는 건 provider가
+		// 검증된 이메일을 돌려줬다는 뜻이라(위 "did not return a verified
+		// email" 에러 분기 참고), 이메일 가입처럼 별도 인증 메일을 보낼
+		// 필요가 없다(email_verification.go 참고).
 		if err := tx.QueryRowContext(ctx,
-			`INSERT INTO users (email, password_hash) VALUES ($1, NULL) RETURNING id`,
+			`INSERT INTO users (email, password_hash, email_verified_at) VALUES ($1, NULL, now()) RETURNING id`,
 			email,
 		).Scan(&userID); err != nil {
 			return "", fmt.Errorf("insert new user: %w", err)

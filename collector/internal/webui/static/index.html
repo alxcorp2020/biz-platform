@@ -2684,6 +2684,7 @@ const ERROR_MESSAGES = {
   invalid_token: '유효하지 않은 링크입니다. 재설정을 다시 요청해주세요.',
   token_already_used: '이미 사용된 링크입니다. 재설정을 다시 요청해주세요.',
   token_expired: '만료된 링크입니다. 재설정을 다시 요청해주세요.',
+  already_verified: '이미 인증된 이메일입니다.',
 };
 
 const ELIGIBILITY_RESULT_LABELS = {
@@ -5734,6 +5735,16 @@ function otpPhoneFieldHtml(prefillValue) {
   `;
 }
 
+// plainPhoneFieldHtml — 관리자가 휴대폰 인증을 껐을 때(system_settings.
+// phone_verification_required=false, GET /api/auth/config로 확인)
+// otpPhoneFieldHtml 대신 쓰는 선택 입력 필드. 인증 절차(발송/확인 버튼)
+// 없이 값만 저장한다 — required도 없다.
+function plainPhoneFieldHtml(prefillValue) {
+  return `
+    <label>휴대폰번호 (선택)<input type="tel" name="phoneNumber" pattern="(010-\\d{4}-\\d{4})|(01[16789]-\\d{3}-\\d{4})" placeholder="010-1234-5678" value="${escapeAttr(prefillValue || '')}"></label>
+  `;
+}
+
 // setupPhoneOtpVerification — otpPhoneFieldHtml이 그려낸 블록에 발송/
 // 검증 동작을 연결한다. onChange(verified)로 인증 상태 변화를 호출부에
 // 알려 제출 버튼 활성화 로직이 반응할 수 있게 한다. 전화번호를 고치면
@@ -5833,8 +5844,23 @@ function setupPhoneOtpVerification(form, onChange) {
 // 인증기록+약관동의가 전부 처리된다. 소셜 로그인 가입자는 이 화면을
 // 거치지 않는다(renderOAuthProfileStep 참고 — 소셜 로그인 콜백이
 // 계정을 이미 만들어버려서 별도의 로그인 후 온보딩 화면이 필요하다).
-function renderSignup(container) {
+// 2026-08-04: 관리자가 휴대폰 인증을 껐을 수 있어(system_settings.
+// phone_verification_required) GET /api/auth/config를 먼저 읽고서야
+// 폼을 그린다 — async로 바뀐 이유. 이메일 가입은 이제부터 필수 이메일
+// 인증도 거친다(계정은 즉시 생성되지만, 인증 전엔 route()가
+// #/auth/verify-email-pending으로 돌려보낸다 — email_verification.go 참고).
+async function renderSignup(container) {
   document.body.classList.add('is-auth');
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let phoneVerificationRequired = true;
+  try {
+    const cfg = await apiRequest('GET', '/api/auth/config');
+    phoneVerificationRequired = cfg.phoneVerificationRequired;
+  } catch (err) {
+    // 조회 실패 시 기존 동작(휴대폰 인증 필수)으로 안전하게 폴백.
+  }
+
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="auth-card">
@@ -5842,7 +5868,7 @@ function renderSignup(container) {
       <h2>회원가입</h2>
       <form id="signup-form" class="auth-form">
         <label>이메일<input type="email" name="email" required></label>
-        ${otpPhoneFieldHtml('')}
+        ${phoneVerificationRequired ? otpPhoneFieldHtml('') : plainPhoneFieldHtml('')}
         <label>비밀번호 (최소 8자)<input type="password" name="password" minlength="8" required></label>
         <label>비밀번호 확인<input type="password" name="passwordConfirm" minlength="8" required></label>
         <div class="field-group">
@@ -5863,11 +5889,13 @@ function renderSignup(container) {
   const termsCheckbox = document.getElementById('signup-terms-agree');
   const privacyCheckbox = document.getElementById('signup-privacy-agree');
 
-  let phoneVerified = false;
+  let phoneVerified = !phoneVerificationRequired;
   function updateSubmitEnabled() {
     submitBtn.disabled = !(form.checkValidity() && phoneVerified);
   }
-  setupPhoneOtpVerification(form, (verified) => { phoneVerified = verified; updateSubmitEnabled(); });
+  if (phoneVerificationRequired) {
+    setupPhoneOtpVerification(form, (verified) => { phoneVerified = verified; updateSubmitEnabled(); });
+  }
   form.addEventListener('input', updateSubmitEnabled);
   form.addEventListener('change', updateSubmitEnabled);
   updateSubmitEnabled();
@@ -5889,7 +5917,10 @@ function renderSignup(container) {
         termsAgreed: termsCheckbox.checked,
         privacyAgreed: privacyCheckbox.checked,
       });
-      currentUser = { id: data.id, email: data.email, role: 'user', plan: 'free', phoneVerified: true };
+      currentUser = {
+        id: data.id, email: data.email, role: 'user', plan: 'free',
+        phoneVerified: phoneVerificationRequired, emailVerified: false, onboarded: true,
+      };
       currentProfile = null;
       renderHeader();
       if (pendingInviteToken) {
@@ -5910,15 +5941,25 @@ function renderSignup(container) {
 // 별도로 받는다. 업체정보는 여기서도 받지 않는다(회원가입/온보딩과
 // 완전히 분리 — 사업자등록증 온보딩이나 이후 "기업 프로필 수정" 화면에서
 // 언제든 입력 가능).
-function renderOAuthOnboardingStep(container) {
+async function renderOAuthOnboardingStep(container) {
   document.body.classList.add('is-auth');
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let phoneVerificationRequired = true;
+  try {
+    const cfg = await apiRequest('GET', '/api/auth/config');
+    phoneVerificationRequired = cfg.phoneVerificationRequired;
+  } catch (err) {
+    // 조회 실패 시 기존 동작(휴대폰 인증 필수)으로 안전하게 폴백.
+  }
+
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="auth-card">
-      <h2>휴대폰번호 인증</h2>
-      <p class="auth-step-hint">서비스 이용을 위해 휴대폰번호 인증이 필요합니다.</p>
+      <h2>${phoneVerificationRequired ? '휴대폰번호 인증' : '약관 동의'}</h2>
+      <p class="auth-step-hint">${phoneVerificationRequired ? '서비스 이용을 위해 휴대폰번호 인증이 필요합니다.' : '서비스 이용을 위해 약관 동의가 필요합니다.'}</p>
       <form id="oauth-onboarding-form" class="auth-form">
-        ${otpPhoneFieldHtml('')}
+        ${phoneVerificationRequired ? otpPhoneFieldHtml('') : plainPhoneFieldHtml('')}
         <div class="field-group">
           <label class="checkbox-label"><input type="checkbox" id="signup-terms-agree" required> 이용약관에 동의합니다 (필수) <a href="#/terms" target="_blank" rel="noopener">보기</a></label>
           <label class="checkbox-label"><input type="checkbox" id="signup-privacy-agree" required> 개인정보 수집 및 이용에 동의합니다 (필수) <a href="#/privacy" target="_blank" rel="noopener">보기</a></label>
@@ -5935,11 +5976,13 @@ function renderOAuthOnboardingStep(container) {
   const termsCheckbox = document.getElementById('signup-terms-agree');
   const privacyCheckbox = document.getElementById('signup-privacy-agree');
 
-  let phoneVerified = false;
+  let phoneVerified = !phoneVerificationRequired;
   function updateSubmitEnabled() {
     submitBtn.disabled = !(form.checkValidity() && phoneVerified);
   }
-  setupPhoneOtpVerification(form, (verified) => { phoneVerified = verified; updateSubmitEnabled(); });
+  if (phoneVerificationRequired) {
+    setupPhoneOtpVerification(form, (verified) => { phoneVerified = verified; updateSubmitEnabled(); });
+  }
   form.addEventListener('input', updateSubmitEnabled);
   form.addEventListener('change', updateSubmitEnabled);
   updateSubmitEnabled();
@@ -5954,7 +5997,8 @@ function renderOAuthOnboardingStep(container) {
         termsAgreed: termsCheckbox.checked,
         privacyAgreed: privacyCheckbox.checked,
       });
-      currentUser.phoneVerified = true;
+      currentUser.phoneVerified = phoneVerificationRequired;
+      currentUser.onboarded = true;
       location.hash = '#/';
     } catch (err) {
       errorBox.textContent = err.message;
@@ -5974,7 +6018,7 @@ async function renderOAuthProfileStep(container) {
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
   await loadMe();
   if (!currentUser) { location.hash = '#/auth/login'; return; }
-  renderOAuthOnboardingStep(container);
+  await renderOAuthOnboardingStep(container);
 }
 
 function renderLogin(container) {
@@ -6160,6 +6204,85 @@ function renderResetPassword(container) {
       errorBox.style.display = 'block';
     }
   });
+}
+
+// renderEmailVerifyPending — #/auth/verify-email-pending. 이메일 가입
+// 필수 이메일 인증(2026-08-04, email_verification.go)이 끝나기 전까지
+// route()의 게이트가 로그인된(그러나 미인증) 사용자를 강제로 이 화면에
+// 붙잡아둔다. 소셜 로그인 사용자는 애초에 emailVerified가 true라 이
+// 화면에 올 일이 없다.
+function renderEmailVerifyPending(container) {
+  document.body.classList.add('is-auth');
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="auth-card">
+      <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
+      <h2>이메일 인증 대기</h2>
+      <p class="auth-step-hint">${escapeHtml(currentUser && currentUser.email || '')}로 인증 메일을 보내드렸습니다. 메일함(스팸함 포함)에서 링크를 클릭해 인증을 완료해주세요.</p>
+      <div id="resend-verification-error" class="error" style="display:none"></div>
+      <p id="resend-verification-success" class="success" style="display:none"></p>
+      <button type="button" class="btn btn-primary btn-block" id="resend-verification-btn">인증 메일 재발송</button>
+      <p class="auth-switch"><a href="#" id="verify-pending-logout-link">다른 계정으로 로그인</a></p>
+    </div>
+  `));
+  const errorBox = document.getElementById('resend-verification-error');
+  const successBox = document.getElementById('resend-verification-success');
+  document.getElementById('resend-verification-btn').addEventListener('click', async () => {
+    errorBox.style.display = 'none';
+    successBox.style.display = 'none';
+    try {
+      await apiRequest('POST', '/api/me/resend-verification-email');
+      successBox.textContent = '인증 메일을 다시 보냈습니다.';
+      successBox.style.display = 'block';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+  document.getElementById('verify-pending-logout-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    await apiRequest('POST', '/api/auth/logout');
+    currentUser = null;
+    currentProfile = null;
+    renderHeader();
+    location.hash = '#/auth/login';
+  });
+}
+
+// renderVerifyEmail — #/auth/verify-email?token=... 인증 메일의 링크로
+// 도달하는 화면(공개 라우트 — 가입할 때와 다른 브라우저/기기에서 열 수도
+// 있어 로그인 여부와 무관하게 접근 가능해야 한다). 현재 세션이 마침 그
+// 계정으로 로그인돼있다면(가장 흔한 경우) currentUser.emailVerified를
+// 바로 갱신해 route()의 이메일 인증 게이트를 통과하게 해준다.
+async function renderVerifyEmail(container) {
+  document.body.classList.add('is-auth');
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">확인 중...</div>'));
+  const query = new URLSearchParams(location.hash.split('?')[1] || '');
+  const token = query.get('token') || '';
+
+  let resultHtml;
+  if (!token) {
+    resultHtml = '<div class="oauth-error-banner">유효하지 않은 링크입니다.</div>';
+  } else {
+    try {
+      await apiRequest('POST', '/api/auth/verify-email', { token });
+      if (currentUser) currentUser.emailVerified = true;
+      resultHtml = '<p class="success">이메일 인증이 완료되었습니다.</p>';
+    } catch (err) {
+      resultHtml = `<p class="error">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="auth-card">
+      <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
+      <h2>이메일 인증</h2>
+      ${resultHtml}
+      <p class="auth-switch"><a href="#/${currentUser ? '' : 'auth/login'}">${currentUser ? '홈으로 이동' : '로그인하러 가기'}</a></p>
+    </div>
+  `));
 }
 
 // eligibility.go의 industryGroups와 순서·값 모두 일치해야 한다.
@@ -8787,6 +8910,13 @@ async function renderAdminSettingsSection(container) {
       <button type="button" class="btn btn-primary btn-sm" id="save-free-plan-email-limit-btn">저장</button>
     </div>
     <div id="admin-settings-result"></div>
+    <hr style="margin:1.2rem 0">
+    <label class="checkbox-label"><input type="checkbox" id="phone-verification-required-input" ${data.phoneVerificationRequired ? 'checked' : ''}> 회원가입 시 휴대폰 SMS 인증 사용</label>
+    <p class="license-card-meta" style="margin-top:0.2rem">끄면 새 가입자의 휴대폰번호 입력이 선택 사항이 되고 SMS 인증 없이도 가입할 수 있습니다(이미 인증을 마친 기존 회원에는 영향 없음). 값을 바꾸면 다음 회원가입 시도부터 바로 적용됩니다(재배포 불필요).</p>
+    <div class="license-toolbar" style="margin-top:0.6rem">
+      <button type="button" class="btn btn-primary btn-sm" id="save-phone-verification-required-btn">저장</button>
+    </div>
+    <div id="phone-verification-required-result"></div>
   `;
   const resultBox = document.getElementById('admin-settings-result');
   document.getElementById('save-free-plan-email-limit-btn').addEventListener('click', async () => {
@@ -8801,6 +8931,17 @@ async function renderAdminSettingsSection(container) {
       resultBox.innerHTML = `<p class="success">저장했습니다 — Free 플랜 월간 이메일 한도가 ${value}건으로 적용됩니다.</p>`;
     } catch (err) {
       resultBox.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+    }
+  });
+
+  const phoneResultBox = document.getElementById('phone-verification-required-result');
+  document.getElementById('save-phone-verification-required-btn').addEventListener('click', async () => {
+    const value = document.getElementById('phone-verification-required-input').checked;
+    try {
+      await apiRequest('PUT', '/api/admin/settings/phone-verification-required', { value });
+      phoneResultBox.innerHTML = `<p class="success">저장했습니다 — 휴대폰 SMS 인증이 ${value ? '필수로 켜졌습니다' : '꺼져 선택 입력이 됩니다'}.</p>`;
+    } catch (err) {
+      phoneResultBox.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
     }
   });
 }
@@ -10301,6 +10442,7 @@ const PUBLIC_ROUTES = new Set([
   '#/', '#/announcements', '#/terms', '#/privacy',
   '#/auth/signup', '#/auth/login', '#/invite',
   '#/auth/find-account', '#/auth/reset-password',
+  '#/auth/verify-email',
   '#/billing/plans', '#/billing/fail',
 ]);
 function isPublicRoute(path) {
@@ -10315,21 +10457,31 @@ function route() {
     return;
   }
   // 소셜 로그인(구글/네이버/카카오)은 콜백(oauth_login.go)이 계정을 즉시
-  // 만들고 세션을 발급하므로, 휴대폰번호 인증(온보딩 화면,
-  // renderOAuthOnboardingStep)을 마치기 전에도 currentUser는 있는
-  // 상태가 될 수 있다 — 이 틈을 타 다른 화면으로 새서 "인증 없이도 이미
-  // 가입된" 상태가 되는 것을 막기 위해, 그 경우 강제로 온보딩 화면으로
-  // 돌려보낸다. 2026-08-03 온보딩 재설계 이후로는 이 판단 기준이
-  // currentProfile(회사 프로필) 존재 여부가 아니라 currentUser.phoneVerified다
-  // — 회사 프로필은 가입과 완전히 분리됐다(사업자등록증 온보딩이나 이후
-  // 수동 입력으로 별도 처리). role==='user'(일반 회원가입 사용자)만
-  // 대상이다 — system_admin/operator/analyst 등 내부 운영 계정은 원래부터
-  // 이 온보딩을 거치지 않도록 설계됨. #/terms·#/privacy는 온보딩 화면의
-  // "보기" 링크가 새 탭으로 열므로 예외 처리(안 그러면 그 탭도 곧바로
-  // 온보딩으로 튕겨서 약관을 못 봄).
-  const PHONE_VERIFICATION_EXEMPT_ROUTES = new Set(['#/auth/oauth-profile', '#/terms', '#/privacy']);
-  if (currentUser && currentUser.role === 'user' && !currentUser.phoneVerified && !PHONE_VERIFICATION_EXEMPT_ROUTES.has(path)) {
+  // 만들고 세션을 발급하므로, 약관동의(온보딩 화면, renderOAuthOnboardingStep)
+  // 를 마치기 전에도 currentUser는 있는 상태가 될 수 있다 — 이 틈을 타
+  // 다른 화면으로 새서 "약관동의 없이도 이미 가입된" 상태가 되는 것을
+  // 막기 위해, 그 경우 강제로 온보딩 화면으로 돌려보낸다. 2026-08-04부터
+  // 이 판단 기준은 currentUser.phoneVerified가 아니라 currentUser.onboarded다
+  // — 관리자가 휴대폰 인증을 끌 수 있게 되면서(system_settings.go)
+  // phoneVerified만으로는 "온보딩을 마쳤는지"를 판단할 수 없어졌다(서버가
+  // terms_agreements 존재 여부로 계산해서 내려줌, auth.go의 handleMe 참고).
+  // role==='user'(일반 회원가입 사용자)만 대상이다 — system_admin/operator/
+  // analyst 등 내부 운영 계정은 원래부터 이 온보딩을 거치지 않도록 설계됨.
+  // #/terms·#/privacy는 온보딩 화면의 "보기" 링크가 새 탭으로 열므로 예외
+  // 처리(안 그러면 그 탭도 곧바로 온보딩으로 튕겨서 약관을 못 봄).
+  const ONBOARDING_EXEMPT_ROUTES = new Set(['#/auth/oauth-profile', '#/terms', '#/privacy']);
+  if (currentUser && currentUser.role === 'user' && !currentUser.onboarded && !ONBOARDING_EXEMPT_ROUTES.has(path)) {
     location.hash = '#/auth/oauth-profile';
+    return;
+  }
+  // 이메일 가입 필수 이메일 인증(2026-08-04, email_verification.go) — 계정은
+  // 가입 즉시 생성/로그인되지만, 이메일 링크를 클릭하기 전까지는 위
+  // 온보딩 가드와 같은 방식으로 대부분의 화면 접근을 막는다. 소셜
+  // 로그인은 제공자가 이미 검증한 이메일이라 email_verified가 계정 생성
+  // 시점에 바로 true라 이 가드 대상이 아니다.
+  const EMAIL_VERIFICATION_EXEMPT_ROUTES = new Set(['#/auth/verify-email-pending', '#/auth/verify-email', '#/terms', '#/privacy']);
+  if (currentUser && currentUser.role === 'user' && !currentUser.emailVerified && !EMAIL_VERIFICATION_EXEMPT_ROUTES.has(path)) {
+    location.hash = '#/auth/verify-email-pending';
     return;
   }
   updateSidebarActiveState();
@@ -10373,6 +10525,8 @@ function route() {
   if (path === '#/auth/login') { renderLogin(app); return; }
   if (path === '#/auth/find-account') { renderFindAccount(app); return; }
   if (path === '#/auth/reset-password') { renderResetPassword(app); return; }
+  if (path === '#/auth/verify-email-pending') { renderEmailVerifyPending(app); return; }
+  if (path === '#/auth/verify-email') { renderVerifyEmail(app); return; }
   if (path === '#/auth/oauth-profile') { document.body.classList.add('is-auth'); renderOAuthProfileStep(app); return; }
   if (path === '#/me/profile') { renderProfile(app); return; }
   if (path === '#/me/bookmarks') { renderBookmarks(app); return; }

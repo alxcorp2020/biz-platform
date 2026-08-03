@@ -36,7 +36,10 @@ const (
 	notifyEventPasswordReset   = "password_reset"
 )
 
-func generatePasswordResetToken() (string, error) {
+// generateSecureToken/hashToken — password_reset.go/email_verification.go
+// 공용. 링크형 1회용 토큰(비밀번호 재설정/이메일 인증)은 전부 이 방식:
+// 32바이트 랜덤→hex를 링크에 싣고, DB에는 SHA-256 해시만 저장한다.
+func generateSecureToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -44,7 +47,7 @@ func generatePasswordResetToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func hashResetToken(token string) string {
+func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
@@ -116,7 +119,7 @@ func (s *Server) handleResetPasswordRequest(w http.ResponseWriter, r *http.Reque
 	eligible := lookupErr == nil && passwordHash.Valid && !deactivatedAt.Valid
 
 	if eligible && s.notify != nil {
-		token, tokErr := generatePasswordResetToken()
+		token, tokErr := generateSecureToken()
 		if tokErr != nil {
 			s.logger.Error("reset-password-request: token generation failed", "error", tokErr)
 			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -125,7 +128,7 @@ func (s *Server) handleResetPasswordRequest(w http.ResponseWriter, r *http.Reque
 		if _, err := s.db.ExecContext(ctx, `
 			INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
 			VALUES ($1, $2, $3)`,
-			userID, hashResetToken(token), time.Now().Add(passwordResetTokenValidity),
+			userID, hashToken(token), time.Now().Add(passwordResetTokenValidity),
 		); err != nil {
 			s.logger.Error("reset-password-request: insert failed", "error", err)
 			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -189,7 +192,7 @@ func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 	var usedAt sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, user_id, expires_at, used_at FROM password_reset_tokens
-		WHERE token_hash = $1`, hashResetToken(token),
+		WHERE token_hash = $1`, hashToken(token),
 	).Scan(&tokenID, &userID, &expiresAt, &usedAt)
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_token"})

@@ -211,6 +211,18 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensurePasswordResetEventType(ctx, db); err != nil {
 		return fmt.Errorf("migrate password reset event type: %w", err)
 	}
+	if err := ensurePhoneVerificationRequiredSetting(ctx, db); err != nil {
+		return fmt.Errorf("migrate phone verification required setting: %w", err)
+	}
+	if err := ensureEmailVerificationTables(ctx, db); err != nil {
+		return fmt.Errorf("migrate email verification tables: %w", err)
+	}
+	if err := ensureEmailVerificationEventType(ctx, db); err != nil {
+		return fmt.Errorf("migrate email verification event type: %w", err)
+	}
+	if err := ensureAuthLookupKindEmailVerifyResend(ctx, db); err != nil {
+		return fmt.Errorf("migrate auth lookup kind email verify resend: %w", err)
+	}
 	return nil
 }
 
@@ -1542,6 +1554,86 @@ func ensurePasswordResetEventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
 			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset'));
+	`)
+	return err
+}
+
+// ensurePhoneVerificationRequiredSetting seeds system_settings의 휴대폰
+// 인증 사용 여부 토글(2026-08-04, #/admin 대시보드 "플랜 설정" 카드,
+// system_settings.go의 getSystemSettingBool이 읽음). 기본값 'true'는
+// 지금까지의 동작(회원가입/온보딩 재설계 Phase 1)을 그대로 유지한다 —
+// 이 마이그레이션 자체는 기존 동작을 하나도 안 바꾼다(ensurePlanSettingsSeed와
+// 같은 원칙).
+func ensurePhoneVerificationRequiredSetting(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO system_settings (key, value) VALUES ('phone_verification_required', 'true')
+			ON CONFLICT (key) DO NOTHING;
+	`)
+	return err
+}
+
+// ensureEmailVerificationTables — 이메일 가입 필수 이메일 인증(2026-08-04,
+// email_verification.go). users.email_verified_at이 이 마이그레이션
+// 이전부터 이미 있었는지(재실행)를 information_schema로 직접 확인해,
+// 컬럼을 "처음" 추가하는 이번 한 번만 기존 회원 전원을 일괄 백필한다
+// (created_at 기준 "이미 검증된 것으로 간주") — 그렇지 않고 매 재시작마다
+// "email_verified_at IS NULL인 행을 전부 백필"하는 식으로 짰다면, 이
+// 기능이 배포된 뒤 새로 가입해 아직 이메일 인증을 안 마친 사용자까지
+// 다음 서버 재시작 때 자동으로 "인증완료" 처리되어 이 기능 자체가
+// 무력화되는 버그가 생긴다.
+func ensureEmailVerificationTables(ctx context.Context, db *sql.DB) error {
+	var columnExists bool
+	if err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'users' AND column_name = 'email_verified_at'
+		)`).Scan(&columnExists); err != nil {
+		return fmt.Errorf("check email_verified_at column: %w", err)
+	}
+	if !columnExists {
+		if _, err := db.ExecContext(ctx, `
+			ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMPTZ;
+			UPDATE users SET email_verified_at = created_at;
+		`); err != nil {
+			return fmt.Errorf("add and backfill email_verified_at: %w", err)
+		}
+	}
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS email_verification_tokens (
+			id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id     UUID NOT NULL REFERENCES users(id),
+			token_hash  TEXT NOT NULL,
+			expires_at  TIMESTAMPTZ NOT NULL,
+			used_at     TIMESTAMPTZ,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_hash ON email_verification_tokens(token_hash);
+	`)
+	return err
+}
+
+// ensureEmailVerificationEventType widens notification_log.event_type's
+// CHECK to allow 'email_verification'. ensureAdminBroadcastEventType과
+// 같은 이유로 항상 지금까지의 전체 누적 목록을 다시 쓴다.
+func ensureEmailVerificationEventType(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
+		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
+			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
+	`)
+	return err
+}
+
+// ensureAuthLookupKindEmailVerifyResend widens auth_lookup_attempts.kind's
+// CHECK to allow 'email_verify_resend'(email_verification.go의
+// handleResendVerificationEmail이 씀) — ensurePasswordResetEventType과
+// 같은 드롭+재생성 방식, 항상 누적 목록.
+func ensureAuthLookupKindEmailVerifyResend(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE auth_lookup_attempts DROP CONSTRAINT IF EXISTS auth_lookup_attempts_kind_check;
+		ALTER TABLE auth_lookup_attempts ADD CONSTRAINT auth_lookup_attempts_kind_check
+			CHECK (kind IN ('find_email','reset_password','email_verify_resend'));
 	`)
 	return err
 }

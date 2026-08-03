@@ -13,6 +13,7 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -48,25 +49,39 @@ func (s *Server) handleSignupAgreement(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_body"})
 		return
 	}
-	phone := strings.TrimSpace(req.PhoneNumber)
-	if !phoneNumberPattern.MatchString(phone) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
-		return
-	}
 	if !req.TermsAgreed || !req.PrivacyAgreed {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agreement_required"})
 		return
 	}
 
 	ctx := r.Context()
-	verified, err := consumeVerifiedPhone(ctx, s.db, phone)
+	// 관리자가 #/admin에서 재배포 없이 껐다 켰다 하는 설정(system_settings.go) —
+	// 꺼져 있으면 휴대폰번호는 선택 입력이 되고 SMS 인증도 요구하지 않는다
+	// (handleSignup과 동일한 분기).
+	phoneRequired, err := s.getSystemSettingBool(ctx, phoneVerificationRequiredSettingKey, defaultPhoneVerificationRequired)
 	if err != nil {
-		s.logger.Error("signup-agreement: phone verification check failed", "error", err)
+		s.logger.Error("signup-agreement: phone verification setting lookup failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
-	if !verified {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone_not_verified"})
+	phone := strings.TrimSpace(req.PhoneNumber)
+	if phoneRequired {
+		if !phoneNumberPattern.MatchString(phone) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
+			return
+		}
+		verified, err := consumeVerifiedPhone(ctx, s.db, phone)
+		if err != nil {
+			s.logger.Error("signup-agreement: phone verification check failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		if !verified {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone_not_verified"})
+			return
+		}
+	} else if phone != "" && !phoneNumberPattern.MatchString(phone) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
 		return
 	}
 	var termsVersion, privacyVersion string
@@ -93,10 +108,22 @@ func (s *Server) handleSignupAgreement(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, `UPDATE users SET phone_number = $1, phone_verified_at = now() WHERE id = $2`, phone, userID); err != nil {
-		s.logger.Error("signup-agreement: phone update failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
+	if phoneRequired {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET phone_number = $1, phone_verified_at = now() WHERE id = $2`, phone, userID); err != nil {
+			s.logger.Error("signup-agreement: phone update failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+	} else {
+		var phoneArg sql.NullString
+		if phone != "" {
+			phoneArg = sql.NullString{String: phone, Valid: true}
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET phone_number = $1 WHERE id = $2`, phoneArg, userID); err != nil {
+			s.logger.Error("signup-agreement: phone update failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO terms_agreements (user_id, terms_version, privacy_version, ip_address)

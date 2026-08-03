@@ -282,7 +282,8 @@ CREATE TABLE users (
                         CHECK (plan IN ('free','pro','pro_promo')),
     email_notifications_enabled BOOLEAN NOT NULL DEFAULT true,
     phone_number    TEXT,
-    phone_verified_at TIMESTAMPTZ, -- SMS 인증번호(phone_verifications) 확인 완료 시각. 온보딩(회원가입) 완료 여부의 기준이 이 컬럼이다 — company_profiles 존재 여부가 아니다(회사 프로필은 가입과 완전히 분리됨, phone_verification.go 참고).
+    phone_verified_at TIMESTAMPTZ, -- SMS 인증번호(phone_verifications) 확인 완료 시각. 관리자가 휴대폰 인증을 끄면(system_settings.phone_verification_required=false) 새 가입자는 이 값이 계속 NULL일 수 있다 — "온보딩(약관동의) 완료" 여부는 이제 terms_agreements 존재 여부로 따로 판단한다(handleMe의 onboarded 필드, phone_verification.go/signup_agreement.go 참고).
+    email_verified_at TIMESTAMPTZ, -- 이메일 가입 필수 이메일 인증(2026-08-04, email_verification.go) 완료 시각. 소셜 로그인(구글/네이버/카카오)은 제공자가 이미 검증한 이메일이라 계정 생성 시점에 바로 채워진다(oauth_login.go). 이 컬럼이 생기기 전 가입자는 마이그레이션이 일괄 백필(ensureEmailVerificationTables) — 신규 가입자만 이 게이트의 대상이다.
     sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_login_at   TIMESTAMPTZ, -- 관리자 화면(admin.go)의 회원목록용. 이 컬럼이 생기기 전 로그인은 기록이 없어 NULL로 남는다(과거 소급 불가).
@@ -318,7 +319,7 @@ CREATE INDEX idx_phone_verifications_phone ON phone_verifications(phone_number, 
 -- 같은 identifier라도(이론상 겹칠 일은 없지만) 서로 한도를 침범하지 않는다.
 CREATE TABLE auth_lookup_attempts (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    kind         TEXT NOT NULL CHECK (kind IN ('find_email','reset_password')),
+    kind         TEXT NOT NULL CHECK (kind IN ('find_email','reset_password','email_verify_resend')),
     identifier   TEXT NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -339,6 +340,19 @@ CREATE TABLE password_reset_tokens (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_password_reset_tokens_hash ON password_reset_tokens(token_hash);
+
+-- 이메일 가입 필수 이메일 인증(2026-08-04) 토큰. password_reset_tokens와
+-- 완전히 같은 구조/보안 원칙(해시만 저장, 1회용) — 유효기간만 24시간으로
+-- 더 길게 잡았다(급하지 않고, 메일을 늦게 확인하는 사용자를 감안).
+CREATE TABLE email_verification_tokens (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES users(id),
+    token_hash  TEXT NOT NULL,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    used_at     TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_email_verification_tokens_hash ON email_verification_tokens(token_hash);
 
 -- user_id는 최초 생성자 참조로만 남는다(과거 호환) — 실제 "누가 이
 -- 프로필에 접근 가능한가"는 아래 company_members가 단일 진실 공급원이다
@@ -714,7 +728,7 @@ CREATE TABLE notification_log (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_type         TEXT NOT NULL CHECK (event_type IN
                             ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-                             'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset')),
+                             'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification')),
     channel            TEXT NOT NULL DEFAULT 'email' CHECK (channel IN ('email','sms')),
     recipient_email    TEXT,
     recipient_phone    TEXT,
@@ -1028,6 +1042,13 @@ INSERT INTO system_settings (key, value) VALUES
     ('business_ai_analysis_limit', '60'),
     ('business_price_krw', '99000'),
     ('business_member_limit', '3');
+
+-- 휴대폰 인증 사용 여부(2026-08-04, #/admin 대시보드 "플랜 설정" 카드) —
+-- 기본값 'true'는 지금까지의 동작(회원가입/온보딩 재설계 Phase 1)을
+-- 그대로 유지한다. 관리자가 끄면(false) 새 가입자는 휴대폰번호가 선택
+-- 입력으로 바뀌고 SMS 인증 없이도 가입할 수 있다(auth.go/signup_agreement.go
+-- 참고) — 이미 인증을 마친 기존 회원에는 영향 없다.
+INSERT INTO system_settings (key, value) VALUES ('phone_verification_required', 'true');
 
 -- ------------------------------------------------------------
 -- 간편로그인(구글/네이버/카카오). users에 provider/provider_id 컬럼을

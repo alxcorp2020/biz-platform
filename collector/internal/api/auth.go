@@ -139,26 +139,48 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password_too_short"})
 		return
 	}
-	phone := strings.TrimSpace(req.PhoneNumber)
-	if !phoneNumberPattern.MatchString(phone) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
-		return
-	}
 	if !req.TermsAgreed || !req.PrivacyAgreed {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agreement_required"})
 		return
 	}
 
 	ctx := r.Context()
-	verified, err := consumeVerifiedPhone(ctx, s.db, phone)
+	// 관리자가 #/admin에서 재배포 없이 껐다 켰다 하는 설정(system_settings.go) —
+	// 꺼져 있으면 휴대폰번호는 선택 입력이 되고 SMS 인증도 요구하지 않는다.
+	phoneRequired, err := s.getSystemSettingBool(ctx, phoneVerificationRequiredSettingKey, defaultPhoneVerificationRequired)
 	if err != nil {
-		s.logger.Error("signup: phone verification check failed", "error", err)
+		s.logger.Error("signup: phone verification setting lookup failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
-	if !verified {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone_not_verified"})
-		return
+	phone := strings.TrimSpace(req.PhoneNumber)
+	var phoneValue sql.NullString
+	var phoneVerifiedAt sql.NullTime
+	if phoneRequired {
+		if !phoneNumberPattern.MatchString(phone) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
+			return
+		}
+		verified, err := consumeVerifiedPhone(ctx, s.db, phone)
+		if err != nil {
+			s.logger.Error("signup: phone verification check failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		if !verified {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone_not_verified"})
+			return
+		}
+		phoneValue = sql.NullString{String: phone, Valid: true}
+		phoneVerifiedAt = sql.NullTime{Time: time.Now(), Valid: true}
+	} else if phone != "" {
+		// 선택 입력이지만 값을 넣었다면 형식은 여전히 지켜야 한다 — 인증만
+		// 요구하지 않을 뿐이다.
+		if !phoneNumberPattern.MatchString(phone) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
+			return
+		}
+		phoneValue = sql.NullString{String: phone, Valid: true}
 	}
 
 	var exists bool
@@ -209,8 +231,8 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 
 	var userID string
 	if err := tx.QueryRowContext(ctx,
-		`INSERT INTO users (email, password_hash, phone_number, phone_verified_at) VALUES ($1, $2, $3, now()) RETURNING id`,
-		email, string(hash), phone,
+		`INSERT INTO users (email, password_hash, phone_number, phone_verified_at) VALUES ($1, $2, $3, $4) RETURNING id`,
+		email, string(hash), phoneValue, phoneVerifiedAt,
 	).Scan(&userID); err != nil {
 		s.logger.Error("signup: insert failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
@@ -232,6 +254,13 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.setSessionCookie(w, userID)
+	// 이메일 가입 필수 이메일 인증(2026-08-04) — 발송 실패해도 가입 자체는
+	// 이미 완료됐으니 로그만 남기고 응답은 그대로 성공 처리한다. 인증
+	// 전까지는 route()가 대부분의 화면 접근을 막고 재발송 버튼이 있는
+	// 대기 화면으로 돌려보낸다(email_verification.go 참고).
+	if err := s.sendEmailVerificationEmail(ctx, userID, email); err != nil {
+		s.logger.Error("signup: email verification send failed", "error", err)
+	}
 	writeJSON(w, http.StatusCreated, map[string]string{"id": userID, "email": email})
 }
 
@@ -418,10 +447,10 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var email, role, plan string
-	var phoneVerified bool
+	var phoneVerified, emailVerified bool
 	err := s.db.QueryRowContext(r.Context(),
-		`SELECT email, role, plan, phone_verified_at IS NOT NULL FROM users WHERE id = $1`, userID,
-	).Scan(&email, &role, &plan, &phoneVerified)
+		`SELECT email, role, plan, phone_verified_at IS NOT NULL, email_verified_at IS NOT NULL FROM users WHERE id = $1`, userID,
+	).Scan(&email, &role, &plan, &phoneVerified, &emailVerified)
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
@@ -430,6 +459,19 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("me: query failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
+	}
+
+	// onboarded — "약관동의(+휴대폰 인증, 켜져 있을 때만)까지 마쳤는가".
+	// 관리자가 휴대폰 인증을 끌 수 있게 되면서(system_settings.go)
+	// phone_verified_at만으로는 온보딩 완료 여부를 판단할 수 없어졌다 —
+	// terms_agreements 행 존재 여부는 휴대폰 인증 필수 여부와 무관하게
+	// handleSignup/handleSignupAgreement 둘 다 항상 같은 트랜잭션에서
+	// 만들어 넣으므로, 이 값이 더 안정적인 "온보딩 완료" 신호다.
+	var onboarded bool
+	if err := s.db.QueryRowContext(r.Context(),
+		`SELECT EXISTS (SELECT 1 FROM terms_agreements WHERE user_id = $1)`, userID,
+	).Scan(&onboarded); err != nil {
+		s.logger.Error("me: onboarded check failed", "error", err)
 	}
 
 	// 알림 설정(email/phone/sms)은 팀기능으로 조직 단위(company_profiles)로
@@ -442,7 +484,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": map[string]any{
-			"id": userID, "email": email, "role": role, "plan": plan, "phoneVerified": phoneVerified,
+			"id": userID, "email": email, "role": role, "plan": plan,
+			"phoneVerified": phoneVerified, "emailVerified": emailVerified, "onboarded": onboarded,
 		},
 		"companyProfile": profile,
 	})
@@ -510,18 +553,29 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 		// "휴대폰번호 SMS 인증을 마친 계정"이라는 최소 전제는 여기서도
 		// 그대로 지킨다 — phone_number 존재 여부(과거 체크)가 아니라
 		// phone_verified_at으로 확인한다(더 강한 조건 — 형식만 맞고
-		// 검증되지 않은 번호는 통과 못 함).
-		var phoneVerified bool
-		if err := s.db.QueryRowContext(r.Context(),
-			`SELECT phone_verified_at IS NOT NULL FROM users WHERE id = $1`, userID,
-		).Scan(&phoneVerified); err != nil {
-			s.logger.Error("company-profile: phone verification lookup failed", "error", err)
+		// 검증되지 않은 번호는 통과 못 함). 단, 관리자가 휴대폰 인증
+		// 자체를 껐다면(2026-08-04, system_settings.go) phone_verified_at은
+		// 그 계정에서 영원히 NULL일 수 있으므로 이 가드 자체를 건너뛴다
+		// — 안 그러면 그런 계정은 회사 프로필을 영영 만들 수 없게 된다.
+		phoneRequired, err := s.getSystemSettingBool(r.Context(), phoneVerificationRequiredSettingKey, defaultPhoneVerificationRequired)
+		if err != nil {
+			s.logger.Error("company-profile: phone verification setting lookup failed", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 			return
 		}
-		if !phoneVerified {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone_number_required"})
-			return
+		if phoneRequired {
+			var phoneVerified bool
+			if err := s.db.QueryRowContext(r.Context(),
+				`SELECT phone_verified_at IS NOT NULL FROM users WHERE id = $1`, userID,
+			).Scan(&phoneVerified); err != nil {
+				s.logger.Error("company-profile: phone verification lookup failed", "error", err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+				return
+			}
+			if !phoneVerified {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone_number_required"})
+				return
+			}
 		}
 
 		tx, err := s.db.BeginTx(r.Context(), nil)
