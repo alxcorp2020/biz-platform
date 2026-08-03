@@ -10129,21 +10129,6 @@ function route() {
     location.hash = '#/auth/login';
     return;
   }
-  // 소셜 로그인(구글/네이버/카카오)은 콜백(oauth_login.go)이 계정을 즉시
-  // 만들고 세션을 발급하므로, 2단계(휴대폰번호+업체정보+약관동의,
-  // renderSignupProfileStep)의 "가입하기"를 누르기 전에도 currentUser는
-  // 있지만 currentProfile은 없는 상태가 될 수 있다 — 이 틈을 타 다른
-  // 화면으로 새서 "가입하기 없이도 이미 가입된" 상태가 되는 것을 막기
-  // 위해, 그 경우 강제로 2단계로 돌려보낸다. role==='user'(일반 회원가입
-  // 사용자)만 대상이다 — system_admin/operator/analyst 등 내부 운영
-  // 계정은 원래부터 회사 프로필 없이 동작하도록 설계됨. #/terms·#/privacy는
-  // 2단계 화면의 "보기" 링크가 새 탭으로 열므로 예외 처리(안 그러면 그
-  // 탭도 곧바로 2단계로 튕겨서 약관을 못 봄).
-  const PROFILE_REQUIRED_EXEMPT_ROUTES = new Set(['#/auth/oauth-profile', '#/terms', '#/privacy']);
-  if (currentUser && currentUser.role === 'user' && !currentProfile && !PROFILE_REQUIRED_EXEMPT_ROUTES.has(path)) {
-    location.hash = '#/auth/oauth-profile';
-    return;
-  }
   updateSidebarActiveState();
   updateTabbarActiveState();
   renderGlobalProfileBanner();
