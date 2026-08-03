@@ -2637,7 +2637,7 @@ const ERROR_MESSAGES = {
   already_used: '이미 서비스를 이용하신 내역이 있어 환불이 불가합니다.',
   invalid_issued_at: '발급일 형식이 올바르지 않습니다(YYYY-MM-DD).',
   invalid_document_type: '증빙서류 종류 값이 올바르지 않습니다.',
-  invalid_phone_number: '연락처 형식이 올바르지 않습니다. (예: 010-1234-5678)',
+  invalid_phone_number: '연락처 형식이 올바르지 않습니다. (예: 010-1234-5678, 011-123-4567)',
   agreement_required: '이용약관과 개인정보 수집·이용에 모두 동의해야 가입할 수 있습니다.',
   phone_number_required: '휴대폰번호를 먼저 등록해주세요.',
   business_phone_required: '사업자 대표전화번호를 입력해주세요.',
@@ -5678,6 +5678,36 @@ async function acceptPendingInviteIfAny() {
 let signupStep1Data = null;
 let signupStep2Data = null;
 
+// formatMobilePhoneInput — 휴대폰번호 입력에 자동으로 하이픈을 붙인다.
+// 010은 11자리(3-4-4: 010-1234-5678)이고 011/016/017/018/019는 10자리
+// (3-3-4: 011-123-4567)로 자릿수 자체가 다르다 — 첫 3자리(prefix)로
+// 어느 쪽인지 판단해 그에 맞는 자리에서 끊는다.
+function formatMobilePhoneInput(raw) {
+  const digits = raw.replace(/\D/g, '');
+  const isElevenDigit = digits.slice(0, 3) === '010';
+  const d = digits.slice(0, isElevenDigit ? 11 : 10);
+  if (isElevenDigit) {
+    if (d.length <= 3) return d;
+    if (d.length <= 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
+    return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
+  }
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
+// attachPhoneAutoFormat — 위 포맷터를 input에 연결. 값을 통째로 다시
+// 쓰는 단순한 방식이라 문자열 중간을 수정할 때 커서가 끝으로 이동할 수
+// 있다 — 이 프로젝트의 다른 입력 처리도 커서 위치를 따로 관리하지 않는
+// 것과 같은 수준의 단순함을 유지한 것(대부분 끝에서부터 이어 입력하는
+// 휴대폰번호 입력 특성상 실사용에 지장은 적다).
+function attachPhoneAutoFormat(input) {
+  if (!input) return;
+  input.addEventListener('input', () => {
+    input.value = formatMobilePhoneInput(input.value);
+  });
+}
+
 // renderSignup — 1단계: 계정 정보(휴대폰번호/이메일/비밀번호). 이 화면은
 // 소셜 로그인 가입자는 거치지 않는다(구글/네이버/카카오가 이메일을 이미
 // 주므로) — 그래서 개인 휴대폰번호를 여기서만 물어보면 소셜 가입자는
@@ -5695,7 +5725,7 @@ function renderSignup(container, isBack) {
       <h2>회원가입</h2>
       <div class="wizard-step-indicator">${stepIndicatorHtml(0, 2, '계정 정보')}</div>
       <form id="signup-form" class="auth-form">
-        <label>휴대폰번호<input type="tel" name="phoneNumber" required pattern="010-\\d{4}-\\d{4}" placeholder="010-1234-5678" value="${escapeAttr(d.phoneNumber || '')}"></label>
+        <label>휴대폰번호<input type="tel" name="phoneNumber" required pattern="(010-\\d{4}-\\d{4})|(01[16789]-\\d{3}-\\d{4})" placeholder="010-1234-5678" value="${escapeAttr(d.phoneNumber || '')}"></label>
         <label>이메일<input type="email" name="email" required value="${escapeAttr(d.email || '')}"></label>
         <label>비밀번호 (최소 8자)<input type="password" name="password" minlength="8" required value="${escapeAttr(d.password || '')}"></label>
         <label>비밀번호 확인<input type="password" name="passwordConfirm" minlength="8" required value="${escapeAttr(d.password || '')}"></label>
@@ -5707,6 +5737,7 @@ function renderSignup(container, isBack) {
     </div>
   `));
   const form = document.getElementById('signup-form');
+  attachPhoneAutoFormat(form.phoneNumber);
   const errorBox = document.getElementById('signup-error');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -5802,7 +5833,7 @@ function renderSignupProfileStep(container, opts) {
             ${COMPANY_SIZE_OPTIONS.map(sz => `<option value="${escapeAttr(sz)}" ${sz === d.companySize ? 'selected' : ''}>${escapeHtml(sz)}</option>`).join('')}
           </select>
         </label>
-        ${fromEmailStep1 ? '' : `<label>연락처(휴대폰번호)<input type="tel" name="phoneNumber" required pattern="010-\\d{4}-\\d{4}" placeholder="010-1234-5678" value="${escapeAttr(d.phoneNumber || '')}"></label>`}
+        ${fromEmailStep1 ? '' : `<label>연락처(휴대폰번호)<input type="tel" name="phoneNumber" required pattern="(010-\\d{4}-\\d{4})|(01[16789]-\\d{3}-\\d{4})" placeholder="010-1234-5678" value="${escapeAttr(d.phoneNumber || '')}"></label>`}
         <label>연락처(사업자 대표전화번호)<input type="tel" name="businessPhone" required placeholder="02-1234-5678" value="${escapeAttr(d.businessPhone || '')}"></label>
         <div class="field-group">
           <label class="checkbox-label"><input type="checkbox" id="signup-terms-agree" required> 이용약관에 동의합니다 (필수) <a href="#/terms" target="_blank" rel="noopener">보기</a></label>
@@ -5817,6 +5848,7 @@ function renderSignupProfileStep(container, opts) {
     </div>
   `));
   const form = document.getElementById('signup-profile-form');
+  attachPhoneAutoFormat(form.phoneNumber);
   const errorBox = document.getElementById('signup-profile-error');
   const submitBtn = document.getElementById('signup-profile-submit-btn');
   const termsCheckbox = document.getElementById('signup-terms-agree');

@@ -15,7 +15,10 @@ import (
 	"strings"
 )
 
-var phoneNumberPattern = regexp.MustCompile(`^010-\d{4}-\d{4}$`)
+// 010은 11자리(3-4-4), 011/016/017/018/019(옛 016~019 통신사 번호)는
+// 10자리(3-3-4)로 자릿수 자체가 다르다 — 프론트(formatMobilePhoneInput,
+// index.html)의 자동 하이픈 포맷과 정확히 같은 두 가지 형식만 허용한다.
+var phoneNumberPattern = regexp.MustCompile(`^(010-\d{4}-\d{4}|01[16789]-\d{3}-\d{4})$`)
 
 type signupAgreementRequest struct {
 	PhoneNumber   string `json:"phoneNumber"`
