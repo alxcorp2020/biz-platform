@@ -290,6 +290,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("dashboard: profile completeness failed", "error", err)
 	}
 
+	// eligibilitySummary — Phase UX-01(2026-08-04) 대시보드 온보딩 UI/점진적
+	// 정보요청용 4버킷 집계. 판정 로직(eligibility.go/scoring.go) 자체는
+	// 안 건드리고 scoreNoticeForCompany의 결과만 다시 센다.
+	eligibilitySummary, err := s.computeEligibilityBucketSummary(ctx, company)
+	if err != nil {
+		s.logger.Error("dashboard: eligibility bucket summary failed", "error", err)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"hasProfile": true,
 		"briefing":   dashboardBriefing(reviewNeededCount, len(priorityItems)),
@@ -306,7 +314,92 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"growthSummary": map[string]int{
 			"overallCompleteness": completeness.OverallCompleteness,
 		},
+		"eligibilitySummary": eligibilitySummary,
 	})
+}
+
+// eligibilityBucketSummary — 열려있는 공고 전체를 회사 기준으로 다시
+// 채점해 4버킷으로 센다. gradeDistributionForCompany(growth_analytics.go)와
+// 같은 실시간 재채점 패턴 — 판정 로직 자체는 안 건드리고 그 결과만
+// 다시 집계한다. "insufficientData"는 bucketFromCategories의 기존
+// 3버킷(ready/needsReview/notRecommended)에는 없는 새 분류로, 회사측
+// 정보 부족(DataGapSide=="company")으로 인한 insufficient_data가 하나라도
+// 있고 not_met은 없을 때 여기로 뺀다 — 점진적 정보요청 UX가 "정확히 어떤
+// 정보가 없어서" 판정이 안 됐는지 알아야 하기 때문(missingFields).
+type eligibilityBucketSummary struct {
+	Ready            int `json:"ready"`
+	NeedsReview      int `json:"needsReview"`
+	NotRecommended   int `json:"notRecommended"`
+	InsufficientData int `json:"insufficientData"`
+	// MissingFields — "region"/"industry"/"companySize" 중 회사 프로필에
+	// 실제로 비어있는 값(사용자가 채우면 판정이 가능해짐). 결정적 순서를
+	// 위해 정렬해서 내려준다(맵 순회는 비결정적).
+	MissingFields []string `json:"missingFields"`
+}
+
+var eligibilityCategoryToProfileField = map[string]string{
+	"지역": "region", "업종": "industry", "예산 규모": "companySize",
+}
+
+func (s *Server) computeEligibilityBucketSummary(ctx context.Context, company companyScoringInput) (eligibilityBucketSummary, error) {
+	var summary eligibilityBucketSummary
+	missingSet := map[string]bool{}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT notice_type, region, industry, budget_amount FROM notices
+		WHERE status NOT IN ('closed','cancelled')
+		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
+		LIMIT `+itoa(dashboardNoticeScanLimit))
+	if err != nil {
+		return summary, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var noticeType string
+		var noticeRegion, noticeIndustry sql.NullString
+		var budget sql.NullInt64
+		if err := rows.Scan(&noticeType, &noticeRegion, &noticeIndustry, &budget); err != nil {
+			continue
+		}
+		score := scoreNoticeForCompany(
+			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget},
+			company,
+		)
+
+		hasNotMet := false
+		hasCompanyGap := false
+		for _, c := range score.Categories {
+			if c.Result == "not_met" {
+				hasNotMet = true
+			}
+			if c.Result == "insufficient_data" && c.DataGapSide == "company" {
+				hasCompanyGap = true
+				if field, ok := eligibilityCategoryToProfileField[c.Category]; ok {
+					missingSet[field] = true
+				}
+			}
+		}
+		switch {
+		case hasNotMet:
+			summary.NotRecommended++
+		case hasCompanyGap:
+			summary.InsufficientData++
+		case score.Bucket == "ready":
+			summary.Ready++
+		default:
+			summary.NeedsReview++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return summary, err
+	}
+
+	for field := range missingSet {
+		summary.MissingFields = append(summary.MissingFields, field)
+	}
+	sort.Strings(summary.MissingFields)
+	return summary, nil
 }
 
 // dashboardBriefing — "오늘의 AI 브리핑" 한 문장. 참여 여부를 결정해야

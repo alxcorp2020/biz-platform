@@ -96,6 +96,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/auth/{provider}/callback", s.handleOAuthCallback)
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("PUT /api/me/company-profile", s.handleUpsertCompanyProfile)
+	mux.HandleFunc("POST /api/me/business-registration/extract", s.handleExtractBusinessRegistration)
 	mux.HandleFunc("POST /api/me/signup-agreement", s.handleSignupAgreement)
 	mux.HandleFunc("POST /api/me/resend-verification-email", s.handleResendVerificationEmail)
 	mux.HandleFunc("GET /api/me/company/members", s.handleListCompanyMembers)

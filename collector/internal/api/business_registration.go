@@ -1,0 +1,220 @@
+// business_registration.go — 사업자등록증 OCR 자동 회사생성(Phase UX-01,
+// 2026-08-04). 계정만 있고 아직 회사 프로필이 없는 사용자가 사업자등록증을
+// 올리면 Claude가 필드를 추출해 candidate로 돌려준다 — company_documents.go의
+// 6개 카테고리와 같은 원칙(DB에 저장하지 않고, 사용자가 확인해야만
+// handleUpsertCompanyProfile(auth.go)로 저장된다). company_profiles가 아직
+// 없어도 동작해야 해서 receiveCompanyDocument(프로필 존재를 강제함)를
+// 재사용하지 않고 파일 검증을 이 파일에서 독립적으로 수행한다.
+package api
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"path/filepath"
+	"strings"
+
+	"github.com/anthropics/anthropic-sdk-go"
+)
+
+const maxBizRegDocumentBytes = 10 << 20 // 10MB, company_documents.go와 동일
+
+// allowedBizRegDocumentTypes — company_documents.go의 allowedCompanyDocumentTypes에
+// WEBP를 추가(스펙 요구사항). HEIC는 매직바이트 직접 구현이 필요해 이번
+// 범위에서 제외(대부분 스캔앱/PDF로 변환해 올리는 경우가 많다고 판단).
+var allowedBizRegDocumentTypes = map[string]string{
+	"pdf":  "application/pdf",
+	"jpg":  "image/jpeg",
+	"jpeg": "image/jpeg",
+	"png":  "image/png",
+	"webp": "image/webp",
+}
+
+// bizRegRegionOptions — 프론트 REGION_OPTIONS(index.html)와 순서·값 반드시
+// 일치. Claude 추출 스키마의 region enum을 강제하는 데만 쓰인다 — 별도
+// 주소 파싱 로직 없이 AI가 직접 이 목록 중 하나로 매핑한다.
+var bizRegRegionOptions = []string{
+	"전국", "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시",
+	"대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원특별자치도",
+	"충청북도", "충청남도", "전북특별자치도", "전라남도", "경상북도", "경상남도", "제주특별자치도",
+}
+
+type businessRegistrationCandidate struct {
+	BusinessRegistrationNumber string   `json:"businessRegistrationNumber"`
+	CompanyName                string   `json:"companyName"`
+	RepresentativeName         string   `json:"representativeName"`
+	Address                    string   `json:"address"`
+	Region                     string   `json:"region"`
+	Industry                   []string `json:"industry"`
+	BusinessType               []string `json:"businessType"`
+}
+
+// handleExtractBusinessRegistration — POST /api/me/business-registration/extract
+// (로그인 필요, 회사 프로필 존재 여부 무관). DB에 아무것도 저장하지 않고
+// candidate JSON만 응답한다 — 6개 서류 카테고리와 동일 원칙. 프로필이 없는
+// 상태에서 호출되므로 checkAIAnalysisQuota/checkFileRetryRateLimit(둘 다
+// profileID 기준)는 쓸 수 없어, 대신 authLookupRateLimited(password_reset.go
+// 공용, identifier=userID)로 남용을 방지한다.
+func (s *Server) handleExtractBusinessRegistration(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	ctx := r.Context()
+	blocked, err := authLookupRateLimited(ctx, s.db, "biz_reg_extract", userID)
+	if err != nil {
+		s.logger.Error("extract-business-registration: rate limit check failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if blocked {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
+		return
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO auth_lookup_attempts (kind, identifier) VALUES ('biz_reg_extract', $1)`, userID); err != nil {
+		s.logger.Error("extract-business-registration: attempt log insert failed", "error", err)
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBizRegDocumentBytes+(1<<20)) // 멀티파트 오버헤드 여유 1MB
+	if err := r.ParseMultipartForm(maxBizRegDocumentBytes); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_too_large_or_invalid"})
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_required"})
+		return
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(header.Filename), "."))
+	mediaType, isAllowedType := allowedBizRegDocumentTypes[ext]
+	if !isAllowedType {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported_file_type"})
+		return
+	}
+
+	body, err := io.ReadAll(file)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_read_failed"})
+		return
+	}
+	if len(body) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_empty"})
+		return
+	}
+	if len(body) > maxBizRegDocumentBytes {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_too_large"})
+		return
+	}
+	// company_documents.go의 receiveCompanyDocument와 동일한 매직바이트 검증
+	// (확장자만 보고 통과시키면 파일명을 속여 검증을 우회할 수 있음).
+	if detected := http.DetectContentType(body); !companyDocumentContentMatchesType(detected, mediaType) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file_content_mismatch"})
+		return
+	}
+
+	candidate, err := s.extractBusinessRegistrationCandidate(ctx, body, ext, mediaType)
+	if err != nil {
+		s.logger.Error("extract-business-registration: claude extraction failed", "error", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "extraction_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"candidate": candidate})
+}
+
+// extractBusinessRegistrationCandidate — company_documents.go의
+// extractLicenseCandidate와 동일한 패턴(강제 tool_choice+strict schema,
+// PDF는 document block/이미지는 image block). region/industry는 자유텍스트
+// 매핑 후처리 없이 enum을 강제해 AI가 직접 REGION_OPTIONS/industryGroups
+// 값으로 매핑하게 한다(기존 면허추출기의 documentType enum 강제와 동일 원칙).
+func (s *Server) extractBusinessRegistrationCandidate(ctx context.Context, body []byte, ext, mediaType string) (*businessRegistrationCandidate, error) {
+	b64 := base64.StdEncoding.EncodeToString(body)
+
+	var docBlock anthropic.ContentBlockParamUnion
+	if ext == "pdf" {
+		docBlock = anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{Data: b64})
+	} else {
+		docBlock = anthropic.NewImageBlockBase64(mediaType, b64)
+	}
+
+	tool := anthropic.ToolParam{
+		Name: "extract_business_registration",
+		Description: anthropic.String(
+			"업로드된 사업자등록증에서 실제로 문서에 적혀 있는 정보만 추출합니다. " +
+				"문서에 없는 내용은 절대 만들어내지 마세요. 확인할 수 없는 필드는 빈 문자열(배열은 빈 배열)로 " +
+				"두세요. region은 사업장 주소를 보고 제공된 17개 광역시도 중 하나로 매핑하세요(정확히 " +
+				"특정할 수 없으면 \"전국\"). industry는 업태/종목을 보고 제공된 대분류 중 해당하는 것을 " +
+				"모두 선택하세요(겸업 반영, 전혀 판단할 수 없으면 빈 배열).",
+		),
+		InputSchema: anthropic.ToolInputSchemaParam{
+			Properties: map[string]any{
+				"businessRegistrationNumber": map[string]any{"type": "string", "description": "사업자등록번호(하이픈 포함 원문 그대로). 없으면 빈 문자열"},
+				"companyName":                map[string]any{"type": "string", "description": "상호. 없으면 빈 문자열"},
+				"representativeName":         map[string]any{"type": "string", "description": "대표자 성명. 없으면 빈 문자열"},
+				"address":                    map[string]any{"type": "string", "description": "사업장 소재지 주소 원문. 없으면 빈 문자열"},
+				"region": map[string]any{
+					"type":        "string",
+					"description": "사업장 주소를 광역시도 단위로 매핑한 값",
+					"enum":        bizRegRegionOptions,
+				},
+				"industry": map[string]any{
+					"type":        "array",
+					"description": "업태/종목을 업종 대분류로 매핑한 값(복수 선택 가능)",
+					"items": map[string]any{
+						"type": "string",
+						"enum": industryGroups,
+					},
+				},
+				"businessType": map[string]any{
+					"type":        "array",
+					"description": "업태 원문(문서에 적힌 그대로, 여러 줄이면 각각 하나씩)",
+					"items":       map[string]any{"type": "string"},
+				},
+			},
+			Required: []string{
+				"businessRegistrationNumber", "companyName", "representativeName",
+				"address", "region", "industry", "businessType",
+			},
+			ExtraFields: map[string]any{"additionalProperties": false},
+		},
+		Strict: anthropic.Bool(true),
+	}
+
+	resp, err := s.anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:      companyDocumentModel,
+		MaxTokens:  1024,
+		Tools:      []anthropic.ToolUnionParam{{OfTool: &tool}},
+		ToolChoice: anthropic.ToolChoiceParamOfTool("extract_business_registration"),
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(
+				docBlock,
+				anthropic.NewTextBlock("이 사업자등록증에서 정보를 추출하세요."),
+			),
+		},
+	})
+	if err != nil {
+		var apiErr *anthropic.Error
+		if errors.As(err, &apiErr) {
+			return nil, fmt.Errorf("claude api error (status %d): %w", apiErr.StatusCode, err)
+		}
+		return nil, err
+	}
+
+	for _, block := range resp.Content {
+		if tu, ok := block.AsAny().(anthropic.ToolUseBlock); ok {
+			var candidate businessRegistrationCandidate
+			if err := json.Unmarshal(tu.Input, &candidate); err != nil {
+				return nil, fmt.Errorf("parse tool input: %w", err)
+			}
+			return &candidate, nil
+		}
+	}
+	return nil, fmt.Errorf("no tool_use block in response (stop_reason=%s)", resp.StopReason)
+}

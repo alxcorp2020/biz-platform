@@ -223,6 +223,12 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureAuthLookupKindEmailVerifyResend(ctx, db); err != nil {
 		return fmt.Errorf("migrate auth lookup kind email verify resend: %w", err)
 	}
+	if err := ensureBusinessRegistrationColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate business registration columns: %w", err)
+	}
+	if err := ensureAuthLookupKindBizRegExtract(ctx, db); err != nil {
+		return fmt.Errorf("migrate auth lookup kind biz reg extract: %w", err)
+	}
 	return nil
 }
 
@@ -1634,6 +1640,31 @@ func ensureAuthLookupKindEmailVerifyResend(ctx context.Context, db *sql.DB) erro
 		ALTER TABLE auth_lookup_attempts DROP CONSTRAINT IF EXISTS auth_lookup_attempts_kind_check;
 		ALTER TABLE auth_lookup_attempts ADD CONSTRAINT auth_lookup_attempts_kind_check
 			CHECK (kind IN ('find_email','reset_password','email_verify_resend'));
+	`)
+	return err
+}
+
+// ensureBusinessRegistrationColumns — Phase UX-01(2026-08-04) 사업자등록증
+// OCR 자동생성. business_registration.go가 AI로 추출한 값을 사용자가
+// 확인한 뒤 handleUpsertCompanyProfile(auth.go)로 저장하는 4개 컬럼.
+func ensureBusinessRegistrationColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS business_registration_number TEXT;
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS company_name TEXT;
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS representative_name TEXT;
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS address TEXT;
+	`)
+	return err
+}
+
+// ensureAuthLookupKindBizRegExtract widens auth_lookup_attempts.kind's CHECK
+// to allow 'biz_reg_extract'(business_registration.go의
+// handleExtractBusinessRegistration이 씀) — 같은 드롭+재생성 방식.
+func ensureAuthLookupKindBizRegExtract(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE auth_lookup_attempts DROP CONSTRAINT IF EXISTS auth_lookup_attempts_kind_check;
+		ALTER TABLE auth_lookup_attempts ADD CONSTRAINT auth_lookup_attempts_kind_check
+			CHECK (kind IN ('find_email','reset_password','email_verify_resend','biz_reg_extract'));
 	`)
 	return err
 }

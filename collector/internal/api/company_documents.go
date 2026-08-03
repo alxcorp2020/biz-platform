@@ -480,11 +480,13 @@ func (s *Server) extractLicenseCandidate(ctx context.Context, body []byte, ext, 
 	tool := anthropic.ToolParam{
 		Name: "extract_document_fields",
 		Description: anthropic.String(
-			"업로드된 증빙서류(사업자등록증/중소기업확인서/직접생산확인증명서/면허증/인증서/법인등기사항증명서/" +
+			"업로드된 증빙서류(중소기업확인서/직접생산확인증명서/면허증/인증서/법인등기사항증명서/" +
 				"경쟁입찰참가자격등록증/기업부설연구소 인정서 등)에서 " +
 				"실제로 문서에 적혀 있는 정보만 추출합니다. 문서에 없는 내용은 절대 만들어내지 마세요. " +
 				"확인할 수 없는 필드는 빈 문자열로 두세요. 특허·상표 등록증은 이 도구가 아니라 " +
-				"별도의 지식재산권 전용 업로드로 처리하니 여기서는 제안하지 마세요.",
+				"별도의 지식재산권 전용 업로드로 처리하니 여기서는 제안하지 마세요. 사업자등록증은 " +
+				"이 도구가 아니라 회원가입 온보딩의 전용 업로드(사업자등록증 자동 회사생성)로 처리하니 " +
+				"여기서도 제안하지 마세요.",
 		),
 		InputSchema: anthropic.ToolInputSchemaParam{
 			Properties: map[string]any{
@@ -492,7 +494,7 @@ func (s *Server) extractLicenseCandidate(ctx context.Context, body []byte, ext, 
 					"type":        "string",
 					"description": "문서 종류",
 					"enum": []string{
-						"사업자등록증", "중소기업확인서", "직접생산확인증명서", "면허증", "인증서",
+						"중소기업확인서", "직접생산확인증명서", "면허증", "인증서",
 						"법인등기사항증명서", "경쟁입찰참가자격등록증",
 						"기업부설연구소 인정서", "기타",
 					},

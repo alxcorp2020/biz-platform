@@ -330,19 +330,23 @@ type companyProfileDTO struct {
 	// 파이프라인만 쓸 수 있다(company_pipeline.go는 이 필드를 안 봄 —
 	// 애초에 두 역할 다 허용). 각 owner-only 핸들러가 이 값으로 403을
 	// 판단한다.
-	Role                 string   `json:"role"`
-	BusinessType         []string `json:"businessType"`
-	Region               *string  `json:"region"`
-	Industry             []string `json:"industry"`
-	BusinessAgeYears     *float64 `json:"businessAgeYears"`
-	RevenueAmount        *int64   `json:"revenueAmount"`
-	EmployeeCount        *int64   `json:"employeeCount"`
-	CompanySize          *string  `json:"companySize"`
-	Licenses             []string `json:"licenses"`
-	Certifications       []string `json:"certifications"`
-	DirectProductionCert bool     `json:"directProductionCert"`
-	MaxPerformanceAmount *int64   `json:"maxPerformanceAmount"`
-	CreditRating         *string  `json:"creditRating"`
+	Role                       string   `json:"role"`
+	BusinessRegistrationNumber *string  `json:"businessRegistrationNumber"`
+	CompanyName                *string  `json:"companyName"`
+	RepresentativeName         *string  `json:"representativeName"`
+	Address                    *string  `json:"address"`
+	BusinessType               []string `json:"businessType"`
+	Region                     *string  `json:"region"`
+	Industry                   []string `json:"industry"`
+	BusinessAgeYears           *float64 `json:"businessAgeYears"`
+	RevenueAmount              *int64   `json:"revenueAmount"`
+	EmployeeCount              *int64   `json:"employeeCount"`
+	CompanySize                *string  `json:"companySize"`
+	Licenses                   []string `json:"licenses"`
+	Certifications             []string `json:"certifications"`
+	DirectProductionCert       bool     `json:"directProductionCert"`
+	MaxPerformanceAmount       *int64   `json:"maxPerformanceAmount"`
+	CreditRating               *string  `json:"creditRating"`
 	// EmployeeCountConfidence/VerifiedAt은 4대보험 사업장 가입자명부로
 	// employee_count를 확인했을 때만 채워진다(company_employee_verification.go).
 	EmployeeCountConfidence *string    `json:"employeeCountConfidence"`
@@ -371,6 +375,7 @@ type companyProfileDTO struct {
 func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProfileDTO, error) {
 	var p companyProfileDTO
 	var region, companySize, creditRating, employeeCountConfidence, phoneNumber sql.NullString
+	var bizRegNumber, companyName, repName, address sql.NullString
 	var businessAgeYears sql.NullFloat64
 	var revenueAmount, employeeCount, maxPerformanceAmount sql.NullInt64
 	var employeeCountVerifiedAt sql.NullTime
@@ -378,7 +383,8 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 	var notificationDaysBefore pq.Int64Array
 
 	err := s.db.QueryRowContext(r.Context(), `
-		SELECT cp.id, cm.role, cp.business_type, cp.region, cp.industry, cp.business_age_years, cp.revenue_amount,
+		SELECT cp.id, cm.role, cp.business_registration_number, cp.company_name, cp.representative_name, cp.address,
+		       cp.business_type, cp.region, cp.industry, cp.business_age_years, cp.revenue_amount,
 		       cp.employee_count, cp.company_size, cp.licenses, cp.certifications,
 		       cp.direct_production_cert, cp.max_performance_amount, cp.credit_rating,
 		       cp.employee_count_confidence, cp.employee_count_verified_at,
@@ -387,7 +393,8 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 		FROM company_members cm
 		JOIN company_profiles cp ON cp.id = cm.company_profile_id
 		WHERE cm.user_id = $1`, userID,
-	).Scan(&p.ID, &p.Role, &businessType, &region, &industry, &businessAgeYears, &revenueAmount,
+	).Scan(&p.ID, &p.Role, &bizRegNumber, &companyName, &repName, &address,
+		&businessType, &region, &industry, &businessAgeYears, &revenueAmount,
 		&employeeCount, &companySize, &licenses, &certs,
 		&p.DirectProductionCert, &maxPerformanceAmount, &creditRating,
 		&employeeCountConfidence, &employeeCountVerifiedAt,
@@ -400,6 +407,10 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 		return nil, err
 	}
 
+	p.BusinessRegistrationNumber = nullStringPtr(bizRegNumber)
+	p.CompanyName = nullStringPtr(companyName)
+	p.RepresentativeName = nullStringPtr(repName)
+	p.Address = nullStringPtr(address)
 	p.BusinessType = []string(businessType)
 	p.Region = nullStringPtr(region)
 	p.Industry = []string(industry)
@@ -492,18 +503,25 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 type companyProfileRequest struct {
-	BusinessType         []string `json:"businessType"`
-	Region               *string  `json:"region"`
-	Industry             []string `json:"industry"`
-	BusinessAgeYears     *float64 `json:"businessAgeYears"`
-	RevenueAmount        *int64   `json:"revenueAmount"`
-	EmployeeCount        *int64   `json:"employeeCount"`
-	CompanySize          *string  `json:"companySize"`
-	Licenses             []string `json:"licenses"`
-	Certifications       []string `json:"certifications"`
-	DirectProductionCert bool     `json:"directProductionCert"`
-	MaxPerformanceAmount *int64   `json:"maxPerformanceAmount"`
-	CreditRating         *string  `json:"creditRating"`
+	// 사업자등록증 OCR 자동생성(Phase UX-01, 2026-08-04) 전용 4개 필드 —
+	// business_registration.go가 추출한 값을 사용자가 확인한 뒤 이 필드로
+	// 그대로 전송한다. 수동 "기업 프로필 수정" 화면에서도 편집 가능.
+	BusinessRegistrationNumber *string  `json:"businessRegistrationNumber"`
+	CompanyName                *string  `json:"companyName"`
+	RepresentativeName         *string  `json:"representativeName"`
+	Address                    *string  `json:"address"`
+	BusinessType               []string `json:"businessType"`
+	Region                     *string  `json:"region"`
+	Industry                   []string `json:"industry"`
+	BusinessAgeYears           *float64 `json:"businessAgeYears"`
+	RevenueAmount              *int64   `json:"revenueAmount"`
+	EmployeeCount              *int64   `json:"employeeCount"`
+	CompanySize                *string  `json:"companySize"`
+	Licenses                   []string `json:"licenses"`
+	Certifications             []string `json:"certifications"`
+	DirectProductionCert       bool     `json:"directProductionCert"`
+	MaxPerformanceAmount       *int64   `json:"maxPerformanceAmount"`
+	CreditRating               *string  `json:"creditRating"`
 	// PhoneNumber — 사업자 대표전화번호(회사 단위, 개인 휴대폰번호인
 	// users.phone_number와 별개). 회원가입 2단계(업체정보)에서 필수로
 	// 받기 시작했고, 이후 "회사정보 수정" 화면에서도 같은 필드를 공유한다.
@@ -591,12 +609,14 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 			INSERT INTO company_profiles (
 				user_id, business_type, region, industry, business_age_years,
 				revenue_amount, employee_count, company_size, licenses, certifications,
-				direct_production_cert, max_performance_amount, credit_rating, phone_number
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+				direct_production_cert, max_performance_amount, credit_rating, phone_number,
+				business_registration_number, company_name, representative_name, address
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 			RETURNING id`,
 			userID, businessType, req.Region, industry, req.BusinessAgeYears,
 			req.RevenueAmount, req.EmployeeCount, req.CompanySize, licenses, certifications,
 			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating, req.PhoneNumber,
+			req.BusinessRegistrationNumber, req.CompanyName, req.RepresentativeName, req.Address,
 		).Scan(&newID); err != nil {
 			s.logger.Error("company-profile: insert failed", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
@@ -625,11 +645,13 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 				business_type = $2, region = $3, industry = $4, business_age_years = $5,
 				revenue_amount = $6, employee_count = $7, company_size = $8, licenses = $9,
 				certifications = $10, direct_production_cert = $11,
-				max_performance_amount = $12, credit_rating = $13, phone_number = $14
+				max_performance_amount = $12, credit_rating = $13, phone_number = $14,
+				business_registration_number = $15, company_name = $16, representative_name = $17, address = $18
 			WHERE id = $1`,
 			existing.ID, businessType, req.Region, industry, req.BusinessAgeYears,
 			req.RevenueAmount, req.EmployeeCount, req.CompanySize, licenses, certifications,
-			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating, req.PhoneNumber)
+			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating, req.PhoneNumber,
+			req.BusinessRegistrationNumber, req.CompanyName, req.RepresentativeName, req.Address)
 		if err != nil {
 			s.logger.Error("company-profile: update failed", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})

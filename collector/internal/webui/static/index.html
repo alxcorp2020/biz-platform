@@ -3497,17 +3497,194 @@ async function renderLandingCompanyInfo() {
   }
 }
 
+// renderOnboardingHero — 회사 프로필이 없는 로그인 사용자의 첫 홈 화면
+// (Phase UX-01, 2026-08-04). "가입 완료 직후 안내"와 "미등록 상태 첫
+// 대시보드"는 사실상 같은 순간(hasProfile:false인 홈)이라 하나로
+// 통합했다 — AI가 사업자등록증만으로 회사를 자동 생성한다는 원칙을
+// 강조하고, 0% 진행률 바(.doc-progress-bar, 서류 체크리스트 진행률과
+// 같은 컴포넌트 재사용)로 등록 후 완성도가 올라간다는 걸 미리 보여준다.
+// "나중에 하기"는 하드 게이트가 아니라 소프트 유도라 그냥 공고 목록으로
+// 보낸다 — 프로필 없이도 둘러볼 수 있다(company_documents.go 등 실제
+// 업로드/파이프라인 기능만 프로필을 요구).
 function renderOnboardingHero(container) {
   document.body.classList.remove('is-landing');
   container.innerHTML = '';
   renderHomeOverlay();
   container.appendChild(h(`
     <div class="home-hero">
-      <p class="home-hero-eyebrow">거의 다 왔습니다</p>
-      <h2 class="home-hero-title">회사 정보를 등록하면<br>AI가 바로 분석을 시작합니다.</h2>
-      <p class="home-hero-desc">업종·지역·기업 규모만 입력하면 지금 활성화된 공고를 스캔해서 참여 가능성을 알려드립니다.</p>
+      <p class="home-hero-eyebrow">🎉 가입을 환영합니다</p>
+      <h2 class="home-hero-title">공공사업 AI 분석을 시작하려면<br>사업자등록증을 등록해주세요.</h2>
+      <p class="home-hero-desc">등록은 약 30초면 충분합니다. AI가 사업자등록증만으로 회사 프로필을 자동으로 만들어드려요 — 업종·지역을 직접 입력할 필요 없습니다.</p>
+      <div class="doc-progress" style="max-width:320px;margin:0 auto 1.25rem">
+        <div class="doc-progress-bar"><div class="doc-progress-fill" style="width:0%"></div></div>
+        <div class="doc-progress-label">회사 프로필 0%</div>
+      </div>
       <div class="home-hero-actions">
-        <a href="#/me/profile" class="home-cta-primary">회사 정보 등록하기</a>
+        <a href="#/onboarding/business-registration" class="home-cta-primary">사업자등록증 등록하기</a>
+        <a href="#/notices" class="home-cta-secondary">나중에 하기</a>
+      </div>
+    </div>
+  `));
+}
+
+// renderBusinessRegistrationOnboarding — #/onboarding/business-registration
+// (Phase UX-01, 2026-08-04). 파일 업로드 → POST /api/me/business-registration/
+// extract(company_documents.go의 6개 카테고리와 같은 candidate 패턴 — DB엔
+// 아무것도 저장 안 함) → 확인 폼(전부 수정 가능) → "예, 맞습니다" →
+// PUT /api/me/company-profile(handleUpsertCompanyProfile 그대로 재사용,
+// region/industry는 AI가 채운 값을 프리필)로 저장 → #/onboarding/complete.
+function renderBusinessRegistrationOnboarding(container) {
+  document.body.classList.remove('is-landing');
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="detail-card" style="max-width:560px;margin:1.5rem auto">
+      <h2>사업자등록증 등록</h2>
+      <p class="license-card-meta">PDF, JPG, PNG, WEBP 파일을 올려주세요. AI가 사업자등록번호·상호·대표자·주소·업태·종목을 자동으로 읽어드립니다(약 30초 소요).</p>
+      <div id="biz-reg-upload-area">
+        <input type="file" id="biz-reg-file-input" accept=".pdf,.jpg,.jpeg,.png,.webp">
+        <div id="biz-reg-upload-status"></div>
+        <div id="biz-reg-upload-error" class="error" style="display:none"></div>
+      </div>
+      <div id="biz-reg-form-slot"></div>
+      <p class="auth-switch"><a href="#/notices">나중에 하기</a></p>
+    </div>
+  `));
+
+  const fileInput = document.getElementById('biz-reg-file-input');
+  const statusBox = document.getElementById('biz-reg-upload-status');
+  const errorBox = document.getElementById('biz-reg-upload-error');
+  const formSlot = document.getElementById('biz-reg-form-slot');
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    errorBox.style.display = 'none';
+    formSlot.innerHTML = '';
+    fileInput.disabled = true;
+    statusBox.innerHTML = '<div class="loading">AI가 사업자등록증을 분석하고 있습니다...</div>';
+    try {
+      const data = await uploadCompanyRecordDocument('/api/me/business-registration/extract', file);
+      statusBox.innerHTML = '';
+      renderBusinessRegistrationConfirmForm(formSlot, data.candidate);
+    } catch (err) {
+      statusBox.innerHTML = '';
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    } finally {
+      fileInput.disabled = false;
+    }
+  });
+}
+
+// renderBusinessRegistrationConfirmForm — AI 추출 결과 확인/수정 폼.
+// "예, 맞습니다"를 누른 값만 handleUpsertCompanyProfile(PUT /api/me/
+// company-profile)로 저장한다 — company_documents.go의 6개 카테고리와
+// 동일하게 후보는 여기(브라우저 JS 상태)에만 있고 서버엔 없다.
+function renderBusinessRegistrationConfirmForm(formSlot, candidate) {
+  const c = candidate || {};
+  formSlot.innerHTML = '';
+  formSlot.appendChild(h(`
+    <div class="license-confirm-form">
+      <h4>AI가 읽은 내용을 확인해주세요</h4>
+      <p class="license-card-meta">실제 사업자등록증과 다르면 직접 수정할 수 있습니다.</p>
+      <form id="biz-reg-confirm-form" class="profile-form">
+        <label>사업자등록번호<input type="text" name="businessRegistrationNumber" value="${escapeAttr(c.businessRegistrationNumber || '')}"></label>
+        <label>상호<input type="text" name="companyName" value="${escapeAttr(c.companyName || '')}" required></label>
+        <label>대표자<input type="text" name="representativeName" value="${escapeAttr(c.representativeName || '')}"></label>
+        <label>주소<input type="text" name="address" value="${escapeAttr(c.address || '')}"></label>
+        <label>업태(쉼표로 구분)<input type="text" name="businessType" value="${escapeAttr((c.businessType || []).join(', '))}"></label>
+        <label>지역
+          <select name="region" class="select-input">
+            ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === c.region ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
+          </select>
+        </label>
+        <label>업종(복수 선택 가능)
+          <div class="checkbox-grid">
+            ${INDUSTRY_GROUPS.map(g => `
+              <label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}" ${(c.industry || []).includes(g) ? 'checked' : ''}> ${escapeHtml(g)}</label>
+            `).join('')}
+          </div>
+        </label>
+        <div id="biz-reg-confirm-error" class="error" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="submit" class="btn btn-primary">예, 맞습니다</button>
+        </div>
+      </form>
+    </div>
+  `));
+
+  const form = document.getElementById('biz-reg-confirm-form');
+  const errorBox = document.getElementById('biz-reg-confirm-error');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    const businessType = (fd.get('businessType') || '').split(',').map(s => s.trim()).filter(Boolean);
+    const industry = fd.getAll('industry');
+    const payload = {
+      businessRegistrationNumber: fd.get('businessRegistrationNumber') || null,
+      companyName: fd.get('companyName') || null,
+      representativeName: fd.get('representativeName') || null,
+      address: fd.get('address') || null,
+      businessType,
+      region: fd.get('region') || null,
+      industry,
+    };
+    try {
+      const data = await apiRequest('PUT', '/api/me/company-profile', payload);
+      currentProfile = data.companyProfile;
+      location.hash = '#/onboarding/complete';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+// renderOnboardingComplete — #/onboarding/complete (Phase UX-01, 2026-08-04).
+// 사업자등록증 확인 직후 도착하는 축하 화면 — GET /api/dashboard의
+// eligibilitySummary(4버킷, dashboard.go computeEligibilityBucketSummary)를
+// 그대로 읽어 보여준다. missingFields는 판정엔진이 실제로 계산한 값이라
+// (지역/업종/기업규모만) "OO 입력하면 판정 가능"이 정확하다 — 실적/인증/
+// 재무는 판정기준 자체가 없어 이 화면에 정확한 건수로 넣지 않는다(사용자
+// 확인 완료 사항, [[project-phone-toggle-email-verification]]과 같은 세션의
+// 원칙 재사용: 확인 안 된 걸 확인된 것처럼 보여주지 않는다).
+async function renderOnboardingComplete(container) {
+  document.body.classList.remove('is-landing');
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/dashboard');
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+
+  const eg = data.eligibilitySummary || { ready: 0, needsReview: 0, notRecommended: 0, insufficientData: 0, missingFields: [] };
+  const total = eg.ready + eg.needsReview + eg.notRecommended + eg.insufficientData;
+  const missingLabels = (eg.missingFields || []).map(f => ELIGIBILITY_MISSING_FIELD_LABELS[f] || f);
+  const insufficientNote = eg.insufficientData > 0 && missingLabels.length
+    ? `현재는 ${missingLabels.join('·')} 정보가 없어 ${eg.insufficientData}건을 정확하게 판정하지 못했습니다.`
+    : '';
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="detail-card" style="max-width:560px;margin:1.5rem auto;text-align:center">
+      <h2>🎉 사업자등록증 분석이 완료되었습니다</h2>
+      <p class="license-card-meta">귀사는 현재 활성화된 공고 ${total}건 중</p>
+      <div class="profile-summary-list" style="text-align:left;margin:1rem 0">
+        <div class="profile-summary-row"><span>✅ 즉시 참여 가능</span><strong>${eg.ready}건</strong></div>
+        <div class="profile-summary-row"><span>🟡 조건 보완 후 참여 가능</span><strong>${eg.needsReview}건</strong></div>
+        <div class="profile-summary-row"><span>🔴 현재 참여 어려움</span><strong>${eg.notRecommended}건</strong></div>
+      </div>
+      ${insufficientNote ? `<p class="license-card-meta">${escapeHtml(insufficientNote)} <a href="#/me/profile">${escapeHtml(missingLabels[0])} 입력하기 &rarr;</a></p>` : ''}
+      <div class="home-hero-actions" style="margin-top:1.25rem">
+        <a href="#/notices" class="home-cta-primary">추천 공고 보기</a>
+        <a href="#/me/profile" class="home-cta-secondary">실적 등록하기</a>
       </div>
     </div>
   `));
@@ -3621,6 +3798,7 @@ function renderDashboard(container, data) {
 
   const automationHtml = renderAutomationSummaryHtml(data.automationSummary);
   const growthHtml = renderGrowthSummaryHtml(data.growthSummary);
+  const eligibilityHtml = renderEligibilitySummaryHtml(data.eligibilitySummary);
 
   container.appendChild(h(`
     <div class="dash-greeting">
@@ -3635,6 +3813,7 @@ function renderDashboard(container, data) {
     <h3 class="dash-section-title">오늘 해야 할 일 (${items.length}건)</h3>
     ${itemsHtml}
     ${growthHtml}
+    ${eligibilityHtml}
     ${automationHtml}
   `));
 
@@ -3677,6 +3856,38 @@ function renderGrowthSummaryHtml(g) {
         <div class="stat-highlight-label">프로필 완성도 — 높을수록 더 정확하게 판정할 수 있어요</div>
       </div>
       <a href="#/me/profile" class="official-link">프로필 보완하기 &rarr;</a>
+    </div>
+  `;
+}
+
+// ELIGIBILITY_MISSING_FIELD_LABELS — dashboard.go의 eligibilitySummary.
+// missingFields(지역/업종/기업규모 중 회사 프로필에 실제로 비어있는 값)를
+// 화면 문구용 한글 라벨로 바꾼다. renderEligibilitySummaryHtml/
+// renderOnboardingComplete 둘 다 공유.
+const ELIGIBILITY_MISSING_FIELD_LABELS = { region: '사업장 지역', industry: '업종', companySize: '기업 규모' };
+
+// renderEligibilitySummaryHtml — Phase UX-01(2026-08-04) 4버킷 판정 집계
+// 카드(dashboard.go의 computeEligibilityBucketSummary — scoreNoticeForCompany를
+// 그대로 재사용, 판정 로직 자체는 안 건드림). "판정 불가" 건은 missingFields
+// 근거로 "입력하기" CTA까지 함께 보여준다 — 지역/업종/기업규모만 실제
+// 판정기준이 있어 정확한 건수를 낼 수 있고(사용자 확인 완료), 실적/인증/
+// 재무는 이 카드에 안 넣는다(정확한 건수를 낼 판정기준이 없음).
+function renderEligibilitySummaryHtml(eg) {
+  if (!eg) return '';
+  const total = eg.ready + eg.needsReview + eg.notRecommended + eg.insufficientData;
+  const missingLabels = (eg.missingFields || []).map(f => ELIGIBILITY_MISSING_FIELD_LABELS[f] || f);
+  return `
+    <div class="detail-card">
+      <h3>추천공고 판정 현황</h3>
+      <p class="license-card-meta">현재 활성화된 공고 ${total}건 기준</p>
+      <div class="profile-summary-list">
+        <div class="profile-summary-row"><span>✅ 즉시 참여 가능</span><strong>${eg.ready}건</strong></div>
+        <div class="profile-summary-row"><span>🟡 조건 보완 후 참여 가능</span><strong>${eg.needsReview}건</strong></div>
+        <div class="profile-summary-row"><span>🔴 현재 참여 어려움</span><strong>${eg.notRecommended}건</strong></div>
+      </div>
+      ${eg.insufficientData > 0 && missingLabels.length ? `
+        <p class="license-card-meta">${escapeHtml(missingLabels.join('·'))} 정보가 없어 ${eg.insufficientData}건을 정확하게 판정하지 못했습니다. <a href="#/me/profile">입력하기 &rarr;</a></p>
+      ` : ''}
     </div>
   `;
 }
@@ -7717,7 +7928,7 @@ async function renderLicenses(container) {
     <div class="detail-card">
       <h2>면허·인증</h2>
       <p class="license-card-meta">사업 참여에 필요한 면허·신고·등록, 인증 현황을 관리합니다.</p>
-      ${uploadGuideHtml('사업자등록증, 중소기업확인서, 직접생산확인증명서, 각종 면허증·인증서, 법인등기사항증명서, 경쟁입찰참가자격등록증, 기업부설연구소 인정서 등을 올려주세요.')}
+      ${uploadGuideHtml('중소기업확인서, 직접생산확인증명서, 각종 면허증·인증서, 법인등기사항증명서, 경쟁입찰참가자격등록증, 기업부설연구소 인정서 등을 올려주세요. (사업자등록증은 최초 회사 등록 시 자동으로 반영됩니다)')}
       <div class="license-toolbar">
         <button type="button" id="license-upload-btn" class="btn btn-primary">증빙서류 업로드</button>
         <button type="button" id="license-manual-btn" class="btn btn-secondary">직접 입력</button>
@@ -10528,6 +10739,8 @@ function route() {
   if (path === '#/auth/verify-email-pending') { renderEmailVerifyPending(app); return; }
   if (path === '#/auth/verify-email') { renderVerifyEmail(app); return; }
   if (path === '#/auth/oauth-profile') { document.body.classList.add('is-auth'); renderOAuthProfileStep(app); return; }
+  if (path === '#/onboarding/business-registration') { renderBusinessRegistrationOnboarding(app); return; }
+  if (path === '#/onboarding/complete') { renderOnboardingComplete(app); return; }
   if (path === '#/me/profile') { renderProfile(app); return; }
   if (path === '#/me/bookmarks') { renderBookmarks(app); return; }
   if (path === '#/notifications') { renderNotifications(app); return; }

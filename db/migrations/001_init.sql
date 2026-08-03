@@ -319,7 +319,7 @@ CREATE INDEX idx_phone_verifications_phone ON phone_verifications(phone_number, 
 -- 같은 identifier라도(이론상 겹칠 일은 없지만) 서로 한도를 침범하지 않는다.
 CREATE TABLE auth_lookup_attempts (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    kind         TEXT NOT NULL CHECK (kind IN ('find_email','reset_password','email_verify_resend')),
+    kind         TEXT NOT NULL CHECK (kind IN ('find_email','reset_password','email_verify_resend','biz_reg_extract')),
     identifier   TEXT NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -363,6 +363,14 @@ CREATE INDEX idx_email_verification_tokens_hash ON email_verification_tokens(tok
 CREATE TABLE company_profiles (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id             UUID NOT NULL REFERENCES users(id),
+    -- 사업자등록증 OCR 자동생성(Phase UX-01, 2026-08-04) 전용 4개 필드 —
+    -- business_registration.go의 handleExtractBusinessRegistration이 AI로
+    -- 추출한 값을 사용자가 확인한 뒤 handleUpsertCompanyProfile(auth.go)로
+    -- 그대로 저장한다. 수동 입력(기존 "기업 프로필 수정" 모달)에서도 편집 가능.
+    business_registration_number TEXT,
+    company_name                 TEXT, -- 상호
+    representative_name          TEXT, -- 대표자
+    address                      TEXT,
     business_type       TEXT[],  -- 자유 태그 다중선택 (사업자등록증 업태 여러 줄 등록 반영)
     region               TEXT,
     industry             TEXT[], -- 대분류 다중선택, OR 매칭 (겸업 반영 — 5.7 참고)
