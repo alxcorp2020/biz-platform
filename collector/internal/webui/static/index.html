@@ -5606,6 +5606,7 @@ function renderSignup(container) {
       <form id="signup-form" class="auth-form">
         <label>이메일<input type="email" name="email" required></label>
         <label>비밀번호 (최소 8자)<input type="password" name="password" minlength="8" required></label>
+        <label>비밀번호 확인<input type="password" name="passwordConfirm" minlength="8" required></label>
         <div id="signup-error" class="error" style="display:none"></div>
         <button type="submit" class="btn btn-primary btn-block">다음</button>
       </form>
@@ -5619,6 +5620,11 @@ function renderSignup(container) {
     e.preventDefault();
     errorBox.style.display = 'none';
     const fd = new FormData(form);
+    if (fd.get('password') !== fd.get('passwordConfirm')) {
+      errorBox.textContent = '비밀번호가 일치하지 않습니다.';
+      errorBox.style.display = 'block';
+      return;
+    }
     try {
       const data = await apiRequest('POST', '/api/auth/signup', {
         email: fd.get('email'), password: fd.get('password'),
