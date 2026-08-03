@@ -6189,7 +6189,7 @@ async function renderOAuthOnboardingStep(container) {
   container.appendChild(h(`
     <div class="auth-card">
       <h2>${phoneVerificationRequired ? '휴대폰번호 인증' : '약관 동의'}</h2>
-      <p class="auth-step-hint">${phoneVerificationRequired ? '서비스 이용을 위해 휴대폰번호 인증이 필요합니다.' : '서비스 이용을 위해 약관 동의가 필요합니다.'}</p>
+      <p class="auth-step-hint">${phoneVerificationRequired ? '서비스 이용을 위해 휴대폰번호 인증이 필요합니다.' : '서비스 이용을 위해 약관 동의가 필요합니다.'} 확인을 마치면 이어서 사업자등록증을 등록하게 됩니다.</p>
       <form id="oauth-onboarding-form" class="auth-form">
         ${phoneVerificationRequired ? otpPhoneFieldHtml('') : plainPhoneFieldHtml('')}
         <div class="field-group">
