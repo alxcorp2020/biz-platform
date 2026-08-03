@@ -103,17 +103,29 @@ func main() {
 		logger.Warn("APP_BASE_URL is not set; 팀 초대 이메일 링크가 localhost를 가리키고, 소셜 로그인(구글/네이버/카카오) redirect_uri도 http://localhost.../api/auth/{provider}/callback로 만들어집니다 — 이 값이 각 제공자 콘솔에 등록된 리다이렉트 URI와 다르면 로그인 화면에서 '리다이렉트 URI 불일치' 에러가 납니다. 운영 배포 시 반드시 실제 공개 URL로 설정할 것")
 	}
 
-	googleOAuth := oauth.NewGoogleClient(os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"), strings.TrimRight(appBaseURL, "/")+"/api/auth/google/callback")
+	googleRedirectURI := strings.TrimRight(appBaseURL, "/") + "/api/auth/google/callback"
+	googleOAuth := oauth.NewGoogleClient(os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"), googleRedirectURI)
 	if !googleOAuth.Configured() {
 		logger.Warn("GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET is not set; '구글로 로그인' 버튼은 요청 시 404를 반환합니다")
+	} else {
+		// "리다이렉트 URI 불일치" 에러 진단용 — Google Cloud Console의
+		// 승인된 리디렉션 URI와 이 값이 한 글자라도 다르면 로그인이
+		// 실패한다(대소문자/트레일링 슬래시/http vs https 전부 포함).
+		logger.Info("google oauth configured", "redirectURI", googleRedirectURI)
 	}
-	naverOAuth := oauth.NewNaverClient(os.Getenv("NAVER_CLIENT_ID"), os.Getenv("NAVER_CLIENT_SECRET"), strings.TrimRight(appBaseURL, "/")+"/api/auth/naver/callback")
+	naverRedirectURI := strings.TrimRight(appBaseURL, "/") + "/api/auth/naver/callback"
+	naverOAuth := oauth.NewNaverClient(os.Getenv("NAVER_CLIENT_ID"), os.Getenv("NAVER_CLIENT_SECRET"), naverRedirectURI)
 	if !naverOAuth.Configured() {
 		logger.Warn("NAVER_CLIENT_ID/NAVER_CLIENT_SECRET is not set; '네이버로 로그인' 버튼은 요청 시 404를 반환합니다")
+	} else {
+		logger.Info("naver oauth configured", "redirectURI", naverRedirectURI)
 	}
-	kakaoOAuth := oauth.NewKakaoClient(os.Getenv("KAKAO_REST_API_KEY"), os.Getenv("KAKAO_CLIENT_SECRET"), strings.TrimRight(appBaseURL, "/")+"/api/auth/kakao/callback")
+	kakaoRedirectURI := strings.TrimRight(appBaseURL, "/") + "/api/auth/kakao/callback"
+	kakaoOAuth := oauth.NewKakaoClient(os.Getenv("KAKAO_REST_API_KEY"), os.Getenv("KAKAO_CLIENT_SECRET"), kakaoRedirectURI)
 	if !kakaoOAuth.Configured() {
 		logger.Warn("KAKAO_REST_API_KEY is not set; '카카오로 로그인' 버튼은 요청 시 404를 반환합니다")
+	} else {
+		logger.Info("kakao oauth configured", "redirectURI", kakaoRedirectURI)
 	}
 
 	scsbidSrc := newScsbidSource(logger)
