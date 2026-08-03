@@ -202,6 +202,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureLegalDocumentsSeed(ctx, db); err != nil {
 		return fmt.Errorf("migrate legal_documents seed: %w", err)
 	}
+	if err := ensurePhoneVerificationTables(ctx, db); err != nil {
+		return fmt.Errorf("migrate phone verification tables: %w", err)
+	}
 	return nil
 }
 
@@ -1467,6 +1470,30 @@ func ensureCompanyInfoTable(ctx context.Context, db *sql.DB) error {
 func ensureCompanyInfoBrandNameColumn(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE company_info ADD COLUMN IF NOT EXISTS brand_name TEXT NOT NULL DEFAULT '공공사업 AI 비서';
+	`)
+	return err
+}
+
+// ensurePhoneVerificationTables — 회원가입 온보딩 재설계(2026-08-03,
+// Phase 1)의 SMS 인증번호 기반. users.phone_verified_at이 이제 "온보딩
+// 완료" 여부의 기준이다(과거엔 company_profiles 존재 여부였음 — 회사
+// 프로필 입력을 가입에서 완전히 분리하면서 기준을 바꿈, phone_verification.go
+// 참고). phone_verifications는 계정이 아직 없는 상태(이메일 가입 1단계
+// 이전)에서도 조회 가능해야 해서 phone_number로 직접 조회하는 독립
+// 테이블로 둔다.
+func ensurePhoneVerificationTables(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified_at TIMESTAMPTZ;
+		CREATE TABLE IF NOT EXISTS phone_verifications (
+			id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			phone_number   TEXT NOT NULL,
+			code_hash      TEXT NOT NULL,
+			attempt_count  INTEGER NOT NULL DEFAULT 0,
+			verified_at    TIMESTAMPTZ,
+			expires_at     TIMESTAMPTZ NOT NULL,
+			created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_phone_verifications_phone ON phone_verifications(phone_number, created_at DESC);
 	`)
 	return err
 }

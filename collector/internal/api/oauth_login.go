@@ -159,20 +159,21 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	s.setSessionCookie(w, userID)
 
-	// 아직 회사(company_members) 소속이 없으면(브랜드 신규가입이거나,
-	// 예전에 이메일/비번으로 가입만 하고 회사 정보 등록을 안 끝낸 계정
-	// 둘 다 포함) 온보딩 2단계(지역/업종/기업규모)로 보낸다 — 일반
-	// 이메일 가입 흐름(renderSignup → renderSignupProfileStep)과 동일한
-	// 화면을 재사용한다(renderOAuthProfileStep, index.html 참고).
-	var hasProfile bool
+	// 2026-08-03 온보딩 재설계 이후로는 "온보딩 완료" 기준이 회사 프로필
+	// 존재 여부가 아니라 휴대폰번호 SMS 인증 완료 여부다(회사 정보 입력은
+	// 가입과 완전히 분리됨 — 사업자등록증 온보딩이나 나중에 수동 입력으로
+	// 처리). 아직 인증이 안 된 계정(신규 소셜 가입이거나, 예전에 이메일
+	// 가입만 하고 이 단계를 안 끝낸 계정 둘 다 포함)은 휴대폰 인증+약관동의
+	// 화면(renderOAuthProfileStep, index.html)으로 보낸다.
+	var phoneVerified bool
 	if err := s.db.QueryRowContext(r.Context(),
-		`SELECT EXISTS (SELECT 1 FROM company_members WHERE user_id = $1)`, userID,
-	).Scan(&hasProfile); err != nil {
-		s.logger.Error("oauth-callback: company_members check failed", "error", err)
+		`SELECT phone_verified_at IS NOT NULL FROM users WHERE id = $1`, userID,
+	).Scan(&phoneVerified); err != nil {
+		s.logger.Error("oauth-callback: phone verification check failed", "error", err)
 	}
 
 	target := "/#/"
-	if !hasProfile {
+	if !phoneVerified {
 		target = "/#/auth/oauth-profile"
 	}
 	http.Redirect(w, r, strings.TrimRight(s.appBaseURL, "/")+target, http.StatusFound)

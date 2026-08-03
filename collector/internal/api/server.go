@@ -84,6 +84,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/notices/{id}", s.handleGetNotice)
 	mux.HandleFunc("POST /api/auth/signup", s.handleSignup)
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
+	mux.HandleFunc("POST /api/auth/phone/send-code", s.handleSendPhoneVerificationCode)
+	mux.HandleFunc("POST /api/auth/phone/verify-code", s.handleVerifyPhoneCode)
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/auth/{provider}/start", s.handleOAuthStart)
 	mux.HandleFunc("GET /api/auth/{provider}/callback", s.handleOAuthCallback)

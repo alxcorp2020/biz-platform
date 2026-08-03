@@ -1483,6 +1483,9 @@
   }
   .field-group { display: flex; flex-direction: column; gap: 0.5rem; }
   .field-group-label { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); }
+  .otp-phone-row, .otp-code-row { display: flex; gap: 0.5rem; }
+  .otp-phone-row input, .otp-code-row input { flex: 1; min-width: 0; }
+  .otp-phone-row button, .otp-code-row button { flex-shrink: 0; white-space: nowrap; }
   .checkbox-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -2640,6 +2643,13 @@ const ERROR_MESSAGES = {
   invalid_phone_number: '연락처 형식이 올바르지 않습니다. (예: 010-1234-5678, 011-123-4567)',
   agreement_required: '이용약관과 개인정보 수집·이용에 모두 동의해야 가입할 수 있습니다.',
   phone_number_required: '휴대폰번호를 먼저 등록해주세요.',
+  phone_not_verified: '휴대폰번호 인증을 먼저 완료해주세요.',
+  phone_code_rate_limited: '잠시 후 다시 시도해주세요. (인증번호는 1분에 한 번, 하루 5번까지 받을 수 있습니다)',
+  sms_send_failed: '인증번호 발송에 실패했습니다. 잠시 후 다시 시도해주세요.',
+  code_not_found: '먼저 인증번호를 받아주세요.',
+  code_expired: '인증번호가 만료되었습니다. 다시 받아주세요.',
+  too_many_attempts: '인증번호를 너무 많이 틀렸습니다. 다시 받아주세요.',
+  invalid_code: '인증번호가 올바르지 않습니다.',
   invalid_legal_document_type: '문서 종류 값이 올바르지 않습니다.',
   legal_document_not_found: '아직 게시된 문서가 없습니다.',
   version_and_content_required: '버전과 본문 내용을 모두 입력해주세요.',
@@ -5668,15 +5678,6 @@ async function acceptPendingInviteIfAny() {
   }
 }
 
-// signupStep1Data / signupStep2Data — 이메일 가입 마법사에서 "이전으로"
-// 왕복해도 입력값이 안 날아가게 모듈 레벨에 잠깐 들고 있는다. 계정 생성
-// (POST /api/auth/signup)은 이제 1단계가 아니라 2단계 "가입하기"를
-// 눌러야 비로소 일어난다 — 그 전엔 서버에 아무것도 안 남으므로, 뒤로가기
-// 후 다시 "다음 단계"를 눌러도 이메일 중복가입 같은 문제 없이 그냥 폼을
-// 다시 그리기만 하면 된다.
-let signupStep1Data = null;
-let signupStep2Data = null;
-
 // formatMobilePhoneInput — 휴대폰번호 입력에 자동으로 하이픈을 붙인다.
 // 010은 11자리(3-4-4: 010-1234-5678)이고 011/016/017/018/019는 10자리
 // (3-3-4: 011-123-4567)로 자릿수 자체가 다르다 — 첫 3자리(prefix)로
@@ -5707,29 +5708,144 @@ function attachPhoneAutoFormat(input) {
   });
 }
 
-// renderSignup — 1단계: 계정 정보(휴대폰번호/이메일/비밀번호). 이 화면은
-// 소셜 로그인 가입자는 거치지 않는다(구글/네이버/카카오가 이메일을 이미
-// 주므로) — 그래서 개인 휴대폰번호를 여기서만 물어보면 소셜 가입자는
-// 영원히 휴대폰번호를 등록할 기회가 없다. 대신 2단계(renderSignupProfileStep)
-// 가 signupStep1Data 유무로 "이미 1단계를 거쳤는지"를 판단해, 안 거친
-// 경우(소셜 가입)에만 그 화면에서 휴대폰번호 입력란을 보여준다.
-function renderSignup(container, isBack) {
-  if (!isBack) { signupStep1Data = null; signupStep2Data = null; }
+// otpPhoneFieldHtml — 회원가입 화면(이메일/소셜 공통)의 "휴대폰번호 +
+// 인증번호" 입력 블록. 서버가 실제 인증 완료 여부를 다시 확인하므로
+// (consumeVerifiedPhone) 여기서 관리하는 상태는 UI 편의일 뿐 보안
+// 경계가 아니다.
+function otpPhoneFieldHtml(prefillValue) {
+  return `
+    <div class="field-group">
+      <span class="field-group-label">휴대폰번호 (필수)</span>
+      <div class="otp-phone-row">
+        <input type="tel" name="phoneNumber" required pattern="(010-\\d{4}-\\d{4})|(01[16789]-\\d{3}-\\d{4})" placeholder="010-1234-5678" value="${escapeAttr(prefillValue || '')}">
+        <button type="button" class="btn btn-secondary btn-sm" id="otp-send-btn">인증번호 받기</button>
+      </div>
+      <div class="otp-code-row" id="otp-code-row" style="display:none">
+        <input type="text" id="otp-code-input" inputmode="numeric" maxlength="6" placeholder="인증번호 6자리">
+        <button type="button" class="btn btn-secondary btn-sm" id="otp-verify-btn">확인</button>
+      </div>
+      <p id="otp-status" class="license-card-meta"></p>
+    </div>
+  `;
+}
+
+// setupPhoneOtpVerification — otpPhoneFieldHtml이 그려낸 블록에 발송/
+// 검증 동작을 연결한다. onChange(verified)로 인증 상태 변화를 호출부에
+// 알려 제출 버튼 활성화 로직이 반응할 수 있게 한다. 전화번호를 고치면
+// 인증 상태를 초기화한다(서버도 정확히 그 번호로만 인증 여부를 확인하므로
+// 자연히 다시 인증해야 하지만, 프론트에서도 미리 알려주는 게 자연스럽다).
+function setupPhoneOtpVerification(form, onChange) {
+  const phoneInput = form.phoneNumber;
+  const sendBtn = form.querySelector('#otp-send-btn');
+  const codeRow = form.querySelector('#otp-code-row');
+  const codeInput = form.querySelector('#otp-code-input');
+  const verifyBtn = form.querySelector('#otp-verify-btn');
+  const statusEl = form.querySelector('#otp-status');
+  let verified = false;
+  let cooldownTimer = null;
+
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = cls || 'license-card-meta';
+  }
+  function setVerified(v) {
+    verified = v;
+    if (onChange) onChange(v);
+  }
+  function startCooldown() {
+    let remaining = 60;
+    sendBtn.disabled = true;
+    sendBtn.textContent = `재발송 (${remaining}초)`;
+    clearInterval(cooldownTimer);
+    cooldownTimer = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(cooldownTimer);
+        sendBtn.disabled = false;
+        sendBtn.textContent = '인증번호 재발송';
+      } else {
+        sendBtn.textContent = `재발송 (${remaining}초)`;
+      }
+    }, 1000);
+  }
+
+  sendBtn.addEventListener('click', async () => {
+    if (!phoneInput.checkValidity()) {
+      phoneInput.reportValidity();
+      return;
+    }
+    setVerified(false);
+    sendBtn.disabled = true;
+    setStatus('전송 중...');
+    try {
+      await apiRequest('POST', '/api/auth/phone/send-code', { phoneNumber: phoneInput.value });
+      codeRow.style.display = 'flex';
+      codeInput.value = '';
+      codeInput.focus();
+      setStatus('인증번호를 보냈습니다. 5분 이내에 입력해주세요.');
+      startCooldown();
+    } catch (err) {
+      sendBtn.disabled = false;
+      setStatus(err.message, 'error');
+    }
+  });
+
+  verifyBtn.addEventListener('click', async () => {
+    const code = codeInput.value.trim();
+    if (!code) return;
+    verifyBtn.disabled = true;
+    try {
+      await apiRequest('POST', '/api/auth/phone/verify-code', { phoneNumber: phoneInput.value, code });
+      setVerified(true);
+      setStatus('✓ 인증 완료', 'success');
+      clearInterval(cooldownTimer);
+      sendBtn.disabled = true;
+      sendBtn.textContent = '인증 완료';
+    } catch (err) {
+      verifyBtn.disabled = false;
+      setStatus(err.message, 'error');
+    }
+  });
+
+  phoneInput.addEventListener('input', () => {
+    if (verified) {
+      setVerified(false);
+      setStatus('');
+      codeRow.style.display = 'none';
+      sendBtn.disabled = false;
+      sendBtn.textContent = '인증번호 받기';
+    }
+  });
+
+  return { isVerified: () => verified };
+}
+
+// renderSignup — 회원가입 화면(이메일 가입 전용). 2026-08-03 온보딩
+// 재설계 이후로는 이 한 화면이 이메일 가입의 전부다(예전엔 계정정보→
+// 업체정보 2단계였으나, 업체정보 입력을 가입에서 완전히 분리하면서
+// 단일 화면으로 합쳤다) — 휴대폰번호 인증까지 마치고 "회원가입"을
+// 누르면 그 즉시 POST /api/auth/signup 한 번으로 계정 생성+휴대폰
+// 인증기록+약관동의가 전부 처리된다. 소셜 로그인 가입자는 이 화면을
+// 거치지 않는다(renderOAuthProfileStep 참고 — 소셜 로그인 콜백이
+// 계정을 이미 만들어버려서 별도의 로그인 후 온보딩 화면이 필요하다).
+function renderSignup(container) {
   document.body.classList.add('is-auth');
   container.innerHTML = '';
-  const d = signupStep1Data || {};
   container.appendChild(h(`
     <div class="auth-card">
       <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
       <h2>회원가입</h2>
-      <div class="wizard-step-indicator">${stepIndicatorHtml(0, 2, '계정 정보')}</div>
       <form id="signup-form" class="auth-form">
-        <label>휴대폰번호<input type="tel" name="phoneNumber" required pattern="(010-\\d{4}-\\d{4})|(01[16789]-\\d{3}-\\d{4})" placeholder="010-1234-5678" value="${escapeAttr(d.phoneNumber || '')}"></label>
-        <label>이메일<input type="email" name="email" required value="${escapeAttr(d.email || '')}"></label>
-        <label>비밀번호 (최소 8자)<input type="password" name="password" minlength="8" required value="${escapeAttr(d.password || '')}"></label>
-        <label>비밀번호 확인<input type="password" name="passwordConfirm" minlength="8" required value="${escapeAttr(d.password || '')}"></label>
+        <label>이메일<input type="email" name="email" required></label>
+        ${otpPhoneFieldHtml('')}
+        <label>비밀번호 (최소 8자)<input type="password" name="password" minlength="8" required></label>
+        <label>비밀번호 확인<input type="password" name="passwordConfirm" minlength="8" required></label>
+        <div class="field-group">
+          <label class="checkbox-label"><input type="checkbox" id="signup-terms-agree" required> 이용약관에 동의합니다 (필수) <a href="#/terms" target="_blank" rel="noopener">보기</a></label>
+          <label class="checkbox-label"><input type="checkbox" id="signup-privacy-agree" required> 개인정보 수집 및 이용에 동의합니다 (필수) <a href="#/privacy" target="_blank" rel="noopener">보기</a></label>
+        </div>
         <div id="signup-error" class="error" style="display:none"></div>
-        <button type="submit" class="btn btn-primary btn-block">다음 단계</button>
+        <button type="submit" class="btn btn-primary btn-block" id="signup-submit-btn" disabled>회원가입</button>
       </form>
       ${oauthButtonsHtml()}
       <p class="auth-switch">이미 계정이 있으신가요? <a href="#/auth/login">로그인</a></p>
@@ -5738,6 +5854,19 @@ function renderSignup(container, isBack) {
   const form = document.getElementById('signup-form');
   attachPhoneAutoFormat(form.phoneNumber);
   const errorBox = document.getElementById('signup-error');
+  const submitBtn = document.getElementById('signup-submit-btn');
+  const termsCheckbox = document.getElementById('signup-terms-agree');
+  const privacyCheckbox = document.getElementById('signup-privacy-agree');
+
+  let phoneVerified = false;
+  function updateSubmitEnabled() {
+    submitBtn.disabled = !(form.checkValidity() && phoneVerified);
+  }
+  setupPhoneOtpVerification(form, (verified) => { phoneVerified = verified; updateSubmitEnabled(); });
+  form.addEventListener('input', updateSubmitEnabled);
+  form.addEventListener('change', updateSubmitEnabled);
+  updateSubmitEnabled();
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errorBox.style.display = 'none';
@@ -5747,170 +5876,80 @@ function renderSignup(container, isBack) {
       errorBox.style.display = 'block';
       return;
     }
-    signupStep1Data = {
-      phoneNumber: fd.get('phoneNumber'),
-      email: fd.get('email'),
-      password: fd.get('password'),
-    };
-    if (pendingInviteToken) {
-      // 팀 초대로 들어온 가입은 이미 있는 조직에 합류하는 것이라 업체정보
-      // 입력이 필요 없다 — 계정만 즉시 만들고 초대를 수락한 뒤 바로 홈으로
-      // (예전부터 있던 동작, 2단계를 아예 거치지 않는다).
-      try {
-        const data = await apiRequest('POST', '/api/auth/signup', {
-          email: signupStep1Data.email, password: signupStep1Data.password,
-        });
-        currentUser = { id: data.id, email: data.email, role: 'user', plan: 'free' };
-        currentProfile = null;
-        renderHeader();
+    try {
+      const data = await apiRequest('POST', '/api/auth/signup', {
+        email: fd.get('email'),
+        password: fd.get('password'),
+        phoneNumber: fd.get('phoneNumber'),
+        termsAgreed: termsCheckbox.checked,
+        privacyAgreed: privacyCheckbox.checked,
+      });
+      currentUser = { id: data.id, email: data.email, role: 'user', plan: 'free', phoneVerified: true };
+      currentProfile = null;
+      renderHeader();
+      if (pendingInviteToken) {
         await acceptPendingInviteIfAny();
-        location.hash = '#/';
-      } catch (err) {
-        errorBox.textContent = err.message;
-        errorBox.style.display = 'block';
       }
-      return;
+      location.hash = '#/';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
     }
-    renderSignupProfileStep(container, { fromEmailStep1: true });
   });
 }
 
-// renderSignupProfileStep — 2단계: 업체정보(지역/업종/기업규모/사업자
-// 대표전화) + 필수 약관동의. 이메일 가입자와 소셜 로그인 가입자
-// (renderOAuthProfileStep이 이 함수를 그대로 재사용) 둘 다 반드시 거치는
-// 유일한 화면이다. 계정 생성 자체도 이 화면의 "가입하기"에서 처음
-// 일어난다(fromEmailStep1인 경우) — 1단계는 이제 client-side 검증만
-// 하고 서버에 아무것도 안 남기므로, "이전으로" 왕복이 자유롭다.
-//
-// 개인 휴대폰번호 입력란은 fromEmailStep1일 때만 숨긴다 — 이메일 가입
-// 자는 1단계에서 이미 받았으므로 여기서 또 물어보지 않고 그 값을 그대로
-// 제출에 실어 보낸다. 소셜 로그인 가입자는 1단계가 아예 없으므로(구글/
-// 네이버/카카오 콜백이 계정을 이미 만들고 바로 이 화면으로 보냄) 여기서
-// 반드시 물어봐야 한다 — 안 그러면 소셜 가입 계정은 휴대폰번호를 영원히
-// 등록할 기회가 없다.
-//
-// 지역/업종/기업규모 3개만으로 이미 있는 규칙엔진(eligibility.go)이
-// 지역+업종 판정을 낼 수 있으므로, 완료 즉시 가치(추천 공고 리스트)를
-// 보여줄 수 있다는 게 핵심.
-function renderSignupProfileStep(container, opts) {
-  opts = opts || {};
-  const fromEmailStep1 = !!opts.fromEmailStep1;
-  // 1단계와 마찬가지로 사이드바/헤더/탭바를 숨기고 카드만 화면 중앙에
-  // 띄운다(is-auth). 이메일 가입 경로(hash가 '#/auth/signup' 그대로
-  // 유지된 채 container만 갈아끼움)는 1단계에서 이미 붙여둔 is-auth가
-  // 그대로 남아있어 별도 처리가 필요 없고, 소셜 로그인 경로
-  // (#/auth/oauth-profile)는 route()가 dispatch 직전에 동기적으로
-  // 붙여준다(app.js route() 참고) — 둘 다 이미 붙어있는 상태로 여기
-  // 들어오므로 이 함수 자신은 굳이 다시 추가하지 않아도 되지만, 이
-  // 함수를 다른 경로에서 직접 호출하게 되는 경우에도 항상 올바르게
-  // 동작하도록 방어적으로 한 번 더 명시한다.
+// renderOAuthOnboardingStep — 소셜 로그인(구글/네이버/카카오) 가입자
+// 전용 온보딩 화면(#/auth/oauth-profile). 소셜 로그인 콜백(oauth_login.go)
+// 이 계정을 이미 만들어버려서 이메일 가입처럼 "계정 생성 시점에 함께"
+// 처리할 수 없다 — 로그인 이후 이 화면에서 휴대폰번호 인증(+약관동의)만
+// 별도로 받는다. 업체정보는 여기서도 받지 않는다(회원가입/온보딩과
+// 완전히 분리 — 사업자등록증 온보딩이나 이후 "기업 프로필 수정" 화면에서
+// 언제든 입력 가능).
+function renderOAuthOnboardingStep(container) {
   document.body.classList.add('is-auth');
   container.innerHTML = '';
-  const d = signupStep2Data || {};
-  const selectedIndustry = new Set(d.industry || []);
   container.appendChild(h(`
     <div class="auth-card">
-      <h2>업체 정보</h2>
-      <div class="wizard-step-indicator">${stepIndicatorHtml(1, 2, '업체 정보')}</div>
-      <p class="auth-step-hint">휴대폰번호와 약관 동의만 하면 바로 가입할 수 있어요. 지역·업종·기업규모·면허·인증·재무 등 나머지 정보는 나중에 채워도 됩니다.</p>
-      <form id="signup-profile-form" class="auth-form">
-        <label>사업자 지역
-          <select name="region" class="select-input">
-            <option value="" disabled ${d.region ? '' : 'selected'}>지역 선택</option>
-            ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === d.region ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
-          </select>
-        </label>
-        <div class="field-group">
-          <span class="field-group-label">업종 (겸업 시 여러 개 선택 가능)</span>
-          <div class="checkbox-grid">
-            ${INDUSTRY_GROUPS.map(g => `
-              <label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}" ${selectedIndustry.has(g) ? 'checked' : ''}> ${escapeHtml(g)}</label>
-            `).join('')}
-          </div>
-        </div>
-        <label>기업 규모
-          <select name="companySize" class="select-input">
-            <option value="" disabled ${d.companySize ? '' : 'selected'}>기업 규모 선택</option>
-            ${COMPANY_SIZE_OPTIONS.map(sz => `<option value="${escapeAttr(sz)}" ${sz === d.companySize ? 'selected' : ''}>${escapeHtml(sz)}</option>`).join('')}
-          </select>
-        </label>
-        ${fromEmailStep1 ? '' : `<label>연락처(휴대폰번호) (필수)<input type="tel" name="phoneNumber" required pattern="(010-\\d{4}-\\d{4})|(01[16789]-\\d{3}-\\d{4})" placeholder="010-1234-5678" value="${escapeAttr(d.phoneNumber || '')}"></label>`}
-        <label>연락처(사업자 대표전화번호)<input type="tel" name="businessPhone" placeholder="02-1234-5678" value="${escapeAttr(d.businessPhone || '')}"></label>
+      <h2>휴대폰번호 인증</h2>
+      <p class="auth-step-hint">서비스 이용을 위해 휴대폰번호 인증이 필요합니다.</p>
+      <form id="oauth-onboarding-form" class="auth-form">
+        ${otpPhoneFieldHtml('')}
         <div class="field-group">
           <label class="checkbox-label"><input type="checkbox" id="signup-terms-agree" required> 이용약관에 동의합니다 (필수) <a href="#/terms" target="_blank" rel="noopener">보기</a></label>
           <label class="checkbox-label"><input type="checkbox" id="signup-privacy-agree" required> 개인정보 수집 및 이용에 동의합니다 (필수) <a href="#/privacy" target="_blank" rel="noopener">보기</a></label>
         </div>
-        <div id="signup-profile-error" class="error" style="display:none"></div>
-        <div class="wizard-nav">
-          ${fromEmailStep1 ? '<button type="button" class="btn btn-secondary" id="signup-profile-back-btn">이전으로</button>' : ''}
-          <button type="submit" class="btn btn-primary ${fromEmailStep1 ? '' : 'btn-block'}" id="signup-profile-submit-btn" disabled>가입하기</button>
-        </div>
+        <div id="oauth-onboarding-error" class="error" style="display:none"></div>
+        <button type="submit" class="btn btn-primary btn-block" id="oauth-onboarding-submit-btn" disabled>확인</button>
       </form>
     </div>
   `));
-  const form = document.getElementById('signup-profile-form');
+  const form = document.getElementById('oauth-onboarding-form');
   attachPhoneAutoFormat(form.phoneNumber);
-  const errorBox = document.getElementById('signup-profile-error');
-  const submitBtn = document.getElementById('signup-profile-submit-btn');
+  const errorBox = document.getElementById('oauth-onboarding-error');
+  const submitBtn = document.getElementById('oauth-onboarding-submit-btn');
   const termsCheckbox = document.getElementById('signup-terms-agree');
   const privacyCheckbox = document.getElementById('signup-privacy-agree');
-  // updateSubmitEnabled — 실제 필수 항목은 (소셜가입만 보이는)휴대폰번호
-  // + 약관동의 2개뿐이다. 지역/업종/기업규모/사업자 대표전화는 선택
-  // 입력이라 값이 비어있어도 가입을 막지 않는다(입력창에는 required가
-  // 없으니 form.checkValidity()가 이 필드들 때문에 실패할 일도 없다).
+
+  let phoneVerified = false;
   function updateSubmitEnabled() {
-    submitBtn.disabled = !form.checkValidity();
+    submitBtn.disabled = !(form.checkValidity() && phoneVerified);
   }
+  setupPhoneOtpVerification(form, (verified) => { phoneVerified = verified; updateSubmitEnabled(); });
   form.addEventListener('input', updateSubmitEnabled);
   form.addEventListener('change', updateSubmitEnabled);
   updateSubmitEnabled();
-
-  const backBtn = document.getElementById('signup-profile-back-btn');
-  if (backBtn) {
-    backBtn.addEventListener('click', () => {
-      const fd = new FormData(form);
-      signupStep2Data = {
-        region: fd.get('region') || '',
-        industry: fd.getAll('industry'),
-        companySize: fd.get('companySize') || '',
-        businessPhone: fd.get('businessPhone') || '',
-      };
-      renderSignup(container, true);
-    });
-  }
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errorBox.style.display = 'none';
     const fd = new FormData(form);
-    const industry = fd.getAll('industry');
-    if (!termsCheckbox.checked || !privacyCheckbox.checked) {
-      errorBox.textContent = '이용약관과 개인정보 수집·이용에 모두 동의해야 가입할 수 있습니다.';
-      errorBox.style.display = 'block';
-      return;
-    }
-    const personalPhone = fromEmailStep1 ? signupStep1Data.phoneNumber : fd.get('phoneNumber');
     try {
-      if (fromEmailStep1) {
-        const data = await apiRequest('POST', '/api/auth/signup', {
-          email: signupStep1Data.email, password: signupStep1Data.password,
-        });
-        currentUser = { id: data.id, email: data.email, role: 'user', plan: 'free' };
-        currentProfile = null;
-        renderHeader();
-      }
       await apiRequest('POST', '/api/me/signup-agreement', {
-        phoneNumber: personalPhone,
+        phoneNumber: fd.get('phoneNumber'),
         termsAgreed: termsCheckbox.checked,
         privacyAgreed: privacyCheckbox.checked,
       });
-      const data = await apiRequest('PUT', '/api/me/company-profile', {
-        region: fd.get('region') || null, industry, companySize: fd.get('companySize') || null,
-        phoneNumber: fd.get('businessPhone') || null,
-      });
-      currentProfile = data.companyProfile;
-      signupStep1Data = null;
-      signupStep2Data = null;
+      currentUser.phoneVerified = true;
       location.hash = '#/';
     } catch (err) {
       errorBox.textContent = err.message;
@@ -5920,18 +5959,17 @@ function renderSignupProfileStep(container, opts) {
 }
 
 // renderOAuthProfileStep — 소셜 로그인(구글/네이버/카카오)으로 새로
-// 가입했거나, 이메일/비번으로 가입만 하고 회사 정보 등록을 안 끝낸 채
-// 소셜 계정을 연결한 사용자를 위한 진입점. 서버(oauth_login.go)가 이미
-// 세션 쿠키를 발급한 뒤 #/auth/oauth-profile로 리다이렉트하므로, 여기서는
-// loadMe()로 currentUser만 채우고 나면 renderSignupProfileStep(이메일
-// 가입 2단계와 거의 동일한 화면, 다만 1단계가 없었으므로 휴대폰번호
-// 입력란이 추가로 보인다)을 그대로 재사용한다.
+// 가입했거나, 예전에 이메일/비번으로 가입만 하고 휴대폰 인증을 안 끝낸
+// 계정을 위한 진입점. 서버(oauth_login.go)가 이미 세션 쿠키를 발급한
+// 뒤 #/auth/oauth-profile로 리다이렉트하므로, 여기서는 loadMe()로
+// currentUser만 채우고 나면 renderOAuthOnboardingStep을 그려 휴대폰
+// 인증을 받는다.
 async function renderOAuthProfileStep(container) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
   await loadMe();
   if (!currentUser) { location.hash = '#/auth/login'; return; }
-  renderSignupProfileStep(container);
+  renderOAuthOnboardingStep(container);
 }
 
 function renderLogin(container) {
@@ -10131,20 +10169,20 @@ function route() {
     return;
   }
   // 소셜 로그인(구글/네이버/카카오)은 콜백(oauth_login.go)이 계정을 즉시
-  // 만들고 세션을 발급하므로, 2단계(휴대폰번호+업체정보+약관동의,
-  // renderSignupProfileStep)의 "가입하기"를 누르기 전에도 currentUser는
-  // 있지만 currentProfile은 없는 상태가 될 수 있다 — 이 틈을 타 다른
-  // 화면으로 새서 "가입하기 없이도 이미 가입된" 상태가 되는 것을 막기
-  // 위해, 그 경우 강제로 2단계로 돌려보낸다. role==='user'(일반 회원가입
-  // 사용자)만 대상이다 — system_admin/operator/analyst 등 내부 운영
-  // 계정은 원래부터 회사 프로필 없이 동작하도록 설계됨. #/terms·#/privacy는
-  // 2단계 화면의 "보기" 링크가 새 탭으로 열므로 예외 처리(안 그러면 그
-  // 탭도 곧바로 2단계로 튕겨서 약관을 못 봄).
-  // (2026-08-03: 한 차례 추가 후 소셜 로그인 리다이렉트 URI 문제와 진단이
-  // 겹쳐 혼선을 줘서 롤백했다가, 그 문제가 실제로는 무관한 별개 원인
-  // (탈퇴 처리된 테스트 계정)이었음을 확인한 뒤 다시 추가함.)
-  const PROFILE_REQUIRED_EXEMPT_ROUTES = new Set(['#/auth/oauth-profile', '#/terms', '#/privacy']);
-  if (currentUser && currentUser.role === 'user' && !currentProfile && !PROFILE_REQUIRED_EXEMPT_ROUTES.has(path)) {
+  // 만들고 세션을 발급하므로, 휴대폰번호 인증(온보딩 화면,
+  // renderOAuthOnboardingStep)을 마치기 전에도 currentUser는 있는
+  // 상태가 될 수 있다 — 이 틈을 타 다른 화면으로 새서 "인증 없이도 이미
+  // 가입된" 상태가 되는 것을 막기 위해, 그 경우 강제로 온보딩 화면으로
+  // 돌려보낸다. 2026-08-03 온보딩 재설계 이후로는 이 판단 기준이
+  // currentProfile(회사 프로필) 존재 여부가 아니라 currentUser.phoneVerified다
+  // — 회사 프로필은 가입과 완전히 분리됐다(사업자등록증 온보딩이나 이후
+  // 수동 입력으로 별도 처리). role==='user'(일반 회원가입 사용자)만
+  // 대상이다 — system_admin/operator/analyst 등 내부 운영 계정은 원래부터
+  // 이 온보딩을 거치지 않도록 설계됨. #/terms·#/privacy는 온보딩 화면의
+  // "보기" 링크가 새 탭으로 열므로 예외 처리(안 그러면 그 탭도 곧바로
+  // 온보딩으로 튕겨서 약관을 못 봄).
+  const PHONE_VERIFICATION_EXEMPT_ROUTES = new Set(['#/auth/oauth-profile', '#/terms', '#/privacy']);
+  if (currentUser && currentUser.role === 'user' && !currentUser.phoneVerified && !PHONE_VERIFICATION_EXEMPT_ROUTES.has(path)) {
     location.hash = '#/auth/oauth-profile';
     return;
   }

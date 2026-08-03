@@ -282,11 +282,34 @@ CREATE TABLE users (
                         CHECK (plan IN ('free','pro','pro_promo')),
     email_notifications_enabled BOOLEAN NOT NULL DEFAULT true,
     phone_number    TEXT,
+    phone_verified_at TIMESTAMPTZ, -- SMS 인증번호(phone_verifications) 확인 완료 시각. 온보딩(회원가입) 완료 여부의 기준이 이 컬럼이다 — company_profiles 존재 여부가 아니다(회사 프로필은 가입과 완전히 분리됨, phone_verification.go 참고).
     sms_notifications_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_login_at   TIMESTAMPTZ, -- 관리자 화면(admin.go)의 회원목록용. 이 컬럼이 생기기 전 로그인은 기록이 없어 NULL로 남는다(과거 소급 불가).
     deactivated_at  TIMESTAMPTZ -- 관리자 회원 탈퇴 처리(admin_member_actions.go) 표식. NOT NULL이면 로그인 영구 차단(handleLogin/handleOAuthCallback). 탈퇴 시 email/password_hash/phone_number도 익명화되지만 행 자체는 지우지 않는다(payment_log/audit_logs FK 참조 + 법적 보관기간 고려).
 );
+
+-- 회원가입/온보딩 시 휴대폰번호 SMS 인증(6자리 코드). 계정이 아직 없는
+-- 상태(이메일 가입 1단계 이전)에서도 검증이 이뤄져야 해서 users에
+-- 바로 묶지 않고 phone_number 자체로 조회하는 독립 테이블로 둔다.
+-- code_hash — 평문 코드를 저장하지 않는다(5분 남짓의 짧은 수명이라
+-- bcrypt 같은 느린 해시는 과함, SHA-256이면 충분). attempt_count —
+-- 틀린 코드 입력 5회 누적 시 그 코드는 더 이상 못 쓰게 막고 재발송을
+-- 유도한다(phone_verification.go). verified_at이 채워진 뒤에야 이
+-- 전화번호가 "인증됨"으로 취급된다 — users.phone_verified_at에는
+-- 이 값이 그대로 복사된다.
+CREATE TABLE phone_verifications (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    phone_number   TEXT NOT NULL,
+    code_hash      TEXT NOT NULL,
+    attempt_count  INTEGER NOT NULL DEFAULT 0,
+    verified_at    TIMESTAMPTZ,
+    expires_at     TIMESTAMPTZ NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- 재발송 rate-limit(같은 번호 1분에 1회, 1일 5회) 조회와 최신 코드
+-- 조회(검증 시) 둘 다 이 인덱스로 커버된다.
+CREATE INDEX idx_phone_verifications_phone ON phone_verifications(phone_number, created_at DESC);
 
 -- user_id는 최초 생성자 참조로만 남는다(과거 호환) — 실제 "누가 이
 -- 프로필에 접근 가능한가"는 아래 company_members가 단일 진실 공급원이다
