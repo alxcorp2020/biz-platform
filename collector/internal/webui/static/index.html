@@ -5813,28 +5813,28 @@ function renderSignupProfileStep(container, opts) {
       <div class="wizard-step-indicator">${stepIndicatorHtml(1, 2, '업체 정보')}</div>
       <p class="auth-step-hint">이 3가지만 있으면 바로 맞춤 추천 공고를 볼 수 있어요. 면허·인증·재무 등 나머지 정보는 나중에 채워도 됩니다.</p>
       <form id="signup-profile-form" class="auth-form">
-        <label>사업자 지역
+        <label>사업자 지역 (필수)
           <select name="region" class="select-input" required>
             <option value="" disabled ${d.region ? '' : 'selected'}>지역 선택</option>
             ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === d.region ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
           </select>
         </label>
         <div class="field-group">
-          <span class="field-group-label">업종 (겸업 시 여러 개 선택 가능)</span>
+          <span class="field-group-label">업종 (필수, 겸업 시 여러 개 선택 가능)</span>
           <div class="checkbox-grid">
             ${INDUSTRY_GROUPS.map(g => `
               <label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}" ${selectedIndustry.has(g) ? 'checked' : ''}> ${escapeHtml(g)}</label>
             `).join('')}
           </div>
         </div>
-        <label>기업 규모
+        <label>기업 규모 (필수)
           <select name="companySize" class="select-input" required>
             <option value="" disabled ${d.companySize ? '' : 'selected'}>기업 규모 선택</option>
             ${COMPANY_SIZE_OPTIONS.map(sz => `<option value="${escapeAttr(sz)}" ${sz === d.companySize ? 'selected' : ''}>${escapeHtml(sz)}</option>`).join('')}
           </select>
         </label>
-        ${fromEmailStep1 ? '' : `<label>연락처(휴대폰번호)<input type="tel" name="phoneNumber" required pattern="(010-\\d{4}-\\d{4})|(01[16789]-\\d{3}-\\d{4})" placeholder="010-1234-5678" value="${escapeAttr(d.phoneNumber || '')}"></label>`}
-        <label>연락처(사업자 대표전화번호)<input type="tel" name="businessPhone" required placeholder="02-1234-5678" value="${escapeAttr(d.businessPhone || '')}"></label>
+        ${fromEmailStep1 ? '' : `<label>연락처(휴대폰번호) (필수)<input type="tel" name="phoneNumber" required pattern="(010-\\d{4}-\\d{4})|(01[16789]-\\d{3}-\\d{4})" placeholder="010-1234-5678" value="${escapeAttr(d.phoneNumber || '')}"></label>`}
+        <label>연락처(사업자 대표전화번호) (필수)<input type="tel" name="businessPhone" required placeholder="02-1234-5678" value="${escapeAttr(d.businessPhone || '')}"></label>
         <div class="field-group">
           <label class="checkbox-label"><input type="checkbox" id="signup-terms-agree" required> 이용약관에 동의합니다 (필수) <a href="#/terms" target="_blank" rel="noopener">보기</a></label>
           <label class="checkbox-label"><input type="checkbox" id="signup-privacy-agree" required> 개인정보 수집 및 이용에 동의합니다 (필수) <a href="#/privacy" target="_blank" rel="noopener">보기</a></label>
@@ -5853,11 +5853,20 @@ function renderSignupProfileStep(container, opts) {
   const submitBtn = document.getElementById('signup-profile-submit-btn');
   const termsCheckbox = document.getElementById('signup-terms-agree');
   const privacyCheckbox = document.getElementById('signup-privacy-agree');
+  // updateSubmitEnabled — 지역/기업규모/(소셜가입만 보이는)휴대폰번호/
+  // 사업자 대표전화/약관동의 2개는 각 입력의 required·pattern을 그대로
+  // 재사용해 form.checkValidity()로 한 번에 검사한다. 업종만 별도로
+  // 센다 — 같은 name의 체크박스 그룹이라 "최소 1개 체크"를 HTML
+  // required만으로는 표현할 수 없기 때문(전부 required를 걸면 "전부
+  // 체크"가 돼버림). 이전엔 이 두 조건(약관 체크박스) 외에는 아무것도
+  // 안 봐서, 휴대폰번호를 안 채워도 버튼이 활성화되는 검증 누락이 있었음.
   function updateSubmitEnabled() {
-    submitBtn.disabled = !(termsCheckbox.checked && privacyCheckbox.checked);
+    const hasIndustry = form.querySelectorAll('input[name="industry"]:checked').length > 0;
+    submitBtn.disabled = !(form.checkValidity() && hasIndustry);
   }
-  termsCheckbox.addEventListener('change', updateSubmitEnabled);
-  privacyCheckbox.addEventListener('change', updateSubmitEnabled);
+  form.addEventListener('input', updateSubmitEnabled);
+  form.addEventListener('change', updateSubmitEnabled);
+  updateSubmitEnabled();
 
   const backBtn = document.getElementById('signup-profile-back-btn');
   if (backBtn) {
