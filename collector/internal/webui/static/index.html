@@ -2631,6 +2631,7 @@ const ERROR_MESSAGES = {
   member_not_found: '해당 회원을 찾을 수 없습니다.',
   already_deactivated: '이미 탈퇴 처리된 회원입니다.',
   owner_has_other_members: '이 회원은 조직의 소유자이고 다른 팀원이 남아있어 탈퇴 처리할 수 없습니다. 먼저 팀원을 정리하거나 소유권을 이전해주세요.',
+  cannot_delete_self: '자기 자신의 계정은 삭제할 수 없습니다.',
   invalid_value: '입력한 값이 올바르지 않습니다.',
   reason_required: '조정 사유를 입력해주세요.',
   already_used: '이미 서비스를 이용하신 내역이 있어 환불이 불가합니다.',
@@ -9093,7 +9094,10 @@ async function renderAdminMemberDetail(container, id) {
       <div id="deactivate-error" class="error" style="display:none"></div>
       <div class="license-toolbar">
         <button type="button" class="btn btn-danger btn-sm" id="deactivate-btn" ${deactivated ? 'disabled' : ''}>${deactivated ? '이미 탈퇴 처리됨' : '탈퇴 처리'}</button>
+        <button type="button" class="btn btn-danger btn-sm" id="delete-member-btn">회원 삭제</button>
       </div>
+      <p class="license-card-meta">"회원 삭제"는 테스트 계정 정리용 완전 삭제입니다 — owner인 회사라면 그 회사의 문서·파이프라인·구독·결제기록까지 전부 지워집니다. <strong>개발/테스트 계정에만 사용하세요.</strong></p>
+      <div id="delete-member-error" class="error" style="display:none"></div>
     </div>
   `));
 
@@ -9153,6 +9157,33 @@ async function renderAdminMemberDetail(container, id) {
     try {
       await apiRequest('POST', '/api/admin/members/' + encodeURIComponent(id) + '/deactivate');
       renderAdminMemberDetail(container, id);
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+
+  // 완전 삭제는 되돌릴 수 없고 회사 데이터까지 통째로 날아갈 수 있어
+  // confirm() 하나로는 부족하다고 판단 — 이메일을 그대로 입력해야만
+  // 진행되는 "타이핑 확인" 방식을 추가 안전장치로 둔다.
+  document.getElementById('delete-member-btn').addEventListener('click', async () => {
+    const typed = prompt(
+      `정말로 ${data.email} 회원을 완전히 삭제하시겠습니까?\n\n` +
+      `이 작업은 되돌릴 수 없습니다. owner인 회사라면 그 회사의 모든 데이터` +
+      `(문서/파이프라인/구독/결제기록 등)까지 함께 삭제됩니다.\n\n` +
+      `계속하려면 이메일 주소를 정확히 입력하세요:\n${data.email}`
+    );
+    if (typed === null) return;
+    if (typed !== data.email) {
+      alert('입력한 이메일이 일치하지 않아 삭제가 취소되었습니다.');
+      return;
+    }
+    const errorBox = document.getElementById('delete-member-error');
+    errorBox.style.display = 'none';
+    try {
+      await apiRequest('DELETE', '/api/admin/members/' + encodeURIComponent(id));
+      alert('삭제되었습니다.');
+      location.hash = '#/admin/members';
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';

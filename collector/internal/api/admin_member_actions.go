@@ -115,6 +115,158 @@ func (s *Server) handleAdminDeactivateMember(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deactivated"})
 }
 
+// handleAdminDeleteMember — DELETE /api/admin/members/{id}. 개발 단계에서
+// 반복 생성한 테스트 계정을 흔적 없이 지우기 위한 완전 삭제(하드 삭제).
+// 위 탈퇴 처리(익명화, 데이터는 보존)와 달리 이 계정과 — owner인 경우 —
+// 그가 소유한 회사(company_profiles)에 딸린 모든 데이터(문서/파이프라인/
+// 구독/결제기록 등)를 실제로 DELETE한다. 되돌릴 방법이 없으므로 운영 중인
+// 실사용자 계정에는 쓰지 말 것(법적 보관 의무가 있는 결제기록까지 지워짐
+// — 그런 경우는 위 탈퇴 처리를 쓴다).
+//
+// 다른 팀원이 남아있는 조직의 owner는 삭제를 거부한다(owner_has_other_members,
+// 탈퇴 처리와 동일한 정책) — 하드 삭제는 회사 데이터를 통째로 없애버리므로
+// 다른 팀원이 남아있으면 그들의 접근 권한이 예고 없이 사라지는 훨씬 위험한
+// 상황이 된다. 관리자 자기 자신은 삭제할 수 없다(복구 수단이 없어짐).
+func (s *Server) handleAdminDeleteMember(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := s.requireSystemAdmin(w, r)
+	if !ok {
+		return
+	}
+	targetID := r.PathValue("id")
+	if targetID == adminID {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot_delete_self"})
+		return
+	}
+	ctx := r.Context()
+
+	var targetEmail string
+	var companyProfileID, teamRole sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT u.email, cm.company_profile_id, cm.role
+		FROM users u
+		LEFT JOIN company_members cm ON cm.user_id = u.id
+		WHERE u.id = $1`, targetID,
+	).Scan(&targetEmail, &companyProfileID, &teamRole)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "member_not_found"})
+		return
+	}
+	if err != nil {
+		s.logger.Error("admin-delete-member: lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+
+	deleteWholeCompany := false
+	if teamRole.Valid && teamRole.String == "owner" {
+		var otherCount int
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM company_members WHERE company_profile_id = $1 AND user_id != $2`,
+			companyProfileID.String, targetID,
+		).Scan(&otherCount); err != nil {
+			s.logger.Error("admin-delete-member: other member count failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		if otherCount > 0 {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "owner_has_other_members", "otherMemberCount": otherCount})
+			return
+		}
+		deleteWholeCompany = true
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		s.logger.Error("admin-delete-member: begin tx failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	defer tx.Rollback()
+
+	// company_profiles.employee_count_source_document_id가 company_documents를
+	// 가리키고, company_documents.company_profile_id가 다시 company_profiles를
+	// 가리키는 순환 참조가 있어 — company_documents를 지우려면 이 컬럼을
+	// 먼저 NULL로 끊어야 한다.
+	if deleteWholeCompany {
+		profileID := companyProfileID.String
+		cascadeStmts := []struct {
+			query string
+			args  []any
+		}{
+			{`UPDATE company_profiles SET employee_count_source_document_id = NULL WHERE id = $1`, []any{profileID}},
+			{`DELETE FROM pipeline_checklist_items WHERE pipeline_entry_id IN (SELECT id FROM notice_pipeline_entries WHERE company_profile_id = $1)`, []any{profileID}},
+			{`DELETE FROM notification_log WHERE pipeline_entry_id IN (SELECT id FROM notice_pipeline_entries WHERE company_profile_id = $1)`, []any{profileID}},
+			{`DELETE FROM notification_log WHERE contact_id IN (SELECT id FROM company_contacts WHERE company_profile_id = $1)`, []any{profileID}},
+			{`DELETE FROM in_app_notifications WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM notice_pipeline_entries WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM company_contacts WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM eligibility_evaluations WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM document_checklist_items WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM company_licenses WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM company_certifications WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM company_financials WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM company_track_records WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM company_intellectual_property WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM company_personnel WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM company_documents WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM company_invitations WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM reports WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM payment_log WHERE subscription_id IN (SELECT id FROM subscriptions WHERE company_profile_id = $1)`, []any{profileID}},
+			{`DELETE FROM subscriptions WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM company_members WHERE company_profile_id = $1`, []any{profileID}},
+			{`DELETE FROM company_profiles WHERE id = $1`, []any{profileID}},
+		}
+		for _, stmt := range cascadeStmts {
+			if _, err := tx.ExecContext(ctx, stmt.query, stmt.args...); err != nil {
+				s.logger.Error("admin-delete-member: company cascade delete failed", "query", stmt.query, "error", err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+				return
+			}
+		}
+	}
+
+	// 회사 소유 여부와 무관하게, 이 회원 개인에게 달린 데이터 정리.
+	// user_oauth_identities는 ON DELETE CASCADE라 users 삭제 시 자동 정리됨.
+	userScopedStmts := []string{
+		`DELETE FROM company_members WHERE user_id = $1`,
+		`DELETE FROM notification_log WHERE user_id = $1`,
+		`DELETE FROM in_app_notifications WHERE user_id = $1`,
+		`DELETE FROM notice_bookmarks WHERE user_id = $1`,
+		`DELETE FROM credit_usage_log WHERE user_id = $1`,
+		`DELETE FROM analysis_credits WHERE user_id = $1`,
+		`DELETE FROM push_subscriptions WHERE user_id = $1`,
+		`DELETE FROM terms_agreements WHERE user_id = $1`,
+		`DELETE FROM audit_logs WHERE actor_user_id = $1`,
+		`DELETE FROM company_invitations WHERE invited_by_user_id = $1`,
+	}
+	for _, q := range userScopedStmts {
+		if _, err := tx.ExecContext(ctx, q, targetID); err != nil {
+			s.logger.Error("admin-delete-member: user-scoped delete failed", "query", q, "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, targetID); err != nil {
+		s.logger.Error("admin-delete-member: user delete failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		s.logger.Error("admin-delete-member: commit failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+
+	// audit_logs.target_id는 FK가 아니라 TEXT라, 방금 지운 targetID를 그대로
+	// 남겨도 참조 무결성 문제가 없다(actor_user_id만 실제 FK이고 이건
+	// 여전히 존재하는 adminID를 가리킨다).
+	s.recordAuditLog(ctx, adminID, "admin_member_deleted", "user", targetID, map[string]any{
+		"email":             targetEmail,
+		"deletedCompanyToo": deleteWholeCompany,
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 type adminSetAIAnalysisLimitRequest struct {
 	Limit  *int   `json:"limit"` // null → 오버라이드 해제
 	Reason string `json:"reason"`

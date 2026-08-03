@@ -167,6 +167,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/admin/members", s.handleAdminListMembers)
 	mux.HandleFunc("GET /api/admin/members/{id}", s.handleAdminGetMember)
 	mux.HandleFunc("POST /api/admin/members/{id}/deactivate", s.handleAdminDeactivateMember)
+	mux.HandleFunc("DELETE /api/admin/members/{id}", s.handleAdminDeleteMember)
 	mux.HandleFunc("PUT /api/admin/members/{id}/ai-limit", s.handleAdminSetAIAnalysisLimit)
 	mux.HandleFunc("GET /api/admin/changelog", s.handleAdminChangelog)
 	mux.HandleFunc("GET /api/admin/tech-spec", s.handleAdminTechSpec)
