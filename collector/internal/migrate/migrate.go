@@ -417,22 +417,35 @@ func ensureCompanyProfileSnapshotColumn(ctx context.Context, db *sql.DB) error {
 // 알림 예약 중 D-7 추가분.
 //
 // 버그였다가 고쳐진 이력: 이 함수와 ensureReportEventTypes/
-// ensureTeamInviteEventTypes 셋 다 DROP+ADD CONSTRAINT를 쓰는데, Apply()가
-// 매 기동마다 전부 순서대로 재실행하는 구조라(idempotent 마이그레이션
-// 패턴) 한 함수가 "그 함수가 작성된 시점의" 목록으로 재실행되면 그
-// 사이 더 넓은 목록으로 이미 커진 실제 테이블 데이터(예: team_invite
-// 행)를 위반해 ADD CONSTRAINT 자체가 실패한다 — 실제로 재현된 크래시.
-// 그래서 세 함수 모두 항상 "현재 최종" 전체 목록을 쓰도록 통일했다
-// (셋 중 어느 게 먼저/나중에 실행되든 중간 단계가 기존 행보다 좁아지는
-// 순간이 생기지 않게). 앞으로 이벤트 타입을 추가할 때도 새 함수 하나만
-// 추가하지 말고 이 세 함수(및 001_init.sql) 전부의 목록을 함께 넓혀야
-// 한다.
+// ensureTeamInviteEventTypes/ensureAdminBroadcastEventType/
+// ensurePasswordResetEventType/ensureEmailVerificationEventType 전부
+// DROP+ADD CONSTRAINT를 쓰는데, Apply()가 매 기동마다 전부 순서대로
+// 재실행하는 구조라(idempotent 마이그레이션 패턴) 한 함수가 "그 함수가
+// 작성된 시점의" 목록으로 재실행되면 그 사이 더 넓은 목록으로 이미
+// 커진 실제 테이블 데이터(예: team_invite 행)를 위반해 ADD CONSTRAINT
+// 자체가 실패한다 — 실제로 재현된 크래시. 그래서 이 여섯 함수 모두 항상
+// "현재 최종" 전체 목록을 쓰도록 통일했다(어느 게 먼저/나중에 실행되든
+// 중간 단계가 기존 행보다 좁아지는 순간이 생기지 않게).
+//
+// ⚠️ 2026-08-04 재발 이력: admin_broadcast/password_reset/email_verification
+// 3개를 추가할 때 이 원칙을 깜빡하고 매번 "새 함수 하나만" 추가해서, 위
+// 여섯 함수 중 이 함수를 포함한 넷(ensureDeadlineD7EventType/
+// ensureReportEventTypes/ensureTeamInviteEventTypes/
+// ensureAdminBroadcastEventType)이 실제로 옛날 좁은 목록에 멈춰 있었다
+// — 운영에 이미 password_reset/email_verification 행이 쌓인 뒤였다면
+// 다음 재기동 때 크래시했을 사고(같은 날 auth_lookup_attempts.kind에서
+// 실제로 이 정확한 크래시가 한 번 났음, ensureAuthLookupKindEmailVerifyResend
+// 주석 참고). 다시 발견해서 전부 최종 목록으로 동기화했다. **앞으로
+// 이벤트 타입을 추가할 때는 새 함수 하나만 추가하지 말고, 이 constraint를
+// 건드리는 함수 전부(및 001_init.sql)의 목록을 반드시 함께 넓힐 것** —
+// grep "notification_log_event_type_check" collector/internal/migrate/migrate.go
+// 로 전부 찾아서 빠짐없이 갱신.
 func ensureDeadlineD7EventType(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
 	`)
 	return err
 }
@@ -1076,7 +1089,7 @@ func ensureReportEventTypes(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
 	`)
 	return err
 }
@@ -1178,7 +1191,7 @@ func ensureTeamInviteEventTypes(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
 	`)
 	return err
 }
@@ -1452,7 +1465,7 @@ func ensureAdminBroadcastEventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
 	`)
 	return err
 }
@@ -1559,7 +1572,7 @@ func ensurePasswordResetEventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
 	`)
 	return err
 }
@@ -1634,12 +1647,23 @@ func ensureEmailVerificationEventType(ctx context.Context, db *sql.DB) error {
 // ensureAuthLookupKindEmailVerifyResend widens auth_lookup_attempts.kind's
 // CHECK to allow 'email_verify_resend'(email_verification.go의
 // handleResendVerificationEmail이 씀) — ensurePasswordResetEventType과
-// 같은 드롭+재생성 방식, 항상 누적 목록.
+// 같은 드롭+재생성 방식.
+//
+// ⚠️ 2026-08-04 사고 이력: 이 목록에 나중에 추가된 'biz_reg_extract'(아래
+// ensureAuthLookupKindBizRegExtract 참고)를 처음엔 안 넣어뒀다가 운영에서
+// migrate 실패를 냈다 — 이 함수가 매 부팅마다 실행되며 제약을 DROP한 뒤
+// 이 좁은 목록으로 다시 ADD하는데, 그 사이 실제로 kind='biz_reg_extract'인
+// 행이 이미 쌓여있으면(그 다음 함수가 넓혀놓은 뒤 실제 사용자가 그 기능을
+// 써서) ADD CONSTRAINT 자체가 기존 행과 충돌해 실패하고 서버가 아예 못
+// 뜬다. notification_log_event_type_check처럼 "이 시점까지의 누적 목록"이
+// 아니라 **항상 최종/현재 전체 목록**을 써야 한다 — 이 제약을 손보는
+// 함수가 앞으로 더 생기면 전부 이 목록에 동기화해서 매 부팅 재실행 시
+// 절대 좁아지지 않게 할 것.
 func ensureAuthLookupKindEmailVerifyResend(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE auth_lookup_attempts DROP CONSTRAINT IF EXISTS auth_lookup_attempts_kind_check;
 		ALTER TABLE auth_lookup_attempts ADD CONSTRAINT auth_lookup_attempts_kind_check
-			CHECK (kind IN ('find_email','reset_password','email_verify_resend'));
+			CHECK (kind IN ('find_email','reset_password','email_verify_resend','biz_reg_extract'));
 	`)
 	return err
 }
