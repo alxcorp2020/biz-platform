@@ -1445,11 +1445,12 @@
   /* ---------- Auth / profile forms ---------- */
   .auth-card {
     max-width: 400px;
+    width: 100%;
     margin: 0 auto;
     border: 1px solid var(--border);
     background: #fff;
-    border-radius: 14px;
-    padding: 2rem;
+    border-radius: var(--radius-card);
+    padding: 2.5rem;
     box-shadow: var(--shadow-soft);
   }
   .auth-card h2 {
@@ -1893,6 +1894,44 @@
     .report-page { border: none; box-shadow: none; padding: 0; max-width: none; }
   }
 
+  /* ---------- 부팅 오버레이(app-booting) — 정적 HTML이 그려진 시점부터
+     await loadMe(); route(); 가 끝나 최종 레이아웃(사이드바 유무 등)이
+     확정되는 순간까지, 앱 셸이 잘못된 상태로 잠깐 보였다 사라지는
+     깜빡임(FOUC)을 막는다. <body>에 이 클래스가 정적으로 박혀있어
+     JS가 실행되기 전부터 이미 적용된 상태로 첫 페인트가 일어나고,
+     route()가 최종 레이아웃 클래스를 다 정한 뒤에야 JS가 클래스를
+     제거한다. ---------- */
+  body.app-booting #global-profile-banner,
+  body.app-booting .site-header,
+  body.app-booting .sidebar,
+  body.app-booting .tabbar,
+  body.app-booting main#app {
+    visibility: hidden;
+  }
+  .app-boot-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+  }
+  body.app-booting .app-boot-overlay {
+    display: flex;
+  }
+  .app-boot-spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent-blue);
+    border-radius: 50%;
+    animation: app-boot-spin 0.7s linear infinite;
+  }
+  @keyframes app-boot-spin {
+    to { transform: rotate(360deg); }
+  }
+
   /* ---------- 랜딩페이지(비로그인 첫 화면) — 지금 앱(로그인 후 대시보드)
      과 완전히 독립된 레이아웃. body.is-landing일 때 기존 앱 셸(사이드바/
      헤더/탭바/전역 프로필 배너)을 숨기고 #app을 전체 폭으로 연다 —
@@ -1926,10 +1965,11 @@
     max-width: none !important;
     min-height: 100vh;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     padding: var(--space-lg) !important;
-    background: var(--bg);
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg-soft) 100%);
   }
   .auth-page-logo {
     display: block; text-align: center; font-size: 1.15rem; font-weight: 800;
@@ -2111,7 +2151,11 @@
   }
 </style>
 </head>
-<body>
+<body class="app-booting">
+<!-- await loadMe(); route(); 가 끝날 때까지만 보이는 부팅 오버레이.
+     body.app-booting이 정적 HTML에 이미 박혀있어 이 아래 앱 셸이
+     첫 페인트부터 숨김 처리되고, 이 오버레이만 그 위에 보인다. -->
+<div class="app-boot-overlay"><div class="app-boot-spinner"></div></div>
 <!-- 프로필 미완성 안내 — 로그인+프로필 보유 상태에서 모든 화면 최상단에
      항상 노출(route()가 갈아끼우는 #app 밖에 둬서 페이지 이동에도 안
      사라짐). 비어있으면(is:empty) CSS로 자동 숨김. -->
@@ -5625,8 +5669,8 @@ function renderSignup(container) {
   document.body.classList.add('is-auth');
   container.innerHTML = '';
   container.appendChild(h(`
-    <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
     <div class="auth-card">
+      <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
       <h2>회원가입</h2>
       <div class="wizard-step-indicator">${stepIndicatorHtml(0, 2, '이메일·비밀번호')}</div>
       <form id="signup-form" class="auth-form">
@@ -5782,8 +5826,8 @@ function renderLogin(container) {
   // 상세를 노출할 필요도 없고) 안내 문구 하나로 통일.
   const oauthFailed = location.hash.split('?')[1] === 'oauthError=1';
   container.appendChild(h(`
-    <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
     <div class="auth-card">
+      <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
       <h2>로그인</h2>
       ${oauthFailed ? '<div class="oauth-error-banner">간편 로그인에 실패했습니다. 다시 시도해주세요.</div>' : ''}
       <form id="login-form" class="auth-form">
@@ -9934,7 +9978,17 @@ function route() {
   // 오버레이가 뒤 화면을 계속 가리는 버그가 있어, 홈이 아닌 경로로 갈
   // 때는 항상 정리한다. "오늘 하루 보지 않기"로 닫은 게 아니라면 다시
   // 홈으로 돌아왔을 때는 renderHomeOverlay가 새로 판단해서 다시 띄운다.
-  if (path !== '#/') {
+  if (path === '#/') {
+    // renderHome은 async라 대시보드 API 응답(비로그인 401 감지)을 받고서야
+    // is-landing을 뒤늦게 붙인다 — 그 사이 사이드바 있는 레이아웃이 잠깐
+    // 보였다 사라지는 깜빡임이 생긴다. currentUser는 route() 호출 전에
+    // await loadMe()로 이미 확정돼있으므로(app-booting 부팅 시퀀스 참고)
+    // 여기서 미리 동기적으로 결정해두면 renderHome의 API 호출을 기다릴
+    // 필요가 없다 — 로그인 사용자는 항상 대시보드/온보딩(is-landing 아님),
+    // 비로그인은 항상 랜딩(is-landing)이라 renderHome이 나중에 내리는
+    // 결론과 절대 어긋나지 않는다.
+    document.body.classList.toggle('is-landing', !currentUser);
+  } else {
     document.getElementById('banner-layer-overlay')?.remove();
     document.body.style.overflow = '';
     // 랜딩페이지(is-landing)도 같은 이유로 방어적으로 정리한다 —
@@ -10056,10 +10110,16 @@ if ('serviceWorker' in navigator) {
 // currentUser를 동기적으로 읽고 판단하므로, 이 순서가 안 지켜지면 실제로
 // 로그인된 사용자도 새로고침할 때마다 한 박자 #/auth/login으로 잘못
 // 튕겨나간다. loadBrandName()은 currentUser와 무관해 순서 상관없다.
+// route()가 최종 레이아웃 클래스(is-landing/is-auth 등)까지 다 정한 뒤에야
+// body.app-booting을 지운다 — 그전에 지우면 route() 실행 전(잘못된 셸
+// 상태)이 한 프레임 그대로 페인트될 수 있어 부팅 오버레이를 씌운 의미가
+// 없어진다. 같은 동기 실행 틱 안에서 route() 다음 줄로 붙여, 클래스 제거와
+// 최종 레이아웃 확정이 분리된 두 페인트로 쪼개지지 않게 한다.
 loadBrandName();
 (async () => {
   await loadMe();
   route();
+  document.body.classList.remove('app-booting');
 })();
 </script>
 </body>
