@@ -173,6 +173,12 @@ type financialRequest struct {
 	TaxDelinquent     *string `json:"taxDelinquent"`
 	CapitalImpairment *string `json:"capitalImpairment"`
 	SourceDocumentID  *string `json:"sourceDocumentId"`
+	// RevenueIsEstimated — 2026-08-04. AI가 매출액을 못 찾았거나(문서
+	// 업로드 실패) 사용자가 직접 입력하는데 정확한 금액을 모를 때, 프론트가
+	// 정밀 숫자 입력 대신 구간 select(예: "1억원~5억원")를 보여준다 — 그
+	// 구간의 대표값을 revenue로 그대로 보내되, 이 플래그로 "정밀 수치가
+	// 아니라 범위 추정치"임을 서버에 알려 confidence를 D로 낮춘다.
+	RevenueIsEstimated bool `json:"revenueIsEstimated"`
 }
 
 func strOrEmpty(s *string) string {
@@ -260,6 +266,12 @@ func (s *Server) handleCreateFinancial(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		confidence = "B"
+	}
+	// 매출액이 정밀 수치가 아니라 구간 추정치면(RevenueIsEstimated), 문서
+	// 출처가 있어도 그 정밀도까지 보장 못 하므로 confidence를 가장 낮은
+	// D로 낮춘다 — 과장 금지 원칙(다른 confidence 배지들과 동일 기조).
+	if req.RevenueIsEstimated {
+		confidence = "D"
 	}
 
 	var id string

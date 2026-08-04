@@ -1782,6 +1782,15 @@
   .profile-tab-btn:hover { color: var(--ink); }
   .profile-tab-btn.is-active { color: var(--navy); border-bottom-color: var(--navy); }
 
+  /* 정보가 너무 적어(overallCompleteness<30%) 개별 판정 대신 전부 "확인
+     필요"로 묶어 보여줄 때 붙는 안내 — 차단은 아니지만 눈에 띄어야 해서
+     경고색 배경을 쓴다(제출/이동을 막는 에러색과는 다른 톤). */
+  .low-confidence-note {
+    background: rgba(196,132,29,0.10); color: var(--warn); border: 1px solid rgba(196,132,29,0.3);
+    border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.85rem; font-weight: 600;
+    margin-bottom: var(--space-md);
+  }
+
   /* ---------- 프로필 요약(읽기 전용) + 수정 모달 ---------- */
   .profile-summary-list { display: flex; flex-direction: column; gap: var(--space-sm); margin-bottom: var(--space-lg); }
   .profile-summary-row {
@@ -3850,16 +3859,14 @@ async function renderOnboardingComplete(container) {
   const companyName = (currentProfile && currentProfile.companyName) || '';
   const title = companyName ? `🎉 ${escapeHtml(companyName)}의 AI 회사 프로필을 만들었습니다` : '🎉 AI 회사 프로필을 만들었습니다';
 
+  const overallCompleteness = data.growthSummary && data.growthSummary.overallCompleteness;
+
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="detail-card" style="max-width:560px;margin:1.5rem auto;text-align:center">
       <h2>${title}</h2>
       <p class="license-card-meta">사업자등록증을 분석해 현재 활성화된 공고 ${total}건 중 귀사에 맞는 공고를 바로 확인했습니다.</p>
-      <div class="profile-summary-list" style="text-align:left;margin:1rem 0">
-        <div class="profile-summary-row"><span>✅ 즉시 참여 가능</span><strong>${eg.ready}건</strong></div>
-        <div class="profile-summary-row"><span>🟡 조건 보완 후 참여 가능</span><strong>${eg.needsReview}건</strong></div>
-        <div class="profile-summary-row"><span>🔴 현재 참여 어려움</span><strong>${eg.notRecommended}건</strong></div>
-      </div>
+      <div style="text-align:left;margin:1rem 0">${eligibilitySummaryRowsHtml(eg, overallCompleteness)}</div>
     </div>
     <div id="onboarding-card-area" style="max-width:560px;margin:0 auto"></div>
   `));
@@ -4327,7 +4334,7 @@ function renderDashboard(container, data) {
 
   const automationHtml = renderAutomationSummaryHtml(data.automationSummary);
   const growthHtml = renderGrowthSummaryHtml(data.growthSummary);
-  const eligibilityHtml = renderEligibilitySummaryHtml(data.eligibilitySummary);
+  const eligibilityHtml = renderEligibilitySummaryHtml(data.eligibilitySummary, data.growthSummary && data.growthSummary.overallCompleteness);
   const requirementGapsHtml = renderDocumentRequirementGapsHtml(data.documentRequirementGaps);
 
   container.appendChild(h(`
@@ -4397,26 +4404,59 @@ function renderGrowthSummaryHtml(g) {
 // renderOnboardingComplete 둘 다 공유.
 const ELIGIBILITY_MISSING_FIELD_LABELS = { region: '사업장 지역', industry: '업종', companySize: '기업 규모' };
 
+// eligibilityConfidenceTier — Phase UX-04(2026-08-04). 회사 정보가 너무
+// 적으면(overallCompleteness<30%) 개별 판정(즉시참여/조건보완/참여어려움)이
+// 사실상 근거가 얕은 추측이 되므로, 판정 로직(scoreNoticeForCompany) 자체는
+// 그대로 두고 "표시 레이어"에서만 전부 "확인 필요"로 묶어 보여준다 —
+// 판정을 새로 만드는 게 아니라 이미 있는 결과를 신뢰도에 따라 다르게
+// 보여줄 뿐. 30~70%/70%+ 두 구간은 기존 필드별 insufficient_data
+// 메커니즘이 이미 자연스럽게 "일부만 판정→대부분 판정"으로 정밀도가
+// 올라가는 효과를 내고 있어 별도 로직이 필요 없다(사용자 확인 완료 —
+// 임의의 새 임계값 로직을 더 만들지 않기로 함).
+function eligibilityConfidenceTier(overallCompleteness) {
+  if (overallCompleteness == null) return 'full';
+  return overallCompleteness < 30 ? 'low' : 'full';
+}
+
+// eligibilitySummaryRowsHtml — renderEligibilitySummaryHtml(대시보드 카드)와
+// renderOnboardingComplete(온보딩 완료 화면) 둘 다 같은 3버킷 표시를 쓰므로
+// 신뢰도 기반 표시 전환 로직을 여기 하나로 공유한다.
+function eligibilitySummaryRowsHtml(eg, overallCompleteness) {
+  const total = eg.ready + eg.needsReview + eg.notRecommended + eg.insufficientData;
+  if (eligibilityConfidenceTier(overallCompleteness) === 'low') {
+    return `
+      <p class="low-confidence-note">⚠️ 등록된 회사 정보가 적어 판정 정확도가 낮습니다. 정보를 등록하면 더 정확한 판정을 받을 수 있어요.</p>
+      <div class="profile-summary-list">
+        <div class="profile-summary-row"><span>🔵 확인 필요</span><strong>${total}건</strong></div>
+      </div>
+    `;
+  }
+  return `
+    <div class="profile-summary-list">
+      <div class="profile-summary-row"><span>✅ 즉시 참여 가능</span><strong>${eg.ready}건</strong></div>
+      <div class="profile-summary-row"><span>🟡 조건 보완 후 참여 가능</span><strong>${eg.needsReview}건</strong></div>
+      <div class="profile-summary-row"><span>🔴 현재 참여 어려움</span><strong>${eg.notRecommended}건</strong></div>
+    </div>
+  `;
+}
+
 // renderEligibilitySummaryHtml — Phase UX-01(2026-08-04) 4버킷 판정 집계
 // 카드(dashboard.go의 computeEligibilityBucketSummary — scoreNoticeForCompany를
 // 그대로 재사용, 판정 로직 자체는 안 건드림). "판정 불가" 건은 missingFields
 // 근거로 "입력하기" CTA까지 함께 보여준다 — 지역/업종/기업규모만 실제
 // 판정기준이 있어 정확한 건수를 낼 수 있고(사용자 확인 완료), 실적/인증/
 // 재무는 이 카드에 안 넣는다(정확한 건수를 낼 판정기준이 없음).
-function renderEligibilitySummaryHtml(eg) {
+function renderEligibilitySummaryHtml(eg, overallCompleteness) {
   if (!eg) return '';
   const total = eg.ready + eg.needsReview + eg.notRecommended + eg.insufficientData;
   const missingLabels = (eg.missingFields || []).map(f => ELIGIBILITY_MISSING_FIELD_LABELS[f] || f);
+  const isLowConfidence = eligibilityConfidenceTier(overallCompleteness) === 'low';
   return `
     <div class="detail-card">
       <h3>추천공고 판정 현황</h3>
       <p class="license-card-meta">현재 활성화된 공고 ${total}건 기준</p>
-      <div class="profile-summary-list">
-        <div class="profile-summary-row"><span>✅ 즉시 참여 가능</span><strong>${eg.ready}건</strong></div>
-        <div class="profile-summary-row"><span>🟡 조건 보완 후 참여 가능</span><strong>${eg.needsReview}건</strong></div>
-        <div class="profile-summary-row"><span>🔴 현재 참여 어려움</span><strong>${eg.notRecommended}건</strong></div>
-      </div>
-      ${eg.insufficientData > 0 && missingLabels.length ? `
+      ${eligibilitySummaryRowsHtml(eg, overallCompleteness)}
+      ${!isLowConfidence && eg.insufficientData > 0 && missingLabels.length ? `
         <p class="license-card-meta">${escapeHtml(missingLabels.join('·'))} 정보가 없어 ${eg.insufficientData}건을 정확하게 판정하지 못했습니다. <a href="#/me/profile">입력하기 &rarr;</a></p>
       ` : ''}
     </div>
@@ -7077,6 +7117,23 @@ const INDUSTRY_GROUPS = [
 // 고정된 select 옵션으로 관리한다.
 const COMPANY_SIZE_OPTIONS = ['소상공인', '소기업', '중기업', '중견기업', '대기업'];
 
+// BUSINESS_AGE_RANGE_OPTIONS — 2026-08-04. 업력은 AI 추출 대상이 아니라
+// 항상 직접입력이라, 처음부터 소수점 정밀값 대신 구간 select로 받는다
+// (매출액과 달리 이 필드엔 confidence 개념 자체가 없어 별도 표시 없음).
+// ⚠️업종별로 업력을 세분화해서 받는 방안은 이번 범위에서 보류 — 회사
+// 전체 업력 하나만 유지하기로 함(사용자 확인). 나중에 업종별 세부화가
+// 필요해지면 이 select를 업종(INDUSTRY_GROUPS)별 반복 입력으로 바꾸는
+// 방향을 검토할 것.
+const BUSINESS_AGE_RANGE_OPTIONS = [
+  { value: '1', label: '1년 이하' },
+  { value: '3', label: '1~3년' },
+  { value: '5', label: '3~5년' },
+  { value: '10', label: '5~10년' },
+  { value: '20', label: '10~20년' },
+  { value: '50', label: '20~50년' },
+  { value: '60', label: '50년 이상' },
+];
+
 function fillProfileForm(form, profile) {
   if (!profile) return;
   form.businessType.value = (profile.businessType || []).join(', ');
@@ -7648,7 +7705,12 @@ function openProfileEditModal(summaryContainer) {
             `).join('')}
           </div>
         </div>
-        <label>업력(년)<input type="number" step="0.1" name="businessAgeYears"></label>
+        <label>업력
+          <select name="businessAgeYears" class="select-input">
+            <option value="">선택 안 함</option>
+            ${BUSINESS_AGE_RANGE_OPTIONS.map(o => `<option value="${escapeAttr(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
+          </select>
+        </label>
         <label>기업 규모
           <select name="companySize" class="select-input">
             <option value="">선택 안 함</option>
@@ -7956,6 +8018,39 @@ function plainSelectHtml(name, options, selected, withEmpty) {
   ).join('')}</select>`;
 }
 
+// REVENUE_RANGE_OPTIONS — 2026-08-04. AI가 매출액을 못 찾았거나(문서
+// 업로드 실패) 사용자가 정확한 금액을 모를 때 쓰는 구간 select. 값은 각
+// 구간의 대표치(대략 상한, 마지막 "100억원 이상"만 그 아래 구간과 안
+// 겹치게 임의로 더 큰 값)로, 정밀 수치가 아니라는 걸 전제로 한다 —
+// 실제 저장 시 confidence='D'로 낮춰서 이 값이 추정치임을 표시한다.
+const REVENUE_RANGE_OPTIONS = [
+  { value: '30000000', label: '3천만원 이하' },
+  { value: '100000000', label: '3천만원~1억원' },
+  { value: '500000000', label: '1억원~5억원' },
+  { value: '1000000000', label: '5억원~10억원' },
+  { value: '5000000000', label: '10억원~50억원' },
+  { value: '10000000000', label: '50억원~100억원' },
+  { value: '15000000000', label: '100억원 이상' },
+];
+
+// revenueFieldHtml — AI가 매출액을 실제로 찾았으면(candidate.revenue 값
+// 있음) 기존처럼 정밀 숫자를 확인/수정하는 입력을 그대로 보여주고, 못
+// 찾았거나(직접 입력 진입 포함) 값이 비어있으면 구간 select로 대체한다.
+function revenueFieldHtml(c) {
+  const hasValue = c.revenue !== undefined && c.revenue !== null && c.revenue !== '';
+  if (hasValue) {
+    return `<label>매출액(원)<input type="text" name="revenue" value="${escapeAttr(c.revenue)}"></label>`;
+  }
+  return `
+    <label>매출액(정확한 금액을 모르면 구간으로 선택해주세요)
+      <select name="revenueRange" class="select-input">
+        <option value="">선택 안 함</option>
+        ${REVENUE_RANGE_OPTIONS.map(o => `<option value="${escapeAttr(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
+      </select>
+    </label>
+  `;
+}
+
 function renderFinancialForm(formSlot, candidate, documentId, onSaved) {
   const c = candidate || {};
   formSlot.innerHTML = '';
@@ -7965,7 +8060,7 @@ function renderFinancialForm(formSlot, candidate, documentId, onSaved) {
       <form id="financial-confirm-form" class="profile-form">
         <label>증빙서류 종류${plainSelectHtml('documentType', FINANCIAL_DOCUMENT_TYPES, c.documentType, true)}</label>
         <label>회계연도<input type="number" name="fiscalYear" value="${escapeAttr(c.fiscalYear || '')}" required></label>
-        <label>매출액(원)<input type="text" name="revenue" value="${escapeAttr(c.revenue || '')}"></label>
+        ${revenueFieldHtml(c)}
         <label>영업이익(원)<input type="text" name="operatingProfit" value="${escapeAttr(c.operatingProfit || '')}"></label>
         <label>당기순이익(원)<input type="text" name="netIncome" value="${escapeAttr(c.netIncome || '')}"></label>
         <label>자본금(원)<input type="text" name="capital" value="${escapeAttr(c.capital || '')}"></label>
@@ -7993,10 +8088,16 @@ function renderFinancialForm(formSlot, candidate, documentId, onSaved) {
     e.preventDefault();
     errorBox.style.display = 'none';
     const fd = new FormData(form);
+    // 정밀 입력(revenue)이 있으면 그대로, 없으면 구간 select(revenueRange)
+    // 값을 대신 쓰고 revenueIsEstimated를 켜서 서버가 confidence를
+    // D로 낮추게 한다.
+    const revenueValue = fd.get('revenue') || fd.get('revenueRange') || null;
+    const revenueIsEstimated = !fd.get('revenue') && !!fd.get('revenueRange');
     const payload = {
       documentType: fd.get('documentType') || null,
       fiscalYear: Number(fd.get('fiscalYear')),
-      revenue: fd.get('revenue') || null,
+      revenue: revenueValue,
+      revenueIsEstimated,
       operatingProfit: fd.get('operatingProfit') || null,
       netIncome: fd.get('netIncome') || null,
       capital: fd.get('capital') || null,

@@ -59,6 +59,17 @@ type businessRegistrationCandidate struct {
 // 상태에서 호출되므로 checkAIAnalysisQuota/checkFileRetryRateLimit(둘 다
 // profileID 기준)는 쓸 수 없어, 대신 authLookupRateLimited(password_reset.go
 // 공용, identifier=userID)로 남용을 방지한다.
+//
+// ⚠️ 2026-08-04 재확인: "같은 파일 1시간 3회 실패 시 재시도 차단"
+// (checkFileRetryRateLimit) 정책이 이 카테고리에만 없다는 게 맞다 —
+// 의도적인 차이다. 이 엔드포인트는 파일 해시를 저장할 company_documents
+// 행 자체가 없어(회사 프로필이 아직 없는 시점) 파일 단위로 카운트할
+// 방법이 없고, 대신 authLookupRateLimited가 userID 기준 1분1회+1일5회로
+// 더 보수적으로 막는다(파일을 바꿔 재시도해도 여전히 막힘) — 사용자
+// 확인 완료, 별도 파일해시 기반 장치를 새로 만들지 않기로 함. 재무제표/
+// 4대보험/면허·인증/수행실적 4개는 공용 receiveCompanyDocument를 거쳐
+// checkFileRetryRateLimit이 전부 적용되고, 직접생산확인은 AI 분석 자체가
+// 없어(company_profiles.direct_production_cert 체크박스) 해당사항 없음.
 func (s *Server) handleExtractBusinessRegistration(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {
