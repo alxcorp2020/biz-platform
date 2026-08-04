@@ -458,6 +458,10 @@ var documentRequirementCategories = []struct {
 	CtaHref    string
 }{
 	{"trackRecord", "수행실적", []string{"%실적%"}, "company_track_records", "#/me/profile"},
+	// "면허증"(3글자)은 "인증서"와 겹치지 않는 별도 키워드 — company_licenses
+	// (면허·신고·등록)는 company_certifications(인증서)와 다른 테이블이라
+	// 온보딩 카드에서도 별개 후보로 다룬다(2026-08-04 재설계).
+	{"license", "보유 면허", []string{"%면허증%"}, "company_licenses", "#/me/licenses"},
 	// "인증"(2글자)은 "직접생산확인증명서"(확인+증명서) 안에 우연히 부분
 	// 문자열로 들어있어 오탐된다(로컬 검증 중 실제 재현) — "인증서"(3글자)로
 	// 좁혀서 이 충돌을 피한다.
