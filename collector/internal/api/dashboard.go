@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -298,6 +299,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("dashboard: eligibility bucket summary failed", "error", err)
 	}
 
+	// documentRequirementGaps — Phase UX-02(2026-08-04). eligibilitySummary와
+	// 별개로, 실적/인증/직접생산확인처럼 판정 로직이 없는 카테고리의 "부족한
+	// 정보 안내"를 실제 수치로 낸다(computeDocumentRequirementGaps 주석 참고).
+	documentRequirementGaps, err := s.computeDocumentRequirementGaps(ctx, profileID)
+	if err != nil {
+		s.logger.Error("dashboard: document requirement gaps failed", "error", err)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"hasProfile": true,
 		"briefing":   dashboardBriefing(reviewNeededCount, len(priorityItems)),
@@ -314,7 +323,8 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"growthSummary": map[string]int{
 			"overallCompleteness": completeness.OverallCompleteness,
 		},
-		"eligibilitySummary": eligibilitySummary,
+		"eligibilitySummary":      eligibilitySummary,
+		"documentRequirementGaps": documentRequirementGaps,
 	})
 }
 
@@ -400,6 +410,81 @@ func (s *Server) computeEligibilityBucketSummary(ctx context.Context, company co
 	}
 	sort.Strings(summary.MissingFields)
 	return summary, nil
+}
+
+// documentRequirementGapItem — Phase UX-02(2026-08-04) "부족한 정보 안내"
+// 실제 수치. eligibility.go/scoring.go의 판정 로직(met/not_met)은 실적/
+// 인증/직접생산확인을 전혀 판단하지 못한다(지역/업종/예산규모만 판단) —
+// 그렇다고 임의의 숫자를 보여줄 수는 없으므로, 이미 실제로 채워져 있는
+// required_documents(공고별 실제 제출서류, document_extraction.go가
+// 규칙+AI로 추출)를 키워드로 매칭해 "이 서류를 요구하는 열린 공고가 몇
+// 건인가"라는 별도의 정직한 지표를 센다. 이건 "귀사가 이 공고에 참여
+// 가능한가"라는 판정이 아니라 "이 공고들은 그 서류를 요구한다"는 사실
+// 집계라 판정 로직을 전혀 건드리지 않고도 실제 숫자를 낼 수 있다. 회사가
+// 해당 카테고리 데이터를 하나라도 이미 갖고 있으면(이미 등록했으면) 더 이상
+// "부족한 정보"가 아니므로 응답에서 제외한다.
+type documentRequirementGapItem struct {
+	Category    string `json:"category"`
+	Label       string `json:"label"`
+	NoticeCount int    `json:"noticeCount"`
+	CtaHref     string `json:"ctaHref"`
+}
+
+var documentRequirementCategories = []struct {
+	Category   string
+	Label      string
+	Keywords   []string // required_documents.document_name에 대한 ILIKE 패턴(OR)
+	CheckTable string   // 회사가 이미 데이터를 갖고 있는지 확인할 테이블(company_profile_id FK)
+	CtaHref    string
+}{
+	{"trackRecord", "수행실적", []string{"%실적%"}, "company_track_records", "#/me/profile"},
+	// "인증"(2글자)은 "직접생산확인증명서"(확인+증명서) 안에 우연히 부분
+	// 문자열로 들어있어 오탐된다(로컬 검증 중 실제 재현) — "인증서"(3글자)로
+	// 좁혀서 이 충돌을 피한다.
+	{"certification", "인증", []string{"%인증서%", "%ISO%"}, "company_certifications", "#/me/licenses"},
+	{"directProduction", "직접생산확인", []string{"%직접생산%"}, "company_licenses", "#/me/licenses"},
+}
+
+func (s *Server) computeDocumentRequirementGaps(ctx context.Context, profileID string) ([]documentRequirementGapItem, error) {
+	var gaps []documentRequirementGapItem
+	for _, cat := range documentRequirementCategories {
+		var hasAny bool
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT EXISTS(SELECT 1 FROM `+cat.CheckTable+` WHERE company_profile_id = $1)`,
+			profileID,
+		).Scan(&hasAny); err != nil {
+			return nil, err
+		}
+		if hasAny {
+			continue
+		}
+
+		conds := make([]string, len(cat.Keywords))
+		args := make([]any, 0, len(cat.Keywords))
+		for i, kw := range cat.Keywords {
+			args = append(args, kw)
+			conds[i] = fmt.Sprintf("rd.document_name ILIKE $%d", len(args))
+		}
+		query := `
+			SELECT COUNT(DISTINCT n.id)
+			FROM required_documents rd
+			JOIN notice_versions nv ON nv.id = rd.notice_version_id
+			JOIN notices n ON n.id = nv.notice_id AND nv.version_number = n.current_version
+			WHERE rd.review_status != 'rejected'
+			  AND n.status NOT IN ('closed','cancelled')
+			  AND (n.application_end_at IS NULL OR n.application_end_at >= CURRENT_DATE)
+			  AND (` + strings.Join(conds, " OR ") + `)`
+		var count int
+		if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+			return nil, err
+		}
+		if count > 0 {
+			gaps = append(gaps, documentRequirementGapItem{
+				Category: cat.Category, Label: cat.Label, NoticeCount: count, CtaHref: cat.CtaHref,
+			})
+		}
+	}
+	return gaps, nil
 }
 
 // dashboardBriefing — "오늘의 AI 브리핑" 한 문장. 참여 여부를 결정해야
