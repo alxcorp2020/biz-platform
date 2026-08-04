@@ -345,6 +345,12 @@ type eligibilityBucketSummary struct {
 	// 실제로 비어있는 값(사용자가 채우면 판정이 가능해짐). 결정적 순서를
 	// 위해 정렬해서 내려준다(맵 순회는 비결정적).
 	MissingFields []string `json:"missingFields"`
+	// MissingFieldCounts — Phase UX-03(2026-08-04). MissingFields는 "어떤
+	// 필드가 비어있는지"의 집합만 주지만, 단계별 정보요청 카드는 "이 필드를
+	// 채우면 몇 건에 영향이 있는지" 실수치가 필요하다. 이미 계산 중인 판정
+	// 결과를 필드별로 더 세밀하게 집계할 뿐 새 판정기준을 추가하는 게
+	// 아니다 — eligibility.go/scoring.go는 전혀 안 건드림.
+	MissingFieldCounts map[string]int `json:"missingFieldCounts"`
 }
 
 var eligibilityCategoryToProfileField = map[string]string{
@@ -354,6 +360,7 @@ var eligibilityCategoryToProfileField = map[string]string{
 func (s *Server) computeEligibilityBucketSummary(ctx context.Context, company companyScoringInput) (eligibilityBucketSummary, error) {
 	var summary eligibilityBucketSummary
 	missingSet := map[string]bool{}
+	missingCounts := map[string]int{}
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT notice_type, region, industry, budget_amount FROM notices
@@ -387,6 +394,7 @@ func (s *Server) computeEligibilityBucketSummary(ctx context.Context, company co
 				hasCompanyGap = true
 				if field, ok := eligibilityCategoryToProfileField[c.Category]; ok {
 					missingSet[field] = true
+					missingCounts[field]++
 				}
 			}
 		}
@@ -409,6 +417,7 @@ func (s *Server) computeEligibilityBucketSummary(ctx context.Context, company co
 		summary.MissingFields = append(summary.MissingFields, field)
 	}
 	sort.Strings(summary.MissingFields)
+	summary.MissingFieldCounts = missingCounts
 	return summary, nil
 }
 
@@ -442,14 +451,28 @@ var documentRequirementCategories = []struct {
 	// 문자열로 들어있어 오탐된다(로컬 검증 중 실제 재현) — "인증서"(3글자)로
 	// 좁혀서 이 충돌을 피한다.
 	{"certification", "인증", []string{"%인증서%", "%ISO%"}, "company_certifications", "#/me/licenses"},
-	{"directProduction", "직접생산확인", []string{"%직접생산%"}, "company_licenses", "#/me/licenses"},
+	// directProduction — CheckTable은 안 쓴다(아래 특수 분기 참고). 2026-08-04
+	// Phase UX-03에서 발견: 원래 company_licenses에 아무 행이나 있으면(카테고리
+	// 필터 없이) 충족된 걸로 잘못 체크하고 있었는데, 실제 #/me/profile 화면의
+	// "직접생산확인" 체크박스(company_profiles.direct_production_cert)는 이
+	// 계산과 전혀 연결이 안 되어 있었다 — 사용자가 그 체크박스를 켜도 이 갭이
+	// 안 사라지는 버그. computeDocumentRequirementGaps 안에서 이 카테고리만
+	// direct_production_cert 컬럼값을 직접 확인하도록 고쳤다.
+	{"directProduction", "직접생산확인", []string{"%직접생산%"}, "", "#/me/licenses"},
 }
 
 func (s *Server) computeDocumentRequirementGaps(ctx context.Context, profileID string) ([]documentRequirementGapItem, error) {
 	var gaps []documentRequirementGapItem
 	for _, cat := range documentRequirementCategories {
 		var hasAny bool
-		if err := s.db.QueryRowContext(ctx,
+		if cat.Category == "directProduction" {
+			if err := s.db.QueryRowContext(ctx,
+				`SELECT direct_production_cert FROM company_profiles WHERE id = $1`,
+				profileID,
+			).Scan(&hasAny); err != nil {
+				return nil, err
+			}
+		} else if err := s.db.QueryRowContext(ctx,
 			`SELECT EXISTS(SELECT 1 FROM `+cat.CheckTable+` WHERE company_profile_id = $1)`,
 			profileID,
 		).Scan(&hasAny); err != nil {

@@ -3238,9 +3238,9 @@ const LANDING_FEATURE_SPOTLIGHTS = [
   {
     eyebrow: '핵심 기능 · 성장 분석',
     title: '데이터로 보는 우리 회사의 성장',
-    desc: '프로필 완성도와 파이프라인 성과 추이를 시계열 차트로 보여드립니다. 지난달과 비교해 우리 회사가 얼마나 성장했는지 바로 확인할 수 있습니다.',
+    desc: 'AI 분석 커버리지와 파이프라인 성과 추이를 시계열 차트로 보여드립니다. 지난달과 비교해 우리 회사가 얼마나 성장했는지 바로 확인할 수 있습니다.',
     image: '/screenshots/growth-analytics.png',
-    alt: '성장분석 화면 — 프로필 완성도와 파이프라인 성과 추이 선그래프',
+    alt: '성장분석 화면 — AI 분석 커버리지와 파이프라인 성과 추이 선그래프',
   },
 ];
 
@@ -3775,14 +3775,62 @@ async function submitBusinessRegistrationProfile(payload) {
   location.hash = '#/onboarding/complete';
 }
 
-// renderOnboardingComplete — #/onboarding/complete (Phase UX-01, 2026-08-04).
-// 사업자등록증 확인 직후 도착하는 축하 화면 — GET /api/dashboard의
-// eligibilitySummary(4버킷, dashboard.go computeEligibilityBucketSummary)를
-// 그대로 읽어 보여준다. missingFields는 판정엔진이 실제로 계산한 값이라
-// (지역/업종/기업규모만) "OO 입력하면 판정 가능"이 정확하다 — 실적/인증/
-// 재무는 판정기준 자체가 없어 이 화면에 정확한 건수로 넣지 않는다(사용자
-// 확인 완료 사항, [[project-phone-toggle-email-verification]]과 같은 세션의
-// 원칙 재사용: 확인 안 된 걸 확인된 것처럼 보여주지 않는다).
+// ==================== Phase UX-03(2026-08-04): 단계별 정보요청 카드 ====================
+// renderOnboardingComplete가 4버킷 요약을 보여준 뒤, 그 아래에 정보요청
+// 카드를 하나씩 순차 노출한다("단계별 정보요청 + 즉시 보상"). 판정 로직
+// (eligibility.go/scoring.go)은 전혀 안 건드리고, 이미 있는 두 실데이터
+// 소스만 쓴다:
+//  - eligibilitySummary.missingFieldCounts(dashboard.go, 이번에 추가) —
+//    지역/업종/기업규모 중 실제로 빈 필드가 몇 건의 판정을 막고 있는지.
+//    이 3개만 등록 후 진짜 "+N건" 델타를 보여줄 수 있다(판정기준이 있어서).
+//  - documentRequirementGaps(Phase UX-02) — 실적/인증/직접생산확인은
+//    판정기준 자체가 없어 델타를 못 내므로, "이 서류를 요구하는 공고
+//    N건" 안내만 등록 전에 보여주고 등록 후엔 "등록 완료" 확정 문구만
+//    표시한다(사용자 확인 완료 — 없는 걸 있는 것처럼 보여주지 않는다).
+//
+// 큐 상태(onboardingCardQueueState)는 모듈 스코프에 둔다 — 모바일에서는
+// [등록]이 모달이 아니라 전체화면 라우트 이동(#/onboarding/complete/
+// register/{fieldKey})이라, 그 페이지에서 저장 완료 후 #/onboarding/
+// complete로 돌아왔을 때도 큐 진행 상태(몇 번째 카드인지, 누적 카운트)가
+// 안 끊기려면 route() 재실행을 넘어 살아있는 상태가 필요하기 때문이다.
+
+let onboardingCardQueueState = null;
+
+// buildOnboardingCardQueue — 카드 순서: 판정가능(지역/업종/기업규모, 영향
+// 건수 내림차순) 먼저, 그 다음 일반안내(실적/인증/직접생산확인, 요구서류
+// 건수 내림차순) — 앞 3개만 큐로 쓴다(사용자 스펙 5번 그대로).
+function buildOnboardingCardQueue(data) {
+  const eg = data.eligibilitySummary || { missingFields: [], missingFieldCounts: {} };
+  const counts = eg.missingFieldCounts || {};
+  const judged = (eg.missingFields || [])
+    .map(f => ({ type: 'judged', fieldKey: f, label: ELIGIBILITY_MISSING_FIELD_LABELS[f] || f, count: counts[f] || 0 }))
+    .filter(c => c.count > 0)
+    .sort((a, b) => b.count - a.count);
+  const general = (data.documentRequirementGaps || [])
+    .map(g => ({ type: 'general', fieldKey: g.category, label: g.label, count: g.noticeCount }))
+    .sort((a, b) => b.count - a.count);
+  return judged.concat(general).slice(0, 3);
+}
+
+const ONBOARDING_QUICK_FORM_TITLES = {
+  region: '사업장 지역 등록', industry: '업종 등록', companySize: '기업 규모 등록',
+  trackRecord: '수행실적 등록', certification: '인증 등록', directProduction: '직접생산확인 등록',
+};
+// 실적/인증은 기업프로필/면허·인증 화면에 이미 있는 컨테이너 비의존적
+// 폼을 그대로 재사용한다(renderTrackRecordForm/renderLicenseConfirmForm) —
+// candidate=null로 호출하면 "직접 입력" 빈 폼으로 뜬다.
+const ONBOARDING_QUICK_FORM_RENDERERS = {
+  region: renderRegionQuickForm,
+  industry: renderIndustryQuickForm,
+  companySize: renderCompanySizeQuickForm,
+  trackRecord: (slot, onSaved) => renderTrackRecordForm(slot, null, null, onSaved),
+  certification: (slot, onSaved) => renderLicenseConfirmForm(slot, null, null, onSaved),
+  directProduction: renderDirectProductionQuickForm,
+};
+
+// renderOnboardingComplete — #/onboarding/complete (Phase UX-01 신설,
+// Phase UX-03에서 카드 큐 추가). 4버킷 요약은 기존 그대로 먼저 그리고,
+// 그 아래 #onboarding-card-area에 카드 큐를 그린다.
 async function renderOnboardingComplete(container) {
   document.body.classList.remove('is-landing');
   container.innerHTML = '';
@@ -3797,12 +3845,8 @@ async function renderOnboardingComplete(container) {
     return;
   }
 
-  const eg = data.eligibilitySummary || { ready: 0, needsReview: 0, notRecommended: 0, insufficientData: 0, missingFields: [] };
+  const eg = data.eligibilitySummary || { ready: 0, needsReview: 0, notRecommended: 0, insufficientData: 0 };
   const total = eg.ready + eg.needsReview + eg.notRecommended + eg.insufficientData;
-  const missingLabels = (eg.missingFields || []).map(f => ELIGIBILITY_MISSING_FIELD_LABELS[f] || f);
-  const insufficientNote = eg.insufficientData > 0 && missingLabels.length
-    ? `현재는 ${missingLabels.join('·')} 정보가 없어 ${eg.insufficientData}건을 정확하게 판정하지 못했습니다.`
-    : '';
   const companyName = (currentProfile && currentProfile.companyName) || '';
   const title = companyName ? `🎉 ${escapeHtml(companyName)}의 AI 회사 프로필을 만들었습니다` : '🎉 AI 회사 프로필을 만들었습니다';
 
@@ -3816,17 +3860,364 @@ async function renderOnboardingComplete(container) {
         <div class="profile-summary-row"><span>🟡 조건 보완 후 참여 가능</span><strong>${eg.needsReview}건</strong></div>
         <div class="profile-summary-row"><span>🔴 현재 참여 어려움</span><strong>${eg.notRecommended}건</strong></div>
       </div>
-      ${insufficientNote ? `<p class="license-card-meta">${escapeHtml(insufficientNote)} <a href="#/me/profile">${escapeHtml(missingLabels[0])} 입력하기 &rarr;</a></p>` : ''}
-      ${(data.documentRequirementGaps || []).map(g => `
-        <p class="license-card-meta">${escapeHtml(g.label)} 정보가 없어 ${g.noticeCount}건의 요구서류를 아직 확인하지 못했습니다. <a href="${escapeAttr(g.ctaHref)}">${escapeHtml(g.label)} 등록하기 &rarr;</a></p>
-      `).join('')}
-      <div class="home-hero-actions" style="margin-top:1.25rem">
-        <a href="#/notices" class="home-cta-primary">추천 공고 보기</a>
-        <a href="#/me/profile" class="home-cta-secondary">실적 등록하기</a>
+    </div>
+    <div id="onboarding-card-area" style="max-width:560px;margin:0 auto"></div>
+  `));
+  const cardArea = document.getElementById('onboarding-card-area');
+
+  // 모바일 등록 페이지에서 저장을 마치고 돌아온 경우 — 큐를 새로 만들지
+  // 않고 방금 등록한 카드의 "결과"(전/후 카운트 또는 등록완료 확정문구)를
+  // 이어서 보여준다. 그 외(처음 진입/다른 경로에서 돌아옴)엔 최신
+  // data로 큐를 새로 만든다.
+  if (onboardingCardQueueState && onboardingCardQueueState.pendingResultCard) {
+    const card = onboardingCardQueueState.pendingResultCard;
+    onboardingCardQueueState.pendingResultCard = null;
+    renderOnboardingCardResult(cardArea, card, data);
+    return;
+  }
+
+  onboardingCardQueueState = {
+    queue: buildOnboardingCardQueue(data),
+    index: 0,
+    currentTotal: eg.ready + eg.needsReview,
+  };
+  renderOnboardingCurrentCard(cardArea);
+}
+
+function renderOnboardingCurrentCard(cardArea) {
+  const state = onboardingCardQueueState;
+  if (!state) return;
+  if (state.index >= state.queue.length) {
+    renderOnboardingQueueClosing(cardArea);
+    return;
+  }
+  const card = state.queue[state.index];
+  const promptText = card.type === 'judged'
+    ? `${card.label}을(를) 등록하면 추천공고 ${card.count}건을 더 정확하게 분석할 수 있습니다.`
+    : `${card.label} 정보가 없어 ${card.count}건의 요구서류를 아직 확인하지 못했습니다.`;
+  cardArea.innerHTML = '';
+  cardArea.appendChild(h(`
+    <div class="detail-card">
+      ${stepIndicatorHtml(state.index, state.queue.length, `${state.queue.length}개 중 ${state.index + 1}번째 작성 중`)}
+      <p class="license-card-meta" style="margin-top:0.75rem">${escapeHtml(promptText)}</p>
+      <div class="home-hero-actions">
+        <button type="button" class="btn btn-primary" id="onboarding-card-register-btn">등록</button>
+        <button type="button" class="btn btn-secondary" id="onboarding-card-skip-btn">무시</button>
       </div>
     </div>
   `));
+  document.getElementById('onboarding-card-register-btn').addEventListener('click', () => startOnboardingCardRegistration(card));
+  document.getElementById('onboarding-card-skip-btn').addEventListener('click', () => {
+    state.index += 1;
+    renderOnboardingCurrentCard(cardArea);
+  });
 }
+
+// startOnboardingCardRegistration — PC(768px 이상)는 중앙 모달, 모바일은
+// 전체화면 라우트 이동으로 같은 입력폼을 띄운다. 이 분기 외엔 기존에
+// 재사용할 패턴이 없어(전 코드베이스에 "모달-vs-라우트" 분기가 없음)
+// 새로 만든 것 — 판단 기준은 클릭 시점의 window.innerWidth.
+function startOnboardingCardRegistration(card) {
+  if (window.innerWidth >= 768) {
+    const modalBody = openModal(ONBOARDING_QUICK_FORM_TITLES[card.fieldKey] || card.label, '');
+    const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[card.fieldKey];
+    renderForm(modalBody, async () => {
+      closeModal();
+      const cardArea = document.getElementById('onboarding-card-area');
+      await finishOnboardingCardRegistration(card, cardArea);
+    });
+  } else {
+    onboardingCardQueueState.pendingRegisterCard = card;
+    location.hash = '#/onboarding/complete/register/' + encodeURIComponent(card.fieldKey);
+  }
+}
+
+// renderOnboardingRegisterPage — #/onboarding/complete/register/{fieldKey}
+// (모바일 전용, 등록 화면 자체는 PC 모달과 완전히 동일한 폼 함수를 그대로
+// 재사용한다). 저장 완료 시 모달 경로와 다르게 여기서 바로 결과를 못
+// 그린다(페이지 전체가 곧 사라지므로) — pendingResultCard에 표시만 해두고
+// #/onboarding/complete로 돌아가면 그쪽에서 결과를 이어 그린다.
+function renderOnboardingRegisterPage(container, fieldKey) {
+  document.body.classList.add('is-auth');
+  document.body.classList.remove('is-landing');
+  const state = onboardingCardQueueState;
+  const card = state && state.pendingRegisterCard;
+  if (!state || !card || card.fieldKey !== fieldKey) {
+    location.hash = '#/onboarding/complete';
+    return;
+  }
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="detail-card" style="max-width:560px;margin:1.5rem auto">
+      <a href="#/onboarding/complete" class="back-link">&larr; 뒤로</a>
+      <div id="onboarding-register-indicator" style="margin:0.75rem 0"></div>
+      <div id="onboarding-register-form-slot"></div>
+    </div>
+  `));
+  document.getElementById('onboarding-register-indicator').innerHTML =
+    stepIndicatorHtml(state.index, state.queue.length, `${state.queue.length}개 중 ${state.index + 1}번째 작성 중`);
+  const formSlot = document.getElementById('onboarding-register-form-slot');
+  const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[card.fieldKey];
+  renderForm(formSlot, () => {
+    state.pendingRegisterCard = null;
+    state.pendingResultCard = card;
+    location.hash = '#/onboarding/complete';
+  });
+}
+
+// finishOnboardingCardRegistration — PC 모달 경로 전용(모바일은
+// renderOnboardingComplete의 재진입 로직이 같은 결과 렌더링을 담당).
+// 저장 직후 GET /api/dashboard를 다시 불러 실제 전/후 차이를 낸다 —
+// 새 diff 전용 엔드포인트 없이 캐싱 없는 기존 엔드포인트를 두 번 쓰는 것.
+async function finishOnboardingCardRegistration(card, cardArea) {
+  const state = onboardingCardQueueState;
+  if (!state) return;
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/dashboard');
+  } catch (err) {
+    // 재계산 실패해도 등록 자체는 이미 성공했으니 결과 표시 없이 다음으로.
+    state.index += 1;
+    renderOnboardingCurrentCard(cardArea);
+    return;
+  }
+  renderOnboardingCardResult(cardArea, card, data);
+}
+
+// renderOnboardingCardResult — 판정가능형은 "현재 추천공고 N건 → M건
+// (+K)" 실델타(등록 전/후 GET /api/dashboard 두 값의 차이, 하드코딩
+// 아님), 일반안내형(실적/인증/직접생산확인)은 판정기준이 없어 델타를
+// 낼 수 없으므로 "등록 완료" 확정 문구만(사용자 확인 완료 사항).
+function renderOnboardingCardResult(cardArea, card, data) {
+  const state = onboardingCardQueueState;
+  const eg = data.eligibilitySummary || { ready: 0, needsReview: 0 };
+  let resultText;
+  if (card.type === 'judged') {
+    const after = eg.ready + eg.needsReview;
+    const before = state.currentTotal;
+    const delta = after - before;
+    const deltaText = delta > 0 ? ` (+${delta})` : (delta < 0 ? ` (${delta})` : ' (변동 없음)');
+    resultText = `현재 추천공고 ${before}건 → ${after}건${deltaText}`;
+    state.currentTotal = after;
+  } else {
+    resultText = '✓ 등록 완료 — 앞으로 이 서류를 요구하는 판정에 반영됩니다.';
+  }
+  cardArea.innerHTML = '';
+  cardArea.appendChild(h(`
+    <div class="detail-card">
+      <p class="license-card-meta">${escapeHtml(resultText)}</p>
+      <div class="home-hero-actions">
+        <button type="button" class="btn btn-primary" id="onboarding-card-next-btn">다음</button>
+      </div>
+    </div>
+  `));
+  document.getElementById('onboarding-card-next-btn').addEventListener('click', () => {
+    state.index += 1;
+    renderOnboardingCurrentCard(cardArea);
+  });
+}
+
+// renderOnboardingQueueClosing — 카드 큐(최대 3장) 소진 후 마무리 화면.
+// 최신 데이터로 갭을 다시 계산해 진짜로 다 해소됐는지 확인한다(등록/무시가
+// 섞여있을 수 있어 큐를 만들 때의 스냅샷을 그대로 믿지 않음).
+async function renderOnboardingQueueClosing(cardArea) {
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/dashboard');
+  } catch (err) {
+    cardArea.innerHTML = '';
+    cardArea.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+  const remaining = buildOnboardingCardQueue(data);
+  cardArea.innerHTML = '';
+  if (!remaining.length) {
+    cardArea.appendChild(h(`
+      <div class="detail-card" style="text-align:center">
+        <p class="license-card-meta">모든 정보를 확인했습니다!</p>
+        <div class="home-hero-actions">
+          <a href="#/notices" class="home-cta-primary">추천 공고 보기 →</a>
+        </div>
+      </div>
+    `));
+    onboardingCardQueueState = null;
+    return;
+  }
+  const first = remaining[0];
+  const closingText = `${first.label} 정보가 없어 ${first.count}건을 아직 판정하지 못했습니다. ${first.label}을(를) 등록하면 다시 분석합니다.`;
+  cardArea.appendChild(h(`
+    <div class="detail-card" style="text-align:center">
+      <p class="license-card-meta">${escapeHtml(closingText)}</p>
+      <div class="home-hero-actions">
+        <a href="#/notices" class="home-cta-primary">완료</a>
+        <button type="button" class="btn btn-secondary" id="onboarding-queue-restart-btn">처음부터</button>
+      </div>
+    </div>
+  `));
+  document.getElementById('onboarding-queue-restart-btn').addEventListener('click', () => {
+    onboardingCardQueueState = {
+      queue: remaining,
+      index: 0,
+      currentTotal: (data.eligibilitySummary ? data.eligibilitySummary.ready + data.eligibilitySummary.needsReview : 0),
+    };
+    renderOnboardingCurrentCard(cardArea);
+  });
+}
+
+// companyProfileUpdatePayload — PUT /api/me/company-profile는 부분수정이
+// 아니라 항상 전체 컬럼을 덮어쓰는 UPDATE라(auth.go), 미니 등록폼처럼
+// 필드 하나만 물어보는 화면도 currentProfile 전체를 다시 실어 보내야
+// 나머지 필드가 NULL로 덮어써지는 사고를 막는다. overrides로 바뀐
+// 필드만 얹어서 반환.
+function companyProfileUpdatePayload(overrides) {
+  const p = currentProfile || {};
+  return Object.assign({
+    businessRegistrationNumber: p.businessRegistrationNumber || null,
+    companyName: p.companyName || null,
+    representativeName: p.representativeName || null,
+    address: p.address || null,
+    businessType: p.businessType || [],
+    region: p.region || null,
+    industry: p.industry || [],
+    businessAgeYears: p.businessAgeYears != null ? p.businessAgeYears : null,
+    revenueAmount: p.revenueAmount != null ? p.revenueAmount : null,
+    employeeCount: p.employeeCount != null ? p.employeeCount : null,
+    companySize: p.companySize || null,
+    licenses: p.licenses || [],
+    certifications: p.certifications || [],
+    directProductionCert: !!p.directProductionCert,
+    maxPerformanceAmount: p.maxPerformanceAmount != null ? p.maxPerformanceAmount : null,
+    creditRating: p.creditRating || null,
+    phoneNumber: p.phoneNumber || null,
+  }, overrides);
+}
+
+function renderRegionQuickForm(container, onSaved) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <form id="quick-region-form" class="profile-form">
+      <label>지역
+        <select name="region" class="select-input" required>
+          <option value="">선택해주세요</option>
+          ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}">${escapeHtml(r)}</option>`).join('')}
+        </select>
+      </label>
+      <div id="quick-region-error" class="error" style="display:none"></div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  `));
+  const form = document.getElementById('quick-region-form');
+  const errorBox = document.getElementById('quick-region-error');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    try {
+      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ region: fd.get('region') || null }));
+      currentProfile = data.companyProfile;
+      onSaved();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+function renderIndustryQuickForm(container, onSaved) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <form id="quick-industry-form" class="profile-form">
+      <div class="field-group">
+        <span class="field-group-label">업종(복수 선택 가능)</span>
+        <div class="checkbox-grid">
+          ${INDUSTRY_GROUPS.map(g => `<label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}"> ${escapeHtml(g)}</label>`).join('')}
+        </div>
+      </div>
+      <div id="quick-industry-error" class="error" style="display:none"></div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  `));
+  const form = document.getElementById('quick-industry-form');
+  const errorBox = document.getElementById('quick-industry-error');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const industry = new FormData(form).getAll('industry');
+    if (!industry.length) {
+      errorBox.textContent = '하나 이상 선택해주세요.';
+      errorBox.style.display = 'block';
+      return;
+    }
+    try {
+      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ industry }));
+      currentProfile = data.companyProfile;
+      onSaved();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+function renderCompanySizeQuickForm(container, onSaved) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <form id="quick-company-size-form" class="profile-form">
+      <label>기업 규모
+        <select name="companySize" class="select-input" required>
+          <option value="">선택해주세요</option>
+          ${COMPANY_SIZE_OPTIONS.map(sz => `<option value="${escapeAttr(sz)}">${escapeHtml(sz)}</option>`).join('')}
+        </select>
+      </label>
+      <div id="quick-company-size-error" class="error" style="display:none"></div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  `));
+  const form = document.getElementById('quick-company-size-form');
+  const errorBox = document.getElementById('quick-company-size-error');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    try {
+      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ companySize: fd.get('companySize') || null }));
+      currentProfile = data.companyProfile;
+      onSaved();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+// renderDirectProductionQuickForm — company_profiles.direct_production_cert
+// 를 true로 켜는 단순 확인 액션(체크박스가 아니라 버튼 하나로 단순화 —
+// 이 카드는 "보유 여부를 몰라서" 온 게 아니라 "아직 등록 안 해서" 온
+// 경우가 대부분이라 확인 즉시 등록이 더 자연스럽다). dashboard.go의
+// computeDocumentRequirementGaps가 이 컬럼값을 직접 확인하도록 고쳐뒀다.
+function renderDirectProductionQuickForm(container, onSaved) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div>
+      <p class="license-card-meta">직접생산확인증명서를 보유하고 계신가요?</p>
+      <div id="quick-direct-production-error" class="error" style="display:none"></div>
+      <button type="button" id="quick-direct-production-confirm-btn" class="btn btn-primary btn-block">예, 보유하고 있습니다</button>
+    </div>
+  `));
+  const errorBox = document.getElementById('quick-direct-production-error');
+  document.getElementById('quick-direct-production-confirm-btn').addEventListener('click', async () => {
+    errorBox.style.display = 'none';
+    try {
+      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ directProductionCert: true }));
+      currentProfile = data.companyProfile;
+      onSaved();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+// ==================== /Phase UX-03 ====================
 
 // PIPELINE_STATUS_LIST — notice_pipeline_entries.status의 9단계, DB
 // CHECK 제약과 정확히 같은 값·순서(company_pipeline.go validPipelineStatuses).
@@ -9070,10 +9461,10 @@ function renderGrowthTrendSections(trendContainer, gradeTrendContainer, allTrend
     ]);
     trendHtml = `
       <div class="detail-card">
-        <h3>완성도·파이프라인 성과 추이</h3>
+        <h3>AI 분석 커버리지·파이프라인 성과 추이</h3>
         <p class="license-card-meta">매주 월요일/매월 1일 생성되는 리포트를 시간순으로 모은 값입니다.</p>
         ${filterHtml}
-        <p class="growth-chart-title">프로필 완성도(%)</p>
+        <p class="growth-chart-title">AI 분석 커버리지(%)</p>
         ${completenessChart}
         <p class="growth-chart-title">파이프라인 성과(건)</p>
         ${pipelineChart}
@@ -9087,7 +9478,7 @@ function renderGrowthTrendSections(trendContainer, gradeTrendContainer, allTrend
   } else if (allTrendPoints.length >= 1 && trendPoints.length < 2) {
     trendHtml = `
       <div class="detail-card">
-        <h3>완성도·파이프라인 성과 추이</h3>
+        <h3>AI 분석 커버리지·파이프라인 성과 추이</h3>
         ${filterHtml}
         <p class="empty">선택한 기간에는 그래프를 그릴 만큼 리포트가 쌓이지 않았습니다 — 기간을 넓혀보세요.</p>
       </div>
@@ -9095,7 +9486,7 @@ function renderGrowthTrendSections(trendContainer, gradeTrendContainer, allTrend
   } else {
     trendHtml = `
       <div class="detail-card">
-        <h3>완성도·파이프라인 성과 추이</h3>
+        <h3>AI 분석 커버리지·파이프라인 성과 추이</h3>
         <p class="empty">아직 쌓인 리포트가 없습니다. 매주 월요일/매월 1일 자동 생성되면 여기 표시됩니다.</p>
       </div>
     `;
@@ -9139,7 +9530,7 @@ function renderGrowthTrendSections(trendContainer, gradeTrendContainer, allTrend
 function renderGrowthBenchmarkSection(container, benchmark) {
   if (!container || !benchmark) return;
   const metrics = [
-    { key: 'profileCompleteness', label: '프로필 완성도', unit: '%', fmt: v => Math.round(v) },
+    { key: 'profileCompleteness', label: 'AI 분석 커버리지', unit: '%', fmt: v => Math.round(v) },
     { key: 'pipelineConversion', label: '파이프라인 전환율(참여검토 → 제출완료)', unit: '%', fmt: v => Math.round(v * 100) },
   ];
   const rowsHtml = metrics.map(m => {
@@ -10870,6 +11261,14 @@ function route() {
     '#/onboarding/business-registration', '#/onboarding/complete',
     '#/terms', '#/privacy',
   ]);
+  // isAuthOnboardingRoute — Phase UX-03(2026-08-04)에 추가한 모바일 단계별
+  // 정보요청 전체화면(#/onboarding/complete/register/{fieldKey})은 fieldKey가
+  // 동적이라 AUTH_ONBOARDING_ROUTES.has()로는 못 잡는다 — isPublicRoute가
+  // #/announcements/에 쓰는 것과 같은 방식으로 prefix 매치를 허용한다. 위
+  // 세 게이트 전부 이 함수로 통일해서 검사해야 한다(공용 예외목록 원칙,
+  // feedback-sequential-route-gates-shared-exempt-list 메모리 참고) — 새
+  // 게이트/새 동적 온보딩 경로를 추가하게 되면 이 함수부터 갱신할 것.
+  const isAuthOnboardingRoute = (p) => AUTH_ONBOARDING_ROUTES.has(p) || p.startsWith('#/onboarding/complete/register/');
   // 소셜 로그인(구글/네이버/카카오)은 콜백(oauth_login.go)이 계정을 즉시
   // 만들고 세션을 발급하므로, 약관동의(온보딩 화면, renderOAuthOnboardingStep)
   // 를 마치기 전에도 currentUser는 있는 상태가 될 수 있다 — 이 틈을 타
@@ -10881,7 +11280,7 @@ function route() {
   // terms_agreements 존재 여부로 계산해서 내려줌, auth.go의 handleMe 참고).
   // role==='user'(일반 회원가입 사용자)만 대상이다 — system_admin/operator/
   // analyst 등 내부 운영 계정은 원래부터 이 온보딩을 거치지 않도록 설계됨.
-  if (currentUser && currentUser.role === 'user' && !currentUser.onboarded && !AUTH_ONBOARDING_ROUTES.has(path)) {
+  if (currentUser && currentUser.role === 'user' && !currentUser.onboarded && !isAuthOnboardingRoute(path)) {
     location.hash = '#/auth/oauth-profile';
     return;
   }
@@ -10890,7 +11289,7 @@ function route() {
   // 온보딩 가드와 같은 방식으로 대부분의 화면 접근을 막는다. 소셜
   // 로그인은 제공자가 이미 검증한 이메일이라 email_verified가 계정 생성
   // 시점에 바로 true라 이 가드 대상이 아니다.
-  if (currentUser && currentUser.role === 'user' && !currentUser.emailVerified && !AUTH_ONBOARDING_ROUTES.has(path)) {
+  if (currentUser && currentUser.role === 'user' && !currentUser.emailVerified && !isAuthOnboardingRoute(path)) {
     location.hash = '#/auth/verify-email-pending';
     return;
   }
@@ -10902,7 +11301,7 @@ function route() {
   // 존재 여부의 유일한 신호)라 별도 필드를 새로 만들 필요 없이 그대로
   // 재사용한다. role==='user'만 대상(내부 운영 계정은 회사 프로필 개념
   // 자체가 없어 대상 아님).
-  if (currentUser && currentUser.role === 'user' && !currentProfile && !AUTH_ONBOARDING_ROUTES.has(path)) {
+  if (currentUser && currentUser.role === 'user' && !currentProfile && !isAuthOnboardingRoute(path)) {
     location.hash = '#/onboarding/business-registration';
     return;
   }
@@ -10952,6 +11351,8 @@ function route() {
   if (path === '#/auth/oauth-profile') { document.body.classList.add('is-auth'); renderOAuthProfileStep(app); return; }
   if (path === '#/onboarding/business-registration') { renderBusinessRegistrationOnboarding(app); return; }
   if (path === '#/onboarding/complete') { renderOnboardingComplete(app); return; }
+  const onboardingRegisterMatch = path.match(/^#\/onboarding\/complete\/register\/(.+)$/);
+  if (onboardingRegisterMatch) { renderOnboardingRegisterPage(app, decodeURIComponent(onboardingRegisterMatch[1])); return; }
   if (path === '#/me/profile') { renderProfile(app); return; }
   if (path === '#/me/bookmarks') { renderBookmarks(app); return; }
   if (path === '#/notifications') { renderNotifications(app); return; }
