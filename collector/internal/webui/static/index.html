@@ -3805,9 +3805,27 @@ async function submitBusinessRegistrationProfile(payload) {
 
 let onboardingCardQueueState = null;
 
+// documentRequirementGapPromptText — Phase UX-05(2026-08-04). dashboard.go의
+// documentRequirementGaps는 이제 noticeCount==0인 항목도 내려준다(그
+// 카테고리 데이터가 아직 없다는 뜻이지 영향 건수를 몰라도 되는 건 아님) —
+// noticeCount가 있으면 실제 영향 건수를, 없으면 건수 주장 없이 "아직
+// 등록하지 않았습니다"로 정직하게 표현한다. 대시보드 홈 카드
+// (renderDocumentRequirementGapsHtml)와 온보딩 카드 큐 둘 다 공유.
+function documentRequirementGapPromptText(label, noticeCount) {
+  return noticeCount > 0
+    ? `${label} 정보가 없어 ${noticeCount}건의 요구서류를 아직 확인하지 못했습니다.`
+    : `${label} 정보가 아직 없습니다. 등록하면 관련 공고 판정에 활용됩니다.`;
+}
+
 // buildOnboardingCardQueue — 카드 순서: 판정가능(지역/업종/기업규모, 영향
 // 건수 내림차순) 먼저, 그 다음 일반안내(실적/인증/직접생산확인, 요구서류
-// 건수 내림차순) — 앞 3개만 큐로 쓴다(사용자 스펙 5번 그대로).
+// 건수 내림차순 — noticeCount==0인 항목은 실제 영향을 몰라 순위가 자연히
+// 뒤로 밀린다) — 앞 3개만 큐로 쓴다(사용자 스펙 5번 그대로). ⚠️2026-08-04
+// 실제 재현된 버그: required_documents 데이터가 희박한 초기 상태에서는
+// noticeCount>0인 일반안내 후보가 하나도 없어 판정가능 카드(보통
+// 기업규모 하나) 뒤에 카드가 더 안 붙고 큐가 1개로 끝나버렸다 —
+// dashboard.go가 noticeCount==0 항목도 내려주도록 고쳐서, 실제 영향
+// 건수를 몰라도 "아직 등록 안 함" 카드로는 계속 채워지게 했다.
 function buildOnboardingCardQueue(data) {
   const eg = data.eligibilitySummary || { missingFields: [], missingFieldCounts: {} };
   const counts = eg.missingFieldCounts || {};
@@ -3901,7 +3919,7 @@ function renderOnboardingCurrentCard(cardArea) {
   const card = state.queue[state.index];
   const promptText = card.type === 'judged'
     ? `${card.label}을(를) 등록하면 추천공고 ${card.count}건을 더 정확하게 분석할 수 있습니다.`
-    : `${card.label} 정보가 없어 ${card.count}건의 요구서류를 아직 확인하지 못했습니다.`;
+    : documentRequirementGapPromptText(card.label, card.count);
   cardArea.innerHTML = '';
   cardArea.appendChild(h(`
     <div class="detail-card">
@@ -4037,8 +4055,12 @@ async function renderOnboardingQueueClosing(cardArea) {
     return;
   }
   const remaining = buildOnboardingCardQueue(data);
+  // "다 확인했다"는 판단은 실제 영향 건수가 있는 것만 기준으로 한다 —
+  // noticeCount==0인 일반안내 항목(아직 그 서류를 요구하는 열린 공고를
+  // 못 찾았을 뿐)까지 남아있다고 마무리를 영원히 막으면 안 된다.
+  const meaningfulRemaining = remaining.filter(c => c.type === 'judged' || c.count > 0);
   cardArea.innerHTML = '';
-  if (!remaining.length) {
+  if (!meaningfulRemaining.length) {
     cardArea.appendChild(h(`
       <div class="detail-card" style="text-align:center">
         <p class="license-card-meta">모든 정보를 확인했습니다!</p>
@@ -4050,8 +4072,10 @@ async function renderOnboardingQueueClosing(cardArea) {
     onboardingCardQueueState = null;
     return;
   }
-  const first = remaining[0];
-  const closingText = `${first.label} 정보가 없어 ${first.count}건을 아직 판정하지 못했습니다. ${first.label}을(를) 등록하면 다시 분석합니다.`;
+  const first = meaningfulRemaining[0];
+  const closingText = first.count > 0
+    ? `${first.label} 정보가 없어 ${first.count}건을 아직 판정하지 못했습니다. ${first.label}을(를) 등록하면 다시 분석합니다.`
+    : `${first.label} 정보가 아직 없습니다. ${first.label}을(를) 등록하면 다시 분석합니다.`;
   cardArea.appendChild(h(`
     <div class="detail-card" style="text-align:center">
       <p class="license-card-meta">${escapeHtml(closingText)}</p>
@@ -4472,7 +4496,7 @@ function renderEligibilitySummaryHtml(eg, overallCompleteness) {
 function renderDocumentRequirementGapsHtml(gaps) {
   if (!gaps || !gaps.length) return '';
   const rows = gaps.map(g => `
-    <p class="license-card-meta">${escapeHtml(g.label)} 정보가 없어 ${g.noticeCount}건의 요구서류를 아직 확인하지 못했습니다. <a href="${escapeAttr(g.ctaHref)}">${escapeHtml(g.label)} 등록하기 &rarr;</a></p>
+    <p class="license-card-meta">${escapeHtml(documentRequirementGapPromptText(g.label, g.noticeCount))} <a href="${escapeAttr(g.ctaHref)}">${escapeHtml(g.label)} 등록하기 &rarr;</a></p>
   `).join('');
   return `
     <div class="detail-card">

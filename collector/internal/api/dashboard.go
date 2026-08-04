@@ -432,6 +432,17 @@ func (s *Server) computeEligibilityBucketSummary(ctx context.Context, company co
 // 집계라 판정 로직을 전혀 건드리지 않고도 실제 숫자를 낼 수 있다. 회사가
 // 해당 카테고리 데이터를 하나라도 이미 갖고 있으면(이미 등록했으면) 더 이상
 // "부족한 정보"가 아니므로 응답에서 제외한다.
+//
+// ⚠️ 2026-08-04 Phase UX-05: NoticeCount==0인 항목도 이제 응답에 포함한다
+// (원래는 count>0일 때만 넣었음). 실제 온보딩 흐름에서 확인해보니
+// required_documents 자체가 아직 희박한 초기 상태에서는(공고가 첨부문서
+// 처리를 아직 안 거쳤거나 요구서류 텍스트가 키워드와 안 맞으면) 이 세
+// 카테고리가 전부 빠져 온보딩 카드 큐가 "지역/업종/기업규모" 딱 1개로만
+// 끝나버리는 문제가 있었다(사용자 실제 재현 확인). NoticeCount==0은
+// "정확한 영향 건수를 아직 모른다"는 뜻이지 "이 회사가 이 데이터를 이미
+// 갖고 있다"는 뜻이 아니므로(hasAny==false는 위에서 이미 확인됨) 여전히
+// "부족한 정보"가 맞다 — 프론트가 NoticeCount 유무로 문구만 다르게
+// 보여준다("N건의 요구서류를 확인 못함" vs "아직 등록하지 않았습니다").
 type documentRequirementGapItem struct {
 	Category    string `json:"category"`
 	Label       string `json:"label"`
@@ -501,11 +512,10 @@ func (s *Server) computeDocumentRequirementGaps(ctx context.Context, profileID s
 		if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
 			return nil, err
 		}
-		if count > 0 {
-			gaps = append(gaps, documentRequirementGapItem{
-				Category: cat.Category, Label: cat.Label, NoticeCount: count, CtaHref: cat.CtaHref,
-			})
-		}
+		// count==0이어도 넣는다 — 위 doc comment 참고(Phase UX-05).
+		gaps = append(gaps, documentRequirementGapItem{
+			Category: cat.Category, Label: cat.Label, NoticeCount: count, CtaHref: cat.CtaHref,
+		})
 	}
 	return gaps, nil
 }
