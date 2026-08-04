@@ -415,7 +415,16 @@
   /* 공고 검색 결과 무한스크롤 — 지금까지 몇 건 불러왔는지 목록 위에
      한 줄로 보여준다. 스크롤로 다음 페이지를 불러올 때마다(20건 단위)
      renderNoticeListItems가 통째로 다시 그리면서 이 숫자도 같이 갱신됨. */
-  .notice-list-counter { font-size: var(--text-caption); font-weight: 700; color: var(--ink-soft); margin: 0 0 0.6rem; }
+  .notice-list-counter { font-size: var(--text-caption); font-weight: 700; color: var(--ink-soft); margin-top: 0; margin-bottom: 0.6rem; }
+  /* 무한스크롤 20건 묶음 구분 표기 — .notice-list(flex column) 안에서
+     .row-card 사이사이에 끼는 행. 클릭 대상이 아니므로 화살표/hover 없이
+     가운데 정렬 텍스트 한 줄로만 표시한다. */
+  .notice-list-batch-divider {
+    margin: 0; padding: 0.6rem var(--space-md);
+    text-align: center; font-size: var(--text-caption); font-weight: 700;
+    color: var(--ink-soft); background: var(--bg-soft);
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
   /* 알림함(#/notifications)에서 "더보기"로 묶음을 불러올 때마다 그 묶음
      위에 붙는 건수 헤더 — "20건 ────────" 처럼 숫자 뒤로 남는 폭만큼
      가로줄이 채운다. */
@@ -837,7 +846,13 @@
   .dash-tile--not-recommended .dash-tile-label::before { background: var(--danger); }
   .dash-tile--clickable { cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; }
   .dash-tile--clickable:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-1px); }
-  .dash-section-title { font-size: 1.05rem; font-weight: 700; color: var(--ink); margin: 0 0 1rem; }
+  /* margin-left/right는 일부러 안 씀 — 900px 이상 사이드바 레이아웃에서
+     main > *(아래 미디어쿼리)가 margin-left/right:auto로 각 섹션을
+     1080px 폭으로 가운데 정렬하는데, 여기서 좌우 margin을 0으로 명시하면
+     그 규칙을 덮어써 이 타이틀만 왼쪽으로 붙어버린다(실제 버그였음,
+     1280px에서는 1080px cap이 아직 안 걸려 안 보이다가 넓은 화면에서만
+     드러남) — 위아래 margin만 지정해 좌우는 main > * 규칙에 맡긴다. */
+  .dash-section-title { font-size: 1.05rem; font-weight: 700; color: var(--ink); margin-top: 0; margin-bottom: 1rem; }
   .fit-score-badge {
     display: inline-block;
     padding: 0.2rem 0.7rem;
@@ -1174,11 +1189,16 @@
   }
   .official-link:hover { text-decoration: underline; }
 
+  /* margin-left/right 생략 이유는 .dash-section-title 주석 참고(같은
+     버그 — main > *의 auto 가운데정렬을 좌우 margin:0이 덮어씀). 이
+     범용 h3 규칙은 클래스 없는 모든 <h3>(예: #/pipeline/{id}의
+     "제출서류 체크리스트")에 적용되므로 여기서 고치면 그 전부가 함께 고쳐진다. */
   h3 {
     font-size: 1.05rem;
     font-weight: 700;
     color: var(--navy);
-    margin: 0 0 0.9rem;
+    margin-top: 0;
+    margin-bottom: 0.9rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid var(--border);
   }
@@ -1747,8 +1767,10 @@
   @keyframes bizRegPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
   /* ---------- 기업 프로필 탭(기본정보/재무정보/수행실적/인력정보) ---------- */
+  /* margin-left/right 생략 이유는 .dash-section-title 주석 참고(같은
+     버그 — main > *의 auto 가운데정렬을 좌우 margin:0이 덮어씀). */
   .profile-tabs {
-    display: flex; gap: 0.4rem; margin: 1rem 0 1.5rem; border-bottom: 1px solid var(--border);
+    display: flex; gap: 0.4rem; margin-top: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border);
     overflow-x: auto; -webkit-overflow-scrolling: touch;
   }
   .profile-tab-btn {
@@ -5128,6 +5150,19 @@ function noticeRowHtml(n) {
 // 카운터 한 줄(#notice-list-counter) + 목록. 무한스크롤로 새 페이지를
 // 불러올 때마다(loadMoreNotices) 이 함수가 통째로 다시 그리면서 카운터도
 // 같이 갱신된다.
+// NOTICE_LIST_BATCH_SIZE — loadMoreNotices가 한 번에 불러오는 페이지
+// 크기(20건)와 반드시 같은 값. 무한스크롤 중 "20건 표시 중" 구분 표기를
+// 몇 건마다 끼워 넣을지 여기서 결정한다.
+const NOTICE_LIST_BATCH_SIZE = 20;
+
+// noticeListCounterText — "N건 / 전체 M건 표시 중" 문구. 목록 맨 위 고정
+// 카운터와, 20건 묶음마다 목록 중간에 끼는 구분 표기가 이 함수를 공유한다.
+function noticeListCounterText(count, total) {
+  return total > count
+    ? `${count.toLocaleString()}건 / 전체 ${total.toLocaleString()}건 표시 중`
+    : `${count.toLocaleString()}건 표시 중`;
+}
+
 function renderNoticeListItems(listBody, items, total) {
   if (!items.length) {
     listBody.className = 'empty';
@@ -5135,14 +5170,21 @@ function renderNoticeListItems(listBody, items, total) {
     listBody.textContent = '조건에 맞는 공고가 없습니다.';
     return;
   }
-  const counterText = total > items.length
-    ? `${items.length}건 / 전체 ${total.toLocaleString()}건 표시 중`
-    : `${items.length}건 표시 중`;
-  const rows = items.map(noticeRowHtml).join('');
+  // 20건 묶음이 끝날 때마다(NOTICE_LIST_BATCH_SIZE 단위) 그 시점까지의
+  // 누적 건수를 목록 중간에 구분 표기로 끼워 넣는다 — 스크롤이 길어져도
+  // "지금까지 몇 건 봤는지"를 계속 확인할 수 있게.
+  const rows = items.map((item, idx) => {
+    const shown = idx + 1;
+    const row = noticeRowHtml(item);
+    if (shown % NOTICE_LIST_BATCH_SIZE === 0) {
+      return row + `<p class="notice-list-batch-divider">${escapeHtml(noticeListCounterText(shown, total))}</p>`;
+    }
+    return row;
+  }).join('');
   listBody.className = '';
   listBody.innerHTML = '';
   listBody.appendChild(h(`
-    <p class="notice-list-counter">${escapeHtml(counterText)}</p>
+    <p class="notice-list-counter">${escapeHtml(noticeListCounterText(items.length, total))}</p>
     <div class="notice-list">${rows}</div>
     <p id="notice-list-sentinel" class="notice-list-sentinel"></p>
   `));
