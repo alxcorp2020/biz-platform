@@ -2289,7 +2289,12 @@ function openModal(title, bodyHtml, opts) {
   document.body.appendChild(overlay);
   document.body.style.overflow = 'hidden';
   overlay.querySelector('.modal-body').appendChild(h(bodyHtml));
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+  // disableBackdropClose — 여러 단계를 이어가는 흐름(온보딩 카드 모달 등)
+  // 에서는 바깥을 실수로 클릭해 전체 진행이 날아가는 걸 막기 위해 배경
+  // 클릭으로 닫히는 기본 동작을 끌 수 있다(닫기 버튼(X)은 그대로 동작).
+  if (!(opts && opts.disableBackdropClose)) {
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+  }
   overlay.querySelector('.modal-close-btn').addEventListener('click', closeModal);
   window.__modalOnClose = (opts && opts.onClose) || null;
   return overlay.querySelector('.modal-body');
@@ -3998,45 +4003,75 @@ function renderOnboardingCurrentCard(cardArea) {
   });
 }
 
-// startOnboardingCardRegistration — PC(768px 이상)는 중앙 모달, 모바일은
-// 전체화면 라우트 이동으로 같은 입력폼을 띄운다(기존 패턴 유지). 미니폼
-// 렌더러는 이제 (container, onSaved, onBack) 3개 인자를 받는다 — onBack은
-// 첫 카드(index===0)면 null(폼이 [이전] 버튼을 아예 안 그림).
+// startOnboardingCardRegistration — PC(768px 이상)는 중앙 모달 하나를
+// 열어 큐가 끝날 때까지 그 안에서 카드를 이어서 처리한다(카드마다 모달을
+// 닫았다 다시 여는 방식은 "등록을 반복해야 한다"는 불편함으로 이어져
+// 폐지 — Phase UX-07). 모바일은 기존처럼 전체화면 라우트 이동.
 function startOnboardingCardRegistration(card) {
   const state = onboardingCardQueueState;
   if (!state) return;
-  const onBack = state.index > 0 ? () => goToOnboardingCard(state.index - 1) : null;
   if (window.innerWidth >= 768) {
-    const modalBody = openModal(ONBOARDING_QUICK_FORM_TITLES[card.fieldKey] || card.label, '');
-    // 모달 안에도 진행 표시를 넣는다 — [이전]으로 이전 카드 폼으로 되돌아갈
-    // 때도 뒤에 깔린 카드 프롬프트(직전 카드 기준이라 안 바뀜)에만 의존하지
-    // 않고 지금 열려있는 폼이 몇 번째인지 정확히 보여주기 위해서다.
-    modalBody.innerHTML = `
-      <div id="onboarding-modal-indicator" style="margin-bottom:0.75rem"></div>
-      <div id="onboarding-modal-form-slot"></div>
-    `;
-    document.getElementById('onboarding-modal-indicator').innerHTML =
-      stepIndicatorHtml(state.index, state.queue.length, `${state.queue.length}개 중 ${state.index + 1}번째 작성 중`);
-    const formSlot = document.getElementById('onboarding-modal-form-slot');
-    const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[card.fieldKey];
-    renderForm(formSlot, () => {
-      showOnboardingSaveResultThenAdvance(card, formSlot, () => {
-        closeModal();
+    const modalBody = openModal(ONBOARDING_QUICK_FORM_TITLES[card.fieldKey] || card.label, '', {
+      disableBackdropClose: true,
+      onClose: () => {
         const cardArea = document.getElementById('onboarding-card-area');
         if (cardArea) renderOnboardingCurrentCard(cardArea);
-      });
-    }, onBack);
+      },
+    });
+    renderOnboardingModalStep(modalBody);
   } else {
     state.pendingRegisterCard = card;
     location.hash = '#/onboarding/complete/register/' + encodeURIComponent(card.fieldKey);
   }
 }
 
-// goToOnboardingCard — [이전] 버튼 핸들러. 프롬프트 화면을 거치지 않고
-// 바로 그 카드의 입력폼으로 이동한다(이미 "등록 모드"로 들어와 있는
-// 흐름이라 등록/무시 선택으로 되돌리지 않는다). openModal이 내부적으로
-// closeModal을 먼저 호출하므로 PC에서 모달을 새로 열 때 따로 정리할
-// 필요는 없다.
+// renderOnboardingModalStep — PC 모달 하나를 계속 재사용하며 큐를 진행한다.
+// [이전]/[건너뛰기]/[다음(저장)]이 전부 모달을 닫지 않고 modalBody
+// 내용만 다음 카드 것으로 바꿔치기한다 — 큐가 끝나면 그때 한 번만 모달을
+// 닫고 뒤에 있는 마무리 화면으로 넘어간다.
+function renderOnboardingModalStep(modalBody) {
+  const state = onboardingCardQueueState;
+  if (!state) { closeModal(); return; }
+  if (state.index >= state.queue.length) {
+    closeModal();
+    const cardArea = document.getElementById('onboarding-card-area');
+    if (cardArea) renderOnboardingCurrentCard(cardArea);
+    return;
+  }
+  const card = state.queue[state.index];
+  const titleEl = document.querySelector('#active-modal-overlay .modal-title');
+  if (titleEl) titleEl.textContent = ONBOARDING_QUICK_FORM_TITLES[card.fieldKey] || card.label;
+
+  modalBody.innerHTML = `
+    <div id="onboarding-modal-indicator" style="margin-bottom:0.75rem"></div>
+    <div id="onboarding-modal-form-slot"></div>
+    <button type="button" id="onboarding-modal-skip-btn" class="btn btn-secondary btn-block" style="margin-top:0.75rem">이 항목 건너뛰기</button>
+  `;
+  document.getElementById('onboarding-modal-indicator').innerHTML =
+    stepIndicatorHtml(state.index, state.queue.length, `${state.queue.length}개 중 ${state.index + 1}번째 작성 중`);
+  document.getElementById('onboarding-modal-skip-btn').addEventListener('click', () => {
+    state.index += 1;
+    renderOnboardingModalStep(modalBody);
+  });
+
+  const formSlot = document.getElementById('onboarding-modal-form-slot');
+  const onBack = state.index > 0 ? () => {
+    state.index -= 1;
+    renderOnboardingModalStep(modalBody);
+  } : null;
+  const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[card.fieldKey];
+  renderForm(formSlot, () => {
+    // 저장 결과 토스트가 뜨는 동안은 건너뛰기 버튼을 숨긴다(토스트 문구
+    // 아래 어색하게 같이 떠 있지 않도록).
+    const skipBtn = document.getElementById('onboarding-modal-skip-btn');
+    if (skipBtn) skipBtn.style.display = 'none';
+    showOnboardingSaveResultThenAdvance(card, formSlot, () => renderOnboardingModalStep(modalBody));
+  }, onBack);
+}
+
+// goToOnboardingCard — 모바일 [이전] 버튼 전용(전체화면 라우트 이동).
+// PC는 renderOnboardingModalStep이 모달을 안 닫고 직접 처리하므로 이
+// 함수를 쓰지 않는다.
 function goToOnboardingCard(newIndex) {
   const state = onboardingCardQueueState;
   if (!state) return;
@@ -4204,7 +4239,7 @@ function onboardingQuickFormButtonsHtml(onBack) {
   return `
     <div class="license-toolbar">
       ${onBack ? '<button type="button" class="btn btn-secondary" id="onboarding-quick-back-btn">이전</button>' : ''}
-      <button type="submit" class="btn btn-primary">저장</button>
+      <button type="submit" class="btn btn-primary">다음</button>
     </div>
   `;
 }
