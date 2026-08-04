@@ -4430,20 +4430,21 @@ function renderRevenueAmountQuickForm(container, onSaved, onBack) {
   container.innerHTML = '';
   container.appendChild(h(`
     <form id="quick-revenue-amount-form" class="profile-form">
-      <label>매출액(원)<input type="number" name="revenueAmount" min="0" value="${p.revenueAmount != null ? escapeAttr(String(p.revenueAmount)) : ''}" required></label>
+      <label>매출액(원)<input type="text" inputmode="numeric" name="revenueAmount" value="${escapeAttr(formatCurrency(p.revenueAmount))}" required></label>
       <div id="quick-revenue-amount-error" class="error" style="display:none"></div>
       ${onboardingQuickFormButtonsHtml(onBack)}
     </form>
   `));
   wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-revenue-amount-form');
+  attachCurrencyAutoFormat(form.revenueAmount);
   const errorBox = document.getElementById('quick-revenue-amount-error');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errorBox.style.display = 'none';
-    const val = new FormData(form).get('revenueAmount');
+    const val = parseCurrencyInput(new FormData(form).get('revenueAmount'));
     try {
-      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ revenueAmount: val !== '' ? Number(val) : null }));
+      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ revenueAmount: val !== null ? Number(val) : null }));
       currentProfile = data.companyProfile;
       onSaved();
     } catch (err) {
@@ -4473,6 +4474,7 @@ function renderTrackRecordQuickForm(container, onSaved, onBack) {
   `));
   wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-track-record-form');
+  attachCurrencyAutoFormat(form.contractAmount);
   const errorBox = document.getElementById('quick-track-record-error');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -4480,7 +4482,7 @@ function renderTrackRecordQuickForm(container, onSaved, onBack) {
     const fd = new FormData(form);
     const payload = {
       projectName: fd.get('projectName'),
-      contractAmount: fd.get('contractAmount') || null,
+      contractAmount: parseCurrencyInput(fd.get('contractAmount')),
       isCompleted: fd.get('isCompleted') || null,
     };
     try {
@@ -5624,7 +5626,7 @@ async function renderPipelineDetail(container, id) {
       <a class="calendar-add-link" href="/api/pipeline/${escapeAttr(entry.id)}/calendar.ics" download>&#128197; 캘린더에 추가 (.ics)</a>
       <form id="pipeline-entry-form" class="profile-form">
         <label>상태${pipelineStatusSelectHtml(entry.status)}</label>
-        <label>낙찰 금액(원)<input type="number" name="awardedAmount" min="0" value="${entry.awardedAmount != null ? escapeAttr(String(entry.awardedAmount)) : ''}" placeholder="낙찰된 경우 실제 계약금액을 입력해주세요 (성장분석 ROI에 반영됩니다)"></label>
+        <label>낙찰 금액(원)<input type="text" inputmode="numeric" name="awardedAmount" value="${escapeAttr(formatCurrency(entry.awardedAmount))}" placeholder="낙찰된 경우 실제 계약금액을 입력해주세요 (성장분석 ROI에 반영됩니다)"></label>
         <label>담당자<input type="text" name="assigneeName" value="${escapeAttr(entry.assigneeName || '')}" placeholder="담당자 이름"></label>
         <label>담당자 이메일<input type="email" name="assigneeEmail" value="${escapeAttr(entry.assigneeEmail || '')}" placeholder="상태 변경 시 이 주소로 알림이 발송됩니다"></label>
         <label>담당자 전화번호<input type="tel" name="assigneePhone" value="${escapeAttr(entry.assigneePhone || '')}" placeholder="상태 변경 시 이 번호로 SMS가 발송됩니다"></label>
@@ -5661,6 +5663,8 @@ async function renderPipelineDetail(container, id) {
   wireLoadContactButton(container);
 
   const form = document.getElementById('pipeline-entry-form');
+  attachCurrencyAutoFormat(form.awardedAmount);
+  attachPhoneAutoFormat(form.assigneePhone);
   const errorBox = document.getElementById('pipeline-entry-error');
   const successBox = document.getElementById('pipeline-entry-success');
   form.addEventListener('submit', async (e) => {
@@ -5668,10 +5672,10 @@ async function renderPipelineDetail(container, id) {
     errorBox.style.display = 'none';
     successBox.style.display = 'none';
     const fd = new FormData(form);
-    const awardedAmountRaw = fd.get('awardedAmount');
+    const awardedAmountCleaned = parseCurrencyInput(fd.get('awardedAmount'));
     const payload = {
       status: fd.get('status'),
-      awardedAmount: awardedAmountRaw ? Number(awardedAmountRaw) : null,
+      awardedAmount: awardedAmountCleaned === null ? null : Number(awardedAmountCleaned),
       assigneeName: fd.get('assigneeName') || '',
       assigneeEmail: fd.get('assigneeEmail') || '',
       assigneePhone: fd.get('assigneePhone') || '',
@@ -6846,33 +6850,108 @@ async function acceptPendingInviteIfAny() {
   }
 }
 
-// formatMobilePhoneInput — 휴대폰번호 입력에 자동으로 하이픈을 붙인다.
-// 010은 11자리(3-4-4: 010-1234-5678)이고 011/016/017/018/019는 10자리
-// (3-3-4: 011-123-4567)로 자릿수 자체가 다르다 — 첫 3자리(prefix)로
-// 어느 쪽인지 판단해 그에 맞는 자리에서 끊는다.
-function formatMobilePhoneInput(raw) {
-  const digits = raw.replace(/\D/g, '');
-  const isElevenDigit = digits.slice(0, 3) === '010';
-  const d = digits.slice(0, isElevenDigit ? 11 : 10);
-  if (isElevenDigit) {
-    if (d.length <= 3) return d;
-    if (d.length <= 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
-    return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
+// formatPhoneNumber — 서비스 전체 전화번호 입력 공용 포맷터(2026-08-04
+// 전수 적용). 세 갈래로 나뉜다:
+//  - 010: 항상 11자리(3-4-4: 010-1234-5678) — 프리픽스만으로 확정 가능.
+//  - 011/016/017/018/019(구 통신사 번호): 항상 10자리(3-3-4: 011-123-4567)
+//    — 이 두 모바일 분기는 기존 formatMobilePhoneInput과 동일한 로직을
+//    그대로 유지한다(이미 검증된 동작, 새로 만들지 않음).
+//  - 그 외(서울 02, 031~064 등 지역번호, 070 인터넷전화 등): 지역번호
+//    뒤 나머지가 7자리(구형, 10자리 총합)일지 8자리(신형, 11자리 총합)일지
+//    타이핑 도중엔 알 수 없다 — 항상 "마지막 4자리"를 고정하고 그 앞을
+//    중간 그룹으로 삼는 가변형으로 처리(자릿수가 늘어날수록 중간 그룹이
+//    자연스럽게 늘어나 최종적으로 3-3-4 또는 3-4-4/2-3-4 또는 2-4-4로
+//    수렴한다).
+function formatPhoneNumber(raw) {
+  const allDigits = (raw || '').replace(/\D/g, '');
+  if (allDigits.slice(0, 3) === '010') {
+    const digits = allDigits.slice(0, 11);
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
   }
-  if (d.length <= 3) return d;
-  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
-  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+  if (/^01[16789]/.test(allDigits)) {
+    const digits = allDigits.slice(0, 10);
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  const digits = allDigits.slice(0, 11);
+  const areaLen = digits.startsWith('02') ? 2 : 3;
+  if (digits.length <= areaLen) return digits;
+  const rest = digits.slice(areaLen);
+  if (rest.length <= 4) return `${digits.slice(0, areaLen)}-${rest}`;
+  const tail = rest.slice(-4);
+  const middle = rest.slice(0, rest.length - 4);
+  return `${digits.slice(0, areaLen)}-${middle}-${tail}`;
 }
 
 // attachPhoneAutoFormat — 위 포맷터를 input에 연결. 값을 통째로 다시
 // 쓰는 단순한 방식이라 문자열 중간을 수정할 때 커서가 끝으로 이동할 수
 // 있다 — 이 프로젝트의 다른 입력 처리도 커서 위치를 따로 관리하지 않는
 // 것과 같은 수준의 단순함을 유지한 것(대부분 끝에서부터 이어 입력하는
-// 휴대폰번호 입력 특성상 실사용에 지장은 적다).
+// 전화번호 입력 특성상 실사용에 지장은 적다).
 function attachPhoneAutoFormat(input) {
   if (!input) return;
   input.addEventListener('input', () => {
-    input.value = formatMobilePhoneInput(input.value);
+    input.value = formatPhoneNumber(input.value);
+  });
+}
+
+// formatCurrency — 금액 입력/표시 공용 천단위 쉼표 포맷터(2026-08-04
+// 전수 적용). 숫자든 이미 쉼표가 섞인 문자열이든 숫자 아닌 문자를 전부
+// 제거한 뒤 다시 그룹핑한다 — "원" 접미사는 안 붙인다(호출부가 필요하면
+// 직접 붙임, 기존 formatBudget/fmtMoney처럼 접미사가 필요 없는 입력창
+// 표시에도 그대로 재사용할 수 있게).
+// 영업이익/당기순이익처럼 손실(음수)이 실제로 존재하는 필드가 있어
+// 맨 앞의 "-"는 살려둔다(그 외 문자는 전부 제거) — 나머지 자릿수만
+// 쉼표로 묶는다.
+function formatCurrency(n) {
+  if (n === null || n === undefined || n === '') return '';
+  const str = String(n).trim();
+  const negative = str.charAt(0) === '-';
+  const digits = str.replace(/[^\d]/g, '');
+  if (!digits) return negative ? '-' : '';
+  return (negative ? '-' : '') + Number(digits).toLocaleString('ko-KR');
+}
+
+// parseCurrencyInput — formatCurrency로 화면에 쉼표가 붙은 값을 저장
+// 직전에 순수 숫자 문자열로 되돌린다(부호는 유지). 빈 값은 null(선택
+// 입력 필드가 비어있는 상태와 "0원"을 구분하기 위해 빈 문자열이 아니라
+// null로 통일).
+function parseCurrencyInput(v) {
+  if (v === null || v === undefined) return null;
+  const str = String(v).trim();
+  const negative = str.charAt(0) === '-';
+  const digits = str.replace(/[^\d]/g, '');
+  return digits === '' ? null : (negative ? '-' : '') + digits;
+}
+
+// attachCurrencyAutoFormat — 타이핑 중 실시간으로 쉼표를 삽입하되, 커서가
+// 항상 "지나온 숫자 개수" 기준으로 같은 자리에 남도록 재계산한다(쉼표
+// 자체는 세지 않음 — 그래야 중간에 숫자를 넣거나 지워도 커서가 엉뚱한
+// 곳으로 튀지 않는다).
+function attachCurrencyAutoFormat(input) {
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const prevValue = input.value;
+    const prevCursor = input.selectionStart == null ? prevValue.length : input.selectionStart;
+    const digitsBeforeCursor = prevValue.slice(0, prevCursor).replace(/[^\d]/g, '').length;
+    const formatted = formatCurrency(prevValue);
+    input.value = formatted;
+    if (digitsBeforeCursor === 0) {
+      input.setSelectionRange(0, 0);
+      return;
+    }
+    let seen = 0;
+    let pos = formatted.length;
+    for (let i = 0; i < formatted.length; i++) {
+      if (/\d/.test(formatted[i])) {
+        seen += 1;
+        if (seen === digitsBeforeCursor) { pos = i + 1; break; }
+      }
+    }
+    input.setSelectionRange(pos, pos);
   });
 }
 
@@ -7484,14 +7563,14 @@ function fillProfileForm(form, profile) {
     cb.checked = selectedIndustry.has(cb.value);
   });
   form.businessAgeYears.value = profile.businessAgeYears ?? '';
-  form.revenueAmount.value = profile.revenueAmount ?? '';
+  form.revenueAmount.value = formatCurrency(profile.revenueAmount);
   form.employeeCount.value = profile.employeeCount ?? '';
   form.companySize.value = profile.companySize || '';
   form.businessPhone.value = profile.phoneNumber || '';
   form.licenses.value = (profile.licenses || []).join(', ');
   form.certifications.value = (profile.certifications || []).join(', ');
   form.directProductionCert.checked = !!profile.directProductionCert;
-  form.maxPerformanceAmount.value = profile.maxPerformanceAmount ?? '';
+  form.maxPerformanceAmount.value = formatCurrency(profile.maxPerformanceAmount);
   form.creditRating.value = profile.creditRating || '';
 }
 
@@ -8061,7 +8140,7 @@ function openProfileEditModal(summaryContainer) {
         <label>연락처(사업자 대표전화번호)<input type="tel" name="businessPhone" placeholder="02-1234-5678"></label>
       </div>
       <div class="wizard-step" data-step="1">
-        <label>매출액(원)<input type="number" name="revenueAmount"></label>
+        <label>매출액(원)<input type="text" inputmode="numeric" name="revenueAmount"></label>
         <label>직원 수<input type="number" name="employeeCount"></label>
         <div class="field-verify-row">
           <button type="button" id="employee-count-verify-btn" class="field-verify-btn">4대보험 가입자명부로 확인</button>
@@ -8069,7 +8148,7 @@ function openProfileEditModal(summaryContainer) {
         </div>
         <input type="file" id="employee-count-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
         <div id="employee-count-confirm-slot"></div>
-        <label>최근 3년 최대 실적(원)<input type="number" name="maxPerformanceAmount"></label>
+        <label>최근 3년 최대 실적(원)<input type="text" inputmode="numeric" name="maxPerformanceAmount"></label>
         <label>신용등급<input type="text" name="creditRating"></label>
       </div>
       <div class="wizard-step" data-step="2">
@@ -8091,6 +8170,9 @@ function openProfileEditModal(summaryContainer) {
   const form = document.getElementById('profile-form');
   fillProfileForm(form, currentProfile);
   renderEmployeeCountBadge();
+  attachPhoneAutoFormat(form.businessPhone);
+  attachCurrencyAutoFormat(form.revenueAmount);
+  attachCurrencyAutoFormat(form.maxPerformanceAmount);
 
   let wizardStep = 0;
   const steps = Array.from(form.querySelectorAll('.wizard-step'));
@@ -8137,7 +8219,13 @@ function openProfileEditModal(summaryContainer) {
     errorBox.style.display = 'none';
     successBox.style.display = 'none';
     const fd = new FormData(form);
-    const toNum = (v) => (v === '' || v === null ? null : Number(v));
+    // parseCurrencyInput으로 쉼표를 먼저 걷어낸 뒤 숫자로 변환한다 —
+    // employeeCount처럼 쉼표가 안 붙는 필드도 그냥 통과되니(쉼표 없으면
+    // 원래 문자열 그대로) toNum 하나로 공용 처리해도 안전하다.
+    const toNum = (v) => {
+      const cleaned = parseCurrencyInput(v);
+      return cleaned === null ? null : Number(cleaned);
+    };
     const toList = (v) => (v || '').split(',').map(s => s.trim()).filter(Boolean);
     const payload = {
       businessType: toList(fd.get('businessType')),
@@ -8380,7 +8468,7 @@ const REVENUE_RANGE_OPTIONS = [
 function revenueFieldHtml(c) {
   const hasValue = c.revenue !== undefined && c.revenue !== null && c.revenue !== '';
   if (hasValue) {
-    return `<label>매출액(원)<input type="text" name="revenue" value="${escapeAttr(c.revenue)}"></label>`;
+    return `<label>매출액(원)<input type="text" inputmode="numeric" name="revenue" value="${escapeAttr(formatCurrency(c.revenue))}"></label>`;
   }
   return `
     <label>매출액(정확한 금액을 모르면 구간으로 선택해주세요)
@@ -8402,11 +8490,11 @@ function renderFinancialForm(formSlot, candidate, documentId, onSaved) {
         <label>증빙서류 종류${plainSelectHtml('documentType', FINANCIAL_DOCUMENT_TYPES, c.documentType, true)}</label>
         <label>회계연도<input type="number" name="fiscalYear" value="${escapeAttr(c.fiscalYear || '')}" required></label>
         ${revenueFieldHtml(c)}
-        <label>영업이익(원)<input type="text" name="operatingProfit" value="${escapeAttr(c.operatingProfit || '')}"></label>
-        <label>당기순이익(원)<input type="text" name="netIncome" value="${escapeAttr(c.netIncome || '')}"></label>
-        <label>자본금(원)<input type="text" name="capital" value="${escapeAttr(c.capital || '')}"></label>
-        <label>자산총계(원)<input type="text" name="totalAssets" value="${escapeAttr(c.totalAssets || '')}"></label>
-        <label>부채총계(원)<input type="text" name="totalLiabilities" value="${escapeAttr(c.totalLiabilities || '')}"></label>
+        <label>영업이익(원)<input type="text" inputmode="numeric" name="operatingProfit" value="${escapeAttr(formatCurrency(c.operatingProfit))}"></label>
+        <label>당기순이익(원)<input type="text" inputmode="numeric" name="netIncome" value="${escapeAttr(formatCurrency(c.netIncome))}"></label>
+        <label>자본금(원)<input type="text" inputmode="numeric" name="capital" value="${escapeAttr(formatCurrency(c.capital))}"></label>
+        <label>자산총계(원)<input type="text" inputmode="numeric" name="totalAssets" value="${escapeAttr(formatCurrency(c.totalAssets))}"></label>
+        <label>부채총계(원)<input type="text" inputmode="numeric" name="totalLiabilities" value="${escapeAttr(formatCurrency(c.totalLiabilities))}"></label>
         <label>부채비율(%)<input type="text" name="debtRatio" value="${escapeAttr(c.debtRatio || '')}"></label>
         <label>유동비율(%)<input type="text" name="currentRatio" value="${escapeAttr(c.currentRatio || '')}"></label>
         <label>신용등급<input type="text" name="creditRating" value="${escapeAttr(c.creditRating || '')}"></label>
@@ -8422,6 +8510,12 @@ function renderFinancialForm(formSlot, candidate, documentId, onSaved) {
   `));
 
   const form = document.getElementById('financial-confirm-form');
+  attachCurrencyAutoFormat(form.revenue);
+  attachCurrencyAutoFormat(form.operatingProfit);
+  attachCurrencyAutoFormat(form.netIncome);
+  attachCurrencyAutoFormat(form.capital);
+  attachCurrencyAutoFormat(form.totalAssets);
+  attachCurrencyAutoFormat(form.totalLiabilities);
   const errorBox = document.getElementById('financial-confirm-error');
   document.getElementById('financial-confirm-cancel').addEventListener('click', () => { formSlot.innerHTML = ''; });
 
@@ -8431,19 +8525,20 @@ function renderFinancialForm(formSlot, candidate, documentId, onSaved) {
     const fd = new FormData(form);
     // 정밀 입력(revenue)이 있으면 그대로, 없으면 구간 select(revenueRange)
     // 값을 대신 쓰고 revenueIsEstimated를 켜서 서버가 confidence를
-    // D로 낮추게 한다.
-    const revenueValue = fd.get('revenue') || fd.get('revenueRange') || null;
+    // D로 낮추게 한다. revenueRange는 REVENUE_RANGE_OPTIONS의 순수 숫자값
+    // 이라 쉼표가 없어 parseCurrencyInput을 거쳐도 그대로다.
+    const revenueValue = parseCurrencyInput(fd.get('revenue')) || fd.get('revenueRange') || null;
     const revenueIsEstimated = !fd.get('revenue') && !!fd.get('revenueRange');
     const payload = {
       documentType: fd.get('documentType') || null,
       fiscalYear: Number(fd.get('fiscalYear')),
       revenue: revenueValue,
       revenueIsEstimated,
-      operatingProfit: fd.get('operatingProfit') || null,
-      netIncome: fd.get('netIncome') || null,
-      capital: fd.get('capital') || null,
-      totalAssets: fd.get('totalAssets') || null,
-      totalLiabilities: fd.get('totalLiabilities') || null,
+      operatingProfit: parseCurrencyInput(fd.get('operatingProfit')),
+      netIncome: parseCurrencyInput(fd.get('netIncome')),
+      capital: parseCurrencyInput(fd.get('capital')),
+      totalAssets: parseCurrencyInput(fd.get('totalAssets')),
+      totalLiabilities: parseCurrencyInput(fd.get('totalLiabilities')),
       debtRatio: fd.get('debtRatio') || null,
       currentRatio: fd.get('currentRatio') || null,
       creditRating: fd.get('creditRating') || null,
@@ -8550,7 +8645,7 @@ function renderTrackRecordForm(formSlot, candidate, documentId, onSaved) {
         <label>계약일<input type="date" name="contractDate" value="${escapeAttr(c.contractDate || '')}"></label>
         <label>수행기간 시작<input type="date" name="periodStart" value="${escapeAttr(c.periodStart || '')}"></label>
         <label>수행기간 종료<input type="date" name="periodEnd" value="${escapeAttr(c.periodEnd || '')}"></label>
-        <label>계약금액(원)<input type="text" name="contractAmount" value="${escapeAttr(c.contractAmount || '')}"></label>
+        <label>계약금액(원)<input type="text" inputmode="numeric" name="contractAmount" value="${escapeAttr(formatCurrency(c.contractAmount))}"></label>
         <label>사업유형<input type="text" name="projectType" value="${escapeAttr(c.projectType || '')}"></label>
         <label>산업분야<input type="text" name="industryField" value="${escapeAttr(c.industryField || '')}"></label>
         <label>수행지역<input type="text" name="region" value="${escapeAttr(c.region || '')}"></label>
@@ -8569,6 +8664,7 @@ function renderTrackRecordForm(formSlot, candidate, documentId, onSaved) {
   `));
 
   const form = document.getElementById('track-record-confirm-form');
+  attachCurrencyAutoFormat(form.contractAmount);
   const errorBox = document.getElementById('track-record-confirm-error');
   document.getElementById('track-record-confirm-cancel').addEventListener('click', () => { formSlot.innerHTML = ''; });
 
@@ -8583,7 +8679,7 @@ function renderTrackRecordForm(formSlot, candidate, documentId, onSaved) {
       contractDate: fd.get('contractDate') || null,
       periodStart: fd.get('periodStart') || null,
       periodEnd: fd.get('periodEnd') || null,
-      contractAmount: fd.get('contractAmount') || null,
+      contractAmount: parseCurrencyInput(fd.get('contractAmount')),
       projectType: fd.get('projectType') || null,
       industryField: fd.get('industryField') || null,
       region: fd.get('region') || null,
@@ -8853,6 +8949,7 @@ function renderContactForm(formSlot, item, onSaved) {
   `));
 
   const form = document.getElementById('contact-form');
+  attachPhoneAutoFormat(form.phone);
   const errorBox = document.getElementById('contact-form-error');
   document.getElementById('contact-form-cancel').addEventListener('click', () => { formSlot.innerHTML = ''; });
 
