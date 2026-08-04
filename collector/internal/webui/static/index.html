@@ -1512,6 +1512,7 @@
     gap: 0.6rem !important;
     font-weight: 400;
   }
+  .required-mark { color: var(--danger); margin-left: 0.2rem; }
   .field-group { display: flex; flex-direction: column; gap: 0.5rem; }
   .field-group-label { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); }
   .otp-phone-row, .otp-code-row { display: flex; gap: 0.5rem; }
@@ -6110,7 +6111,7 @@ function attachPhoneAutoFormat(input) {
 function otpPhoneFieldHtml(prefillValue) {
   return `
     <div class="field-group">
-      <span class="field-group-label">휴대폰번호 (필수)</span>
+      <span class="field-group-label">휴대폰번호<span class="required-mark">*</span></span>
       <div class="otp-phone-row">
         <input type="tel" name="phoneNumber" required pattern="(010-\\d{4}-\\d{4})|(01[16789]-\\d{3}-\\d{4})" placeholder="010-1234-5678" value="${escapeAttr(prefillValue || '')}">
         <button type="button" class="btn btn-secondary btn-sm" id="otp-send-btn">인증번호 받기</button>
@@ -6256,10 +6257,10 @@ async function renderSignup(container) {
       <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
       <h2>회원가입</h2>
       <form id="signup-form" class="auth-form">
-        <label>이메일<input type="email" name="email" required></label>
+        <label><span>이메일<span class="required-mark">*</span></span><input type="email" name="email" required></label>
         ${phoneVerificationRequired ? otpPhoneFieldHtml('') : plainPhoneFieldHtml('')}
-        <label>비밀번호 (최소 8자)<input type="password" name="password" minlength="8" required></label>
-        <label>비밀번호 확인<input type="password" name="passwordConfirm" minlength="8" required></label>
+        <label><span>비밀번호 (최소 8자)<span class="required-mark">*</span></span><input type="password" name="password" minlength="8" required></label>
+        <label><span>비밀번호 확인<span class="required-mark">*</span></span><input type="password" name="passwordConfirm" minlength="8" required></label>
         <div class="field-group">
           <label class="checkbox-label"><input type="checkbox" id="signup-terms-agree" required> 이용약관에 동의합니다 (필수) <a href="#/terms" target="_blank" rel="noopener">보기</a></label>
           <label class="checkbox-label"><input type="checkbox" id="signup-privacy-agree" required> 개인정보 수집 및 이용에 동의합니다 (필수) <a href="#/privacy" target="_blank" rel="noopener">보기</a></label>

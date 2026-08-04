@@ -227,6 +227,22 @@ func (s *Server) handleAdminDeleteMember(w http.ResponseWriter, r *http.Request)
 
 	// 회사 소유 여부와 무관하게, 이 회원 개인에게 달린 데이터 정리.
 	// user_oauth_identities는 ON DELETE CASCADE라 users 삭제 시 자동 정리됨.
+	//
+	// ⚠️ 2026-08-04 실제 500 에러 원인: password_reset_tokens/
+	// email_verification_tokens가 이 목록에 빠져 있었다 — 이메일 가입 시
+	// 필수 이메일 인증(email_verification.go)이 모든 이메일 가입 계정에
+	// email_verification_tokens 행을 남기고, 비밀번호 찾기를 한 번이라도
+	// 쓴 계정은 password_reset_tokens 행도 남는다. 둘 다 users(id)를
+	// NOT NULL FK로 참조하고 ON DELETE CASCADE가 아니라서, 이 목록에
+	// 없으면 DELETE FROM users에서 그대로 FK 위반 500이 난다(실제 로컬
+	// 재현: "violates foreign key constraint password_reset_tokens_user_id_fkey").
+	// broadcast_messages.created_by도 같은 이유로 추가 — 이 화면은
+	// role 필터 없이 모든 계정을 보여주므로 관리자/운영자 계정도 삭제
+	// 대상이 될 수 있고, 그 계정이 공지/배너를 작성한 적 있으면 똑같이
+	// 걸린다. 앞으로 users(id)를 참조하는 새 테이블을 추가하면 이
+	// 목록에도 반드시 추가할 것 — `grep -n "REFERENCES users(id)"
+	// db/migrations/001_init.sql collector/internal/migrate/migrate.go`로
+	// 전체 목록을 다시 확인.
 	userScopedStmts := []string{
 		`DELETE FROM company_members WHERE user_id = $1`,
 		`DELETE FROM notification_log WHERE user_id = $1`,
@@ -238,6 +254,9 @@ func (s *Server) handleAdminDeleteMember(w http.ResponseWriter, r *http.Request)
 		`DELETE FROM terms_agreements WHERE user_id = $1`,
 		`DELETE FROM audit_logs WHERE actor_user_id = $1`,
 		`DELETE FROM company_invitations WHERE invited_by_user_id = $1`,
+		`DELETE FROM password_reset_tokens WHERE user_id = $1`,
+		`DELETE FROM email_verification_tokens WHERE user_id = $1`,
+		`DELETE FROM broadcast_messages WHERE created_by = $1`,
 	}
 	for _, q := range userScopedStmts {
 		if _, err := tx.ExecContext(ctx, q, targetID); err != nil {
