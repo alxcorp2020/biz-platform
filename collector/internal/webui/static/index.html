@@ -4088,9 +4088,10 @@ function startOnboardingManualEntryIntro(state, isCorrection) {
 }
 
 // ---- 경로 B(직접 기재) 4문항 중 지역/업종을 뺀 3개: 상호명/사업자등록
-// 번호/업태. 지역·업종·기업규모는 이미 있는 필수 필드큐(judged)를 그대로
-// 재사용한다(중복 정의 안 함) — 즉 이 3개 + 필수 필드큐 3개를 합치면
-// 사용자 스펙의 "4개 필수 질문 + 지역/업종/기업규모"가 정확히 나온다.
+// 번호/업태. 지역·업종·기업규모는 이미 있는 필수 필드큐(ONBOARDING_CARD_DEFS,
+// 지역=presence/업종·기업규모=judged)를 그대로 재사용한다(중복 정의 안 함)
+// — 즉 이 3개 + 필수 필드큐 3개를 합치면 사용자 스펙의 "4개 필수 질문 +
+// 지역/업종/기업규모"가 정확히 나온다.
 const BUSINESS_TYPE_OPTIONS = ['제조업', '도매 및 소매업', '건설업', '정보통신업', '서비스업'];
 
 function renderCompanyNameChatForm(container, onSaved, onBack) {
@@ -4396,20 +4397,27 @@ function documentRequirementGapPromptText(label, noticeCount) {
 // 근본 원인을 없애기 위해 질문 자체를 폐지하고, 개업일(사업자등록증
 // OCR 또는 직접 기재 경로의 신원정보 큐)에서 자동 계산해 저장한다
 // (showOnboardingBusinessRegResult/renderFoundingDateChatForm 참고).
+// ⚠️2026-08-05(같은 날 2차): "지역"을 judged에서 presence로 전환했다 —
+// eligibilitySummary.missingFieldCounts가 region을 "회사 쪽 데이터 부족"
+// 으로 잡으려면 최소 한 건이라도 공고의 지역이 "전국"이 아닌 구체적인
+// 지역명이어야 하는데, 실데이터 소스 3개(g2b/bizinfo/scsbid) 전부 구체
+// 지역명을 준 적이 없어(g2b는 "전국"만 추론 가능하도록 막 고침 —
+// [[project_g2b_region_mapping_fix]]) 이 판정이 구조적으로 절대 발동하지
+// 않는다 — 그래서 온보딩 채팅에 "지역" 질문이 한 번도 안 뜨는 버그가
+// 있었다. 판정 기반 카운트를 포기하고 직원수/매출액과 동일하게 "그냥
+// 비어있으면 무조건 질문"하는 방식으로 바꿔 근본 해결(사용자 확정).
 // 세 갈래:
-//  - judged(지역/업종/기업규모): eligibilitySummary.missingFieldCounts로
+//  - judged(업종/기업규모): eligibilitySummary.missingFieldCounts로
 //    등록 후 진짜 "+N건" 델타를 낼 수 있다(판정기준이 있어서).
-//  - presence(직원수/매출액): company_profiles 스칼라 필드가 그냥
-//    비어있는지만 본다 — 이 필드들엔 애초에 판정기준도 없고
-//    required_documents 매칭 대상도 아니라, 건수 주장 없이 "정보 없음"만
-//    보여준다.
+//  - presence(지역/직원수/매출액): company_profiles 스칼라 필드가 그냥
+//    비어있는지만 본다 — 건수 주장 없이 "정보 없음"만 보여준다.
 //  - general(수행실적/보유면허/인증/직접생산확인): documentRequirementGaps
 //    (required_documents 키워드매칭, count==0도 포함 —
 //    [[feedback-document-requirement-gap-zero-count-excluded]] 원칙).
 // count 유무로 후보 자체를 거르지 않는다 — 실제로 비어있으면 전부 큐에
 // 넣는다(최대 3장 cap은 이번에 폐지 — 사용자가 "최소 5개 이상" 요구).
 const ONBOARDING_CARD_DEFS = [
-  { fieldKey: 'region', type: 'judged', label: '사업장 지역' },
+  { fieldKey: 'region', type: 'presence', label: '사업장 지역' },
   { fieldKey: 'industry', type: 'judged', label: '업종' },
   { fieldKey: 'companySize', type: 'judged', label: '기업 규모' },
   { fieldKey: 'employeeCount', type: 'presence', label: '직원 수' },
