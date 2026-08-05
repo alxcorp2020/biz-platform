@@ -109,7 +109,10 @@ func (s *Server) effectivePlan(ctx context.Context, profileID string) (billing.P
 // checkPipelineEntryQuota enforces plan.MaxPipelineEntries before a NEW
 // pipeline entry is created. '제외' 상태는 사용자가 명시적으로 뺀 건이라
 // 카운트에서 제외한다 — 그렇지 않으면 제외할수록 한도가 영구히 줄어드는
-// 꼴이 되어 사용자가 혼란스럽다.
+// 꼴이 되어 사용자가 혼란스럽다. '낙찰'/'탈락'도 되돌릴 수 없는 최종
+// 결과라 같은 이유로 제외한다(안 그러면 예전에 끝난 사업이 새 공고
+// 검토를 영구히 막는 꼴이 됨) — '제출완료'/'보류'는 여전히 결과 대기 중
+// 이거나 재개 가능한 상태라 계속 카운트한다.
 func (s *Server) checkPipelineEntryQuota(ctx context.Context, profileID string) (ok bool, limit int, err error) {
 	plan, err := s.effectivePlan(ctx, profileID)
 	if err != nil {
@@ -121,7 +124,7 @@ func (s *Server) checkPipelineEntryQuota(ctx context.Context, profileID string) 
 	}
 	var count int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM notice_pipeline_entries WHERE company_profile_id = $1 AND status != '제외'`,
+		`SELECT count(*) FROM notice_pipeline_entries WHERE company_profile_id = $1 AND status NOT IN ('제외', '낙찰', '탈락')`,
 		profileID,
 	).Scan(&count); err != nil {
 		return false, max, err

@@ -2750,6 +2750,7 @@ const ERROR_MESSAGES = {
   internal_error: '서버 처리 중 오류가 발생했습니다.',
   notice_not_found: '공고를 찾을 수 없습니다.',
   company_profile_required: '기업 프로필이 없습니다. 먼저 기업 프로필을 등록해주세요.',
+  pipeline_quota_exceeded: '파이프라인 등록 한도에 도달했습니다. 진행 중인 건을 정리하거나 플랜을 업그레이드해주세요.',
   invalid_industry_group: '알 수 없는 업종 분류입니다.',
   forbidden: '이 작업을 수행할 권한이 없습니다.',
   invalid_action: '잘못된 요청입니다.',
@@ -6961,6 +6962,10 @@ function renderPipelineReviewButtons(container, noticeId) {
       if (err.status === 401) { location.hash = '#/auth/login'; return; }
       if (err.status === 400 && err.code === 'company_profile_required') {
         errEl.innerHTML = '회사 정보를 등록하면 참여 검토를 시작할 수 있습니다. <a href="#/me/profile">기업 프로필 등록하기 →</a>';
+      } else if (err.code === 'pipeline_quota_exceeded') {
+        const limit = err.data && err.data.limit;
+        const base = limit ? '현재 플랜의 파이프라인 등록 한도(' + limit + '건)에 도달했습니다.' : ERROR_MESSAGES.pipeline_quota_exceeded;
+        errEl.innerHTML = base + ' 진행 중인 건을 정리하거나 <a href="#/billing/plans">플랜을 업그레이드</a>해주세요.';
       } else {
         errEl.textContent = err.message;
       }
