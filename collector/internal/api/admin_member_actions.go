@@ -5,6 +5,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -14,13 +15,24 @@ import (
 	"time"
 )
 
-// handleAdminDeactivateMember — POST /api/admin/members/{id}/deactivate.
-// 되돌릴 수 없다(프론트가 확인 모달로 이걸 명시). 계정을 실제로 DELETE하지
-// 않는다 — payment_log/audit_logs 등이 이 users 행을 FK로 참조하고,
-// 법적 보관기간을 고려해 유지해야 하기 때문. 대신:
+// deactivateOutcome — deactivateUserAccount의 결과. Blocked가 비어있지
+// 않으면 아무것도 바뀌지 않은 것이고(호출부가 그 사유로 4xx를 내림),
+// 비어있으면 실제로 탈퇴 처리가 커밋된 것이다.
+type deactivateOutcome struct {
+	Blocked          string // "" | "already_deactivated" | "owner_has_other_members"
+	OtherMemberCount int
+	OriginalEmail    string
+}
+
+// deactivateUserAccount — 관리자 탈퇴 처리(handleAdminDeactivateMember)와
+// 본인 셀프 탈퇴(account_settings.go의 handleSelfDeactivateAccount)가
+// 공유하는 핵심 로직. 되돌릴 수 없다(양쪽 다 프론트가 확인 모달로 이걸
+// 명시). 계정을 실제로 DELETE하지 않는다 — payment_log/audit_logs 등이
+// 이 users 행을 FK로 참조하고, 법적 보관기간을 고려해 유지해야 하기
+// 때문. 대신:
 //  1. email을 "deleted-{id}@deleted.local"로, password_hash/phone_number를
-//     NULL로 바꿔 개인정보를 익명화한다(원래 이메일은 audit_logs.detail에만
-//     남는다 — 감사 목적의 최소 보존).
+//     NULL로 바꿔 개인정보를 익명화한다(원래 이메일은 호출부가 audit_logs.
+//     detail에 남긴다 — 감사 목적의 최소 보존).
 //  2. deactivated_at을 찍어 handleLogin/handleOAuthCallback이 로그인을
 //     막게 한다. user_oauth_identities 행은 일부러 안 지운다 — 지우면
 //     resolveOAuthUser(oauth_login.go)가 그 사람을 "새 계정"으로 오인해
@@ -31,19 +43,10 @@ import (
 //
 // 조직(company_profiles)의 owner이고 다른 팀원이 남아있으면 거부한다
 // (owner_has_other_members) — 오너가 없어지는 조직을 만들지 않기 위해
-// 사용자가 명시적으로 선택한 정책. 그 경우 관리자가 먼저 팀을 정리(팀원
-// 내보내기)한 뒤 다시 시도해야 한다. 전체 대상 일괄 처리는 이번 범위에서
-// 제외했다(실수로 대량 탈퇴되는 리스크가 커서 — 필요하면 나중에 "장기
-// 미접속 회원 목록"을 뽑아 하나씩 확인 후 처리하는 방식으로 검토).
-func (s *Server) handleAdminDeactivateMember(w http.ResponseWriter, r *http.Request) {
-	adminID, ok := s.requireSystemAdmin(w, r)
-	if !ok {
-		return
-	}
-	targetID := r.PathValue("id")
-	ctx := r.Context()
-
-	var targetEmail string
+// 사용자가 명시적으로 선택한 정책. 그 경우 먼저 팀을 정리(팀원 내보내기
+// 또는 소유권 이전)한 뒤 다시 시도해야 한다.
+func (s *Server) deactivateUserAccount(ctx context.Context, targetID string) (deactivateOutcome, error) {
+	var out deactivateOutcome
 	var alreadyDeactivated sql.NullTime
 	var companyProfileID, teamRole sql.NullString
 	err := s.db.QueryRowContext(ctx, `
@@ -51,19 +54,13 @@ func (s *Server) handleAdminDeactivateMember(w http.ResponseWriter, r *http.Requ
 		FROM users u
 		LEFT JOIN company_members cm ON cm.user_id = u.id
 		WHERE u.id = $1`, targetID,
-	).Scan(&targetEmail, &alreadyDeactivated, &companyProfileID, &teamRole)
-	if errors.Is(err, sql.ErrNoRows) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "member_not_found"})
-		return
-	}
+	).Scan(&out.OriginalEmail, &alreadyDeactivated, &companyProfileID, &teamRole)
 	if err != nil {
-		s.logger.Error("admin-deactivate-member: lookup failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
+		return out, err
 	}
 	if alreadyDeactivated.Valid {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "already_deactivated"})
-		return
+		out.Blocked = "already_deactivated"
+		return out, nil
 	}
 	if teamRole.Valid && teamRole.String == "owner" {
 		var otherCount int
@@ -71,21 +68,18 @@ func (s *Server) handleAdminDeactivateMember(w http.ResponseWriter, r *http.Requ
 			`SELECT COUNT(*) FROM company_members WHERE company_profile_id = $1 AND user_id != $2`,
 			companyProfileID.String, targetID,
 		).Scan(&otherCount); err != nil {
-			s.logger.Error("admin-deactivate-member: other member count failed", "error", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-			return
+			return out, err
 		}
 		if otherCount > 0 {
-			writeJSON(w, http.StatusConflict, map[string]any{"error": "owner_has_other_members", "otherMemberCount": otherCount})
-			return
+			out.Blocked = "owner_has_other_members"
+			out.OtherMemberCount = otherCount
+			return out, nil
 		}
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		s.logger.Error("admin-deactivate-member: begin tx failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
+		return out, err
 	}
 	defer tx.Rollback()
 
@@ -94,23 +88,50 @@ func (s *Server) handleAdminDeactivateMember(w http.ResponseWriter, r *http.Requ
 		UPDATE users SET email = $1, password_hash = NULL, phone_number = NULL, deactivated_at = now()
 		WHERE id = $2`, anonymizedEmail, targetID,
 	); err != nil {
-		s.logger.Error("admin-deactivate-member: anonymize failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
+		return out, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM company_members WHERE user_id = $1`, targetID); err != nil {
-		s.logger.Error("admin-deactivate-member: remove membership failed", "error", err)
+		return out, err
+	}
+	if err := tx.Commit(); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// handleAdminDeactivateMember — POST /api/admin/members/{id}/deactivate.
+// 전체 대상 일괄 처리는 이번 범위에서 제외했다(실수로 대량 탈퇴되는
+// 리스크가 커서 — 필요하면 나중에 "장기 미접속 회원 목록"을 뽑아 하나씩
+// 확인 후 처리하는 방식으로 검토).
+func (s *Server) handleAdminDeactivateMember(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := s.requireSystemAdmin(w, r)
+	if !ok {
+		return
+	}
+	targetID := r.PathValue("id")
+	ctx := r.Context()
+
+	outcome, err := s.deactivateUserAccount(ctx, targetID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "member_not_found"})
+		return
+	}
+	if err != nil {
+		s.logger.Error("admin-deactivate-member: failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
-	if err := tx.Commit(); err != nil {
-		s.logger.Error("admin-deactivate-member: commit failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+	switch outcome.Blocked {
+	case "already_deactivated":
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "already_deactivated"})
+		return
+	case "owner_has_other_members":
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "owner_has_other_members", "otherMemberCount": outcome.OtherMemberCount})
 		return
 	}
 
 	s.recordAuditLog(ctx, adminID, "admin_member_deactivated", "user", targetID, map[string]any{
-		"originalEmail": targetEmail,
+		"originalEmail": outcome.OriginalEmail,
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deactivated"})
 }
