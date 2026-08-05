@@ -61,7 +61,7 @@ func TestItemsWrapper_Array(t *testing.T) {
 // 실패하던" 실제 원인이었다(운영 관리자 버튼 클릭 시 500 에러 신고로
 // 발견, IP 제한이 아니라 순수 파싱 버그였음).
 func TestItemsWrapper_RealResponseShape(t *testing.T) {
-	raw := `{"items":[{"bidNtceNo":"R26BK01659568","bidNtceOrd":"000","bidNtceNm":"2026년 송포1교 정밀안전진단 및 성능평가 용역","dminsttNm":"경상남도 사천시","bidwinnrNm":"주식회사 연암","sucsfbidAmt":"97900000","sucsfbidRate":"89.211","rlOpengDt":"2026-08-05 11:00:00"}],"numOfRows":1,"pageNo":1,"totalCount":249}`
+	raw := `{"items":[{"bidNtceNo":"R26BK01659568","bidNtceOrd":"000","bidNtceNm":"2026년 송포1교 정밀안전진단 및 성능평가 용역","dminsttNm":"경상남도 사천시","bidwinnrNm":"주식회사 연암","sucsfbidAmt":"97900000","sucsfbidRate":"89.211","rlOpengDt":"2026-08-05 11:00:00","prtcptCnum":"2"}],"numOfRows":1,"pageNo":1,"totalCount":249}`
 	var body apiBody
 	if err := json.Unmarshal([]byte(raw), &body); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -76,7 +76,7 @@ func TestItemsWrapper_RealResponseShape(t *testing.T) {
 	if err := json.Unmarshal(body.Items.Items[0], &rec); err != nil {
 		t.Fatalf("unmarshal record: %v", err)
 	}
-	if rec.BidNtceNo != "R26BK01659568" || rec.DminsttNm != "경상남도 사천시" || rec.BidwinnrNm != "주식회사 연암" {
+	if rec.BidNtceNo != "R26BK01659568" || rec.DminsttNm != "경상남도 사천시" || rec.BidwinnrNm != "주식회사 연암" || rec.PrtcptCnum != "2" {
 		t.Fatalf("unexpected record: %+v", rec)
 	}
 }

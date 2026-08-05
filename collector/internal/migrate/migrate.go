@@ -244,6 +244,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureSavedSearchMatchEventType(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_search_match event type: %w", err)
 	}
+	if err := ensureAwardHistoryParticipantCountColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate notice_award_history.participant_count column: %w", err)
+	}
 	return nil
 }
 
@@ -1127,6 +1130,19 @@ func ensureAwardHistoryTable(ctx context.Context, db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_award_history_org ON notice_award_history(organization_name);
 		CREATE INDEX IF NOT EXISTS idx_award_history_industry ON notice_award_history(industry);
+	`)
+	return err
+}
+
+// ensureAwardHistoryParticipantCountColumn adds notice_award_history.participant_count
+// — 2026-08-06, 낙찰이력 화면 보강("참가업체 수 평균") 대상. scsbid API
+// 응답에 이미 있던 prtcptCnum 필드를 이제야 저장한다(수집기 자체는
+// 그대로, AwardRecord/ingest 로직만 확장). 신규 컬럼 추가라
+// ensurePendingPlanColumn과 같은 이유로 ADD COLUMN IF NOT EXISTS 한 줄로
+// 충분하다.
+func ensureAwardHistoryParticipantCountColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notice_award_history ADD COLUMN IF NOT EXISTS participant_count INTEGER;
 	`)
 	return err
 }

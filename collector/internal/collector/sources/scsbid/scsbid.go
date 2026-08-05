@@ -74,6 +74,7 @@ type AwardRecord struct {
 	SucsfbidAmt  string `json:"sucsfbidAmt"`  // 최종낙찰금액
 	SucsfbidRate string `json:"sucsfbidRate"` // 최종낙찰률(%, 예: "87.789")
 	RlOpengDt    string `json:"rlOpengDt"`    // 실개찰일시
+	PrtcptCnum   string `json:"prtcptCnum"`   // 참가업체수(2026-08-06 추가, 실측 응답에 이미 존재 확인됨)
 }
 
 type apiEnvelope struct {

@@ -7892,9 +7892,9 @@ function renderAwardHistory(container, history, hasCompetitiveOverlap) {
     return;
   }
 
-  const avgText = history.averageRate != null
-    ? `평균 낙찰률 ${history.averageRate.toFixed(1)}%`
-    : '평균 낙찰률 정보 없음';
+  const avgParts = [];
+  avgParts.push(history.averageRate != null ? `평균 낙찰률 ${history.averageRate.toFixed(1)}%` : '평균 낙찰률 정보 없음');
+  if (history.averageParticipants != null) avgParts.push(`평균 참가업체 수 ${history.averageParticipants.toFixed(1)}개사`);
   const overlapNote = hasCompetitiveOverlap
     ? '<p class="ai-minimal-profile-notice">우리 회사의 수행실적과 겹치는 발주기관·분야입니다 — 경쟁 강도 참고.</p>'
     : '';
@@ -7904,15 +7904,45 @@ function renderAwardHistory(container, history, hasCompetitiveOverlap) {
       <td>${escapeHtml(it.winnerName || '-')}</td>
       <td class="mono">${it.awardAmount != null ? formatBudget(it.awardAmount) : '-'}</td>
       <td class="mono">${it.awardRate != null ? it.awardRate.toFixed(1) + '%' : '-'}</td>
+      <td class="mono">${it.participantCount != null ? it.participantCount + '개사' : '-'}</td>
       <td class="mono">${escapeHtml(it.openedAt || '-')}</td>
     </tr>
   `).join('');
 
+  // 자주 낙찰받는 업체 — 경쟁사 파악용. 1건짜리만 있으면(다들 한 번씩만
+  // 이겼다는 뜻) "반복 낙찰"이라는 정보 자체가 없는 것이므로 표시하지 않는다.
+  const repeatWinners = (history.frequentWinners || []).filter(w => w.winCount >= 2);
+  const frequentWinnersHtml = repeatWinners.length
+    ? `
+      <p class="growth-chart-title">자주 낙찰받는 업체</p>
+      <div class="license-toolbar">
+        ${repeatWinners.map(w => `<span class="badge badge--gray">${escapeHtml(w.name)} ${w.winCount}건</span>`).join('')}
+      </div>
+    `
+    : '';
+
+  // 낙찰률 추이 — 성장분석 페이지와 동일 기준(2건 미만이면 그래프 대신
+  // 문구, simpleLineChartHtml 재사용).
+  const trend = history.rateTrend || [];
+  let trendHtml = '';
+  if (trend.length >= 2) {
+    const labels = trend.map(t => t.date.slice(5));
+    const chart = simpleLineChartHtml(labels, [{ colorVar: '--accent-blue', values: trend.map(t => t.rate) }], null);
+    trendHtml = `
+      <p class="growth-chart-title">낙찰률 추이(최근 ${trend.length}건, 오래된순)</p>
+      ${chart}
+    `;
+  } else if (trend.length > 0) {
+    trendHtml = `<p class="license-card-meta">낙찰률 추이를 보기엔 표본이 아직 적습니다(${trend.length}건) — 계속 수집되면 자동으로 나타납니다.</p>`;
+  }
+
   container.appendChild(h(`
-    <p class="license-card-meta">최근 ${history.items.length}건 표시 (전체 ${history.count}건) · ${escapeHtml(avgText)}</p>
+    <p class="license-card-meta">최근 ${history.items.length}건 표시 (전체 ${history.count}건) · ${escapeHtml(avgParts.join(' · '))}</p>
     ${overlapNote}
+    ${frequentWinnersHtml}
+    ${trendHtml}
     <div class="table-scroll"><table>
-      <thead><tr><th>공고명</th><th>낙찰자</th><th>낙찰금액</th><th>낙찰률</th><th>개찰일</th></tr></thead>
+      <thead><tr><th>공고명</th><th>낙찰자</th><th>낙찰금액</th><th>낙찰률</th><th>참가업체수</th><th>개찰일</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
   `));

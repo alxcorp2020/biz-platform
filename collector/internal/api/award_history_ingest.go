@@ -60,11 +60,15 @@ func (s *Server) RunAwardHistoryIngestion(ctx context.Context, src *scsbid.Sourc
 		if t, err := parseScsbidTime(rec.RlOpengDt); err == nil {
 			openedAt = &t
 		}
+		var participantCount *int
+		if v, err := strconv.Atoi(strings.TrimSpace(rec.PrtcptCnum)); err == nil {
+			participantCount = &v
+		}
 
 		res, err := s.db.ExecContext(ctx, `
 			INSERT INTO notice_award_history
-				(source_id, external_bid_id, organization_name, title, winner_name, award_amount, award_rate, opened_at, raw_payload)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+				(source_id, external_bid_id, organization_name, title, winner_name, award_amount, award_rate, opened_at, raw_payload, participant_count)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			ON CONFLICT (source_id, external_bid_id) DO UPDATE SET
 				organization_name = EXCLUDED.organization_name,
 				title = EXCLUDED.title,
@@ -73,9 +77,10 @@ func (s *Server) RunAwardHistoryIngestion(ctx context.Context, src *scsbid.Sourc
 				award_rate = EXCLUDED.award_rate,
 				opened_at = EXCLUDED.opened_at,
 				raw_payload = EXCLUDED.raw_payload,
+				participant_count = EXCLUDED.participant_count,
 				collected_at = now()
 		`, sourceID, externalBidID, orgName, nullIfEmpty(&rec.BidNtceNm), nullIfEmpty(&rec.BidwinnrNm),
-			awardAmount, awardRate, openedAt, rec.BidNtceNm)
+			awardAmount, awardRate, openedAt, rec.BidNtceNm, participantCount)
 		if err != nil {
 			return written, err
 		}

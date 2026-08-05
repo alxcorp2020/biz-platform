@@ -10,22 +10,44 @@ package api
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/lib/pq"
 )
 
 type awardHistoryItem struct {
-	Title       string   `json:"title"`
-	WinnerName  *string  `json:"winnerName"`
-	AwardAmount *int64   `json:"awardAmount"`
-	AwardRate   *float64 `json:"awardRate"`
-	OpenedAt    *string  `json:"openedAt"`
+	Title            string   `json:"title"`
+	WinnerName       *string  `json:"winnerName"`
+	AwardAmount      *int64   `json:"awardAmount"`
+	AwardRate        *float64 `json:"awardRate"`
+	OpenedAt         *string  `json:"openedAt"`
+	ParticipantCount *int     `json:"participantCount"`
+}
+
+// frequentWinnerItem — "자주 낙찰받는 업체"(경쟁사 파악용, 2026-08-06 추가).
+type frequentWinnerItem struct {
+	Name     string `json:"name"`
+	WinCount int    `json:"winCount"`
+}
+
+// rateTrendPoint — 낙찰률 추이용 개별 데이터 포인트. 월별/주별로 묶지
+// 않고 개별 낙찰 건을 시간순 그대로 내려준다 — scsbid 수집이 이제 막
+// 시작돼(2026-08-06) 발주기관 하나당 표본이 아직 적어, 기간별로 묶으면
+// 버킷 하나에 1~2건만 들어가는 경우가 흔해 오히려 오해를 부를 수 있다.
+// 프론트가 2건 미만이면(성장분석 페이지의 기존 라인차트 표시 기준과
+// 동일) 그래프 대신 문구로 대체한다.
+type rateTrendPoint struct {
+	Date string  `json:"date"`
+	Rate float64 `json:"rate"`
 }
 
 type organizationAwardHistoryDTO struct {
-	Count       int                `json:"count"`
-	AverageRate *float64           `json:"averageRate"`
-	Items       []awardHistoryItem `json:"items"`
+	Count               int                  `json:"count"`
+	AverageRate         *float64             `json:"averageRate"`
+	AverageParticipants *float64             `json:"averageParticipants"`
+	Items               []awardHistoryItem   `json:"items"`
+	FrequentWinners     []frequentWinnerItem `json:"frequentWinners"`
+	RateTrend           []rateTrendPoint     `json:"rateTrend"`
 }
 
 // fetchOrganizationAwardHistory returns up to 10 most recent award records
@@ -53,22 +75,27 @@ func (s *Server) fetchOrganizationAwardHistory(ctx context.Context, organization
 	}
 
 	var dto organizationAwardHistoryDTO
-	var avgRate sql.NullFloat64
+	var avgRate, avgParticipants sql.NullFloat64
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*), AVG(award_rate) FROM notice_award_history WHERE organization_name = ANY($1)
-	`, pq.Array(names)).Scan(&dto.Count, &avgRate); err != nil {
+		SELECT COUNT(*), AVG(award_rate), AVG(participant_count) FROM notice_award_history WHERE organization_name = ANY($1)
+	`, pq.Array(names)).Scan(&dto.Count, &avgRate, &avgParticipants); err != nil {
 		return nil, err
 	}
 	dto.Items = []awardHistoryItem{}
+	dto.FrequentWinners = []frequentWinnerItem{}
+	dto.RateTrend = []rateTrendPoint{}
 	if dto.Count == 0 {
 		return &dto, nil
 	}
 	if avgRate.Valid {
 		dto.AverageRate = &avgRate.Float64
 	}
+	if avgParticipants.Valid {
+		dto.AverageParticipants = &avgParticipants.Float64
+	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT title, winner_name, award_amount, award_rate, opened_at
+		SELECT title, winner_name, award_amount, award_rate, opened_at, participant_count
 		FROM notice_award_history
 		WHERE organization_name = ANY($1)
 		ORDER BY opened_at DESC NULLS LAST
@@ -84,7 +111,8 @@ func (s *Server) fetchOrganizationAwardHistory(ctx context.Context, organization
 		var amount sql.NullInt64
 		var rate sql.NullFloat64
 		var opened sql.NullTime
-		if err := rows.Scan(&title, &winner, &amount, &rate, &opened); err != nil {
+		var participants sql.NullInt64
+		if err := rows.Scan(&title, &winner, &amount, &rate, &opened, &participants); err != nil {
 			continue
 		}
 		it.Title = title.String
@@ -99,9 +127,87 @@ func (s *Server) fetchOrganizationAwardHistory(ctx context.Context, organization
 			v := opened.Time.Format("2006-01-02")
 			it.OpenedAt = &v
 		}
+		if participants.Valid {
+			v := int(participants.Int64)
+			it.ParticipantCount = &v
+		}
 		dto.Items = append(dto.Items, it)
 	}
-	return &dto, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	frequentWinners, err := s.fetchFrequentAwardWinners(ctx, names)
+	if err != nil {
+		return nil, err
+	}
+	dto.FrequentWinners = frequentWinners
+
+	rateTrend, err := s.fetchAwardRateTrend(ctx, names)
+	if err != nil {
+		return nil, err
+	}
+	dto.RateTrend = rateTrend
+
+	return &dto, nil
+}
+
+// fetchFrequentAwardWinners — "자주 낙찰받는 업체"(경쟁사 파악용). 낙찰
+// 횟수 기준 상위 5개사만 보여준다(전체 목록은 위 items 표에서 개별
+// 확인 가능하므로, 여긴 "반복해서 이기는 곳이 누구인지"만 빠르게
+// 보여주는 요약).
+func (s *Server) fetchFrequentAwardWinners(ctx context.Context, names []string) ([]frequentWinnerItem, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT winner_name, COUNT(*) AS win_count
+		FROM notice_award_history
+		WHERE organization_name = ANY($1) AND winner_name IS NOT NULL AND winner_name != ''
+		GROUP BY winner_name
+		ORDER BY win_count DESC, MAX(opened_at) DESC NULLS LAST
+		LIMIT 5`, pq.Array(names))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []frequentWinnerItem{}
+	for rows.Next() {
+		var it frequentWinnerItem
+		if err := rows.Scan(&it.Name, &it.WinCount); err != nil {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// fetchAwardRateTrend returns up to the 20 most recent award-rate data
+// points in chronological order(오래된 것부터) — 프론트가 그대로 라인
+// 그래프의 x축 순서로 쓸 수 있게.
+func (s *Server) fetchAwardRateTrend(ctx context.Context, names []string) ([]rateTrendPoint, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT award_rate, opened_at FROM (
+			SELECT award_rate, opened_at
+			FROM notice_award_history
+			WHERE organization_name = ANY($1) AND award_rate IS NOT NULL AND opened_at IS NOT NULL
+			ORDER BY opened_at DESC
+			LIMIT 20
+		) recent
+		ORDER BY opened_at ASC`, pq.Array(names))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []rateTrendPoint{}
+	for rows.Next() {
+		var rate float64
+		var opened time.Time
+		if err := rows.Scan(&rate, &opened); err != nil {
+			continue
+		}
+		out = append(out, rateTrendPoint{Date: opened.Format("2006-01-02"), Rate: rate})
+	}
+	return out, rows.Err()
 }
 
 // dedupNonEmpty returns the distinct non-empty strings among names,
