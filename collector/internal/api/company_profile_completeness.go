@@ -1,21 +1,47 @@
-// 프로필 완성도("AI 분석 커버리지") 요약. 2026-08-05 온보딩 재설계 —
+// 프로필 완성도("AI 분석 커버리지") 요약. 2026-08-05 온보딩 재설계(1차) —
 // 예전엔 "기본정보"가 company_profiles 행 존재 여부만으로 무조건 100%
 // 였는데(지역/기업규모/업력/직원수/매출액을 개별적으로 채점 안 함), 이러면
 // 온보딩 카드에서 이 필드들을 등록해도 커버리지 %가 전혀 안 올라 실시간
-// %표시 기능 자체가 성립 안 됨(사용자 확인 후 재설계). 기존 5개 카테고리
-// (업종/면허/인증/재무/실적/인력 — capCompleteness 기준치는 실제 규정이
-// 아니라 합의한 예시 cap)는 계산방식 그대로 두고, "기본정보"를 지역/
-// 기업규모/업력/직원수/매출액 5개로 쪼개고 직접생산확인을 신규 추가해
-// 총 12개 카테고리를 동일 가중치(1/12)로 평균한다.
+// %표시 기능 자체가 성립 안 됨. "기본정보"를 지역/기업규모/업력/직원수/
+// 매출액 5개로 쪼개고 직접생산확인을 신규 추가해 총 12개 카테고리로
+// 재설계했다.
+//
+// 2026-08-05 재설계(2차, 심플화) — 12개를 전부 동일 가중치(1/12)로 두면
+// 필수 3개(지역/업종/기업규모)만 채워도 겨우 25%라 "필수만 성실히
+// 채웠는데 50% 게이트에 막힌다"는 부당한 상황이 생겼다(사용자 확인). 그래서
+// 지역/업종/기업규모(온보딩에서 건너뛸 수 없는 필수 3개) 각각에 20%(합
+// 60%)를, 나머지 9개 선택 카테고리가 남은 40%를 균등분배(각 40/9%)받도록
+// 가중평균으로 바꿨다 — 필수 3개만 채우면 선택 항목을 하나도 안 건드려도
+// 항상 60%로 온보딩MinCompleteness(50%)를 넘는다. 이 재설계에 맞춰
+// "업종"의 기존 부분점수 공식(선택한 업종 수/10)도 이진(하나라도 선택하면
+// 100%)으로 바꿨다 — 안 그러면 업종을 1개만 선택한 흔한 경우(대부분의
+// 중소기업) industry가 10%만 인정돼 필수 3개를 다 채워도 60%에
+// 못미치는 모순이 생긴다.
 package api
 
 import (
 	"context"
 	"database/sql"
+	"math"
 	"net/http"
 
 	"github.com/lib/pq"
 )
+
+// requiredCompletenessCategoryWeight — 온보딩 필수 3개(지역/업종/기업규모)
+// 각각의 가중치(%). 3개 합 60%로, 이 3개만 채우면 선택 항목 없이도
+// onboardingMinCompleteness(50%)를 항상 넘는다. index.html의
+// ONBOARDING_REQUIRED_FIELD_KEYS가 가리키는 3개와 반드시 일치해야 한다.
+const requiredCompletenessCategoryWeight = 20.0
+
+// requiredCompletenessCategoryKeys / optionalCompletenessCategoryKeys —
+// 위 가중치를 적용할 카테고리 키 목록. 나머지(선택) 카테고리는 남은
+// 비중(100 - 20*3 = 40%)을 균등분배한다.
+var requiredCompletenessCategoryKeys = []string{"region", "industry", "companySize"}
+var optionalCompletenessCategoryKeys = []string{
+	"businessAgeYears", "employeeCount", "revenueAmount",
+	"licenses", "certifications", "financials", "trackRecords", "personnel", "directProduction",
+}
 
 // completenessConfidenceTables lists every table this feature averages
 // confidence(A~D) over. 순서는 응답과 무관 — 그냥 반복 대상 목록.
@@ -179,10 +205,9 @@ func (s *Server) computeProfileCompleteness(ctx context.Context, profileID strin
 		return profileCompletenessResponse{}, err
 	}
 
-	industryCompleteness := len(fields.Industry) * 100 / len(industryGroups)
-	if industryCompleteness > 100 {
-		industryCompleteness = 100
-	}
+	// 업종은 부분점수(선택 수/10)가 아니라 이진 판정(하나라도 선택했으면
+	// 100%)이다 — 위 패키지 주석 참고, 필수 3개 가중치 60% 보장에 필요.
+	industryCompleteness := boolCompleteness(len(fields.Industry) > 0)
 	licenseCompleteness := capCompleteness(counts["company_licenses"].total, 1)
 	certCompleteness := capCompleteness(counts["company_certifications"].total, 1)
 	financialCompleteness := capCompleteness(counts["company_financials"].total, 3)
@@ -204,11 +229,17 @@ func (s *Server) computeProfileCompleteness(ctx context.Context, profileID strin
 		"personnel":        {Label: "인력", Completeness: personnelCompleteness},
 	}
 
-	sum := 0
-	for _, c := range categories {
-		sum += c.Completeness
+	// overall — 12개 단순평균이 아니라 가중평균(위 패키지 주석 참고).
+	// 필수 3개(20%씩, 합 60%) + 선택 9개(합 40%를 균등분배).
+	optionalWeight := (100.0 - requiredCompletenessCategoryWeight*float64(len(requiredCompletenessCategoryKeys))) / float64(len(optionalCompletenessCategoryKeys))
+	weighted := 0.0
+	for _, key := range requiredCompletenessCategoryKeys {
+		weighted += float64(categories[key].Completeness) * requiredCompletenessCategoryWeight / 100
 	}
-	overall := sum / len(categories)
+	for _, key := range optionalCompletenessCategoryKeys {
+		weighted += float64(categories[key].Completeness) * optionalWeight / 100
+	}
+	overall := int(math.Round(weighted))
 
 	totalItems, totalAB := 0, 0
 	for _, c := range counts {

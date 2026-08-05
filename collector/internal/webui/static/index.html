@@ -1292,45 +1292,25 @@
   .doc-progress-fill { height: 100%; background: var(--success); border-radius: 999px; transition: width .2s ease; }
   .doc-progress-label { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
 
-  /* 온보딩 "AI 분석 커버리지" %바(2026-08-05) — 50% 미만은 빨강+경고,
-     50% 이상은 초록(사용자 확정 색상 규칙). */
+  /* 온보딩 "AI 분석 커버리지" %바 — 2026-08-05 재설계(Phase UX-09)에서
+     톤을 순화: 0~49%는 위압적인 빨강 대신 중립적인 파랑("아직 진행 중",
+     경고 아님), 50~100%만 초록(목표 달성 강조, 사용자 확정 색상 규칙). */
   .onboarding-coverage-bar { margin: 1rem 0; text-align: left; }
   .onboarding-coverage-bar-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.4rem; }
   .onboarding-coverage-bar-title { font-size: 0.85rem; font-weight: 600; color: var(--ink-soft); }
   .onboarding-coverage-bar-pct { font-size: 1.3rem; font-weight: 800; }
   .onboarding-coverage-bar--ok .onboarding-coverage-bar-pct { color: var(--success); }
-  .onboarding-coverage-bar--low .onboarding-coverage-bar-pct { color: var(--danger); }
+  .onboarding-coverage-bar--low .onboarding-coverage-bar-pct { color: var(--accent-blue-deep); }
   .onboarding-coverage-bar-track { height: 12px; border-radius: 999px; background: var(--bg-soft); overflow: hidden; }
   .onboarding-coverage-bar-fill { height: 100%; border-radius: 999px; transition: width .3s ease; background: var(--success); }
-  .onboarding-coverage-bar--low .onboarding-coverage-bar-fill { background: var(--danger); }
-  .onboarding-coverage-warning {
-    margin: 0.6rem 0 0; padding: 0.6rem 0.75rem; border-radius: 8px;
-    background: rgba(192,57,43,0.10); color: var(--danger); font-weight: 700; font-size: 0.88rem;
+  .onboarding-coverage-bar--low .onboarding-coverage-bar-fill { background: var(--accent-blue); }
+  .onboarding-coverage-hint { margin: 0.5rem 0 0; color: var(--ink-soft); font-size: 0.88rem; }
+  .onboarding-required-badge, .onboarding-optional-badge {
+    display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.5rem;
+    border-radius: 999px; vertical-align: middle;
   }
-  .onboarding-skip-flash {
-    margin: 0.5rem 0 0; padding: 0.5rem 0.75rem; border-radius: 8px;
-    background: var(--bg-soft); color: var(--ink-soft); font-size: 0.85rem;
-  }
-  .onboarding-checklist-headline { font-weight: 700; margin: 0 0 0.75rem; text-align: center; }
-  .onboarding-checklist { display: flex; flex-direction: column; gap: 0.6rem; }
-  .onboarding-checklist-item {
-    display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
-    padding: 0.75rem 0.9rem; border: 1px solid var(--border); border-radius: 10px;
-  }
-  .onboarding-checklist-item--skipped { opacity: 0.55; }
-  .onboarding-checklist-item-main { flex: 1 1 auto; min-width: 0; }
-  .onboarding-checklist-item-label { font-weight: 700; }
-  .onboarding-checklist-item-skipped-badge { font-weight: 500; font-size: 0.78rem; color: var(--ink-soft); }
-  .onboarding-checklist-item-desc { font-size: 0.82rem; color: var(--ink-soft); margin-top: 0.2rem; }
-  .onboarding-checklist-item-side { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
-  .onboarding-checklist-item-delta { font-size: 0.8rem; font-weight: 700; color: var(--success); white-space: nowrap; }
-  /* 좁은 화면(모바일)에서는 side(예상%/등록/건너뛰기)가 main과 한 줄에
-     끼어들 공간이 없어 텍스트가 한 글자씩 줄바꿈되는 문제가 있었다 —
-     아이템을 세로로 쌓고 side를 전체 너비로 펼친다. */
-  @media (max-width: 480px) {
-    .onboarding-checklist-item { flex-direction: column; align-items: stretch; }
-    .onboarding-checklist-item-side { justify-content: flex-end; flex-wrap: wrap; }
-  }
+  .onboarding-required-badge { background: rgba(49,130,246,0.12); color: var(--accent-blue-deep); }
+  .onboarding-optional-badge { background: var(--bg-soft); color: var(--ink-soft); }
   .glossary-btn--warn { border-color: var(--warn); color: var(--warn); }
   .glossary-btn--warn:hover, .glossary-btn--warn:focus-visible { background: var(--warn); color: #fff; }
 
@@ -3829,7 +3809,7 @@ async function submitBusinessRegistrationProfile(payload) {
   location.hash = '#/onboarding/complete';
 }
 
-// ==================== 온보딩 정보요청 체크리스트(Phase UX-03→08 누적) ====================
+// ==================== 온보딩 정보요청 흐름(Phase UX-03→09 누적) ====================
 // renderOnboardingComplete 아래에 남은 정보요청 항목을 보여준다. 판정
 // 로직(eligibility.go/scoring.go)은 전혀 안 건드리고, 이미 있는 실데이터
 // 소스만 쓴다:
@@ -3841,36 +3821,31 @@ async function submitBusinessRegistrationProfile(payload) {
 //    직접생산확인은 판정기준 자체가 없으므로, "이 서류를 요구하는 공고
 //    N건" 안내만(없는 걸 있는 것처럼 보여주지 않는다).
 //
-// Phase UX-08(2026-08-05) 재설계 핵심 — "AI 분석 커버리지 50% 미만이면
-// 온보딩 완료 차단"으로 정책 자체가 뒤집혔다(예전 Phase UX-04의 "정보
-// 부족해도 비차단" 결정을 이번에 명시적으로 폐기 — 사용자 확인):
-//  (1) 순서를 강제하던 카드 큐를 "남은 항목 체크리스트"로 교체 — 모든
-//      항목을 한 번에 보여주고 원하는 순서로 등록.
-//  (2) 상단에 AI 분석 커버리지 %바를 항상 표시(50% 미만 빨강+경고,
-//      50%↑ 초록), 등록/건너뛰기 직후 실제 계산값으로 갱신.
-//  (3) company_profile_completeness.go를 12개 카테고리(지역/업종/
-//      기업규모/업력/직원수/매출액/면허/인증/재무/실적/인력/직접생산
-//      확인, 동일 가중치)로 재설계 — 예전엔 "기본정보"가 프로필 존재
-//      여부만으로 무조건 100%라 이 5개 필드를 등록해도 %가 안 올랐음.
-//  (4) 50% 미만이면 [완료] 버튼 비활성화, 50% 이상 달성 시 최종 확인
-//      화면(renderOnboardingFinalConfirm)에서 서버가 다시 검증 후
-//      onboarding_completed_at을 찍는다(company_profiles 신규 컬럼,
-//      기존 회원은 마이그레이션 때 백필돼 소급 적용 안 됨).
-//  (5) 이 화면도 이제 is-auth(사이드바 숨김)로 몰입형 처리 — 예전엔
-//      사업자등록증 업로드 화면만 숨겨져 있었음.
-//
-// 모바일에서는 [등록]이 모달이 아니라 전체화면 라우트 이동(#/onboarding/
-// complete/register/{fieldKey})이라, onboardingChecklistState(모듈
-// 스코프)로 "지금 어떤 항목을 등록 중이었는지"만 route() 재실행을 넘어
-// 기억한다 — 체크리스트 자체는 순서 상태가 없어 매번 최신 데이터로
-// 새로 그려도 안 끊긴다.
-
-// onboardingChecklistState — 모바일 라우트 왕복(#/onboarding/complete ↔
-// #/onboarding/complete/register/{fieldKey}) 사이에 "지금 어떤 항목을
-// 등록 중이었는지"와 "건너뛴 항목"만 기억한다. 예전 카드 큐(Phase UX-06/07)
-// 처럼 순서 index/누적 카운트를 들고 있을 필요가 없다 — 체크리스트는
-// 매번 최신 서버 데이터로 새로 그려도 상태가 안 끊긴다(2026-08-05 재설계).
-let onboardingChecklistState = { pendingRegisterFieldKey: null, skippedFieldKeys: new Set() };
+// Phase UX-09(2026-08-05) 재설계 핵심 — 직전 Phase UX-08의 "체크리스트"
+// (남은 항목을 한 화면에 전부 보여줌)가 오히려 이탈율/피로도를 높인다는
+// 피드백으로 다시 "카드 한 번에 하나씩만" 순서대로 보여주는 방식으로
+// 되돌렸다(단, Phase UX-06/07의 옛 큐와는 세부가 다름 — 아래 참고):
+//  (1) 화면엔 항상 "지금 입력할 항목 하나"만 크게 보이고, 상단엔 텍스트
+//      대신 점/N-of-M 진행 표시(stepIndicatorHtml 재사용)만 최소로.
+//      PC/모바일 구분 없이 완전히 인라인 렌더링(모달도, 별도 라우트도
+//      없음 — Phase UX-06/07의 PC모달·모바일라우트 분기를 이번에
+//      완전히 걷어냄, 화면이 하나뿐이라 필요가 없어짐).
+//  (2) 색상 톤 순화 — 이전(UX-08)엔 50% 미만을 빨강+"분석이 어렵습니다"
+//      경고 톤으로 표현했는데, 이번엔 0~49%를 중립적인 파란색+격려 톤
+//      ("조금만 더 채우면 정확한 분석이 가능해요")으로, 50%↑만 녹색으로
+//      구분한다.
+//  (3) 필수(지역/업종/기업규모 — ONBOARDING_REQUIRED_FIELD_KEYS)는
+//      [건너뛰기] 자체가 없다(반드시 등록해야 다음 카드로). 그 외는
+//      전부 선택 — [등록]/[건너뛰기]. 면허/인증/직접생산확인처럼
+//      "보유 여부" 개념인 항목(ONBOARDING_POSSESSION_FIELD_KEYS)은
+//      [보유 - 등록하기]/[미보유 - 다음으로]로 라벨을 명확히 한다.
+//  (4) 커버리지 가중치 재설계(company_profile_completeness.go) — 필수
+//      3개에 각각 20%(합 60%)를 줘서, 선택 항목을 하나도 안 채워도
+//      필수 3개만 다 채우면 항상 50% 게이트를 넘는다("선택 항목을
+//      건너뛰어서 막히는" 상황 자체가 구조적으로 안 생김).
+// Phase UX-08에서 만든 renderOnboardingFinalConfirm(최종 확인 화면)과
+// showOnboardingItemSavedToast(등록 직후 전/후 %델타 토스트)는 그대로
+// 재사용한다.
 
 // documentRequirementGapPromptText — Phase UX-05(2026-08-04). dashboard.go의
 // documentRequirementGaps는 이제 noticeCount==0인 항목도 내려준다(그
@@ -3998,28 +3973,26 @@ const ONBOARDING_FIELDKEY_TO_COMPLETENESS_CATEGORY = {
   directProduction: 'directProduction',
 };
 
-// onboardingExpectedDeltaFor — 이 항목을 등록하면 AI 분석 커버리지가 몇
-// %p 오르는지 실제 계산식으로 구한다(하드코딩 금지 — completenessData의
-// 실제 현재값과 실제 카테고리 개수를 그대로 씀). 지역/기업규모/업력/
-// 직원수/매출액/직접생산확인/면허/인증처럼 "있다/없다"만 있는 항목은
-// 등록 즉시 이 값 그대로 오른다. 업종/수행실적처럼 여러 개 등록할수록
-// 올라가는 항목(구간 target>1)은 온보딩 미니폼이 1건만 등록시켜도
-// "완전히 채웠을 때"의 최대치를 보여준다 — 그래도 실제 가중치 기반
-// 수치라 안내용으로 정직하다(하드코딩된 임의 숫자가 아님).
-function onboardingExpectedDeltaFor(fieldKey, completenessData) {
-  const catKey = ONBOARDING_FIELDKEY_TO_COMPLETENESS_CATEGORY[fieldKey];
-  const cat = completenessData.categories[catKey];
-  const current = cat ? cat.completeness : 0;
-  const numCategories = Object.keys(completenessData.categories).length;
-  const delta = (100 - current) / numCategories;
-  // 정수로 반올림 — 서버(overallCompleteness)가 정수 나눗셈(내림)이라
-  // 소수점까지 보여주면 실제 등록 후 값과 안 맞아 보일 수 있다.
-  return Math.round(delta);
-}
+// ONBOARDING_REQUIRED_FIELD_KEYS — 반드시 채워야 다음 단계로 진행 가능한
+// 3개("회사라면 누구나 있는 기본 정보", 사용자 확정). 이 카드들은
+// [건너뛰기] 자체를 안 보여준다. company_profile_completeness.go의
+// requiredCompletenessCategoryKeys(가중치 20%씩, 합 60%)와 반드시 같은
+// 3개를 가리켜야 한다 — 이 3개만 채우면 선택 항목 없이도 항상
+// ONBOARDING_MIN_COMPLETENESS(50%)를 넘도록 서버 공식이 설계돼 있다.
+const ONBOARDING_REQUIRED_FIELD_KEYS = new Set(['region', 'industry', 'companySize']);
+
+// ONBOARDING_POSSESSION_FIELD_KEYS — "보유/미보유" 개념인 선택 항목(면허/
+// 인증/직접생산확인). 일반 [건너뛰기] 대신 [보유 - 등록하기]/[미보유 -
+// 다음으로]로 라벨을 명확히 해서, "미보유"를 선택해도 페널티 없이
+// 자연스럽게 다음으로 넘어간다는 걸 화면에서 바로 보여준다(사용자 확정).
+const ONBOARDING_POSSESSION_FIELD_KEYS = new Set(['license', 'certification', 'directProduction']);
 
 // onboardingCoverageBarHtml — "AI 분석 커버리지" %를 온보딩 전 화면
-// 상단에 항상 표시(사용자 스펙 2번). 색상 규칙: 50~100%는 녹색, 50%
-// 미만은 붉은색+경고 문구.
+// 상단에 항상 표시. 2026-08-05 색상/톤 정정(사용자 확인 — 0%에서
+// 시작해 등록할수록 상승하는 방향 자체는 원래 맞았고, 톤만 순화):
+// 0~49%는 위압적인 빨강 대신 중립적인 파랑("아직 진행 중", 경고 아님),
+// 50~100%만 녹색(목표 달성 강조). 미만일 때 문구도 "분석이 어렵습니다"
+// 같은 겁주는 톤 대신 격려 톤으로.
 function onboardingCoverageBarHtml(overallCompleteness) {
   const pct = Math.max(0, Math.min(100, overallCompleteness));
   const isLow = overallCompleteness < ONBOARDING_MIN_COMPLETENESS;
@@ -4030,18 +4003,15 @@ function onboardingCoverageBarHtml(overallCompleteness) {
         <span class="onboarding-coverage-bar-pct">${overallCompleteness}%</span>
       </div>
       <div class="onboarding-coverage-bar-track"><div class="onboarding-coverage-bar-fill" style="width:${pct}%"></div></div>
-      ${isLow ? '<p class="onboarding-coverage-warning">⚠ 정보가 부족해 분석이 어렵습니다. 50% 이상 등록하면 다음 단계로 진행할 수 있습니다.</p>' : ''}
+      ${isLow ? '<p class="onboarding-coverage-hint">조금만 더 채우면 정확한 분석이 가능해요.</p>' : ''}
     </div>
   `;
 }
 
-// renderOnboardingComplete — #/onboarding/complete. 2026-08-05 재설계:
-// 카드를 하나씩 순서대로 강제하던 큐(Phase UX-06/07)를 "남은 항목
-// 체크리스트"로 바꿨다 — 50% 미만이면 완료를 막는 새 정책상, 사용자가
-// 어떤 항목이 남았고 각각 등록하면 얼마나 오르는지 한눈에 보고 원하는
-// 순서로 채울 수 있어야 하기 때문(순차 강제는 이 목적에 안 맞음).
-// 몰입형 온보딩(사용자 스펙 1번)에 따라 이 화면도 이제 is-auth(사이드바
-// 숨김)를 붙인다 — 예전엔 사업자등록증 업로드 화면만 숨겨져 있었다.
+// renderOnboardingComplete — #/onboarding/complete. 2026-08-05 재설계
+// (Phase UX-09): 카드를 한 번에 하나씩만 순서대로 보여준다(체크리스트
+// 방식은 이탈율/피로도가 높다는 피드백으로 폐기). 몰입형 온보딩에 따라
+// is-auth(사이드바 숨김)는 그대로 유지.
 async function renderOnboardingComplete(container) {
   document.body.classList.add('is-auth');
   document.body.classList.remove('is-landing');
@@ -4059,103 +4029,103 @@ async function renderOnboardingComplete(container) {
     container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
     return;
   }
-  renderOnboardingChecklistScreen(container, dashboardData, completenessData);
+  const queue = buildOnboardingCardQueue(dashboardData);
+  renderOnboardingCardStep(container, queue, 0, completenessData);
 }
 
-// renderOnboardingChecklistScreen — 남은 항목을 전부 한 번에 보여주는
-// 체크리스트(더 이상 "한 번에 하나씩" 순서를 강제하지 않는다 — 사용자가
-// 원하는 항목부터 자유롭게 등록). [건너뛰기]는 실제 저장 데이터를 안
-// 건드리므로 진짜 %를 낮추지는 않는다(없는 데이터를 있는 것처럼도, 있는
-// 데이터를 없는 것처럼도 보여주지 않는다는 이 프로젝트의 원칙) — 대신
-// 그 항목을 목록 아래로 내리고 "놓친 상승분"을 잠깐 보여줘 건너뛰기의
-// 효과를 체감시킨다. 건너뛴 항목도 [등록] 버튼은 그대로 남아있어 언제든
-// 되돌아와 채울 수 있다.
-function renderOnboardingChecklistScreen(container, dashboardData, completenessData, flashMessage) {
+// renderOnboardingCardStep — 큐에서 딱 하나(queue[index])만 화면에 크게
+// 보여준다. 다른 항목은 전혀 안 보여줌("사용자는 지금 이것만 신경쓰면
+// 됨", 사용자 확정). 상단엔 %바(순화된 톤) + 최소 진행 표시(점/N-of-M,
+// stepIndicatorHtml 재사용)만 — 항목 목록 텍스트는 없앴다. 필수(지역/
+// 업종/기업규모)는 [건너뛰기] 자체가 없고, 나머지는 있음. 면허/인증/
+// 직접생산확인은 "보유/미보유" 두 버튼으로 라벨을 바꾼다. 커버리지가
+// 이미 50% 이상이면(필수 3개만 채워도 가중치 60%라 자동으로 이 조건을
+// 만족) 카드 아래 "지금까지 정보로 완료하기"를 추가로 보여줘 남은
+// 선택 항목을 억지로 다 거치지 않고 바로 최종 확인으로 갈 수 있게 한다.
+function renderOnboardingCardStep(container, queue, index, completenessData) {
   const overall = completenessData.overallCompleteness;
-  const isLow = overall < ONBOARDING_MIN_COMPLETENESS;
-  const skipped = onboardingChecklistState.skippedFieldKeys;
-  const items = buildOnboardingCardQueue(dashboardData)
-    .slice()
-    .sort((a, b) => (skipped.has(a.fieldKey) ? 1 : 0) - (skipped.has(b.fieldKey) ? 1 : 0));
-
-  const companyName = (currentProfile && currentProfile.companyName) || '';
-  const title = companyName ? `🎉 ${escapeHtml(companyName)}의 AI 회사 프로필을 만들었습니다` : '🎉 AI 회사 프로필을 만들었습니다';
-
-  const itemsHtml = items.length ? items.map(item => {
-    const delta = onboardingExpectedDeltaFor(item.fieldKey, completenessData);
-    const isSkipped = skipped.has(item.fieldKey);
-    return `
-      <div class="onboarding-checklist-item${isSkipped ? ' onboarding-checklist-item--skipped' : ''}">
-        <div class="onboarding-checklist-item-main">
-          <div class="onboarding-checklist-item-label">${escapeHtml(item.label)}${isSkipped ? ' <span class="onboarding-checklist-item-skipped-badge">건너뜀</span>' : ''}</div>
-          <div class="onboarding-checklist-item-desc">${escapeHtml(onboardingCardPromptText(item))}</div>
-        </div>
-        <div class="onboarding-checklist-item-side">
-          <span class="onboarding-checklist-item-delta">예상 +${delta}%p</span>
-          <button type="button" class="btn btn-primary btn-sm onboarding-checklist-register-btn" data-field-key="${escapeAttr(item.fieldKey)}">등록</button>
-          ${isSkipped ? '' : `<button type="button" class="btn btn-secondary btn-sm onboarding-checklist-skip-btn" data-field-key="${escapeAttr(item.fieldKey)}" data-delta="${delta}">건너뛰기</button>`}
-        </div>
-      </div>
-    `;
-  }).join('') : '<p class="license-card-meta">등록할 수 있는 추가 항목이 없습니다.</p>';
+  if (index >= queue.length) {
+    renderOnboardingFinalConfirm(container, completenessData);
+    return;
+  }
+  const card = queue[index];
+  const isRequired = ONBOARDING_REQUIRED_FIELD_KEYS.has(card.fieldKey);
+  const isPossession = ONBOARDING_POSSESSION_FIELD_KEYS.has(card.fieldKey);
+  const canFinishEarly = overall >= ONBOARDING_MIN_COMPLETENESS;
 
   container.innerHTML = '';
   container.appendChild(h(`
-    <div class="detail-card" style="max-width:560px;margin:1.5rem auto;text-align:center">
-      <h2>${title}</h2>
+    <div class="detail-card" style="max-width:480px;margin:1.5rem auto;text-align:center">
       ${onboardingCoverageBarHtml(overall)}
-      <p id="onboarding-skip-flash" class="onboarding-skip-flash" style="${flashMessage ? '' : 'display:none'}">${flashMessage ? escapeHtml(flashMessage) : ''}</p>
-    </div>
-    <div class="detail-card" style="max-width:560px;margin:0 auto">
-      <p class="onboarding-checklist-headline">${isLow ? `현재 ${overall}% — 아래 항목을 등록하면 정확도가 상승합니다.` : `현재 ${overall}% — 더 등록하면 정확도가 계속 올라갑니다.`}</p>
-      <div class="onboarding-checklist">${itemsHtml}</div>
-      ${isLow ? '<p class="license-card-meta" style="text-align:center;margin-top:0.5rem">(50% 이상이 되면 다음 단계로 진행할 수 있습니다)</p>' : ''}
-      <button type="button" class="btn btn-primary btn-block" id="onboarding-complete-btn" style="margin-top:1rem" ${isLow ? 'disabled' : ''}>완료</button>
+      <div style="margin:1rem 0">${stepIndicatorHtml(index, queue.length, `${queue.length}개 중 ${index + 1}번째`)}</div>
+      <h2 style="margin-bottom:0.25rem">${escapeHtml(card.label)} ${isRequired ? '<span class="onboarding-required-badge">필수</span>' : '<span class="onboarding-optional-badge">선택</span>'}</h2>
+      <p class="license-card-meta">${escapeHtml(onboardingCardPromptText(card))}</p>
+      <div id="onboarding-card-action-area" style="margin-top:1rem"></div>
+      ${canFinishEarly ? '<button type="button" class="btn btn-secondary btn-block" id="onboarding-finish-early-btn" style="margin-top:1rem">지금까지 정보로 완료하기</button>' : ''}
     </div>
   `));
 
-  container.querySelectorAll('.onboarding-checklist-register-btn').forEach(btn => {
-    btn.addEventListener('click', () => startOnboardingItemRegistration(btn.dataset.fieldKey, container, overall));
-  });
-  container.querySelectorAll('.onboarding-checklist-skip-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      onboardingChecklistState.skippedFieldKeys.add(btn.dataset.fieldKey);
-      renderOnboardingChecklistScreen(container, dashboardData, completenessData, `건너뛰었습니다 (놓친 상승분 +${btn.dataset.delta}%p)`);
-    });
-  });
-  const completeBtn = document.getElementById('onboarding-complete-btn');
-  completeBtn.addEventListener('click', () => {
-    if (completeBtn.disabled) return;
-    renderOnboardingFinalConfirm(container, completenessData);
-  });
+  const actionArea = document.getElementById('onboarding-card-action-area');
+  const goNext = () => renderOnboardingCardStep(container, queue, index + 1, completenessData);
+  if (isPossession) {
+    actionArea.appendChild(h(`
+      <div class="home-hero-actions">
+        <button type="button" class="btn btn-primary" id="onboarding-card-has-btn">보유 - 등록하기</button>
+        <button type="button" class="btn btn-secondary" id="onboarding-card-none-btn">미보유 - 다음으로</button>
+      </div>
+    `));
+    document.getElementById('onboarding-card-has-btn').addEventListener('click', () => openOnboardingCardForm(container, queue, index, completenessData));
+    document.getElementById('onboarding-card-none-btn').addEventListener('click', goNext);
+  } else {
+    actionArea.appendChild(h(`
+      <div class="home-hero-actions">
+        <button type="button" class="btn btn-primary" id="onboarding-card-register-btn">등록</button>
+        ${isRequired ? '' : '<button type="button" class="btn btn-secondary" id="onboarding-card-skip-btn">건너뛰기</button>'}
+      </div>
+    `));
+    document.getElementById('onboarding-card-register-btn').addEventListener('click', () => openOnboardingCardForm(container, queue, index, completenessData));
+    const skipBtn = document.getElementById('onboarding-card-skip-btn');
+    if (skipBtn) skipBtn.addEventListener('click', goNext);
+  }
+  const finishBtn = document.getElementById('onboarding-finish-early-btn');
+  if (finishBtn) finishBtn.addEventListener('click', () => renderOnboardingFinalConfirm(container, completenessData));
 }
 
-// startOnboardingItemRegistration — PC는 그 항목 하나만의 미니폼을 담은
-// 모달을 연다(체크리스트로 돌아가는 게 곧 "다음"이라, 예전처럼 모달
-// 안에서 여러 카드를 이어가는 [이전]/[건너뛰기] 내부 탐색이 더는 필요
-// 없다 — 파라미터로 onBack=null 그대로 전달). 모바일은 기존처럼
-// 전체화면 라우트 이동.
-function startOnboardingItemRegistration(fieldKey, container, beforeCompleteness) {
-  if (window.innerWidth >= 768) {
-    const modalBody = openModal(ONBOARDING_QUICK_FORM_TITLES[fieldKey] || fieldKey, '');
-    const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[fieldKey];
-    renderForm(modalBody, () => {
-      showOnboardingItemSavedToast(modalBody, beforeCompleteness, () => {
-        closeModal();
-        renderOnboardingComplete(container);
-      });
-    }, null);
-  } else {
-    onboardingChecklistState.pendingRegisterFieldKey = fieldKey;
-    onboardingChecklistState.pendingRegisterBeforeCompleteness = beforeCompleteness;
-    location.hash = '#/onboarding/complete/register/' + encodeURIComponent(fieldKey);
-  }
+// openOnboardingCardForm — 카드의 미니폼을 그 자리에 인라인으로 그린다
+// (모달도, 모바일 전용 라우트도 없음 — 화면이 하나뿐이라 Phase UX-06/07
+// 의 PC모달·모바일라우트 분기가 이번 재설계로 완전히 불필요해졌다).
+// 저장 성공 시 전/후 %델타 토스트(showOnboardingItemSavedToast, Phase
+// UX-08 그대로 재사용)를 보여준 뒤 다음 카드로 자동 진행.
+function openOnboardingCardForm(container, queue, index, completenessData) {
+  const card = queue[index];
+  const before = completenessData.overallCompleteness;
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="detail-card" style="max-width:480px;margin:1.5rem auto">
+      ${onboardingCoverageBarHtml(before)}
+      <div style="margin:1rem 0">${stepIndicatorHtml(index, queue.length, `${queue.length}개 중 ${index + 1}번째`)}</div>
+      <h3>${escapeHtml(ONBOARDING_QUICK_FORM_TITLES[card.fieldKey] || card.label)}</h3>
+      <div id="onboarding-inline-form-slot"></div>
+    </div>
+  `));
+  const formSlot = document.getElementById('onboarding-inline-form-slot');
+  const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[card.fieldKey];
+  renderForm(formSlot, () => {
+    showOnboardingItemSavedToast(formSlot, before, async () => {
+      let freshCompleteness = completenessData;
+      try {
+        freshCompleteness = await apiRequest('GET', '/api/me/profile-completeness');
+      } catch (err) {
+        // 재조회 실패해도 등록 자체는 이미 성공했으니 직전 값으로 계속 진행.
+      }
+      renderOnboardingCardStep(container, queue, index + 1, freshCompleteness);
+    });
+  }, null);
 }
 
 // showOnboardingItemSavedToast — 저장 성공 직후 AI 분석 커버리지 전/후
 // 실델타(등록 전/후 GET /api/me/profile-completeness 두 값의 차이 —
-// 하드코딩 아님)를 잠깐 보여준 뒤 체크리스트로 돌아간다(사용자 스펙
-// 2번: "시각적으로 숫자가 바뀌는 걸 보여줌").
+// 하드코딩 아님)를 잠깐 보여준 뒤 다음 카드로 넘어간다.
 async function showOnboardingItemSavedToast(toastContainer, before, onDone) {
   let after = before;
   try {
@@ -4169,35 +4139,6 @@ async function showOnboardingItemSavedToast(toastContainer, before, onDone) {
   toastContainer.innerHTML = '';
   toastContainer.appendChild(h(`<p class="license-card-meta" style="text-align:center;font-weight:700;padding:1rem 0">✓ 등록 완료 — AI 분석 커버리지 ${before}% → ${after}%${deltaText}</p>`));
   setTimeout(onDone, 1300);
-}
-
-// renderOnboardingRegisterPage — #/onboarding/complete/register/{fieldKey}
-// (모바일 전용). 저장하면 체크리스트로 돌아간다 — 더 이상 "다음 카드"
-// 개념이 없다.
-function renderOnboardingRegisterPage(container, fieldKey) {
-  document.body.classList.add('is-auth');
-  document.body.classList.remove('is-landing');
-  const state = onboardingChecklistState;
-  if (state.pendingRegisterFieldKey !== fieldKey) {
-    location.hash = '#/onboarding/complete';
-    return;
-  }
-  container.innerHTML = '';
-  container.appendChild(h(`
-    <div class="detail-card" style="max-width:560px;margin:1.5rem auto">
-      <a href="#/onboarding/complete" class="back-link">&larr; 목록으로</a>
-      <div id="onboarding-register-form-slot" style="margin-top:0.75rem"></div>
-    </div>
-  `));
-  const formSlot = document.getElementById('onboarding-register-form-slot');
-  const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[fieldKey];
-  const before = state.pendingRegisterBeforeCompleteness || 0;
-  renderForm(formSlot, () => {
-    showOnboardingItemSavedToast(formSlot, before, () => {
-      state.pendingRegisterFieldKey = null;
-      location.hash = '#/onboarding/complete';
-    });
-  }, null);
 }
 
 // renderOnboardingFinalConfirm — AI 분석 커버리지 50% 이상 달성 후
@@ -4242,7 +4183,6 @@ function renderOnboardingFinalConfirm(container, completenessData) {
     try {
       await apiRequest('POST', '/api/me/onboarding/complete', {});
       await loadMe();
-      onboardingChecklistState = { pendingRegisterFieldKey: null, skippedFieldKeys: new Set() };
       location.hash = '#/';
     } catch (err) {
       errorBox.textContent = err.message;
@@ -11881,14 +11821,15 @@ function route() {
     '#/onboarding/business-registration', '#/onboarding/complete',
     '#/terms', '#/privacy',
   ]);
-  // isAuthOnboardingRoute — Phase UX-03(2026-08-04)에 추가한 모바일 단계별
-  // 정보요청 전체화면(#/onboarding/complete/register/{fieldKey})은 fieldKey가
-  // 동적이라 AUTH_ONBOARDING_ROUTES.has()로는 못 잡는다 — isPublicRoute가
-  // #/announcements/에 쓰는 것과 같은 방식으로 prefix 매치를 허용한다. 위
-  // 세 게이트 전부 이 함수로 통일해서 검사해야 한다(공용 예외목록 원칙,
-  // feedback-sequential-route-gates-shared-exempt-list 메모리 참고) — 새
-  // 게이트/새 동적 온보딩 경로를 추가하게 되면 이 함수부터 갱신할 것.
-  const isAuthOnboardingRoute = (p) => AUTH_ONBOARDING_ROUTES.has(p) || p.startsWith('#/onboarding/complete/register/');
+  // isAuthOnboardingRoute — 네 게이트(온보딩 동의/이메일인증/사업자등록/
+  // 커버리지50%) 전부 이 함수로 통일해서 검사해야 한다(공용 예외목록
+  // 원칙, feedback-sequential-route-gates-shared-exempt-list 메모리
+  // 참고) — 새 게이트를 추가하게 되면 이 함수부터 갱신할 것. ⚠️Phase
+  // UX-03~08 때는 모바일 전용 동적 라우트(#/onboarding/complete/register/
+  // {fieldKey})가 있어 prefix 매치가 필요했지만, Phase UX-09에서 온보딩
+  // 카드 등록을 전부 인라인 렌더링으로 바꾸며 그 라우트 자체가 없어져
+  // 이제 단순 Set 조회만으로 충분하다.
+  const isAuthOnboardingRoute = (p) => AUTH_ONBOARDING_ROUTES.has(p);
   // 소셜 로그인(구글/네이버/카카오)은 콜백(oauth_login.go)이 계정을 즉시
   // 만들고 세션을 발급하므로, 약관동의(온보딩 화면, renderOAuthOnboardingStep)
   // 를 마치기 전에도 currentUser는 있는 상태가 될 수 있다 — 이 틈을 타
@@ -11983,8 +11924,6 @@ function route() {
   if (path === '#/auth/oauth-profile') { document.body.classList.add('is-auth'); renderOAuthProfileStep(app); return; }
   if (path === '#/onboarding/business-registration') { renderBusinessRegistrationOnboarding(app); return; }
   if (path === '#/onboarding/complete') { renderOnboardingComplete(app); return; }
-  const onboardingRegisterMatch = path.match(/^#\/onboarding\/complete\/register\/(.+)$/);
-  if (onboardingRegisterMatch) { renderOnboardingRegisterPage(app, decodeURIComponent(onboardingRegisterMatch[1])); return; }
   if (path === '#/me/profile') { renderProfile(app); return; }
   if (path === '#/me/bookmarks') { renderBookmarks(app); return; }
   if (path === '#/notifications') { renderNotifications(app); return; }
