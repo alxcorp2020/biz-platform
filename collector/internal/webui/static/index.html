@@ -6867,6 +6867,8 @@ function renderDetail(container, id) {
         </div>
         <h3>공고 상세정보</h3>
         <div id="notice-detail-info-section"></div>
+        <h3>적격심사 계산기</h3>
+        <div id="bid-calculator-section"></div>
         <h3>첨부파일</h3>
         <div id="attachments-section"></div>
         <div class="extraction-banner">
@@ -6892,6 +6894,7 @@ function renderDetail(container, id) {
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.isMinimalProfile);
       renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
       renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail);
+      renderBidCalculator(document.getElementById('bid-calculator-section'), data.detail);
       renderAttachments(document.getElementById('attachments-section'), data.attachments || []);
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || []);
       renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || [], id, data.documentReadiness);
@@ -7215,6 +7218,62 @@ function renderNoticeDetailInfo(container, detail) {
       <div><span class="restriction-label">지역제한</span><span class="restriction-value">${regionText}</span></div>
     </div>
   `));
+}
+
+// renderBidCalculator — 적격심사 참고용 계산기(2026-08-06). AI/서버 호출
+// 없이 순수 클라이언트 산수만 한다: 투찰율 = 투찰금액/기준금액*100, 이
+// 공고에 낙찰하한율이 있으면 그 값과 비교해 이상/미만만 보여준다.
+// detail.estimatedPrice는 g2b 원문의 "추정가격"이라 발주기관이 사전에
+// 산정하는 "예정가격"과 개념이 다를 수 있음(이 API는 예정가격 자체를
+// 제공하지 않음) — 그래서 자동 채움은 시작값일 뿐이고, 실제 예정가격을
+// 알면 사용자가 직접 고쳐 입력하는 걸 전제로 한다. 적격심사 통과 여부는
+// 발주기관마다 세부기준(등급/신인도 등)이 달라 이 계산만으로 확정할 수
+// 없으므로 "참고용" 문구를 반드시 함께 보여준다.
+function renderBidCalculator(container, detail) {
+  container.innerHTML = '';
+  const lowerLimitRate = detail && detail.awardLowerLimitRate ? parseFloat(detail.awardLowerLimitRate) : null;
+  const estimatedPrice = detail && detail.estimatedPrice != null ? detail.estimatedPrice : null;
+  container.appendChild(h(`
+    <div class="license-confirm-form">
+      <div class="extraction-banner">
+        <span aria-hidden="true">⚠</span>
+        참고용 계산입니다. 적격심사 통과 여부는 발주기관별 세부기준에 따라 다를 수 있으니, 최종 판단은 공고문을 직접 확인하세요.
+      </div>
+      <form id="bid-calculator-form" class="profile-form" onsubmit="return false;">
+        <label>기준금액(예정가격, 원)<input type="text" inputmode="numeric" id="calc-base-price" value="${estimatedPrice != null ? escapeAttr(formatCurrency(estimatedPrice)) : ''}" placeholder="예: 100,000,000"></label>
+        <label>투찰금액(원)<input type="text" inputmode="numeric" id="calc-bid-price" placeholder="예: 89,000,000"></label>
+      </form>
+      ${estimatedPrice != null ? '<p class="detail-sub">기준금액은 이 공고의 "추정가격"으로 미리 채워져 있습니다 — 실제 예정가격과 다를 수 있으니 확인 후 필요하면 고쳐 입력하세요.</p>' : ''}
+      <div id="bid-calculator-result"></div>
+    </div>
+  `));
+
+  const baseInput = document.getElementById('calc-base-price');
+  const bidInput = document.getElementById('calc-bid-price');
+  attachCurrencyAutoFormat(baseInput);
+  attachCurrencyAutoFormat(bidInput);
+  const resultEl = document.getElementById('bid-calculator-result');
+
+  function recompute() {
+    const base = Number(parseCurrencyInput(baseInput.value));
+    const bid = Number(parseCurrencyInput(bidInput.value));
+    if (!base || !bid) { resultEl.innerHTML = ''; return; }
+    const rate = (bid / base) * 100;
+    let judgmentHtml = '';
+    if (lowerLimitRate != null && !isNaN(lowerLimitRate)) {
+      const pass = rate >= lowerLimitRate;
+      judgmentHtml = `<div><span class="restriction-label">낙찰하한율(${lowerLimitRate}%) 대비</span><span class="restriction-value">${pass ? '이상 ✓' : '미만 ✗'}</span></div>`;
+    }
+    resultEl.innerHTML = `
+      <div class="restriction-summary">
+        <div><span class="restriction-label">투찰율</span><span class="restriction-value mono">${rate.toFixed(3)}%</span></div>
+        ${judgmentHtml}
+      </div>
+    `;
+  }
+  baseInput.addEventListener('input', recompute);
+  bidInput.addEventListener('input', recompute);
+  recompute();
 }
 
 function renderAttachments(container, items) {
