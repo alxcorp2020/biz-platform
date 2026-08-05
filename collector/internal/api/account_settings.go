@@ -2,8 +2,9 @@
 // 엔드포인트: 조회(이메일/휴대폰/비밀번호 보유 여부/연결된 소셜 계정),
 // 휴대폰번호 수정, 비밀번호 변경(로그인 상태에서 현재 비밀번호 확인 후
 // 변경 — password_reset.go의 "비밀번호를 잊어버렸을 때" 흐름과는 다른
-// 별개 엔드포인트), 본인 셀프 탈퇴. 이메일 자체는 조회만 가능하다(변경은
-// 본인인증이 추가로 필요할 수 있어 이번 범위 밖 — 문의 안내로 대체).
+// 별개 엔드포인트), 소셜 계정 연결 해제, 본인 셀프 탈퇴. 이메일 자체는
+// 조회만 가능하다(변경은 본인인증이 추가로 필요할 수 있어 이번 범위 밖
+// — 문의 안내로 대체).
 package api
 
 import (
@@ -93,6 +94,63 @@ func (s *Server) handleUpdateAccountPhone(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"phoneNumber": phone})
+}
+
+// handleDisconnectOAuthProvider — DELETE /api/me/account/oauth/{provider}.
+// 소셜 연동을 끊어도 계정 자체는 그대로 유지된다(users 행 무변경) —
+// user_oauth_identities에서 그 provider 행만 지운다. 마지막 로그인 수단을
+// 끊으면 계정에 영영 못 들어오게 되므로(비밀번호도 없고 다른 소셜 연결도
+// 없는 상태) 그 경우만 거부한다 — 비밀번호가 있거나 다른 소셜 계정이
+// 최소 하나 더 연결돼 있으면 항상 허용.
+func (s *Server) handleDisconnectOAuthProvider(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	provider := r.PathValue("provider")
+	if provider != "google" && provider != "naver" && provider != "kakao" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_provider"})
+		return
+	}
+	ctx := r.Context()
+
+	var passwordHash sql.NullString
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT password_hash FROM users WHERE id = $1`, userID,
+	).Scan(&passwordHash); err != nil {
+		s.logger.Error("disconnect-oauth: user lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if !passwordHash.Valid {
+		var otherProviderCount int
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM user_oauth_identities WHERE user_id = $1 AND provider != $2`,
+			userID, provider,
+		).Scan(&otherProviderCount); err != nil {
+			s.logger.Error("disconnect-oauth: other provider count failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		if otherProviderCount == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "last_login_method"})
+			return
+		}
+	}
+
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM user_oauth_identities WHERE user_id = $1 AND provider = $2`, userID, provider)
+	if err != nil {
+		s.logger.Error("disconnect-oauth: delete failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_connected"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "disconnected"})
 }
 
 type changePasswordRequest struct {

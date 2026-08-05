@@ -98,6 +98,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/me/account", s.handleGetAccountSettings)
 	mux.HandleFunc("PATCH /api/me/account", s.handleUpdateAccountPhone)
 	mux.HandleFunc("POST /api/me/account/change-password", s.handleChangePassword)
+	mux.HandleFunc("DELETE /api/me/account/oauth/{provider}", s.handleDisconnectOAuthProvider)
 	mux.HandleFunc("POST /api/me/account/deactivate", s.handleSelfDeactivateAccount)
 	mux.HandleFunc("PUT /api/me/company-profile", s.handleUpsertCompanyProfile)
 	mux.HandleFunc("POST /api/me/business-registration/extract", s.handleExtractBusinessRegistration)
