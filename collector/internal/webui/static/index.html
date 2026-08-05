@@ -2409,9 +2409,11 @@ const SIDEBAR_ICONS = {
 // 헤더 링크로만 노출한다.
 // ⚠️2026-08-05: "홈"(#/)이 랜딩페이지/대시보드 두 역할을 겸하던 걸
 // 분리 — 회원 전용 진입점은 #/dashboard로 명확히 하고 라벨도 "대시보드"로
-// 바꿨다(#/는 이제 비로그인 전용 랜딩페이지 고정, route() 참고). 공지사항은
-// 원래부터 인증 불필요(PUBLIC_ROUTES)였는데 사이드바에만 있어 비로그인
-// 사용자가 못 찾았다 — 랜딩페이지 헤더/푸터로 옮기고 회원 사이드바에서는 뺐다.
+// 바꿨다(#/는 로그인 여부와 무관하게 항상 랜딩페이지, route() 참고 —
+// 처음엔 로그인 상태면 #/dashboard로 자동 리다이렉트했다가 같은 날 다시
+// 뒤집었다). 공지사항은 원래부터 인증 불필요(PUBLIC_ROUTES)였는데
+// 사이드바에만 있어 비로그인 사용자가 못 찾았다 — 랜딩페이지 헤더/푸터로
+// 옮기고 회원 사이드바에서는 뺐다.
 const SIDEBAR_MENU = [
   { path: '#/dashboard', label: '대시보드', icon: 'home' },
   { path: '#/notices', label: '공고 검색', icon: 'search' },
@@ -3312,14 +3314,15 @@ async function renderGlobalProfileBanner() {
   `;
 }
 
-// ---------- 랜딩페이지(비로그인 전용, #/) ----------
-// 지금 앱(로그인 후 #/dashboard)과 완전히 독립된 레이아웃 — body.is-landing
-// 클래스로 사이드바/헤더/탭바를 숨기고 이 함수가 자체 헤더+푸터를 그린다
-// (CSS는 "랜딩페이지" 주석 블록 참고). renderOnboardingHero/renderDashboard도
-// 각자 진입 시 is-landing을 지운다 — 2026-08-05 라우팅 분리(#/=비로그인
-// 랜딩 고정, #/dashboard=회원 진입점) 이후로는 로그인/온보딩완료가 항상
-// 다른 경로(#/dashboard)로 이동하므로 route()의 경로별 정리 로직만으로도
-// 충분하지만, 두 함수의 방어적 클린업은 그대로 남겨둔다(멱등이라 무해).
+// ---------- 랜딩페이지(#/, 로그인 여부 무관 항상 이 화면) ----------
+// body.is-landing 클래스로 사이드바/헤더/탭바를 숨기고 이 함수가 자체
+// 헤더+푸터를 그린다(CSS는 "랜딩페이지" 주석 블록 참고). ⚠️2026-08-05:
+// 처음엔 "#/=비로그인 전용, 로그인 상태면 #/dashboard로 자동 리다이렉트"
+// 였다가, 같은 날 2차 변경(사용자 확정)으로 다시 뒤집었다 — 이제 #/는
+// 로그인 여부와 무관하게 항상 이 화면이고, 실제 대시보드 진입은 헤더의
+// "대시보드로 이동" 버튼(로그인 상태에서만 노출) 또는 로그인 폼 제출
+// 성공 직후 리다이렉트 두 경로로만 일어난다. renderOnboardingHero/
+// renderDashboard의 is-landing 방어적 클린업은 그대로 유지(멱등이라 무해).
 // LANDING_FEATURE_SPOTLIGHTS — 실제 화면 스크린샷이 있는 3개 기능은 하나씩
 // 크게(제목+설명+스크린샷) 보여준다. 이미지는 헤드리스 브라우저로 실제
 // 로그인 화면을 찍어 static/screenshots/에 저장한 것(placeholder/목업
@@ -3405,9 +3408,13 @@ function initLandingRevealAnimations(container) {
 
 // renderLandingPricing — 요금제 데이터는 /api/billing/config(공개 API,
 // #/billing/plans의 renderPricingPlans와 같은 출처)를 그대로 재사용해
-// 두 화면의 가격/기능 정보가 어긋나지 않게 한다. 랜딩페이지는 항상
-// 비로그인 상태이므로 "구독하기" 대신 전부 "가입하기"(#/auth/signup)로
-// 보낸다 — 결제는 로그인 후 #/billing/plans에서 진행.
+// 두 화면의 가격/기능 정보가 어긋나지 않게 한다. 카드의 CTA는 항상
+// "가입하기"(#/auth/signup)로 보낸다 — 결제는 로그인 후 #/billing/plans
+// 에서 진행. ⚠️2026-08-05: #/가 로그인 상태에서도 보이게 되면서(route()
+// 참고) 이 가정이 "항상 비로그인"은 아니게 됐지만, 이번 변경 범위는
+// 헤더 CTA 전환까지만 확정됐다 — 로그인 상태로 이 섹션까지 스크롤해
+// "가입하기"를 눌러도 크게 깨지진 않는다(이미 로그인된 상태로 회원가입
+// 화면에 진입할 뿐). 필요해지면 여기도 currentUser 분기 추가 검토.
 async function renderLandingPricing(gridEl) {
   let config;
   try {
@@ -3437,8 +3444,9 @@ async function renderLandingPage(container) {
       <a href="#/" class="landing-logo brand-name-text">공공사업 AI 비서</a>
       <div class="landing-header-actions">
         <a href="#/announcements" class="link-btn">공지사항</a>
-        <a href="#/auth/login" class="home-cta-secondary">로그인</a>
-        <a href="#/auth/signup" class="home-cta-primary">무료로 시작하기</a>
+        ${currentUser
+          ? '<a href="#/dashboard" class="home-cta-primary">대시보드로 이동</a>'
+          : '<a href="#/auth/login" class="home-cta-secondary">로그인</a><a href="#/auth/signup" class="home-cta-primary">무료로 시작하기</a>'}
       </div>
     </header>
 
@@ -12834,10 +12842,13 @@ function route() {
   // #/dashboard로 이동할 때마다 이 else 분기를 타서 방금 뜬 배너/팝업이
   // 매번 즉시 지워지는 회귀가 생긴다 — #/dashboard도 "홈" 취급해야 한다.
   if (path === '#/') {
-    // renderLandingPage는 이제 항상 비로그인 상태에서만 호출되므로(로그인
-    // 사용자는 아래 dispatch에서 #/dashboard로 즉시 리다이렉트됨) is-landing은
-    // 사실상 항상 true가 되지만, 방어적으로 currentUser 기준을 그대로 둔다.
-    document.body.classList.toggle('is-landing', !currentUser);
+    // ⚠️2026-08-05(같은 날 2차 변경, 사용자 확정): "#/는 로그인 상태면
+    // #/dashboard로 자동 리다이렉트"를 다시 뒤집었다 — 이제 #/는 로그인
+    // 여부와 무관하게 항상 랜딩페이지다(renderLandingPage가 currentUser
+    // 유무에 따라 헤더 CTA만 "로그인/회원가입" ↔ "대시보드로 이동"으로
+    // 바꿔 보여준다). is-landing도 더 이상 currentUser로 조건분기하지
+    // 않고 이 경로에서는 항상 true.
+    document.body.classList.add('is-landing');
   } else if (path === '#/dashboard') {
     document.body.classList.remove('is-landing');
   } else {
@@ -12858,14 +12869,13 @@ function route() {
   if (path !== '#/auth/login' && path !== '#/auth/signup' && path !== '#/auth/oauth-profile') {
     document.body.classList.remove('is-auth');
   }
-  // 2026-08-05: "홈"(#/) 역할 분리 — 비로그인이면 랜딩페이지를 그 자리에서
-  // 바로 그리고(API 호출 불필요), 로그인 상태면 명확한 회원 진입점인
-  // #/dashboard로 리다이렉트한다(과거처럼 #/ URL 아래 대시보드를 인라인
-  // 렌더하지 않음 — 주소와 화면 의미를 일치시키기 위함). 이 시점의
-  // currentUser는 위 온보딩 게이트들을 이미 통과했으므로 로그인+온보딩
-  // 완료가 보장된다.
+  // 2026-08-05(2차 변경, 사용자 확정): #/는 로그인 여부와 무관하게 항상
+  // 랜딩페이지 — "로그인 상태로 루트 접속 시 자동으로 대시보드로 넘어가
+  // 버리는" 이전 동작을 되돌렸다. 실제 대시보드 진입은 (1) 이 랜딩페이지
+  // 헤더의 "대시보드로 이동" 버튼(로그인 상태일 때만 노출), (2) 로그인
+  // 폼 제출 성공 직후의 리다이렉트(handleLogin 성공 콜백, 아래
+  // renderLogin 참고 — 이건 그대로 유지) 두 경로로만 일어난다.
   if (path === '#/') {
-    if (currentUser) { location.hash = '#/dashboard'; return; }
     renderLandingPage(app);
     return;
   }
