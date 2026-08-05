@@ -1314,8 +1314,15 @@
   /* onboarding-shell — 2026-08-05. 사업자등록증 업로드/카드/인라인폼/
      최종확인 4개 화면이 각자 다른 max-width(480/560px 혼재)를 인라인
      style로 들고 있어 항목마다 카드 넓이가 달라 보이던 문제 — 공용
-     클래스 하나로 통일(항목이 늘어도 여기 한 곳만 고치면 됨). */
-  .onboarding-shell { max-width: 480px; margin: 1.5rem auto; position: relative; }
+     클래스 하나로 통일(항목이 늘어도 여기 한 곳만 고치면 됨).
+     ⚠️2026-08-05 재수정: max-width만 두고 width를 안 정해뒀더니, 부모
+     body.is-auth main#app이 display:flex; align-items:center라 이 카드가
+     flex item으로서 내용물 크기만큼만 줄어드는(shrink-to-fit) 채로
+     렌더링돼 카드마다 폭이 여전히 341~480px로 제각각이었다(실측으로
+     재현·확인) — width:100%를 명시해 max-width 상한까지 항상 꽉 채우도록
+     고쳤다(좁은 화면에서는 100%가 이미 반응형으로 동작해 별도 media
+     query 불필요). */
+  .onboarding-shell { width: 100%; max-width: 480px; margin: 1.5rem auto; position: relative; }
   /* 온보딩 이탈("나중에 하기") 버튼 — 카드 우측 상단 고정. */
   .onboarding-exit-btn {
     position: absolute; top: 0.75rem; right: 0.9rem; background: none; border: none;
