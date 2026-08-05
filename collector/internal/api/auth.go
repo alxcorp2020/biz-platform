@@ -153,14 +153,18 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
+	// 2026-08-05: "SMS 인증 요구 여부"와 "휴대폰번호 입력 자체가 필수인지"는
+	// 별개 정책이라는 사용자 확인 — phoneRequired가 꺼져 있어도 번호 입력과
+	// 형식 검증은 항상 요구하고, consumeVerifiedPhone(OTP 인증 확인)만
+	// phoneRequired일 때만 추가로 요구한다.
 	phone := strings.TrimSpace(req.PhoneNumber)
-	var phoneValue sql.NullString
+	if !phoneNumberPattern.MatchString(phone) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
+		return
+	}
+	phoneValue := sql.NullString{String: phone, Valid: true}
 	var phoneVerifiedAt sql.NullTime
 	if phoneRequired {
-		if !phoneNumberPattern.MatchString(phone) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
-			return
-		}
 		verified, err := consumeVerifiedPhone(ctx, s.db, phone)
 		if err != nil {
 			s.logger.Error("signup: phone verification check failed", "error", err)
@@ -171,16 +175,7 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone_not_verified"})
 			return
 		}
-		phoneValue = sql.NullString{String: phone, Valid: true}
 		phoneVerifiedAt = sql.NullTime{Time: time.Now(), Valid: true}
-	} else if phone != "" {
-		// 선택 입력이지만 값을 넣었다면 형식은 여전히 지켜야 한다 — 인증만
-		// 요구하지 않을 뿐이다.
-		if !phoneNumberPattern.MatchString(phone) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
-			return
-		}
-		phoneValue = sql.NullString{String: phone, Valid: true}
 	}
 
 	var exists bool

@@ -13,7 +13,6 @@
 package api
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -56,8 +55,10 @@ func (s *Server) handleSignupAgreement(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	// 관리자가 #/admin에서 재배포 없이 껐다 켰다 하는 설정(system_settings.go) —
-	// 꺼져 있으면 휴대폰번호는 선택 입력이 되고 SMS 인증도 요구하지 않는다
-	// (handleSignup과 동일한 분기).
+	// 꺼져 있으면 SMS 인증(발송/확인)만 요구하지 않는다. 2026-08-05: "SMS
+	// 인증 요구 여부"와 "휴대폰번호 입력 자체가 필수인지"는 별개 정책이라는
+	// 사용자 확인 — phoneRequired와 무관하게 번호 입력과 형식 검증은 항상
+	// 요구한다(handleSignup과 동일한 원칙).
 	phoneRequired, err := s.getSystemSettingBool(ctx, phoneVerificationRequiredSettingKey, defaultPhoneVerificationRequired)
 	if err != nil {
 		s.logger.Error("signup-agreement: phone verification setting lookup failed", "error", err)
@@ -65,11 +66,11 @@ func (s *Server) handleSignupAgreement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	phone := strings.TrimSpace(req.PhoneNumber)
+	if !phoneNumberPattern.MatchString(phone) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
+		return
+	}
 	if phoneRequired {
-		if !phoneNumberPattern.MatchString(phone) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
-			return
-		}
 		verified, err := consumeVerifiedPhone(ctx, s.db, phone)
 		if err != nil {
 			s.logger.Error("signup-agreement: phone verification check failed", "error", err)
@@ -80,9 +81,6 @@ func (s *Server) handleSignupAgreement(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "phone_not_verified"})
 			return
 		}
-	} else if phone != "" && !phoneNumberPattern.MatchString(phone) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_phone_number"})
-		return
 	}
 	var termsVersion, privacyVersion string
 	if err := s.db.QueryRowContext(ctx,
@@ -115,11 +113,10 @@ func (s *Server) handleSignupAgreement(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		var phoneArg sql.NullString
-		if phone != "" {
-			phoneArg = sql.NullString{String: phone, Valid: true}
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE users SET phone_number = $1 WHERE id = $2`, phoneArg, userID); err != nil {
+		// phoneRequired가 꺼져 있어도 위에서 이미 형식 검증을 통과한 필수
+		// 입력이라 phone은 항상 비어있지 않다 — phone_verified_at만 SMS
+		// 인증을 실제로 거치지 않았으므로 채우지 않는다.
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET phone_number = $1 WHERE id = $2`, phone, userID); err != nil {
 			s.logger.Error("signup-agreement: phone update failed", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 			return

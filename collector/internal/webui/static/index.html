@@ -7056,13 +7056,14 @@ function otpPhoneFieldHtml(prefillValue) {
   `;
 }
 
-// plainPhoneFieldHtml — 관리자가 휴대폰 인증을 껐을 때(system_settings.
+// plainPhoneFieldHtml — 관리자가 SMS 인증을 껐을 때(system_settings.
 // phone_verification_required=false, GET /api/auth/config로 확인)
-// otpPhoneFieldHtml 대신 쓰는 선택 입력 필드. 인증 절차(발송/확인 버튼)
-// 없이 값만 저장한다 — required도 없다.
+// otpPhoneFieldHtml 대신 쓰는 필드. 2026-08-05: "인증 절차가 없다"와
+// "입력 자체가 선택이다"는 별개 요구라는 사용자 확인 — SMS 인증(발송/확인
+// 버튼)만 생략하고, 휴대폰번호 입력 자체는 이 분기에서도 여전히 필수다.
 function plainPhoneFieldHtml(prefillValue) {
   return `
-    <label>휴대폰번호 (선택)<input type="tel" name="phoneNumber" pattern="(010-\\d{4}-\\d{4})|(01[16789]-\\d{3}-\\d{4})" placeholder="010-1234-5678" value="${escapeAttr(prefillValue || '')}"></label>
+    <label><span>휴대폰번호<span class="required-mark">*</span></span><input type="tel" name="phoneNumber" required pattern="(010-\\d{4}-\\d{4})|(01[16789]-\\d{3}-\\d{4})" placeholder="010-1234-5678" value="${escapeAttr(prefillValue || '')}"></label>
   `;
 }
 
