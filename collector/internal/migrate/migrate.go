@@ -238,7 +238,59 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureNoticeRegionRestrictedColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate notices.region_restricted column: %w", err)
 	}
+	if err := ensureSavedSearchesTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate saved_searches table: %w", err)
+	}
+	if err := ensureSavedSearchMatchEventType(ctx, db); err != nil {
+		return fmt.Errorf("migrate saved_search_match event type: %w", err)
+	}
 	return nil
+}
+
+// ensureSavedSearchesTable adds saved_searches — 2026-08-06 "맞춤공고"
+// (경쟁서비스 비드큐 격차점검 4번). 개인(user_id) 단위 저장(팀 공유가
+// 아니라 각자 자기 관심사대로 여러 개 만드는 개념 — 사용자 확정). 기존
+// company_profiles 기반 AI 자동추천(sendRecommendationDigest)과는 완전히
+// 별개 기능 — 저 쪽은 조직당 1개(지역/업종)로 판정 로직까지 얽혀있고,
+// 이건 사용자가 임의로 여러 조건(발주기관/금액대/키워드 포함·제외 등)을
+// 만들어 순수 필터로만 쓴다. keywords_include/exclude는 콤마로 구분한
+// 여러 키워드를 TEXT[]로 저장(제목 ILIKE OR/AND NOT 매칭, GET /api/notices
+// 필터 확장에서 그대로 씀).
+func ensureSavedSearchesTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS saved_searches (
+			id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id            UUID NOT NULL REFERENCES users(id),
+			name               TEXT NOT NULL,
+			notice_type        TEXT,
+			region             TEXT,
+			industry           TEXT,
+			organization_name  TEXT,
+			budget_min         BIGINT,
+			budget_max         BIGINT,
+			keywords_include   TEXT[],
+			keywords_exclude   TEXT[],
+			alert_enabled      BOOLEAN NOT NULL DEFAULT true,
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_saved_searches_user ON saved_searches(user_id);
+	`)
+	return err
+}
+
+// ensureSavedSearchMatchEventType widens notification_log_event_type_check
+// for 'saved_search_match' — 이 제약을 건드리는 다른 6개 함수와 마찬가지로
+// 항상 "현재 최종" 전체 목록을 써야 한다(ensureDeadlineD7EventType 주석의
+// 사고 이력 참고, 이 함수도 그 그룹에 합류).
+func ensureSavedSearchMatchEventType(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
+		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
+			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected','saved_search_match'));
+	`)
+	return err
 }
 
 // ensureNoticeRegionRestrictedColumn adds notices.region_restricted —
@@ -495,7 +547,7 @@ func ensureDeadlineD7EventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected','saved_search_match'));
 	`)
 	return err
 }
@@ -1139,7 +1191,7 @@ func ensureReportEventTypes(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected','saved_search_match'));
 	`)
 	return err
 }
@@ -1241,7 +1293,7 @@ func ensureTeamInviteEventTypes(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected','saved_search_match'));
 	`)
 	return err
 }
@@ -1515,7 +1567,7 @@ func ensureAdminBroadcastEventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected','saved_search_match'));
 	`)
 	return err
 }
@@ -1633,7 +1685,7 @@ func ensurePasswordResetEventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected','saved_search_match'));
 	`)
 	return err
 }
@@ -1700,7 +1752,7 @@ func ensureEmailVerificationEventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected','saved_search_match'));
 	`)
 	return err
 }

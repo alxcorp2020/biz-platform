@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -140,6 +141,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/me/contacts", s.handleCreateContact)
 	mux.HandleFunc("PATCH /api/me/contacts/{id}", s.handleUpdateContact)
 	mux.HandleFunc("DELETE /api/me/contacts/{id}", s.handleDeleteContact)
+
+	mux.HandleFunc("GET /api/me/saved-searches", s.handleListSavedSearches)
+	mux.HandleFunc("POST /api/me/saved-searches", s.handleCreateSavedSearch)
+	mux.HandleFunc("PATCH /api/me/saved-searches/{id}", s.handleUpdateSavedSearch)
+	mux.HandleFunc("DELETE /api/me/saved-searches/{id}", s.handleDeleteSavedSearch)
 	mux.HandleFunc("POST /api/me/company-profile/employee-verification/documents", s.handleUploadEmployeeVerificationDocument)
 	mux.HandleFunc("POST /api/me/company-profile/employee-verification", s.handleConfirmEmployeeVerification)
 	mux.HandleFunc("POST /api/notices/{id}/pipeline", s.handleCreatePipelineEntry)
@@ -346,6 +352,50 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	}
 	if keyword != "" {
 		query += " AND n.title ILIKE " + addArg("%"+keyword+"%")
+	}
+	// noticeType/organizationName/budgetMin/budgetMax/keywordsInclude/
+	// keywordsExclude — 2026-08-06 "맞춤공고"(saved_searches) 매칭용으로
+	// 추가. 별도 매칭 쿼리를 새로 만들지 않고 이 목록 API 자체를 확장해서,
+	// 저장된 조건의 "결과 보기"가 일반 공고검색과 동일한 화면/캐시/
+	// 무한스크롤을 그대로 쓴다. q/region/industry와 마찬가지로 전부 선택
+	// 파라미터라 기존 호출부(일반 검색 화면)는 영향받지 않는다.
+	if noticeType := q.Get("noticeType"); noticeType != "" {
+		query += " AND n.notice_type = " + addArg(noticeType)
+	}
+	if org := q.Get("organizationName"); org != "" {
+		query += " AND n.organization_name ILIKE " + addArg("%"+org+"%")
+	}
+	if budgetMinRaw := q.Get("budgetMin"); budgetMinRaw != "" {
+		if v, err := strconv.ParseInt(budgetMinRaw, 10, 64); err == nil {
+			query += " AND n.budget_amount >= " + addArg(v)
+		}
+	}
+	if budgetMaxRaw := q.Get("budgetMax"); budgetMaxRaw != "" {
+		if v, err := strconv.ParseInt(budgetMaxRaw, 10, 64); err == nil {
+			query += " AND n.budget_amount <= " + addArg(v)
+		}
+	}
+	if includeRaw := q.Get("keywordsInclude"); includeRaw != "" {
+		var orParts []string
+		for _, kw := range strings.Split(includeRaw, ",") {
+			kw = strings.TrimSpace(kw)
+			if kw == "" {
+				continue
+			}
+			orParts = append(orParts, "n.title ILIKE "+addArg("%"+kw+"%"))
+		}
+		if len(orParts) > 0 {
+			query += " AND (" + strings.Join(orParts, " OR ") + ")"
+		}
+	}
+	if excludeRaw := q.Get("keywordsExclude"); excludeRaw != "" {
+		for _, kw := range strings.Split(excludeRaw, ",") {
+			kw = strings.TrimSpace(kw)
+			if kw == "" {
+				continue
+			}
+			query += " AND n.title NOT ILIKE " + addArg("%"+kw+"%")
+		}
 	}
 	query += " ORDER BY " + orderBy + " LIMIT " + addArg(limit) + " OFFSET " + addArg(offset)
 

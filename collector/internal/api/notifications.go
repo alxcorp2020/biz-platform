@@ -33,6 +33,7 @@ const (
 	notifyEventRecommendationDigest = "recommendation_digest"
 	notifyEventAssigneeStatusChange = "assignee_status_change"
 	notifyEventNoticeCorrected      = "notice_corrected"
+	notifyEventSavedSearchMatch     = "saved_search_match"
 
 	notifyChannelEmail = "email"
 	notifyChannelSMS   = "sms"
@@ -65,7 +66,7 @@ func (s *Server) smsAllowedForPlan(ctx context.Context, profileID string) bool {
 var notificationEmailEventTypes = []string{
 	notifyEventDeadlineD7, notifyEventDeadlineD3, notifyEventDeadlineD1,
 	notifyEventAssigneeStatusChange, notifyEventRecommendationDigest,
-	notifyEventWeeklyReport, notifyEventMonthlyReport,
+	notifyEventWeeklyReport, notifyEventMonthlyReport, notifyEventSavedSearchMatch,
 }
 
 // checkEmailNotificationQuota — Free 플랜 월간 알림성 이메일 한도(기본
@@ -106,19 +107,27 @@ func (s *Server) checkEmailNotificationQuota(ctx context.Context, profileID stri
 // 확인한다. checkAIAnalysisQuota(billing.go)와 동일하게 "이번 달 1일부터"
 // 롤링 집계라 별도 리셋 배치가 필요 없다 — 매월 1일이 지나면 자연히 0부터
 // 다시 센다.
-// countNotificationEmailsThisMonth — recommendation_digest는 다이제스트
-// 이메일 1통에 매칭된 공고마다 notification_log 행을 하나씩 남긴다
-// (fetchDigestedNoticeIDs가 "그 공고를 이미 다이제스트했는지"를 notice_id
-// 단위로 추적해야 해서 — 이 로깅 구조 자체는 바꾸지 않는다). 그래서 단순히
-// count(*)를 하면 다이제스트 한 통을 여러 통으로 잘못 세게 된다 —
-// recommendation_digest만 (수신자, 제목, 날짜) 기준으로 묶어서 "실제
+// notificationDigestEventTypes — 다이제스트형 이벤트(이메일 1통에 매칭
+// 건마다 notification_log 행을 하나씩 남기는 것들) 목록. countNotificationEmailsThisMonth가
+// 이 목록에 속한 이벤트는 (수신자, 제목, 날짜) 기준으로 묶어서 "실제 보낸
+// 이메일 수"로 정규화한다 — saved_search_match도 sendSavedSearchDigest가
+// recommendation_digest와 똑같은 로깅 구조(매칭 공고마다 한 행)를 쓰므로
+// 이 목록에 함께 넣는다.
+var notificationDigestEventTypes = []string{notifyEventRecommendationDigest, notifyEventSavedSearchMatch}
+
+// countNotificationEmailsThisMonth — notificationDigestEventTypes에 속한
+// 이벤트는 다이제스트 이메일 1통에 매칭된 항목마다 notification_log 행을
+// 하나씩 남긴다(각자의 fetchXDigestedNoticeIDs가 "이미 보냈는지"를
+// notice_id 단위로 추적해야 해서 — 이 로깅 구조 자체는 바꾸지 않는다).
+// 그래서 단순히 count(*)를 하면 다이제스트 한 통을 여러 통으로 잘못
+// 세게 된다 — 그 이벤트들만 (수신자, 제목, 날짜) 기준으로 묶어서 "실제
 // 보낸 이메일 수"로 정규화하고, 나머지 이벤트(행 1개 = 이메일 1통이 이미
 // 성립)는 그대로 센다.
 func (s *Server) countNotificationEmailsThisMonth(ctx context.Context, profileID string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
 		SELECT count(DISTINCT
-			CASE WHEN nl.event_type = $1
+			CASE WHEN nl.event_type = ANY($1)
 				THEN nl.recipient_email || '|' || nl.subject || '|' || nl.created_at::date::text
 				ELSE nl.id::text
 			END
@@ -130,7 +139,7 @@ func (s *Server) countNotificationEmailsThisMonth(ctx context.Context, profileID
 		  AND nl.created_at >= date_trunc('month', now())
 		  AND nl.event_type = ANY($2)
 		  AND (cc.company_profile_id = $3 OR cm.company_profile_id = $3)`,
-		notifyEventRecommendationDigest, pq.Array(notificationEmailEventTypes), profileID,
+		pq.Array(notificationDigestEventTypes), pq.Array(notificationEmailEventTypes), profileID,
 	).Scan(&count)
 	return count, err
 }
@@ -180,6 +189,11 @@ func (s *Server) RunDailyNotifications(ctx context.Context) {
 	if emailReady {
 		if err := s.sendRecommendationDigest(ctx); err != nil {
 			s.logger.Error("notify: recommendation digest batch failed", "error", err)
+		}
+		// 맞춤공고(saved_searches) 알림도 같은 이유(가변 건수, SMS 부적합)로
+		// 이메일 전용 — 같은 09:00 배치에 나란히.
+		if err := s.sendSavedSearchDigest(ctx); err != nil {
+			s.logger.Error("notify: saved-search digest batch failed", "error", err)
 		}
 	}
 }
@@ -627,7 +641,7 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 			if len(titlesForInApp) > 3 {
 				inAppBody = strings.Join(titlesForInApp[:3], " · ") + fmt.Sprintf(" 외 %d건", len(titlesForInApp)-3)
 			}
-			if err := s.insertDigestInAppNotification(ctx, m.userID, subject, inAppBody); err != nil {
+			if err := s.insertDigestInAppNotification(ctx, m.userID, notifyEventRecommendationDigest, subject, inAppBody); err != nil {
 				s.logger.Error("notify: digest in-app notification insert failed", "error", err)
 			}
 			// Phase 6: 다이제스트는 이미 회원 단위(m.userID)라 sendPushToUser를 직접 쓴다.

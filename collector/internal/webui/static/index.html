@@ -1086,6 +1086,9 @@
     cursor: pointer; font-size: var(--text-body); font-weight: 700; color: var(--ink-soft); padding: 0.4rem 0;
   }
   .kanban-terminal-section .notice-list { margin-top: 0.6rem; }
+  .saved-search-advanced { margin: 0.5rem 0; }
+  .saved-search-advanced summary { cursor: pointer; font-size: var(--text-body); font-weight: 600; color: var(--ink-soft); padding: 0.4rem 0; }
+  .saved-search-advanced label { margin-top: 0.6rem; }
 
   /* ---------- 파이프라인 표 뷰 ---------- */
   .pipeline-table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 1rem 0 0.6rem; }
@@ -2424,6 +2427,7 @@ const SIDEBAR_ICONS = {
 const SIDEBAR_MENU = [
   { path: '#/dashboard', label: '대시보드', icon: 'home' },
   { path: '#/notices', label: '공고 검색', icon: 'search' },
+  { path: '#/me/saved-searches', label: '맞춤공고', icon: 'bookmark' },
   { path: '#/pipeline', label: '진행 중 사업', icon: 'pipeline' },
   { path: '#/notifications', label: '알림', icon: 'bell' },
   { path: '#/calendar', label: '캘린더', icon: 'calendar' },
@@ -2992,6 +2996,7 @@ function renderHeader() {
       ${adminLink}
       <a href="#/pipeline">진행 중 사업</a>
       <a href="#/calendar">캘린더</a>
+      <a href="#/me/saved-searches">맞춤공고</a>
       <a href="#/me/bookmarks">관심공고</a>
       <a href="#/me/profile">내 프로필</a>
       <a href="#/me/licenses">면허·인증</a>
@@ -6633,8 +6638,15 @@ const REGION_OPTIONS = [
 // 조건(q/region/industry/sort)과 다르면 새 검색으로 보고 캐시를 버린다.
 let noticeListState = null;
 
+// SAVED_SEARCH_ONLY_PARAMS — "맞춤공고"(#/me/saved-searches) 결과보기가
+// #/notices로 넘기는, 화면에는 노출 필드가 없는 추가 필터. 검색 화면
+// 자체를 복잡하게 만들지 않으려 이 필드들의 입력 UI는 따로 안 만들고
+// (사용자 원칙: 화면 단순화 우선), URL 쿼리스트링으로만 실려 있으면 API
+// 요청/정렬 재제출 양쪽에서 그대로 유지되게만 한다.
+const SAVED_SEARCH_ONLY_PARAMS = ['noticeType', 'organizationName', 'budgetMin', 'budgetMax', 'keywordsInclude', 'keywordsExclude'];
+
 function noticeListKey(params) {
-  return [params.get('q') || '', params.get('region') || '', params.get('industry') || '', params.get('sort') || ''].join('|');
+  return params.toString();
 }
 
 function noticeListApiParams(filterParams) {
@@ -6643,6 +6655,9 @@ function noticeListApiParams(filterParams) {
   if (filterParams.get('region')) apiParams.set('region', filterParams.get('region'));
   if (filterParams.get('industry')) apiParams.set('industry', filterParams.get('industry'));
   if (filterParams.get('sort')) apiParams.set('sort', filterParams.get('sort'));
+  SAVED_SEARCH_ONLY_PARAMS.forEach(key => {
+    if (filterParams.get(key)) apiParams.set(key, filterParams.get(key));
+  });
   return apiParams;
 }
 
@@ -6651,9 +6666,11 @@ function renderList(container) {
   const key = noticeListKey(params);
   const currentSort = params.get('sort') || 'new';
   const currentRegion = params.get('region') || '';
+  const savedSearchName = params.get('savedSearchName') || '';
 
   container.innerHTML = '';
   container.appendChild(h(`
+    ${savedSearchName ? `<div class="extraction-banner"><span aria-hidden="true">🔖</span> 맞춤공고 "${escapeHtml(savedSearchName)}" 조건 결과입니다 — <a href="#/me/saved-searches">맞춤공고 관리로 돌아가기</a></div>` : ''}
     <form class="filters" id="filter-form">
       <input type="text" name="q" placeholder="공고명 검색" value="${params.get('q') || ''}">
       <select name="region" class="select-input">
@@ -6674,6 +6691,12 @@ function renderList(container) {
     const fd = new FormData(filterForm);
     const p = new URLSearchParams();
     for (const [k, v] of fd.entries()) if (v) p.set(k, v);
+    // 맞춤공고 결과보기 전용 파라미터는 이 폼에 입력 필드가 없으니
+    // FormData에 안 잡힌다 — 정렬 변경 등으로 재제출될 때 사라지지
+    // 않도록 이전 params에서 그대로 이어붙인다.
+    SAVED_SEARCH_ONLY_PARAMS.concat(['savedSearchName']).forEach(k => {
+      if (params.get(k)) p.set(k, params.get(k));
+    });
     noticeListState = null; // 새 검색/정렬 — 이전 무한스크롤 캐시는 폐기
     location.hash = '#/notices?' + p.toString();
   };
@@ -6830,6 +6853,196 @@ function wireNoticeListLoadMore(listBody, key) {
     }
   }, { rootMargin: '400px' });
   observer.observe(sentinel);
+}
+
+// ---------- 맞춤공고(saved_searches, 2026-08-06) ----------
+// 개인(계정) 단위 저장 검색조건 — company_profiles 기반 AI 자동추천과
+// 완전히 별개(위 saved_searches.go 주석 참고). "결과 보기"는 별도 화면을
+// 새로 안 만들고 #/notices에 조건을 쿼리스트링으로 실어 그대로 재사용한다.
+const SAVED_SEARCH_NOTICE_TYPE_OPTIONS = [
+  { value: '', label: '전체' },
+  { value: 'procurement', label: '입찰공고' },
+  { value: 'support_program', label: '지원사업' },
+];
+
+async function renderSavedSearches(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/me/saved-searches');
+  } catch (err) {
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+  const items = data.items || [];
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <h2>맞춤공고</h2>
+    <p class="license-card-meta">검색조건을 저장해두면 새로 등록되는 공고가 매일 아침 이메일로 도착합니다.</p>
+    <div class="license-toolbar">
+      <button type="button" id="saved-search-add-btn" class="btn btn-primary btn-sm">새 조건 만들기</button>
+    </div>
+    <div id="saved-search-form-slot"></div>
+    <div class="license-list" id="saved-search-list"></div>
+  `));
+
+  const listEl = document.getElementById('saved-search-list');
+  if (!items.length) {
+    listEl.appendChild(h('<p class="empty">아직 저장된 맞춤공고 조건이 없습니다. "새 조건 만들기"로 시작해보세요.</p>'));
+  } else {
+    items.forEach(item => listEl.appendChild(h(savedSearchCardHtml(item))));
+  }
+
+  const formSlot = document.getElementById('saved-search-form-slot');
+  document.getElementById('saved-search-add-btn').addEventListener('click', () => {
+    renderSavedSearchForm(formSlot, null, () => renderSavedSearches(container));
+  });
+  listEl.querySelectorAll('.saved-search-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = items.find(i => i.id === btn.dataset.id);
+      renderSavedSearchForm(formSlot, item, () => renderSavedSearches(container));
+    });
+  });
+  listEl.querySelectorAll('.saved-search-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('이 맞춤공고 조건을 삭제하시겠습니까?')) return;
+      try {
+        await apiRequest('DELETE', '/api/me/saved-searches/' + encodeURIComponent(btn.dataset.id));
+        renderSavedSearches(container);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  listEl.querySelectorAll('.saved-search-results-link').forEach(a => {
+    a.addEventListener('click', () => { noticeListState = null; }); // 새 조건 결과이므로 무한스크롤 캐시 폐기
+  });
+}
+
+function savedSearchResultsHash(item) {
+  const p = new URLSearchParams();
+  if (item.region) p.set('region', item.region);
+  if (item.industry) p.set('industry', item.industry);
+  if (item.noticeType) p.set('noticeType', item.noticeType);
+  if (item.organizationName) p.set('organizationName', item.organizationName);
+  if (item.budgetMin != null) p.set('budgetMin', String(item.budgetMin));
+  if (item.budgetMax != null) p.set('budgetMax', String(item.budgetMax));
+  if (item.keywordsInclude && item.keywordsInclude.length) p.set('keywordsInclude', item.keywordsInclude.join(','));
+  if (item.keywordsExclude && item.keywordsExclude.length) p.set('keywordsExclude', item.keywordsExclude.join(','));
+  p.set('savedSearchName', item.name);
+  return '#/notices?' + p.toString();
+}
+
+function savedSearchCardHtml(item) {
+  const conditionParts = [];
+  const noticeTypeLabel = (SAVED_SEARCH_NOTICE_TYPE_OPTIONS.find(o => o.value === (item.noticeType || '')) || {}).label;
+  if (noticeTypeLabel && item.noticeType) conditionParts.push(noticeTypeLabel);
+  if (item.region) conditionParts.push(escapeHtml(item.region));
+  if (item.industry) conditionParts.push(escapeHtml(item.industry));
+  if (item.organizationName) conditionParts.push('발주기관: ' + escapeHtml(item.organizationName));
+  if (item.budgetMin != null || item.budgetMax != null) {
+    conditionParts.push(`${item.budgetMin != null ? formatBudget(item.budgetMin) : '제한없음'} ~ ${item.budgetMax != null ? formatBudget(item.budgetMax) : '제한없음'}`);
+  }
+  if (item.keywordsInclude && item.keywordsInclude.length) conditionParts.push('포함: ' + item.keywordsInclude.map(escapeHtml).join(', '));
+  if (item.keywordsExclude && item.keywordsExclude.length) conditionParts.push('제외: ' + item.keywordsExclude.map(escapeHtml).join(', '));
+
+  return `
+    <div class="license-card">
+      <div class="license-card-main">
+        <div class="license-card-name">${escapeHtml(item.name)} ${item.alertEnabled ? '<span class="badge badge--success">알림 켜짐</span>' : '<span class="badge badge--gray">알림 꺼짐</span>'}</div>
+        <div class="license-card-meta">${conditionParts.length ? conditionParts.join(' · ') : '조건 없음(전체 공고)'}</div>
+      </div>
+      <div class="license-card-side">
+        <a class="btn btn-secondary btn-sm saved-search-results-link" href="${escapeAttr(savedSearchResultsHash(item))}">결과 보기</a>
+        <button type="button" class="btn btn-secondary btn-sm saved-search-edit-btn" data-id="${escapeAttr(item.id)}">수정</button>
+        <button type="button" class="btn btn-secondary btn-sm saved-search-delete-btn" data-id="${escapeAttr(item.id)}">삭제</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderSavedSearchForm(formSlot, item, onSaved) {
+  const c = item || {};
+  const currentNoticeType = c.noticeType || '';
+  const currentRegion = c.region || '';
+  formSlot.innerHTML = '';
+  formSlot.appendChild(h(`
+    <div class="license-confirm-form">
+      <h4>${item ? '맞춤공고 조건 수정' : '새 맞춤공고 조건'}</h4>
+      <form id="saved-search-form" class="profile-form">
+        <label>조건 이름<input type="text" name="name" required placeholder="예: 서울·경기 정보통신공사" value="${escapeAttr(c.name || '')}"></label>
+        <label>공고 종류
+          <select name="noticeType" class="select-input">
+            ${SAVED_SEARCH_NOTICE_TYPE_OPTIONS.map(o => `<option value="${escapeAttr(o.value)}" ${o.value === currentNoticeType ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}
+          </select>
+        </label>
+        <label>지역
+          <select name="region" class="select-input">
+            <option value="">전체</option>
+            ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === currentRegion ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
+          </select>
+        </label>
+        <label>업종<input type="text" name="industry" placeholder="예: 정보통신공사" value="${escapeAttr(c.industry || '')}"></label>
+        <details class="saved-search-advanced">
+          <summary>상세 조건 (발주기관 · 금액 · 키워드)</summary>
+          <label>발주기관<input type="text" name="organizationName" placeholder="예: 서울특별시" value="${escapeAttr(c.organizationName || '')}"></label>
+          <label>최소 금액(원)<input type="text" inputmode="numeric" name="budgetMin" placeholder="예: 10,000,000" value="${c.budgetMin != null ? escapeAttr(formatCurrency(c.budgetMin)) : ''}"></label>
+          <label>최대 금액(원)<input type="text" inputmode="numeric" name="budgetMax" placeholder="예: 500,000,000" value="${c.budgetMax != null ? escapeAttr(formatCurrency(c.budgetMax)) : ''}"></label>
+          <label>포함 키워드(콤마로 구분)<input type="text" name="keywordsInclude" placeholder="예: 유지보수, 구축" value="${escapeAttr((c.keywordsInclude || []).join(', '))}"></label>
+          <label>제외 키워드(콤마로 구분)<input type="text" name="keywordsExclude" placeholder="예: 청소, 경비" value="${escapeAttr((c.keywordsExclude || []).join(', '))}"></label>
+        </details>
+        <label class="checkbox-label"><input type="checkbox" name="alertEnabled" ${item ? (c.alertEnabled ? 'checked' : '') : 'checked'}> 새로 매칭되는 공고를 이메일로 알림 받기</label>
+        <div id="saved-search-form-error" class="error" style="display:none"></div>
+        <div class="license-toolbar">
+          <button type="submit" class="btn btn-primary btn-sm">저장</button>
+          <button type="button" id="saved-search-form-cancel" class="btn btn-secondary btn-sm">취소</button>
+        </div>
+      </form>
+    </div>
+  `));
+
+  const form = document.getElementById('saved-search-form');
+  attachCurrencyAutoFormat(form.budgetMin);
+  attachCurrencyAutoFormat(form.budgetMax);
+  const errorBox = document.getElementById('saved-search-form-error');
+  document.getElementById('saved-search-form-cancel').addEventListener('click', () => { formSlot.innerHTML = ''; });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    const splitKeywords = (v) => (v || '').split(',').map(s => s.trim()).filter(Boolean);
+    const budgetMinRaw = parseCurrencyInput(fd.get('budgetMin'));
+    const budgetMaxRaw = parseCurrencyInput(fd.get('budgetMax'));
+    const payload = {
+      name: fd.get('name'),
+      noticeType: fd.get('noticeType') || null,
+      region: fd.get('region') || null,
+      industry: fd.get('industry') || null,
+      organizationName: fd.get('organizationName') || null,
+      budgetMin: budgetMinRaw ? Number(budgetMinRaw) : null,
+      budgetMax: budgetMaxRaw ? Number(budgetMaxRaw) : null,
+      keywordsInclude: splitKeywords(fd.get('keywordsInclude')),
+      keywordsExclude: splitKeywords(fd.get('keywordsExclude')),
+      alertEnabled: fd.get('alertEnabled') === 'on',
+    };
+    try {
+      if (item) {
+        await apiRequest('PATCH', '/api/me/saved-searches/' + encodeURIComponent(item.id), payload);
+      } else {
+        await apiRequest('POST', '/api/me/saved-searches', payload);
+      }
+      formSlot.innerHTML = '';
+      onSaved();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
 }
 
 function renderDetail(container, id) {
@@ -13037,6 +13250,7 @@ function route() {
   if (path === '#/me/profile') { renderProfile(app); return; }
   if (path === '#/me/account') { renderAccountSettings(app); return; }
   if (path === '#/me/bookmarks') { renderBookmarks(app); return; }
+  if (path === '#/me/saved-searches') { renderSavedSearches(app); return; }
   if (path === '#/notifications') { renderNotifications(app); return; }
   if (path === '#/me/licenses') { renderLicenses(app); return; }
   if (path === '#/review') { renderReviewQueue(app); return; }

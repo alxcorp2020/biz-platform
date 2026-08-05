@@ -49,23 +49,27 @@ func (s *Server) insertEntryScopedInAppNotification(ctx context.Context, profile
 	return s.insertInAppNotification(ctx, &profileID, nil, eventType, title, body, &pipelineEntryID, &noticeID)
 }
 
-// insertDigestInAppNotification covers the recommendation digest — user
-// 단위이고 하루에 여러 건이 아니라 "오늘의 추천 공고 N건" 한 알림으로
-// 묶이므로, dedup 기준도 (event_type, user_id, 오늘 날짜)다.
-func (s *Server) insertDigestInAppNotification(ctx context.Context, userID, title, body string) error {
+// insertDigestInAppNotification covers user-scoped daily digest events
+// (recommendation_digest, saved_search_match) — 둘 다 하루에 여러 건이
+// 아니라 "오늘의 매칭 N건" 한 알림으로 묶이므로, dedup 기준도 (event_type,
+// user_id, 오늘 날짜)다. eventType을 파라미터로 받는다 — 2026-08-06 이전엔
+// notifyEventRecommendationDigest로 고정돼 있었는데, saved_search_match가
+// 이 헬퍼를 그대로 재사용하면서 라벨이 잘못 찍히는 버그가 있어(실제
+// 로컬 검증 중 발견) 일반화했다.
+func (s *Server) insertDigestInAppNotification(ctx context.Context, userID, eventType, title, body string) error {
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM in_app_notifications
 			WHERE event_type = $1 AND user_id = $2 AND created_at::date = CURRENT_DATE
-		)`, notifyEventRecommendationDigest, userID).Scan(&exists)
+		)`, eventType, userID).Scan(&exists)
 	if err != nil {
 		return err
 	}
 	if exists {
 		return nil
 	}
-	return s.insertInAppNotification(ctx, nil, &userID, notifyEventRecommendationDigest, title, body, nil, nil)
+	return s.insertInAppNotification(ctx, nil, &userID, eventType, title, body, nil, nil)
 }
 
 type inAppNotificationItem struct {
