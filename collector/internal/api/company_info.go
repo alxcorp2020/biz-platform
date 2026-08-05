@@ -5,6 +5,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -16,34 +17,34 @@ type companyInfo struct {
 	// BrandName — 나머지 필드와 달리 포인터가 아니다(NOT NULL). 사이트
 	// 전체(탭 제목/헤더/사이드바/랜딩페이지 로고·푸터/PWA manifest)에
 	// 쓰이는 값이라 빈 값을 허용하면 화면이 깨진다.
-	BrandName                  string    `json:"brandName"`
-	CompanyName                *string   `json:"companyName"`
-	BusinessRegistrationNumber *string   `json:"businessRegistrationNumber"`
-	RepresentativeName         *string   `json:"representativeName"`
-	Address                    *string   `json:"address"`
-	MainPhone                  *string   `json:"mainPhone"`
-	ContactEmail               *string   `json:"contactEmail"`
-	PartnershipEmail           *string   `json:"partnershipEmail"`
-	PatentNumber               *string   `json:"patentNumber"`
-	UpdatedAt                  time.Time `json:"updatedAt"`
+	BrandName                   string    `json:"brandName"`
+	CompanyName                 *string   `json:"companyName"`
+	BusinessRegistrationNumber  *string   `json:"businessRegistrationNumber"`
+	RepresentativeName          *string   `json:"representativeName"`
+	Address                     *string   `json:"address"`
+	MainPhone                   *string   `json:"mainPhone"`
+	ContactEmail                *string   `json:"contactEmail"`
+	PartnershipEmail            *string   `json:"partnershipEmail"`
+	PatentNumber                *string   `json:"patentNumber"`
+	MailOrderRegistrationNumber *string   `json:"mailOrderRegistrationNumber"`
+	UpdatedAt                   time.Time `json:"updatedAt"`
 }
 
-// handleGetCompanyInfo — GET /api/company-info(공개, 인증 불필요) —
-// 랜딩페이지(비로그인 방문자)와 앱 부팅 시(브랜드명 적용) 둘 다 읽는다.
-// brandName을 제외한 값이 없는 필드는 null로 내려가고, 프론트가 항목별로
-// (그리고 전부 null이면 블록 전체를) 조용히 숨긴다.
-func (s *Server) handleGetCompanyInfo(w http.ResponseWriter, r *http.Request) {
+// fetchCompanyInfo — company_info(id=1 싱글턴) 조회를 한 곳으로 모았다.
+// handleGetCompanyInfo(공개 API)와 sendRecommendationDigest(다이제스트
+// 이메일 하단 회사정보, notifications.go)가 둘 다 이 함수를 쓴다 — 같은
+// 조회 로직을 두 곳에서 각자 짜면 필드가 하나 늘 때마다 한쪽만 고치는
+// 사고가 나기 쉽다.
+func (s *Server) fetchCompanyInfo(ctx context.Context) (companyInfo, error) {
 	var info companyInfo
-	var companyName, bizNumber, repName, address, phone, email, partnershipEmail, patentNumber sql.NullString
-	err := s.db.QueryRowContext(r.Context(), `
+	var companyName, bizNumber, repName, address, phone, email, partnershipEmail, patentNumber, mailOrderNumber sql.NullString
+	err := s.db.QueryRowContext(ctx, `
 		SELECT brand_name, company_name, business_registration_number, representative_name, address,
-		       main_phone, contact_email, partnership_email, patent_number, updated_at
+		       main_phone, contact_email, partnership_email, patent_number, mail_order_registration_number, updated_at
 		FROM company_info WHERE id = 1`,
-	).Scan(&info.BrandName, &companyName, &bizNumber, &repName, &address, &phone, &email, &partnershipEmail, &patentNumber, &info.UpdatedAt)
+	).Scan(&info.BrandName, &companyName, &bizNumber, &repName, &address, &phone, &email, &partnershipEmail, &patentNumber, &mailOrderNumber, &info.UpdatedAt)
 	if err != nil {
-		s.logger.Error("get-company-info: query failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
+		return companyInfo{}, err
 	}
 	info.CompanyName = nullStringPtr(companyName)
 	info.BusinessRegistrationNumber = nullStringPtr(bizNumber)
@@ -53,19 +54,35 @@ func (s *Server) handleGetCompanyInfo(w http.ResponseWriter, r *http.Request) {
 	info.ContactEmail = nullStringPtr(email)
 	info.PartnershipEmail = nullStringPtr(partnershipEmail)
 	info.PatentNumber = nullStringPtr(patentNumber)
+	info.MailOrderRegistrationNumber = nullStringPtr(mailOrderNumber)
+	return info, nil
+}
+
+// handleGetCompanyInfo — GET /api/company-info(공개, 인증 불필요) —
+// 랜딩페이지(비로그인 방문자)와 앱 부팅 시(브랜드명 적용) 둘 다 읽는다.
+// brandName을 제외한 값이 없는 필드는 null로 내려가고, 프론트가 항목별로
+// (그리고 전부 null이면 블록 전체를) 조용히 숨긴다.
+func (s *Server) handleGetCompanyInfo(w http.ResponseWriter, r *http.Request) {
+	info, err := s.fetchCompanyInfo(r.Context())
+	if err != nil {
+		s.logger.Error("get-company-info: query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
 	writeJSON(w, http.StatusOK, info)
 }
 
 type companyInfoRequest struct {
-	BrandName                  string  `json:"brandName"`
-	CompanyName                *string `json:"companyName"`
-	BusinessRegistrationNumber *string `json:"businessRegistrationNumber"`
-	RepresentativeName         *string `json:"representativeName"`
-	Address                    *string `json:"address"`
-	MainPhone                  *string `json:"mainPhone"`
-	ContactEmail               *string `json:"contactEmail"`
-	PartnershipEmail           *string `json:"partnershipEmail"`
-	PatentNumber               *string `json:"patentNumber"`
+	BrandName                   string  `json:"brandName"`
+	CompanyName                 *string `json:"companyName"`
+	BusinessRegistrationNumber  *string `json:"businessRegistrationNumber"`
+	RepresentativeName          *string `json:"representativeName"`
+	Address                     *string `json:"address"`
+	MainPhone                   *string `json:"mainPhone"`
+	ContactEmail                *string `json:"contactEmail"`
+	PartnershipEmail            *string `json:"partnershipEmail"`
+	PatentNumber                *string `json:"patentNumber"`
+	MailOrderRegistrationNumber *string `json:"mailOrderRegistrationNumber"`
 }
 
 // normalizeCompanyInfoField trims whitespace and converts an empty result to
@@ -106,7 +123,7 @@ func (s *Server) handleAdminUpdateCompanyInfo(w http.ResponseWriter, r *http.Req
 		UPDATE company_info SET
 			brand_name = $1, company_name = $2, business_registration_number = $3, representative_name = $4,
 			address = $5, main_phone = $6, contact_email = $7, partnership_email = $8,
-			patent_number = $9, updated_at = now()
+			patent_number = $9, mail_order_registration_number = $10, updated_at = now()
 		WHERE id = 1`,
 		brandName,
 		normalizeCompanyInfoField(req.CompanyName),
@@ -117,6 +134,7 @@ func (s *Server) handleAdminUpdateCompanyInfo(w http.ResponseWriter, r *http.Req
 		normalizeCompanyInfoField(req.ContactEmail),
 		normalizeCompanyInfoField(req.PartnershipEmail),
 		normalizeCompanyInfoField(req.PatentNumber),
+		normalizeCompanyInfoField(req.MailOrderRegistrationNumber),
 	)
 	if err != nil {
 		s.logger.Error("admin-update-company-info: update failed", "error", err)

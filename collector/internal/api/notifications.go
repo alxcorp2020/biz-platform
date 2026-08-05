@@ -16,7 +16,9 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lib/pq"
 
@@ -326,6 +328,130 @@ func (s *Server) fetchNotifiableContacts(ctx context.Context, profileID, eventTy
 	return out, rows.Err()
 }
 
+// digestNoticeRow — 다이제스트 후보 공고 한 건. sendRecommendationDigest의
+// 스캔 쿼리 스캔 대상이자 digestNoticeItemHTML의 인자 타입이라(패키지
+// 레벨 함수 파라미터로 쓰이려면 지역 타입일 수 없어) 패키지 스코프로 둔다.
+type digestNoticeRow struct {
+	id, noticeType, title string
+	org, region, industry sql.NullString
+	budget                sql.NullInt64
+	deadline              sql.NullTime
+}
+
+// digestOrDash returns "-" for an unset nullable string — 다이제스트
+// 이메일 본문에서 발주기관/업종처럼 값이 없을 수 있는 항목을 빈칸 대신
+// 일관되게 표시하기 위함(company_info 푸터의 "값 없으면 줄 자체를
+// 숨김" 원칙과는 다르다 — 여긴 공고 목록의 한 항목이라 줄을 통째로
+// 없애면 표 형태가 깨지므로 "-"로 표시만 한다).
+func digestOrDash(v sql.NullString) string {
+	if !v.Valid || strings.TrimSpace(v.String) == "" {
+		return "-"
+	}
+	return html.EscapeString(v.String)
+}
+
+// formatDigestDeadline renders a deadline as "2026-08-20 (D-15)" — 오늘
+// 이후면 D-N, 오늘이면 "D-day", 이미 지났으면(이론상 sendRecommendationDigest의
+// 쿼리가 이미 마감 지난 공고를 걸러내지만 방어적으로) "마감"으로 표시한다.
+// 날짜만 비교해야 하므로(시:분:초 영향 배제) 둘 다 UTC 자정 기준으로 자른다.
+func formatDigestDeadline(deadline time.Time) string {
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	day := deadline.UTC().Truncate(24 * time.Hour)
+	diff := int(day.Sub(today).Hours() / 24)
+	dateStr := deadline.Format("2006-01-02")
+	switch {
+	case diff > 0:
+		return fmt.Sprintf("%s (D-%d)", dateStr, diff)
+	case diff == 0:
+		return fmt.Sprintf("%s (D-day)", dateStr)
+	default:
+		return fmt.Sprintf("%s (마감)", dateStr)
+	}
+}
+
+// formatWonAmount adds thousands separators for Korean won display(예:
+// 1234567 → "1,234,567") — 백엔드에 기존 금액 포맷 헬퍼가 전혀 없다(전부
+// 프론트 toLocaleString 의존, 이메일은 서버에서 완성된 HTML을 보내야 해서
+// 새로 만든다). 음수는 이 도메인(공고 예산)에 나타나지 않아 별도 처리 없음.
+func formatWonAmount(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return s
+	}
+	var parts []string
+	for len(s) > 3 {
+		parts = append([]string{s[len(s)-3:]}, parts...)
+		s = s[:len(s)-3]
+	}
+	parts = append([]string{s}, parts...)
+	return strings.Join(parts, ",")
+}
+
+// digestNoticeItemHTML renders one notice block in the digest email:
+// 공고명(제목=상세 딥링크)/발주기관/업종/마감일(D-day)/예산. appBaseURL은
+// s.appBaseURL 그대로 — ⚠️나중에 네이티브 앱이 나오면 이 링크를
+// Universal Link(iOS)/App Link(Android)로 전환해야 한다(sendRecommendationDigest의
+// dashboardLink 주석과 동일한 이유).
+func digestNoticeItemHTML(appBaseURL string, n digestNoticeRow) string {
+	link := appBaseURL + "/#/notices/" + n.id
+	budget := "-"
+	if n.budget.Valid {
+		budget = formatWonAmount(n.budget.Int64) + "원"
+	}
+	deadline := "-"
+	if n.deadline.Valid {
+		deadline = formatDigestDeadline(n.deadline.Time)
+	}
+	return fmt.Sprintf(`
+		<div style="border:1px solid #e5e8eb;border-radius:8px;padding:16px;margin-bottom:12px;">
+			<p style="margin:0 0 8px;"><a href="%s" style="color:#191f28;font-size:16px;font-weight:700;text-decoration:none;">%s</a></p>
+			<p style="margin:0 0 4px;color:#4e5968;font-size:14px;">발주기관: %s</p>
+			<p style="margin:0 0 4px;color:#4e5968;font-size:14px;">업종: %s</p>
+			<p style="margin:0 0 4px;color:#4e5968;font-size:14px;">마감일: %s</p>
+			<p style="margin:0;color:#4e5968;font-size:14px;">예산: %s</p>
+		</div>`,
+		html.EscapeString(link), html.EscapeString(n.title), digestOrDash(n.org), digestOrDash(n.industry), html.EscapeString(deadline), budget,
+	)
+}
+
+// digestFooterHTML builds the digest email's footer from company_info(운영사
+// 정보 싱글턴) — renderLandingCompanyInfo(index.html, 랜딩페이지 푸터)가
+// 쓰는 "값 없으면 그 줄만 숨김" 관례를 서버 사이드(이메일 HTML)에서
+// 그대로 재현한다. 아무 필드도 없으면 빈 문자열을 반환해 <div> 자체가
+// 안 보이게 한다.
+func digestFooterHTML(info companyInfo) string {
+	var lines []string
+	if strings.TrimSpace(info.BrandName) != "" {
+		lines = append(lines, fmt.Sprintf(`<p style="margin:0 0 4px;font-weight:700;">%s</p>`, html.EscapeString(info.BrandName)))
+	}
+	if info.ContactEmail != nil && strings.TrimSpace(*info.ContactEmail) != "" {
+		lines = append(lines, fmt.Sprintf(`<p style="margin:0 0 4px;">%s</p>`, html.EscapeString(*info.ContactEmail)))
+	}
+	var bizParts []string
+	if info.CompanyName != nil && strings.TrimSpace(*info.CompanyName) != "" {
+		bizParts = append(bizParts, "상호: "+html.EscapeString(*info.CompanyName))
+	}
+	if info.BusinessRegistrationNumber != nil && strings.TrimSpace(*info.BusinessRegistrationNumber) != "" {
+		bizParts = append(bizParts, "사업자 등록번호: "+html.EscapeString(*info.BusinessRegistrationNumber))
+	}
+	if info.RepresentativeName != nil && strings.TrimSpace(*info.RepresentativeName) != "" {
+		bizParts = append(bizParts, "대표: "+html.EscapeString(*info.RepresentativeName))
+	}
+	if len(bizParts) > 0 {
+		lines = append(lines, fmt.Sprintf(`<p style="margin:0 0 4px;">%s</p>`, strings.Join(bizParts, " | ")))
+	}
+	if info.MailOrderRegistrationNumber != nil && strings.TrimSpace(*info.MailOrderRegistrationNumber) != "" {
+		lines = append(lines, fmt.Sprintf(`<p style="margin:0 0 4px;">통신판매업 신고번호: %s</p>`, html.EscapeString(*info.MailOrderRegistrationNumber)))
+	}
+	if info.Address != nil && strings.TrimSpace(*info.Address) != "" {
+		lines = append(lines, fmt.Sprintf(`<p style="margin:0;">%s</p>`, html.EscapeString(*info.Address)))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(`<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e8eb;color:#8b95a1;font-size:12px;">%s</div>`, strings.Join(lines, ""))
+}
+
 // sendRecommendationDigest sends, per organization with notifications
 // enabled, one email per member listing today's newly-recommended notices
 // (grade == gradeRecommended) that aren't already in that org's pipeline.
@@ -334,8 +460,20 @@ func (s *Server) fetchNotifiableContacts(ctx context.Context, profileID, eventTy
 // 받은 적 있는지"만 멤버별로 따로 걸러서 각자에게 보낸다(한 멤버가 이미
 // 본 공고를 다른 신규 멤버는 여전히 처음 보는 것일 수 있으므로).
 func (s *Server) sendRecommendationDigest(ctx context.Context) error {
+	// company_info(운영사 정보, 싱글턴)는 발송 대상과 무관하게 항상 같은
+	// 값이라 루프 밖에서 한 번만 조회해 이메일 하단 푸터 HTML을 미리
+	// 만들어둔다. 조회 자체가 실패해도 다이제스트 발송을 막을 이유는
+	// 없으니(운영사 정보 없이도 공고 알림 기능은 정상 동작해야 함)
+	// 그 경우엔 빈 companyInfo로 계속 진행 — digestFooterHTML이 값이 없는
+	// 필드는 알아서 줄 자체를 생략한다.
+	companyInfoData, err := s.fetchCompanyInfo(ctx)
+	if err != nil {
+		s.logger.Error("notify: company info lookup failed for digest footer", "error", err)
+	}
+	footerHTML := digestFooterHTML(companyInfoData)
+
 	profileRows, err := s.db.QueryContext(ctx, `
-		SELECT cp.id, cp.region, cp.industry, cp.company_size
+		SELECT cp.id, cp.company_name, cp.region, cp.industry, cp.company_size
 		FROM company_profiles cp
 		WHERE cp.email_notifications_enabled = true`)
 	if err != nil {
@@ -343,13 +481,14 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 	}
 	type profileRow struct {
 		profileID    string
+		companyName  sql.NullString
 		region, size sql.NullString
 		industry     pq.StringArray
 	}
 	var profiles []profileRow
 	for profileRows.Next() {
 		var p profileRow
-		if err := profileRows.Scan(&p.profileID, &p.region, &p.industry, &p.size); err != nil {
+		if err := profileRows.Scan(&p.profileID, &p.companyName, &p.region, &p.industry, &p.size); err != nil {
 			continue
 		}
 		profiles = append(profiles, p)
@@ -364,7 +503,7 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 	}
 
 	noticeRows, err := s.db.QueryContext(ctx, `
-		SELECT id, notice_type, title, organization_name, region, industry, budget_amount
+		SELECT id, notice_type, title, organization_name, region, industry, budget_amount, application_end_at
 		FROM notices
 		WHERE status NOT IN ('closed','cancelled')
 		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
@@ -372,15 +511,10 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	type noticeRow struct {
-		id, noticeType, title string
-		org, region, industry sql.NullString
-		budget                sql.NullInt64
-	}
-	var notices []noticeRow
+	var notices []digestNoticeRow
 	for noticeRows.Next() {
-		var n noticeRow
-		if err := noticeRows.Scan(&n.id, &n.noticeType, &n.title, &n.org, &n.region, &n.industry, &n.budget); err != nil {
+		var n digestNoticeRow
+		if err := noticeRows.Scan(&n.id, &n.noticeType, &n.title, &n.org, &n.region, &n.industry, &n.budget, &n.deadline); err != nil {
 			continue
 		}
 		notices = append(notices, n)
@@ -409,7 +543,7 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 		// 조직 속성(지역/업종/규모)만으로 판정하는 등급 계산은 멤버와
 		// 무관하게 한 번만 — pipelinedIDs만 여기서 걸러내고, "이미
 		// 다이제스트 받았는지"는 멤버별로 아래에서 따로 거른다.
-		var orgRecommended []noticeRow
+		var orgRecommended []digestNoticeRow
 		for _, n := range notices {
 			if pipelinedIDs[n.id] {
 				continue
@@ -437,7 +571,7 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 				s.logger.Error("notify: digested notice ids query failed", "error", err)
 				continue
 			}
-			var matched []noticeRow
+			var matched []digestNoticeRow
 			for _, n := range orgRecommended {
 				if !digestedIDs[n.id] {
 					matched = append(matched, n)
@@ -447,14 +581,41 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 				continue
 			}
 
-			subject := fmt.Sprintf("오늘의 추천 공고 %d건", len(matched))
+			// 제목: "[공고 공유] {대표 공고명}"(+2건 이상이면 "외 N건") —
+			// notice_share.go(담당자에게 전달 버튼)가 이미 쓰는 "[공고 공유]"
+			// 접두사와 동일한 관례를 다이제스트에도 맞춘다.
+			subject := fmt.Sprintf("[공고 공유] %s", matched[0].title)
+			if len(matched) > 1 {
+				subject += fmt.Sprintf(" 외 %d건", len(matched)-1)
+			}
 			var itemsHTML string
 			titlesForInApp := make([]string, 0, len(matched))
 			for _, n := range matched {
-				itemsHTML += fmt.Sprintf("<li><b>%s</b> (%s)</li>", html.EscapeString(n.title), html.EscapeString(n.org.String))
+				itemsHTML += digestNoticeItemHTML(s.appBaseURL, n)
 				titlesForInApp = append(titlesForInApp, n.title)
 			}
-			body := fmt.Sprintf("<p>참여를 권장하는 신규 공고 %d건이 발견되었습니다.</p><ul>%s</ul>", len(matched), itemsHTML)
+
+			greeting := "회원님"
+			if p.companyName.Valid && strings.TrimSpace(p.companyName.String) != "" {
+				greeting = html.EscapeString(p.companyName.String) + "의 회원님"
+			}
+			// dashboardLink — 지금은 순수 웹 URL이다. ⚠️나중에 네이티브 앱이
+			// 나오면 이 링크(그리고 아래 digestNoticeItemHTML의 공고별
+			// 링크)를 Universal Link(iOS)/App Link(Android) 방식으로 바꿔서,
+			// 앱이 설치돼있으면 자동으로 앱이 열리게 전환해야 한다 — 지금은
+			// 앱 자체가 없어 이번 범위에서는 웹 URL만 발송한다.
+			dashboardLink := s.appBaseURL + "/#/"
+			body := fmt.Sprintf(`
+				<p>안녕하세요. %s!</p>
+				<p>회원님께 맞는 공고가 <b>%d건</b> 발생하였습니다.</p>
+				<div style="margin:20px 0;">%s</div>
+				<p style="color:#5b6472;font-size:13px;">검토 및 공고 사업의 상태와 캘린더를 조정해서 관리하시면 더욱 좋습니다.</p>
+				<p style="text-align:center;margin:28px 0;">
+					<a href="%s" style="display:inline-block;padding:12px 28px;background-color:#3182f6;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;font-size:15px;">나의 공공사업 보러가기</a>
+				</p>
+				%s`,
+				greeting, len(matched), itemsHTML, html.EscapeString(dashboardLink), footerHTML,
+			)
 
 			inAppBody := strings.Join(titlesForInApp, " · ")
 			if len(titlesForInApp) > 3 {

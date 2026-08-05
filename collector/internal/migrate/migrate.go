@@ -183,6 +183,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureCompanyInfoBrandNameColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_info.brand_name column: %w", err)
 	}
+	if err := ensureCompanyInfoMailOrderNumberColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_info.mail_order_registration_number column: %w", err)
+	}
 	// company_info와 banners가 둘 다 있어야 하므로 맨 마지막에 실행.
 	if err := ensureBannersBrandNameTokenBackfill(ctx, db); err != nil {
 		return fmt.Errorf("migrate banners brand_name token backfill: %w", err)
@@ -1539,6 +1542,17 @@ func ensureCompanyInfoTable(ctx context.Context, db *sql.DB) error {
 func ensureCompanyInfoBrandNameColumn(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE company_info ADD COLUMN IF NOT EXISTS brand_name TEXT NOT NULL DEFAULT '공공사업 AI 비서';
+	`)
+	return err
+}
+
+// ensureCompanyInfoMailOrderNumberColumn adds company_info.mail_order_registration_number
+// (통신판매업 신고번호, 2026-08-05 — 추천공고 다이제스트 이메일 하단
+// 회사정보 표기용으로 신규 요청됨). 나머지 7개 선택 필드와 동일하게
+// NULL 허용 — 비어있으면 이메일/랜딩페이지 양쪽 다 해당 줄을 숨긴다.
+func ensureCompanyInfoMailOrderNumberColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_info ADD COLUMN IF NOT EXISTS mail_order_registration_number TEXT;
 	`)
 	return err
 }
