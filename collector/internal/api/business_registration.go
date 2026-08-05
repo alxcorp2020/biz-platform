@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -51,6 +52,10 @@ type businessRegistrationCandidate struct {
 	Region                     string   `json:"region"`
 	Industry                   []string `json:"industry"`
 	BusinessType               []string `json:"businessType"`
+	// FoundingDate — 2026-08-05. "개업연월일"(YYYY-MM-DD). 온보딩 채팅이
+	// 이 값으로 업력을 자동 계산해 저장하고, 더 이상 업력을 따로 묻지
+	// 않는다(구간select로 저장되던 기존 방식의 근본 원인 제거).
+	FoundingDate string `json:"foundingDate"`
 }
 
 // handleExtractBusinessRegistration — POST /api/me/business-registration/extract
@@ -188,10 +193,14 @@ func (s *Server) extractBusinessRegistrationCandidate(ctx context.Context, body 
 					"description": "업태 원문(문서에 적힌 그대로, 여러 줄이면 각각 하나씩)",
 					"items":       map[string]any{"type": "string"},
 				},
+				"foundingDate": map[string]any{
+					"type":        "string",
+					"description": "개업연월일을 YYYY-MM-DD 형식으로. 없거나 판독 불가하면 빈 문자열",
+				},
 			},
 			Required: []string{
 				"businessRegistrationNumber", "companyName", "representativeName",
-				"address", "region", "industry", "businessType",
+				"address", "region", "industry", "businessType", "foundingDate",
 			},
 			ExtraFields: map[string]any{"additionalProperties": false},
 		},
@@ -223,6 +232,11 @@ func (s *Server) extractBusinessRegistrationCandidate(ctx context.Context, body 
 			var candidate businessRegistrationCandidate
 			if err := json.Unmarshal(tu.Input, &candidate); err != nil {
 				return nil, fmt.Errorf("parse tool input: %w", err)
+			}
+			if candidate.FoundingDate != "" {
+				if _, err := time.Parse("2006-01-02", candidate.FoundingDate); err != nil {
+					candidate.FoundingDate = "" // 모델이 형식을 안 지켰으면 프론트 업력 계산이 틀어지느니 그냥 비운다
+				}
 			}
 			return &candidate, nil
 		}

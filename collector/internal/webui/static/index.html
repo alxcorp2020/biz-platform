@@ -3677,9 +3677,10 @@ function renderOnboardingHero(container) {
 //  - 재진입 시 실제 채팅 로그를 서버에 저장하지 않는다 — 저장된 필드값
 //    기준으로 이미 답한 항목은 로딩 없이 즉시 재구성(리플레이)하고
 //    마지막 미답변 지점부터 라이브로 이어간다.
-//  - 직원수 구간(EMPLOYEE_COUNT_RANGE_OPTIONS)/업력 구간
-//    (BUSINESS_AGE_RANGE_OPTIONS)은 기존 #/me/profile과 통일된 값을
-//    그대로 재사용한다(새 구간 세트를 따로 안 만듦).
+//  - ⚠️직원수/업력을 구간select로 받던 초기 결정은 2026-08-05에 뒤집혔다
+//    — 구간 대표값이 정확한 수치처럼 저장되는 문제로 둘 다 폐지, 직원수는
+//    숫자 직접입력, 업력은 개업일 기반 자동계산으로 전환(아래
+//    ONBOARDING_CARD_DEFS/renderFoundingDateChatForm 주석 참고).
 //  - 면허/인증/재무(매출액)/수행실적은 1차 구현에서 직접입력만 지원—
 //    증빙파일 첨부는 2차로 미룬다. 사업자등록증 OCR과 4대보험 자동입력
 //    (직원수)은 기존에 이미 있던 핵심 기능이라 그대로 유지한다.
@@ -3987,8 +3988,14 @@ function showOnboardingBusinessRegResult(state, candidate) {
   const companyLabel = c.companyName || '상호 미확인';
   const regionLabel = c.region || '지역 미확인';
   const industryLabel = (c.industry && c.industry.length) ? c.industry.join(', ') : '업종 미확인';
+  // businessAgeYears — 2026-08-05. 개업일을 따로 묻지 않고 사업자등록증
+  // 추출값(c.foundingDate)에서 바로 계산해 요약에 보여준다. OCR이 개업일을
+  // 못 읽었으면(빈 문자열) 그냥 안 보여준다 — 직접 기재 경로에서만 별도
+  // 질문으로 물어본다(runOnboardingIdentityStep의 foundingDate 항목).
+  const businessAge = computeBusinessAgeYears(c.foundingDate);
+  const ageLabel = businessAge != null ? ` · 업력 약 ${businessAge}년` : '';
   appendBotBubble(`
-    <div class="step-card-inline"><b>${escapeHtml(companyLabel)}</b><br>${escapeHtml(regionLabel)} · ${escapeHtml(industryLabel)}</div>
+    <div class="step-card-inline"><b>${escapeHtml(companyLabel)}</b><br>${escapeHtml(regionLabel)} · ${escapeHtml(industryLabel)}${escapeHtml(ageLabel)}</div>
     이렇게 확인했어요. 맞나요?
   `);
   const actionEl = chatActionEl();
@@ -4016,6 +4023,7 @@ function showOnboardingBusinessRegResult(state, candidate) {
         businessType: c.businessType || [],
         region: c.region || null,
         industry: c.industry || [],
+        businessAgeYears: businessAge,
       });
       currentProfile = data.companyProfile;
     } catch (err) {
@@ -4185,14 +4193,56 @@ function renderBusinessTypeChatForm(container, onSaved, onBack) {
   });
 }
 
+// renderFoundingDateChatForm — 2026-08-05. 사업자등록증이 없는(직접 기재)
+// 경로 전용 4번째 신원정보 질문. 업력을 직접 묻지 않고 개업일만 받아
+// computeBusinessAgeYears로 역산해 저장한다 — OCR 경로(showOnboardingBusinessRegResult)와
+// 동일한 계산식.
+function renderFoundingDateChatForm(container, onSaved, onBack) {
+  const today = new Date().toISOString().slice(0, 10);
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <form id="quick-founding-date-form" class="profile-form">
+      <label>개업일<input type="date" name="foundingDate" max="${today}" required></label>
+      <div id="quick-founding-date-error" class="error" style="display:none"></div>
+      ${onboardingQuickFormButtonsHtml(onBack)}
+    </form>
+  `));
+  wireOnboardingQuickBackButton(onBack);
+  const form = document.getElementById('quick-founding-date-form');
+  const errorBox = document.getElementById('quick-founding-date-error');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const val = new FormData(form).get('foundingDate');
+    const age = computeBusinessAgeYears(val);
+    if (age == null) {
+      errorBox.textContent = '올바른 개업일을 입력해주세요.';
+      errorBox.style.display = 'block';
+      return;
+    }
+    try {
+      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ businessAgeYears: age }));
+      currentProfile = data.companyProfile;
+      onSaved();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
 const ONBOARDING_IDENTITY_FIELD_DEFS = [
   { fieldKey: 'companyName', prompt: '상호명이 어떻게 되나요?', render: renderCompanyNameChatForm, echo: (p) => p.companyName || '' },
   { fieldKey: 'businessRegistrationNumber', prompt: '사업자등록번호가 어떻게 되나요?<br><span style="color:var(--ink-soft);font-size:0.85em">000-00-00000 형식으로 자동 변환돼요</span>', render: renderBusinessRegNumberChatForm, echo: (p) => p.businessRegistrationNumber || '' },
   { fieldKey: 'businessType', prompt: '업태가 어떻게 되나요?', render: renderBusinessTypeChatForm, echo: (p) => (p.businessType || [])[0] || '' },
+  // foundingDate — company_profiles에 개업일 자체를 저장하는 컬럼은 없다
+  // (업력만 계산해 저장). "이미 채워졌는지" 판단은 그래서 businessAgeYears로
+  // 한다 — buildOnboardingIdentityQueue의 foundingDate 특수분기 참고.
+  { fieldKey: 'foundingDate', prompt: '개업일이 언제인가요?<br><span style="color:var(--ink-soft);font-size:0.85em">업력을 자동으로 계산해드려요</span>', render: renderFoundingDateChatForm, echo: (p) => p.businessAgeYears != null ? `업력 약 ${p.businessAgeYears}년으로 계산했어요` : '' },
 ];
 
 // buildOnboardingIdentityQueue(force) — force가 true면(경로 A OCR 결과를
-// "직접 기재로 수정하기") 이미 값이 채워져 있어도 3개 전부 다시 묻는다.
+// "직접 기재로 수정하기") 이미 값이 채워져 있어도 4개 전부 다시 묻는다.
 // ⚠️2026-08-05 버그 수정: showOnboardingBusinessRegResult의 [직접 기재로
 // 수정하기]가 OCR 후보값을 currentProfile에 미리 채워넣은 뒤(폼 프리필
 // 목적) 이 함수를 그대로 호출했더니, "이미 채워졌으면 건너뛴다"는 이
@@ -4204,6 +4254,9 @@ function buildOnboardingIdentityQueue(force) {
   const p = currentProfile || {};
   return ONBOARDING_IDENTITY_FIELD_DEFS.filter(def => {
     if (def.fieldKey === 'businessType') return !(p.businessType && p.businessType.length);
+    // foundingDate는 저장 컬럼이 없어(businessAgeYears로만 반영) p.foundingDate가
+    // 항상 undefined다 — 실제로 이미 답했는지는 businessAgeYears 존재 여부로 판단.
+    if (def.fieldKey === 'foundingDate') return p.businessAgeYears == null;
     return !p[def.fieldKey];
   });
 }
@@ -4331,13 +4384,17 @@ function documentRequirementGapPromptText(label, noticeCount) {
 }
 
 // ONBOARDING_CARD_DEFS — Phase UX-06(2026-08-04) 재설계. 카드 후보 전체
-// 목록과 고정 순서(사용자 스펙 그대로): 기업규모(비어있으면) → 업력 →
-// 직원수 → 매출액 → 수행실적 → 보유면허 → 인증 → 직접생산확인. 지역/업종은
+// 목록과 고정 순서(사용자 스펙 그대로): 기업규모(비어있으면) → 직원수 →
+// 매출액 → 수행실적 → 보유면허 → 인증 → 직접생산확인. 지역/업종은
 // 보통 사업자등록증 OCR로 이미 채워지지만 비어있을 수 있어 맨 앞에 둔다.
+// ⚠️2026-08-05: 업력은 여기서 완전히 빠졌다 — 구간select로 저장되던
+// 근본 원인을 없애기 위해 질문 자체를 폐지하고, 개업일(사업자등록증
+// OCR 또는 직접 기재 경로의 신원정보 큐)에서 자동 계산해 저장한다
+// (showOnboardingBusinessRegResult/renderFoundingDateChatForm 참고).
 // 세 갈래:
 //  - judged(지역/업종/기업규모): eligibilitySummary.missingFieldCounts로
 //    등록 후 진짜 "+N건" 델타를 낼 수 있다(판정기준이 있어서).
-//  - presence(업력/직원수/매출액): company_profiles 스칼라 필드가 그냥
+//  - presence(직원수/매출액): company_profiles 스칼라 필드가 그냥
 //    비어있는지만 본다 — 이 필드들엔 애초에 판정기준도 없고
 //    required_documents 매칭 대상도 아니라, 건수 주장 없이 "정보 없음"만
 //    보여준다.
@@ -4350,7 +4407,6 @@ const ONBOARDING_CARD_DEFS = [
   { fieldKey: 'region', type: 'judged', label: '사업장 지역' },
   { fieldKey: 'industry', type: 'judged', label: '업종' },
   { fieldKey: 'companySize', type: 'judged', label: '기업 규모' },
-  { fieldKey: 'businessAgeYears', type: 'presence', label: '업력' },
   { fieldKey: 'employeeCount', type: 'presence', label: '직원 수' },
   { fieldKey: 'revenueAmount', type: 'presence', label: '매출액' },
   { fieldKey: 'trackRecord', type: 'general', label: '수행실적' },
@@ -4395,6 +4451,7 @@ function onboardingCardPromptText(card) {
       : `${card.label} 정보가 없어 정확한 판정이 어렵습니다.`;
   }
   if (card.type === 'presence') {
+    if (card.fieldKey === 'revenueAmount') return '연매출액이 어떻게 되나요? 등록하면 AI 분석에 활용됩니다.';
     return `${card.label} 정보가 아직 없습니다. 등록하면 AI 분석에 활용됩니다.`;
   }
   return documentRequirementGapPromptText(card.label, card.count);
@@ -4411,7 +4468,6 @@ const ONBOARDING_QUICK_FORM_RENDERERS = {
   region: renderRegionQuickForm,
   industry: renderIndustryQuickForm,
   companySize: renderCompanySizeQuickForm,
-  businessAgeYears: renderBusinessAgeQuickForm,
   employeeCount: renderEmployeeCountQuickForm,
   revenueAmount: renderRevenueAmountQuickForm,
   trackRecord: renderTrackRecordQuickForm,
@@ -4433,7 +4489,7 @@ const ONBOARDING_MIN_COMPLETENESS = 50;
 // 면허/인증은 이름이 복수형이라 살짝 다름).
 const ONBOARDING_FIELDKEY_TO_COMPLETENESS_CATEGORY = {
   region: 'region', industry: 'industry', companySize: 'companySize',
-  businessAgeYears: 'businessAgeYears', employeeCount: 'employeeCount', revenueAmount: 'revenueAmount',
+  employeeCount: 'employeeCount', revenueAmount: 'revenueAmount',
   trackRecord: 'trackRecords', license: 'licenses', certification: 'certifications',
   directProduction: 'directProduction',
 };
@@ -4565,6 +4621,8 @@ async function runOnboardingFieldQueue(state) {
 
   if (card.fieldKey === 'employeeCount') {
     renderOnboardingEmployeeCountAction(actionEl, state, card, isRequired, advance, onBack);
+  } else if (card.fieldKey === 'revenueAmount') {
+    renderOnboardingRevenueAction(actionEl, state, card, isRequired, advance, onBack);
   } else if (isPossession) {
     renderOnboardingPossessionAction(actionEl, card, state, advance, onBack);
   } else {
@@ -4581,11 +4639,13 @@ async function runOnboardingFieldQueue(state) {
 }
 
 // onboardingFieldEchoBubbles — 저장 직후 사용자 echo 말풍선/봇 피드백
-// 문구를 만든다. region/industry/companySize/businessAgeYears/
-// revenueAmount는 companyProfileUpdatePayload로 저장돼 currentProfile에서
-// 값을 그대로 읽어 정확한 echo를 만들 수 있지만, trackRecord는 별도
-// 엔드포인트(POST /api/me/track-records)라 저장값이 currentProfile에
-// 없어 일반 확정 문구로 대체한다.
+// 문구를 만든다. region/industry/companySize는 companyProfileUpdatePayload로
+// 저장돼 currentProfile에서 값을 그대로 읽어 정확한 echo를 만들 수 있지만,
+// trackRecord는 별도 엔드포인트(POST /api/me/track-records)라 저장값이
+// currentProfile에 없어 일반 확정 문구로 대체한다. businessAgeYears/
+// revenueAmount는 각자 전용 액션(renderFoundingDateChatForm 계열/
+// renderOnboardingRevenueAction)이 자체 echo를 만들어 이 공용 함수를
+// 거치지 않는다.
 function onboardingFieldEchoBubbles(card) {
   if (card.fieldKey === 'trackRecord') {
     return { userText: '수행실적 등록 완료', feedbackHtml: '수행실적을 등록해주셔서 감사합니다 :)' };
@@ -4595,8 +4655,6 @@ function onboardingFieldEchoBubbles(card) {
     region: p.region || '',
     industry: (p.industry || []).join(', '),
     companySize: p.companySize || '',
-    businessAgeYears: p.businessAgeYears != null ? `${p.businessAgeYears}년` : '',
-    revenueAmount: p.revenueAmount != null ? `${Number(p.revenueAmount).toLocaleString()}원` : '',
   };
   const val = valueMap[card.fieldKey] || '';
   return { userText: val, feedbackHtml: `<b>${escapeHtml(val)}</b>으로 입력하셨네요! 감사합니다 :)` };
@@ -4696,8 +4754,8 @@ function showOnboardingSkipWarning(state, advance) {
 }
 
 // renderOnboardingEmployeeCountAction — 직원수는 1순위 4대보험 파일첨부
-// 자동입력, 2순위 직접 선택(EMPLOYEE_COUNT_RANGE_OPTIONS, 기존 #/me/profile
-// 과 동일 구간 재사용) 두 갈래. 기존 employee-verification 엔드포인트
+// 자동입력, 2순위 직접 숫자입력(2026-08-05: 구간select 폐지, 정확한
+// 숫자만) 두 갈래. 기존 employee-verification 엔드포인트
 // (POST .../employee-verification/documents + POST .../employee-verification,
 // company_employee_verification.go)를 그대로 재사용 — 온보딩 챗봇에
 // 새로 연결하는 것 외 백엔드 변경 없음.
@@ -4707,7 +4765,7 @@ function renderOnboardingEmployeeCountAction(actionEl, state, card, isRequired, 
     actionEl.appendChild(h(`
       <div class="chat-chip-row">
         <button type="button" class="chat-chip" id="onboarding-employee-upload-btn">📎 4대보험 파일첨부로 자동입력</button>
-        <button type="button" class="chat-chip" id="onboarding-employee-manual-btn">직접 선택</button>
+        <button type="button" class="chat-chip" id="onboarding-employee-manual-btn">직접 입력</button>
         ${isRequired ? '' : '<button type="button" class="chat-chip" id="onboarding-employee-skip-btn">건너뛰기</button>'}
         ${onBack ? '<button type="button" class="chat-chip" id="onboarding-employee-back-btn">‹ 이전 질문</button>' : ''}
       </div>
@@ -4717,7 +4775,7 @@ function renderOnboardingEmployeeCountAction(actionEl, state, card, isRequired, 
       startOnboardingEmployeeVerificationUpload(actionEl, state, advance, renderChoice);
     });
     document.getElementById('onboarding-employee-manual-btn').addEventListener('click', () => {
-      appendUserBubble('직접 선택');
+      appendUserBubble('직접 입력');
       actionEl.innerHTML = '';
       renderOnboardingEmployeeCountManualFallback(actionEl, state, advance, renderChoice);
     });
@@ -4788,6 +4846,102 @@ async function startOnboardingEmployeeVerificationUpload(actionEl, state, advanc
       removeChatRow(loadingRow2);
       appendBotBubble(`확인에 실패했어요: ${escapeHtml(err.message)}<br>직접 입력해주시겠어요?`);
       renderOnboardingEmployeeCountManualFallback(actionEl, state, advance, onBack);
+    }
+  });
+}
+
+// renderOnboardingRevenueAction — 2026-08-05 신설. 매출액도 직원수와 같은
+// 구조: 1순위 재무제표 첨부 AI 자동추출, 2순위 직접 숫자입력. 새 백엔드
+// 엔드포인트를 만들지 않고 이미 있는 재무정보 화면(#/me/profile "재무·
+// 실적정보" 탭, company_financials.go)의 업로드+추출 엔드포인트
+// (POST /api/me/financials/documents)를 그대로 재사용한다 — 그 응답의
+// candidate.revenue만 뽑아 쓰고, company_financials(연도별 재무제표
+// 테이블, 별개 개념)에는 아무것도 저장하지 않는다. 확정 저장은 그냥
+// 기존 PUT /api/me/company-profile(companyProfileUpdatePayload)로 —
+// revenue_amount는 confidence 개념이 없는 단순 필드라 employee_count처럼
+// 별도 확정 엔드포인트가 필요 없다.
+function renderOnboardingRevenueAction(actionEl, state, card, isRequired, advance, onBack) {
+  const renderChoice = () => {
+    actionEl.innerHTML = '';
+    actionEl.appendChild(h(`
+      <div class="chat-chip-row">
+        <button type="button" class="chat-chip" id="onboarding-revenue-upload-btn">📎 재무제표 첨부로 자동추출</button>
+        <button type="button" class="chat-chip" id="onboarding-revenue-manual-btn">직접 입력</button>
+        ${isRequired ? '' : '<button type="button" class="chat-chip" id="onboarding-revenue-skip-btn">건너뛰기</button>'}
+        ${onBack ? '<button type="button" class="chat-chip" id="onboarding-revenue-back-btn">‹ 이전 질문</button>' : ''}
+      </div>
+    `));
+    document.getElementById('onboarding-revenue-upload-btn').addEventListener('click', () => {
+      appendUserBubble('📎 재무제표 첨부로 자동추출');
+      startOnboardingRevenueVerificationUpload(actionEl, state, advance, renderChoice);
+    });
+    document.getElementById('onboarding-revenue-manual-btn').addEventListener('click', () => {
+      appendUserBubble('직접 입력');
+      actionEl.innerHTML = '';
+      renderOnboardingRevenueManualFallback(actionEl, state, advance, renderChoice);
+    });
+    const skipBtn = document.getElementById('onboarding-revenue-skip-btn');
+    if (skipBtn) skipBtn.addEventListener('click', () => handleOnboardingSkip(card, state, advance));
+    const backBtn = document.getElementById('onboarding-revenue-back-btn');
+    if (backBtn) backBtn.addEventListener('click', onBack);
+  };
+  renderChoice();
+}
+function renderOnboardingRevenueManualFallback(actionEl, state, advance, onBack) {
+  renderRevenueAmountQuickForm(actionEl, () => {
+    const p = currentProfile || {};
+    const echo = p.revenueAmount != null ? `${Number(p.revenueAmount).toLocaleString()}원` : '';
+    appendUserBubble(echo);
+    state.skipStreak = 0;
+    advance(`<b>${escapeHtml(echo)}</b>으로 입력하셨네요! 감사합니다 :)`);
+  }, onBack || null);
+}
+async function startOnboardingRevenueVerificationUpload(actionEl, state, advance, onBack) {
+  actionEl.innerHTML = '';
+  actionEl.appendChild(h(`
+    <div>
+      <input type="file" id="onboarding-revenue-file-input" accept=".pdf,.jpg,.jpeg,.png,.webp">
+      <div id="onboarding-revenue-upload-error" class="error" style="display:none"></div>
+    </div>
+  `));
+  const fileInput = document.getElementById('onboarding-revenue-file-input');
+  const errorBox = document.getElementById('onboarding-revenue-upload-error');
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    errorBox.style.display = 'none';
+    fileInput.disabled = true;
+    appendUserBubble(`📄 ${file.name} 첨부됨`);
+    actionEl.innerHTML = '';
+    const loadingRow = appendChatLoadingBubble('분석하고 있습니다...');
+    let uploadData;
+    try {
+      uploadData = await uploadCompanyRecordDocument('/api/me/financials/documents', file);
+    } catch (err) {
+      removeChatRow(loadingRow);
+      appendBotBubble(`업로드에 실패했어요: ${escapeHtml(err.message)}<br>직접 입력해주시겠어요?`);
+      renderOnboardingRevenueManualFallback(actionEl, state, advance, onBack);
+      return;
+    }
+    const candidate = uploadData.candidate || {};
+    removeChatRow(loadingRow);
+    if (!candidate.revenue) {
+      appendBotBubble('매출액을 찾지 못했어요. 직접 입력해주시겠어요?');
+      renderOnboardingRevenueManualFallback(actionEl, state, advance, onBack);
+      return;
+    }
+    const loadingRow2 = appendChatLoadingBubble();
+    try {
+      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ revenueAmount: Number(candidate.revenue) }));
+      currentProfile = data.companyProfile;
+      removeChatRow(loadingRow2);
+      appendUserBubble(`${Number(candidate.revenue).toLocaleString()}원`);
+      state.skipStreak = 0;
+      advance(`<b>연매출액 ${Number(candidate.revenue).toLocaleString()}원</b>으로 확인했어요! 감사합니다 :)`);
+    } catch (err) {
+      removeChatRow(loadingRow2);
+      appendBotBubble(`저장에 실패했어요: ${escapeHtml(err.message)}<br>직접 입력해주시겠어요?`);
+      renderOnboardingRevenueManualFallback(actionEl, state, advance, onBack);
     }
   });
 }
@@ -4994,74 +5148,24 @@ function renderCompanySizeQuickForm(container, onSaved, onBack) {
   });
 }
 
-// renderBusinessAgeQuickForm/renderEmployeeCountQuickForm/
-// renderRevenueAmountQuickForm — Phase UX-06(2026-08-04) 신설. 셋 다
-// company_profiles의 평범한 스칼라 필드라 판정기준도 required_documents
-// 매칭 대상도 아니다("presence"형 카드 — 그냥 비어있는지만 본다). 업력은
-// #/me/profile의 기존 프로필 수정 모달과 동일하게 BUSINESS_AGE_RANGE_OPTIONS
-// 구간 select를, 직원수/매출액은 그 화면의 기존 숫자 직접입력을 그대로
-// 따른다(company_profiles.revenue_amount는 confidence 개념이 없는 단순
-// 필드라 REVENUE_RANGE_OPTIONS(company_financials 전용, D등급 추정치
-// 표시가 있는 별개 개념)는 여기 안 씀 — 필드 성격이 다름).
-function renderBusinessAgeQuickForm(container, onSaved, onBack) {
-  const p = currentProfile || {};
-  const current = p.businessAgeYears != null ? String(Math.round(p.businessAgeYears)) : '';
-  container.innerHTML = '';
-  container.appendChild(h(`
-    <form id="quick-business-age-form" class="profile-form">
-      <label>업력
-        <select name="businessAgeYears" class="select-input" required>
-          <option value="">선택해주세요</option>
-          ${BUSINESS_AGE_RANGE_OPTIONS.map(o => `<option value="${escapeAttr(o.value)}" ${o.value === current ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}
-        </select>
-      </label>
-      <div id="quick-business-age-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
-    </form>
-  `));
-  wireOnboardingQuickBackButton(onBack);
-  const form = document.getElementById('quick-business-age-form');
-  const errorBox = document.getElementById('quick-business-age-error');
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    errorBox.style.display = 'none';
-    const val = new FormData(form).get('businessAgeYears');
-    try {
-      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ businessAgeYears: val ? Number(val) : null }));
-      currentProfile = data.companyProfile;
-      onSaved();
-    } catch (err) {
-      errorBox.textContent = err.message;
-      errorBox.style.display = 'block';
-    }
-  });
-}
-
-// employeeCountRangeValueFor — 기존 저장값(4대보험 확인 등으로 이미 정확한
-// 숫자가 들어있을 수 있음)을 구간 select 프리필용으로 "포함되는 구간의
-// 하한값"으로 역매핑한다 — 정확히 일치하는 값만 선택되는 게 아니라, 몇
-// 명이든 자기 구간을 찾아 보여준다.
-function employeeCountRangeValueFor(count) {
-  if (count == null) return '';
-  let selected = '';
-  EMPLOYEE_COUNT_RANGE_OPTIONS.forEach(o => {
-    if (count >= Number(o.value)) selected = o.value;
-  });
-  return selected;
-}
-
+// renderEmployeeCountQuickForm/renderRevenueAmountQuickForm — Phase
+// UX-06(2026-08-04) 신설, 둘 다 company_profiles의 평범한 스칼라 필드라
+// 판정기준도 required_documents 매칭 대상도 아니다("presence"형 카드 —
+// 그냥 비어있는지만 본다). ⚠️2026-08-05: 직원수는 구간select를 버리고
+// 정확한 숫자 직접입력으로 바꿨다(4대보험 자동입력 실패 시의 폴백 —
+// renderOnboardingEmployeeCountManualFallback 참고). 업력은 이 파일에서
+// 완전히 빠졌다(개업일로 자동계산, ONBOARDING_CARD_DEFS 주석 참고).
+//
+// renderEmployeeCountQuickForm — 2026-08-05: 구간select(EMPLOYEE_COUNT_RANGE_OPTIONS)를
+// 버리고 정확한 숫자 직접입력으로 바꿨다("구간 대표값이 정확한 수치처럼
+// 저장되는" 왜곡의 근본 원인 제거). 4대보험 자동입력(1순위)이 실패했을
+// 때만 이 폼으로 온다(renderOnboardingEmployeeCountManualFallback).
 function renderEmployeeCountQuickForm(container, onSaved, onBack) {
   const p = currentProfile || {};
-  const currentRangeValue = employeeCountRangeValueFor(p.employeeCount);
   container.innerHTML = '';
   container.appendChild(h(`
     <form id="quick-employee-count-form" class="profile-form">
-      <label>직원 수
-        <select name="employeeCount" class="select-input" required>
-          <option value="">선택해주세요</option>
-          ${EMPLOYEE_COUNT_RANGE_OPTIONS.map(o => `<option value="${escapeAttr(o.value)}" ${o.value === currentRangeValue ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}
-        </select>
-      </label>
+      <label>직원 수(명)<input type="number" min="0" step="1" name="employeeCount" value="${p.employeeCount != null ? escapeAttr(String(p.employeeCount)) : ''}" required></label>
       <div id="quick-employee-count-error" class="error" style="display:none"></div>
       ${onboardingQuickFormButtonsHtml(onBack)}
     </form>
@@ -5084,12 +5188,14 @@ function renderEmployeeCountQuickForm(container, onSaved, onBack) {
   });
 }
 
+// renderRevenueAmountQuickForm — 연매출액 직접입력(1순위 재무제표 첨부 AI
+// 자동추출이 실패했을 때의 폴백 — renderOnboardingRevenueAction 참고).
 function renderRevenueAmountQuickForm(container, onSaved, onBack) {
   const p = currentProfile || {};
   container.innerHTML = '';
   container.appendChild(h(`
     <form id="quick-revenue-amount-form" class="profile-form">
-      <label>매출액(원)<input type="text" inputmode="numeric" name="revenueAmount" value="${escapeAttr(formatCurrency(p.revenueAmount))}" required></label>
+      <label>연매출액(원)<input type="text" inputmode="numeric" name="revenueAmount" value="${escapeAttr(formatCurrency(p.revenueAmount))}" required></label>
       <div id="quick-revenue-amount-error" class="error" style="display:none"></div>
       ${onboardingQuickFormButtonsHtml(onBack)}
     </form>
@@ -7604,6 +7710,20 @@ function parseCurrencyInput(v) {
   return digits === '' ? null : (negative ? '-' : '') + digits;
 }
 
+// computeBusinessAgeYears — 2026-08-05. 업력을 구간select로 직접 묻는 대신
+// 개업일(사업자등록증 OCR 추출 또는 직접 기재)로부터 역산한다 —
+// company_profiles.business_age_years는 NUMERIC(4,1)이라 소수점 첫째
+// 자리까지 정밀하게 저장 가능(기존 구간 대표값 저장 방식의 근본 원인
+// 제거). 미래 날짜/파싱 불가는 null(호출부가 에러 처리).
+function computeBusinessAgeYears(dateStr) {
+  if (!dateStr) return null;
+  const founding = new Date(dateStr + 'T00:00:00');
+  if (isNaN(founding.getTime())) return null;
+  const days = (Date.now() - founding.getTime()) / 86400000;
+  if (days < 0) return null;
+  return Math.round((days / 365.25) * 10) / 10;
+}
+
 // attachCurrencyAutoFormat — 타이핑 중 실시간으로 쉼표를 삽입하되, 커서가
 // 항상 "지나온 숫자 개수" 기준으로 같은 자리에 남도록 재계산한다(쉼표
 // 자체는 세지 않음 — 그래야 중간에 숫자를 넣거나 지워도 커서가 엉뚱한
@@ -8216,38 +8336,6 @@ const INDUSTRY_GROUPS = [
 // 고정된 select 옵션으로 관리한다.
 const COMPANY_SIZE_OPTIONS = ['소상공인', '소기업', '중기업', '중견기업', '대기업'];
 
-// BUSINESS_AGE_RANGE_OPTIONS — 2026-08-04. 업력은 AI 추출 대상이 아니라
-// 항상 직접입력이라, 처음부터 소수점 정밀값 대신 구간 select로 받는다
-// (매출액과 달리 이 필드엔 confidence 개념 자체가 없어 별도 표시 없음).
-// ⚠️업종별로 업력을 세분화해서 받는 방안은 이번 범위에서 보류 — 회사
-// 전체 업력 하나만 유지하기로 함(사용자 확인). 나중에 업종별 세부화가
-// 필요해지면 이 select를 업종(INDUSTRY_GROUPS)별 반복 입력으로 바꾸는
-// 방향을 검토할 것.
-const BUSINESS_AGE_RANGE_OPTIONS = [
-  { value: '1', label: '1년 이하' },
-  { value: '3', label: '1~3년' },
-  { value: '5', label: '3~5년' },
-  { value: '10', label: '5~10년' },
-  { value: '20', label: '10~20년' },
-  { value: '50', label: '20~50년' },
-  { value: '60', label: '50년 이상' },
-];
-
-// EMPLOYEE_COUNT_RANGE_OPTIONS — 2026-08-05 온보딩 재설계. 직원 수를
-// AI(4대보험 가입자명부)로 확인 못 하고 직접 입력하는 경우에만 구간
-// select로 받는다(4대보험 확인 성공 경로 — renderEmployeeCountConfirmForm,
-// 기업프로필 수정 모달의 employeeCount 숫자입력 — 는 정확한 숫자를 그대로
-// 유지, 이 옵션은 온보딩 체크리스트의 "직접입력" 카드에만 적용). 값은
-// BUSINESS_AGE_RANGE_OPTIONS와 같은 방식으로 각 구간의 하한을 대표값으로
-// 저장한다.
-const EMPLOYEE_COUNT_RANGE_OPTIONS = [
-  { value: '1', label: '1명~10명 이하' },
-  { value: '11', label: '11명~20명 이하' },
-  { value: '21', label: '21명~50명 이하' },
-  { value: '51', label: '51명~100명 이하' },
-  { value: '101', label: '101명 이상' },
-];
-
 function fillProfileForm(form, profile) {
   if (!profile) return;
   form.businessType.value = (profile.businessType || []).join(', ');
@@ -8256,7 +8344,9 @@ function fillProfileForm(form, profile) {
   form.querySelectorAll('input[name="industry"]').forEach(cb => {
     cb.checked = selectedIndustry.has(cb.value);
   });
-  form.businessAgeYears.value = profile.businessAgeYears ?? '';
+  // foundingDate — 2026-08-05: 개업일 자체는 저장하지 않아(업력만 계산해
+  // 저장) 프리필할 원본 날짜가 없다. 폼은 항상 비워둔 채로 열리고, 현재
+  // 값은 openProfileEditModal이 별도로 붙이는 안내문(약 N년)으로만 보여준다.
   form.revenueAmount.value = formatCurrency(profile.revenueAmount);
   form.employeeCount.value = profile.employeeCount ?? '';
   form.companySize.value = profile.companySize || '';
@@ -8819,12 +8909,10 @@ function openProfileEditModal(summaryContainer) {
             `).join('')}
           </div>
         </div>
-        <label>업력
-          <select name="businessAgeYears" class="select-input">
-            <option value="">선택 안 함</option>
-            ${BUSINESS_AGE_RANGE_OPTIONS.map(o => `<option value="${escapeAttr(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
-          </select>
+        <label>개업일 <span style="font-weight:400;color:var(--ink-soft);font-size:0.85em">(업력 자동계산용 — 비워두면 기존 값 유지)</span>
+          <input type="date" name="foundingDate" max="${new Date().toISOString().slice(0, 10)}">
         </label>
+        ${currentProfile && currentProfile.businessAgeYears != null ? `<p style="color:var(--ink-soft);font-size:0.85em;margin:-0.5rem 0 0.75rem">현재 등록된 업력: 약 ${currentProfile.businessAgeYears}년</p>` : ''}
         <label>기업 규모
           <select name="companySize" class="select-input">
             <option value="">선택 안 함</option>
@@ -8834,7 +8922,7 @@ function openProfileEditModal(summaryContainer) {
         <label>연락처(사업자 대표전화번호)<input type="tel" name="businessPhone" placeholder="02-1234-5678"></label>
       </div>
       <div class="wizard-step" data-step="1">
-        <label>매출액(원)<input type="text" inputmode="numeric" name="revenueAmount"></label>
+        <label>연매출액(원)<input type="text" inputmode="numeric" name="revenueAmount"></label>
         <label>직원 수<input type="number" name="employeeCount"></label>
         <div class="field-verify-row">
           <button type="button" id="employee-count-verify-btn" class="field-verify-btn">4대보험 가입자명부로 확인</button>
@@ -8921,11 +9009,19 @@ function openProfileEditModal(summaryContainer) {
       return cleaned === null ? null : Number(cleaned);
     };
     const toList = (v) => (v || '').split(',').map(s => s.trim()).filter(Boolean);
+    // businessAgeYears — 2026-08-05: 폼엔 더 이상 이 필드가 직접 없다.
+    // 개업일을 입력했으면 그걸로 재계산하고, 비워뒀으면(수정할 생각이
+    // 없으면) 기존 저장값을 그대로 유지한다 — 이 폼은 항상 전체 UPDATE라
+    // 여기서 null을 보내면 기존 값이 지워진다.
+    const foundingDateVal = fd.get('foundingDate');
+    const businessAgeYears = foundingDateVal
+      ? computeBusinessAgeYears(foundingDateVal)
+      : (currentProfile && currentProfile.businessAgeYears != null ? currentProfile.businessAgeYears : null);
     const payload = {
       businessType: toList(fd.get('businessType')),
       region: fd.get('region') || null,
       industry: fd.getAll('industry'),
-      businessAgeYears: toNum(fd.get('businessAgeYears')),
+      businessAgeYears,
       revenueAmount: toNum(fd.get('revenueAmount')),
       employeeCount: toNum(fd.get('employeeCount')),
       companySize: fd.get('companySize') || null,
