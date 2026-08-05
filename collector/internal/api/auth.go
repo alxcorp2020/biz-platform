@@ -662,6 +662,25 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	// 맞춤공고 "내 기본 조건" 동기화 — 2026-08-06. 온보딩 완료 시 자동
+	// 생성된 조건(origin='onboarding')이 있으면 지역/업종을 방금 저장한
+	// 값으로 계속 맞춰준다(사용자 확정: "갱신하는 게 자연스럽다"). 사용자가
+	// 직접 만든 다른 조건들은 origin이 NULL이라 이 UPDATE 대상이 아니다.
+	// 그 "기본 조건"을 사용자가 삭제했으면 이 UPDATE는 그냥 0행에 적용돼
+	// 조용히 끝난다(되살리지 않음). 업종은 saved_searches와 마찬가지로
+	// 첫 번째 값만 쓴다.
+	var syncIndustry *string
+	if len(req.Industry) > 0 {
+		syncIndustry = &req.Industry[0]
+	}
+	if _, err := s.db.ExecContext(r.Context(), `
+		UPDATE saved_searches SET region = $1, industry = $2, updated_at = now()
+		WHERE user_id = $3 AND origin = 'onboarding'`,
+		req.Region, syncIndustry, userID,
+	); err != nil {
+		s.logger.Error("company-profile: default saved search sync failed", "error", err)
+	}
+
 	profile, err := s.getCompanyProfile(r, userID)
 	if err != nil {
 		s.logger.Error("company-profile: reload failed", "error", err)

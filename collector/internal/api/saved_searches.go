@@ -33,28 +33,33 @@ type savedSearchItem struct {
 	KeywordsInclude  []string  `json:"keywordsInclude"`
 	KeywordsExclude  []string  `json:"keywordsExclude"`
 	AlertEnabled     bool      `json:"alertEnabled"`
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
+	// Origin — 2026-08-06. 'onboarding'이면 온보딩 완료 시 자동 생성된
+	// "내 기본 조건"(프론트가 이 값으로 "온보딩 시 자동 생성됨" 배지를
+	// 붙인다). nil이면 사용자가 직접 만든 일반 조건.
+	Origin    *string   `json:"origin"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 const savedSearchSelect = `
 	SELECT id, name, notice_type, region, industry, organization_name, budget_min, budget_max,
-	       keywords_include, keywords_exclude, alert_enabled, created_at, updated_at
+	       keywords_include, keywords_exclude, alert_enabled, origin, created_at, updated_at
 	FROM saved_searches`
 
 func scanSavedSearch(row interface{ Scan(dest ...any) error }) (*savedSearchItem, error) {
 	var it savedSearchItem
-	var noticeType, region, industry, orgName sql.NullString
+	var noticeType, region, industry, orgName, origin sql.NullString
 	var budgetMin, budgetMax sql.NullInt64
 	var include, exclude pq.StringArray
 	if err := row.Scan(&it.ID, &it.Name, &noticeType, &region, &industry, &orgName, &budgetMin, &budgetMax,
-		&include, &exclude, &it.AlertEnabled, &it.CreatedAt, &it.UpdatedAt); err != nil {
+		&include, &exclude, &it.AlertEnabled, &origin, &it.CreatedAt, &it.UpdatedAt); err != nil {
 		return nil, err
 	}
 	it.NoticeType = nullStringPtr(noticeType)
 	it.Region = nullStringPtr(region)
 	it.Industry = nullStringPtr(industry)
 	it.OrganizationName = nullStringPtr(orgName)
+	it.Origin = nullStringPtr(origin)
 	if budgetMin.Valid {
 		it.BudgetMin = &budgetMin.Int64
 	}

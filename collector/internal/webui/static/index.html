@@ -6950,10 +6950,14 @@ function savedSearchCardHtml(item) {
   if (item.keywordsInclude && item.keywordsInclude.length) conditionParts.push('포함: ' + item.keywordsInclude.map(escapeHtml).join(', '));
   if (item.keywordsExclude && item.keywordsExclude.length) conditionParts.push('제외: ' + item.keywordsExclude.map(escapeHtml).join(', '));
 
+  const originBadge = item.origin === 'onboarding'
+    ? '<span class="badge badge--gray" title="가입 시 입력한 지역·업종으로 자동 생성되었습니다. 프로필을 수정하면 이 조건도 함께 갱신됩니다.">온보딩 시 자동 생성됨</span>'
+    : '';
+
   return `
     <div class="license-card">
       <div class="license-card-main">
-        <div class="license-card-name">${escapeHtml(item.name)} ${item.alertEnabled ? '<span class="badge badge--success">알림 켜짐</span>' : '<span class="badge badge--gray">알림 꺼짐</span>'}</div>
+        <div class="license-card-name">${escapeHtml(item.name)} ${item.alertEnabled ? '<span class="badge badge--success">알림 켜짐</span>' : '<span class="badge badge--gray">알림 꺼짐</span>'} ${originBadge}</div>
         <div class="license-card-meta">${conditionParts.length ? conditionParts.join(' · ') : '조건 없음(전체 공고)'}</div>
       </div>
       <div class="license-card-side">

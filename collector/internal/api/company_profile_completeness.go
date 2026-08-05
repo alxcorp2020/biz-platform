@@ -144,14 +144,43 @@ func (s *Server) handleCompleteOnboarding(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if _, err := s.db.ExecContext(r.Context(),
+	res, err := s.db.ExecContext(r.Context(),
 		`UPDATE company_profiles SET onboarding_completed_at = now() WHERE id = $1 AND onboarding_completed_at IS NULL`,
 		profile.ID,
-	); err != nil {
+	)
+	if err != nil {
 		s.logger.Error("complete-onboarding: update failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
+
+	// 맞춤공고 "내 기본 조건" 자동 생성 — 2026-08-06, 온보딩에서 입력한
+	// 지역/업종을 그대로 첫 맞춤공고 조건으로 만든다(사용자 확정).
+	// RowsAffected==0이면 이미 온보딩을 마친 계정이 이 엔드포인트를 다시
+	// 호출한 것(정상적으론 route() 게이트가 막지만 방어적으로) — 그 경우
+	// "내 기본 조건"을 또 만들면 중복이 생기므로 최초 완료 시에만 만든다.
+	// 기업규모는 여기서 안 쓴다 — notices 테이블 자체에 기업규모로 필터링할
+	// 컬럼이 없어(공고 원문에 있는 개념이 아니라 AI 판정 로직 안에서만
+	// 다뤄짐, eligibility.go 쪽 영역) 맞춤공고(단순 속성 필터) 조건으로
+	// 쓸 수 없다(사용자 확인). 업종을 여러 개 선택했으면 첫 번째 값만
+	// 쓴다(saved_searches.industry는 단일값 — 사용자 확인, 필요하면
+	// 화면에서 직접 수정 가능).
+	if n, _ := res.RowsAffected(); n > 0 {
+		var industry *string
+		if len(profile.Industry) > 0 {
+			industry = &profile.Industry[0]
+		}
+		if _, err := s.db.ExecContext(r.Context(), `
+			INSERT INTO saved_searches (user_id, name, region, industry, alert_enabled, origin)
+			VALUES ($1, '내 기본 조건', $2, $3, true, 'onboarding')`,
+			userID, profile.Region, industry,
+		); err != nil {
+			// 맞춤공고 생성 실패는 온보딩 완료 자체를 막을 이유가 아니다
+			// (온보딩완료_at은 이미 커밋됨) — 로그만 남기고 응답은 정상 처리.
+			s.logger.Error("complete-onboarding: default saved search creation failed", "error", err)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"overallCompleteness": completeness.OverallCompleteness})
 }
 

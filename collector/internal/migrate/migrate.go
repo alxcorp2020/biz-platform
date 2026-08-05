@@ -247,6 +247,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureAwardHistoryParticipantCountColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate notice_award_history.participant_count column: %w", err)
 	}
+	if err := ensureSavedSearchesOriginColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate saved_searches.origin column: %w", err)
+	}
 	return nil
 }
 
@@ -1143,6 +1146,21 @@ func ensureAwardHistoryTable(ctx context.Context, db *sql.DB) error {
 func ensureAwardHistoryParticipantCountColumn(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE notice_award_history ADD COLUMN IF NOT EXISTS participant_count INTEGER;
+	`)
+	return err
+}
+
+// ensureSavedSearchesOriginColumn adds saved_searches.origin — 2026-08-06,
+// 온보딩 완료 시 자동 생성되는 "내 기본 조건"을 표시하기 위한 컬럼.
+// 값은 지금은 'onboarding' 하나뿐(그 외엔 NULL, 사용자가 직접 만든
+// 조건). 두 가지 역할을 겸한다: (1) 프론트가 "온보딩 시 자동 생성됨"
+// 배지를 붙이는 표시용, (2) handleUpsertCompanyProfile이 프로필 수정
+// 시 이 값이 'onboarding'인 행만 지역/업종을 계속 동기화하는 대상
+// 판별용(사용자가 직접 만든 다른 조건은 절대 안 건드림). 신규 컬럼
+// 추가라 ADD COLUMN IF NOT EXISTS 한 줄로 충분하다.
+func ensureSavedSearchesOriginColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS origin TEXT;
 	`)
 	return err
 }
