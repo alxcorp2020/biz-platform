@@ -1,14 +1,20 @@
-// 프로필 완성도/신뢰도 요약. company_profiles 자체는 프로필 존재 여부만
-// 게이트로 쓰고(기본정보는 존재하면 항상 100%), 나머지 6개 카테고리는
-// 각각 등록된 데이터 양을 0~100%로 환산한다. "완성도"의 기준치(면허/인증
-// 1개, 재무 3개연도, 실적 3건 = 100%)는 실제 규정이 아니라 사용자와
-// 합의한 예시 cap이다 — 다른 곳의 smallBusinessBudgetCap류 휴리스틱과
-// 같은 성격.
+// 프로필 완성도("AI 분석 커버리지") 요약. 2026-08-05 온보딩 재설계 —
+// 예전엔 "기본정보"가 company_profiles 행 존재 여부만으로 무조건 100%
+// 였는데(지역/기업규모/업력/직원수/매출액을 개별적으로 채점 안 함), 이러면
+// 온보딩 카드에서 이 필드들을 등록해도 커버리지 %가 전혀 안 올라 실시간
+// %표시 기능 자체가 성립 안 됨(사용자 확인 후 재설계). 기존 5개 카테고리
+// (업종/면허/인증/재무/실적/인력 — capCompleteness 기준치는 실제 규정이
+// 아니라 합의한 예시 cap)는 계산방식 그대로 두고, "기본정보"를 지역/
+// 기업규모/업력/직원수/매출액 5개로 쪼개고 직접생산확인을 신규 추가해
+// 총 12개 카테고리를 동일 가중치(1/12)로 평균한다.
 package api
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
+
+	"github.com/lib/pq"
 )
 
 // completenessConfidenceTables lists every table this feature averages
@@ -25,9 +31,9 @@ type profileCompletenessCategory struct {
 
 type profileCompletenessResponse struct {
 	Categories             map[string]profileCompletenessCategory `json:"categories"`
-	OverallCompleteness    int                                     `json:"overallCompleteness"`
-	MatchConfidence        int                                     `json:"matchConfidence"`
-	NeedsVerificationCount int                                     `json:"needsVerificationCount"`
+	OverallCompleteness    int                                    `json:"overallCompleteness"`
+	MatchConfidence        int                                    `json:"matchConfidence"`
+	NeedsVerificationCount int                                    `json:"needsVerificationCount"`
 }
 
 func (s *Server) handleGetProfileCompleteness(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +53,7 @@ func (s *Server) handleGetProfileCompleteness(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	resp, err := s.computeProfileCompleteness(r.Context(), profile.ID, profile.Industry)
+	resp, err := s.computeProfileCompleteness(r.Context(), profile.ID)
 	if err != nil {
 		s.logger.Error("profile-completeness: compute failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
@@ -56,11 +62,109 @@ func (s *Server) handleGetProfileCompleteness(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// onboardingMinCompleteness — 2026-08-05 온보딩 재설계에서 확정한 차단
+// 기준선(사용자 확인). 프론트도 같은 기준(50)으로 완료 버튼을 잠그지만,
+// 그건 UX일 뿐 신뢰 경계가 아니다 — 실제 게이트는 여기, 서버가 최신
+// 데이터로 다시 계산해서 확인한다.
+const onboardingMinCompleteness = 50
+
+// handleCompleteOnboarding — POST /api/me/onboarding/complete. 최종 확인
+// 화면의 "이 정보로 분석을 시작합니다" 버튼이 호출한다. 클라이언트가
+// "50% 넘었다"고 자체 판단한 걸 그대로 믿지 않고(다른 서버측 판단들과
+// 같은 원칙 — 예: billing.go의 결제금액 재계산) 서버가 completeness를
+// 다시 계산해 기준 미달이면 400으로 거부한다. 통과하면
+// onboarding_completed_at을 찍어 route() 게이트가 더 이상 이 사용자를
+// 온보딩 화면에 붙잡아두지 않게 한다.
+func (s *Server) handleCompleteOnboarding(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("complete-onboarding: profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if profile == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
+		return
+	}
+	if profile.Role != "owner" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_only"})
+		return
+	}
+
+	completeness, err := s.computeProfileCompleteness(r.Context(), profile.ID)
+	if err != nil {
+		s.logger.Error("complete-onboarding: completeness compute failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if completeness.OverallCompleteness < onboardingMinCompleteness {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":               "completeness_below_threshold",
+			"overallCompleteness": completeness.OverallCompleteness,
+			"threshold":           onboardingMinCompleteness,
+		})
+		return
+	}
+
+	if _, err := s.db.ExecContext(r.Context(),
+		`UPDATE company_profiles SET onboarding_completed_at = now() WHERE id = $1 AND onboarding_completed_at IS NULL`,
+		profile.ID,
+	); err != nil {
+		s.logger.Error("complete-onboarding: update failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"overallCompleteness": completeness.OverallCompleteness})
+}
+
+// completenessProfileFields — 새로 채점 대상이 된 5개 스칼라 필드+직접생산
+// 확인. computeProfileCompleteness가 매번 company_profiles를 직접 조회해
+// 가져온다(호출부마다 다른 타입(companyProfileDTO/companyScoringInput)을
+// 들고 있어 공통 필드가 region/industry/companySize뿐이라, 매번 호출부를
+// 고치는 대신 이 함수 안에서 필요한 필드를 스스로 가져오는 쪽을 택함).
+type completenessProfileFields struct {
+	Region               sql.NullString
+	Industry             []string
+	CompanySize          sql.NullString
+	BusinessAgeYears     sql.NullFloat64
+	EmployeeCount        sql.NullInt64
+	RevenueAmount        sql.NullInt64
+	DirectProductionCert bool
+}
+
+func (s *Server) fetchCompletenessProfileFields(ctx context.Context, profileID string) (completenessProfileFields, error) {
+	var f completenessProfileFields
+	var industry pq.StringArray
+	err := s.db.QueryRowContext(ctx, `
+		SELECT region, industry, company_size, business_age_years, employee_count,
+		       revenue_amount, direct_production_cert
+		FROM company_profiles WHERE id = $1`, profileID,
+	).Scan(&f.Region, &industry, &f.CompanySize, &f.BusinessAgeYears, &f.EmployeeCount,
+		&f.RevenueAmount, &f.DirectProductionCert)
+	f.Industry = []string(industry)
+	return f, err
+}
+
+// boolCompleteness — 새로 채점하는 5개 스칼라 필드+직접생산확인은 "값이
+// 있으면 100%, 없으면 0%"인 단순 존재 체크다(면허/재무처럼 여러 건 등록할
+// 수록 올라가는 개념이 아니라 필드 하나짜리라 부분점수 자체가 성립 안 함).
+func boolCompleteness(filled bool) int {
+	if filled {
+		return 100
+	}
+	return 0
+}
+
 // computeProfileCompleteness is the pure-computation core of
 // handleGetProfileCompleteness, factored out so growth_analytics.go's
 // weekly/monthly snapshot (reports.go) can reuse the exact same formula —
 // two separately-maintained completeness definitions would drift apart.
-func (s *Server) computeProfileCompleteness(ctx context.Context, profileID string, industry []string) (profileCompletenessResponse, error) {
+func (s *Server) computeProfileCompleteness(ctx context.Context, profileID string) (profileCompletenessResponse, error) {
 	counts := map[string]struct{ total, ab int }{}
 	for _, table := range completenessConfidenceTables {
 		total, ab, err := s.countConfidenceBucket(ctx, table, profileID)
@@ -70,7 +174,12 @@ func (s *Server) computeProfileCompleteness(ctx context.Context, profileID strin
 		counts[table] = struct{ total, ab int }{total, ab}
 	}
 
-	industryCompleteness := len(industry) * 100 / len(industryGroups)
+	fields, err := s.fetchCompletenessProfileFields(ctx, profileID)
+	if err != nil {
+		return profileCompletenessResponse{}, err
+	}
+
+	industryCompleteness := len(fields.Industry) * 100 / len(industryGroups)
 	if industryCompleteness > 100 {
 		industryCompleteness = 100
 	}
@@ -81,13 +190,18 @@ func (s *Server) computeProfileCompleteness(ctx context.Context, profileID strin
 	personnelCompleteness := capCompleteness(counts["company_personnel"].total, 1)
 
 	categories := map[string]profileCompletenessCategory{
-		"basic":          {Label: "기본정보", Completeness: 100},
-		"industry":       {Label: "업종", Completeness: industryCompleteness},
-		"licenses":       {Label: "면허", Completeness: licenseCompleteness},
-		"certifications": {Label: "인증", Completeness: certCompleteness},
-		"financials":     {Label: "재무", Completeness: financialCompleteness},
-		"trackRecords":   {Label: "수행실적", Completeness: trackRecordCompleteness},
-		"personnel":      {Label: "인력", Completeness: personnelCompleteness},
+		"region":           {Label: "지역", Completeness: boolCompleteness(fields.Region.Valid && fields.Region.String != "")},
+		"companySize":      {Label: "기업 규모", Completeness: boolCompleteness(fields.CompanySize.Valid && fields.CompanySize.String != "")},
+		"businessAgeYears": {Label: "업력", Completeness: boolCompleteness(fields.BusinessAgeYears.Valid)},
+		"employeeCount":    {Label: "직원 수", Completeness: boolCompleteness(fields.EmployeeCount.Valid)},
+		"revenueAmount":    {Label: "매출액", Completeness: boolCompleteness(fields.RevenueAmount.Valid)},
+		"directProduction": {Label: "직접생산확인", Completeness: boolCompleteness(fields.DirectProductionCert)},
+		"industry":         {Label: "업종", Completeness: industryCompleteness},
+		"licenses":         {Label: "면허", Completeness: licenseCompleteness},
+		"certifications":   {Label: "인증", Completeness: certCompleteness},
+		"financials":       {Label: "재무", Completeness: financialCompleteness},
+		"trackRecords":     {Label: "수행실적", Completeness: trackRecordCompleteness},
+		"personnel":        {Label: "인력", Completeness: personnelCompleteness},
 	}
 
 	sum := 0

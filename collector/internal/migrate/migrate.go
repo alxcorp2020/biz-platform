@@ -229,6 +229,38 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureAuthLookupKindBizRegExtract(ctx, db); err != nil {
 		return fmt.Errorf("migrate auth lookup kind biz reg extract: %w", err)
 	}
+	if err := ensureOnboardingCompletedAtColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_profiles.onboarding_completed_at column: %w", err)
+	}
+	return nil
+}
+
+// ensureOnboardingCompletedAtColumn — 2026-08-05 온보딩 재설계("AI 분석
+// 커버리지 50% 미만이면 완료 차단"). 이 컬럼이 NULL이면 새 필수 온보딩을
+// 아직 안 마친 것으로 보고 route() 게이트가 강제로 온보딩 화면에
+// 붙잡아둔다(handleCompleteOnboarding이 커버리지 50% 이상을 서버에서
+// 다시 확인한 뒤에만 now()로 채움). ensureEmailVerificationTables와 같은
+// "컬럼이 처음 생기는 이번 한 번만 기존 행 전원 백필" 패턴 — 이미 가입
+// 완료한 기존 회원에게 이번 정책을 소급 적용하지 않기로 확정했으므로
+// (신규 가입자만 대상), 컬럼이 새로 생기는 시점에 존재하는 모든 프로필은
+// created_at 기준으로 "이미 통과한 것"으로 일괄 백필한다.
+func ensureOnboardingCompletedAtColumn(ctx context.Context, db *sql.DB) error {
+	var columnExists bool
+	if err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'company_profiles' AND column_name = 'onboarding_completed_at'
+		)`).Scan(&columnExists); err != nil {
+		return fmt.Errorf("check onboarding_completed_at column: %w", err)
+	}
+	if !columnExists {
+		if _, err := db.ExecContext(ctx, `
+			ALTER TABLE company_profiles ADD COLUMN onboarding_completed_at TIMESTAMPTZ;
+			UPDATE company_profiles SET onboarding_completed_at = created_at;
+		`); err != nil {
+			return fmt.Errorf("add and backfill onboarding_completed_at: %w", err)
+		}
+	}
 	return nil
 }
 

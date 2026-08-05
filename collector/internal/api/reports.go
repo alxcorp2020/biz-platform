@@ -271,7 +271,7 @@ func (s *Server) computeReportSummary(
 		}
 	}
 
-	completeness, err := s.computeProfileCompleteness(ctx, profileID, company.Industry)
+	completeness, err := s.computeProfileCompleteness(ctx, profileID)
 	if err != nil {
 		s.logger.Error("report: profile completeness query failed", "error", err)
 	} else {

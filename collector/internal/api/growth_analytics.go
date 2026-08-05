@@ -121,7 +121,7 @@ func (s *Server) handleGetGrowthAnalytics(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	completeness, err := s.computeProfileCompleteness(ctx, profile.ID, profile.Industry)
+	completeness, err := s.computeProfileCompleteness(ctx, profile.ID)
 	if err != nil {
 		s.logger.Error("growth-analytics: completeness query failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})

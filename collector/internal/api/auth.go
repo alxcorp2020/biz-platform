@@ -363,6 +363,11 @@ type companyProfileDTO struct {
 	// 호출부에서 넘기는 offsetDays가 이 배열에 있을 때만 실제로 대상이
 	// 된다.
 	NotificationDaysBefore []int `json:"notificationDaysBefore"`
+	// OnboardingCompletedAt — 2026-08-05 온보딩 재설계. NULL이면 신규 필수
+	// 온보딩(AI 분석 커버리지 50% 이상 확인)을 아직 안 마친 것 — route()
+	// 게이트가 이 값으로 온보딩 화면 강제 여부를 판단한다. 기존 회원은
+	// 마이그레이션 때 일괄 백필돼 전부 non-null이라 소급 적용되지 않는다.
+	OnboardingCompletedAt *time.Time `json:"onboardingCompletedAt"`
 }
 
 // getCompanyProfile resolves "which organization does this user belong to"
@@ -378,7 +383,7 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 	var bizRegNumber, companyName, repName, address sql.NullString
 	var businessAgeYears sql.NullFloat64
 	var revenueAmount, employeeCount, maxPerformanceAmount sql.NullInt64
-	var employeeCountVerifiedAt sql.NullTime
+	var employeeCountVerifiedAt, onboardingCompletedAt sql.NullTime
 	var businessType, industry, licenses, certs pq.StringArray
 	var notificationDaysBefore pq.Int64Array
 
@@ -389,7 +394,7 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 		       cp.direct_production_cert, cp.max_performance_amount, cp.credit_rating,
 		       cp.employee_count_confidence, cp.employee_count_verified_at,
 		       cp.email_notifications_enabled, cp.phone_number, cp.sms_notifications_enabled,
-		       cp.notification_days_before
+		       cp.notification_days_before, cp.onboarding_completed_at
 		FROM company_members cm
 		JOIN company_profiles cp ON cp.id = cm.company_profile_id
 		WHERE cm.user_id = $1`, userID,
@@ -399,7 +404,7 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 		&p.DirectProductionCert, &maxPerformanceAmount, &creditRating,
 		&employeeCountConfidence, &employeeCountVerifiedAt,
 		&p.EmailNotificationsEnabled, &phoneNumber, &p.SMSNotificationsEnabled,
-		&notificationDaysBefore)
+		&notificationDaysBefore, &onboardingCompletedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -429,6 +434,9 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 		p.EmployeeCountVerifiedAt = &employeeCountVerifiedAt.Time
 	}
 	p.PhoneNumber = nullStringPtr(phoneNumber)
+	if onboardingCompletedAt.Valid {
+		p.OnboardingCompletedAt = &onboardingCompletedAt.Time
+	}
 	p.NotificationDaysBefore = make([]int, len(notificationDaysBefore))
 	for i, v := range notificationDaysBefore {
 		p.NotificationDaysBefore[i] = int(v)

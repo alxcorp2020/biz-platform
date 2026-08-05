@@ -130,6 +130,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/me/intellectual-property", s.handleCreateIP)
 	mux.HandleFunc("GET /api/me/intellectual-property", s.handleListIP)
 	mux.HandleFunc("GET /api/me/profile-completeness", s.handleGetProfileCompleteness)
+	mux.HandleFunc("POST /api/me/onboarding/complete", s.handleCompleteOnboarding)
 	mux.HandleFunc("GET /api/me/contacts", s.handleListContacts)
 	mux.HandleFunc("POST /api/me/contacts", s.handleCreateContact)
 	mux.HandleFunc("PATCH /api/me/contacts/{id}", s.handleUpdateContact)

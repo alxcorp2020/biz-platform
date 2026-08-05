@@ -286,7 +286,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("dashboard: automation summary failed", "error", err)
 	}
 
-	completeness, err := s.computeProfileCompleteness(ctx, profileID, profile.Industry)
+	completeness, err := s.computeProfileCompleteness(ctx, profileID)
 	if err != nil {
 		s.logger.Error("dashboard: profile completeness failed", "error", err)
 	}
