@@ -1323,12 +1323,6 @@
      고쳤다(좁은 화면에서는 100%가 이미 반응형으로 동작해 별도 media
      query 불필요). */
   .onboarding-shell { width: 100%; max-width: 480px; margin: 1.5rem auto; position: relative; }
-  /* 온보딩 이탈("나중에 하기") 버튼 — 카드 우측 상단 고정. */
-  .onboarding-exit-btn {
-    position: absolute; top: 0.75rem; right: 0.9rem; background: none; border: none;
-    color: var(--ink-soft); font-size: 0.85rem; font-weight: 600; cursor: pointer; padding: 0.25rem 0.4rem;
-  }
-  .onboarding-exit-btn:hover { color: var(--ink); }
 
   /* ---------- 채팅형 온보딩(2026-08-05, 카드형 전면 재설계) ----------
      카카오톡류 챗봇 패턴 — 봇 말풍선은 왼쪽 회색, 사용자 말풍선은 오른쪽
@@ -2468,7 +2462,6 @@ function renderSidebar() {
       try { await apiRequest('POST', '/api/auth/logout'); } catch (err) { /* ignore */ }
       currentUser = null;
       currentProfile = null;
-      sessionStorage.removeItem('onboarding_snoozed');
       renderHeader();
       location.hash = '#/';
     });
@@ -2765,6 +2758,7 @@ const ERROR_MESSAGES = {
   category_and_name_required: '구분과 명칭은 필수입니다.',
   invalid_status: '보유 상태 값이 올바르지 않습니다.',
   invalid_awarded_amount: '낙찰 금액은 0 이상의 숫자여야 합니다.',
+  completeness_below_threshold: 'AI 분석 커버리지가 아직 부족합니다. 선택 항목을 조금 더 채우면 완료할 수 있어요.',
   no_pending_downgrade: '예약된 플랜 전환이 없습니다.',
   no_active_paid_subscription: '환불/해지할 유료 구독이 없습니다.',
   no_payment_to_refund: '환불할 결제 내역을 찾을 수 없습니다.',
@@ -2979,7 +2973,6 @@ function renderHeader() {
       try { await apiRequest('POST', '/api/auth/logout'); } catch (err) { /* ignore */ }
       currentUser = null;
       currentProfile = null;
-      sessionStorage.removeItem('onboarding_snoozed');
       renderHeader();
       location.hash = '#/';
     });
@@ -3892,13 +3885,11 @@ async function renderOnboardingChat(container) {
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="detail-card onboarding-shell chat-shell">
-      ${onboardingExitButtonHtml()}
       <div id="onboarding-coverage-slot">${onboardingCoverageBarHtml(completenessData.overallCompleteness)}</div>
       <div id="onboarding-chat-log" class="chat-log"></div>
       <div id="onboarding-chat-action" class="chat-action"></div>
     </div>
   `));
-  wireOnboardingExitButton();
 
   const state = {
     container,
@@ -4490,13 +4481,16 @@ const ONBOARDING_QUICK_FORM_RENDERERS = {
   directProduction: renderDirectProductionQuickForm,
 };
 
-// ONBOARDING_MIN_COMPLETENESS — 2026-08-05 온보딩 재설계(사용자 확정):
-// AI 분석 커버리지가 이 값 미만이면 온보딩 완료(다음 화면 이동)를 막는다.
-// 서버(company_profile_completeness.go의 onboardingMinCompleteness)와
-// 같은 기준선 — 프론트는 UX(완료 버튼 잠금)일 뿐 신뢰 경계가 아니고,
-// 실제 게이트는 서버가 POST /api/me/onboarding/complete에서 다시 계산해
-// 확인한다.
-const ONBOARDING_MIN_COMPLETENESS = 50;
+// ONBOARDING_MIN_COMPLETENESS — 2026-08-05 온보딩 재설계에서 50으로 확정했다가
+// 같은 날 70으로 상향(사용자 확정, "나중에 하기" 버튼 폐지와 함께 온보딩을
+// 더 꼼꼼히 받도록 강화). AI 분석 커버리지가 이 값 미만이면 온보딩 완료
+// (다음 화면 이동)를 막는다. 서버(company_profile_completeness.go의
+// onboardingMinCompleteness)와 같은 기준선 — 프론트는 UX(완료 버튼 잠금)일
+// 뿐 신뢰 경계가 아니고, 실제 게이트는 서버가 POST /api/me/onboarding/complete
+// 에서 다시 계산해 확인한다. ⚠️필수 3개(지역/업종/기업규모)만 채우면
+// 60%인데 70% 문턱이 그보다 높아, 이제 필수 3개만으로는 온보딩을 끝낼
+// 수 없다(의도된 정책).
+const ONBOARDING_MIN_COMPLETENESS = 70;
 
 // ONBOARDING_FIELDKEY_TO_COMPLETENESS_CATEGORY — 온보딩 카드 fieldKey를
 // GET /api/me/profile-completeness의 categories 맵 키로 매핑(수행실적/
@@ -4512,33 +4506,11 @@ const ONBOARDING_FIELDKEY_TO_COMPLETENESS_CATEGORY = {
 // 3개("회사라면 누구나 있는 기본 정보", 사용자 확정). 이 카드들은
 // [건너뛰기] 자체를 안 보여준다. company_profile_completeness.go의
 // requiredCompletenessCategoryKeys(가중치 20%씩, 합 60%)와 반드시 같은
-// 3개를 가리켜야 한다 — 이 3개만 채우면 선택 항목 없이도 항상
-// ONBOARDING_MIN_COMPLETENESS(50%)를 넘도록 서버 공식이 설계돼 있다.
+// 3개를 가리켜야 한다. ⚠️이 3개 가중치 합(60%)은 ONBOARDING_MIN_COMPLETENESS
+// (70%)보다 낮다 — 필수 3개만으로는 게이트를 못 넘고, 선택 카테고리를
+// 최소 하나 이상 더 채워야 한다(2026-08-05 문턱 상향으로 뒤집힌 원래
+// 설계 의도, 의도된 정책).
 const ONBOARDING_REQUIRED_FIELD_KEYS = new Set(['region', 'industry', 'companySize']);
-
-// onboardingExitButtonHtml/wireOnboardingExitButton — 채팅형 온보딩 화면
-// 우측 상단 "나중에 하기" 버튼(2026-08-05). 확인 모달은 이 코드베이스
-// 전역의 기존 관례(삭제/해지 등 11곳 이상)를 그대로 따라 커스텀 모달
-// 없이 confirm()을 쓴다.
-function onboardingExitButtonHtml() {
-  return '<button type="button" class="onboarding-exit-btn" id="onboarding-exit-btn">나중에 하기</button>';
-}
-function wireOnboardingExitButton() {
-  const btn = document.getElementById('onboarding-exit-btn');
-  if (!btn) return;
-  btn.addEventListener('click', () => {
-    if (!confirm('지금까지 입력한 내용은 저장되며, 나중에 기업프로필에서 이어서 작성할 수 있습니다. 나가시겠습니까?')) return;
-    // 이미 등록한 항목은 각 미니폼 저장 시점에 이미 서버에 반영돼 있어
-    // 그대로 유지된다(buildOnboardingCardQueue가 이미 채워진 필드는
-    // 다음에 다시 들어와도 알아서 걸러내므로 별도 이어하기 로직 불필요).
-    // sessionStorage 스누즈 플래그로 route()의 4번째 게이트가 이번
-    // 로그인 세션 동안은 다시 붙잡지 않게 하고, 로그아웃 시 이 플래그를
-    // 지워 "다음 로그인 시 다시 온보딩부터"를 보장한다(필수 3개를 하나도
-    // 안 채운 초기상태였다면 큐가 처음부터 그대로 다시 보인다).
-    sessionStorage.setItem('onboarding_snoozed', '1');
-    location.hash = '#/dashboard';
-  });
-}
 
 // ONBOARDING_POSSESSION_FIELD_KEYS — "보유/미보유" 개념인 선택 항목(면허/
 // 인증/직접생산확인). 일반 [건너뛰기] 대신 [보유 - 등록하기]/[미보유 -
@@ -4980,7 +4952,6 @@ function renderOnboardingFinalConfirm(container, completenessData) {
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="detail-card onboarding-shell">
-      ${onboardingExitButtonHtml()}
       <h2 style="text-align:center">등록하신 정보를 확인해주세요</h2>
       ${onboardingCoverageBarHtml(completenessData.overallCompleteness)}
       <div class="profile-summary-list" style="margin-top:1rem">
@@ -4997,7 +4968,6 @@ function renderOnboardingFinalConfirm(container, completenessData) {
     </div>
   `));
   document.getElementById('onboarding-final-back-btn').addEventListener('click', () => renderOnboardingChat(container));
-  wireOnboardingExitButton();
   const errorBox = document.getElementById('onboarding-final-confirm-error');
   document.getElementById('onboarding-final-confirm-btn').addEventListener('click', async () => {
     errorBox.style.display = 'none';
@@ -8297,7 +8267,6 @@ function renderEmailVerifyPending(container) {
     await apiRequest('POST', '/api/auth/logout');
     currentUser = null;
     currentProfile = null;
-    sessionStorage.removeItem('onboarding_snoozed');
     renderHeader();
     location.hash = '#/auth/login';
   });
@@ -12651,11 +12620,10 @@ function route() {
   // 예외목록(isAuthOnboardingRoute)을 써야 한다 — 게이트마다 자기 화면만
   // 예외로 두면 두 게이트가 서로를 무한 리다이렉트시키는 사고가 이미 한
   // 번 났었다([[feedback-sequential-route-gates-shared-exempt-list]]).
-  // "나중에 하기"로 나간 경우 sessionStorage.onboarding_snoozed가 서
-  // 있으면 이번 로그인 세션 동안은 이 게이트만 건너뛴다(다른 두 게이트는
-  // 여전히 하드 게이트라 영향 없음) — 로그아웃 시 이 플래그를 지우므로
-  // 다음 로그인에서는 다시 이 게이트가 정상 작동한다.
-  if (currentUser && currentUser.role === 'user' && (!currentProfile || !currentProfile.onboardingCompletedAt) && !isAuthOnboardingRoute(path) && !sessionStorage.getItem('onboarding_snoozed')) {
+  // ⚠️2026-08-05: "나중에 하기" 이탈 버튼(스누즈 플래그로 이 게이트만
+  // 한 세션 건너뛰던 기능)을 완전히 폐지했다 — 이제 이 게이트는 다른
+  // 두 게이트와 동일하게 예외 없는 하드 게이트다.
+  if (currentUser && currentUser.role === 'user' && (!currentProfile || !currentProfile.onboardingCompletedAt) && !isAuthOnboardingRoute(path)) {
     location.hash = '#/onboarding/complete';
     return;
   }
