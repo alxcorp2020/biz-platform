@@ -329,7 +329,8 @@ func (s *Source) Normalize(ctx context.Context, doc collector.RawDocument) (coll
 	// API가 안 줘서(위 bidItem 필드 주석 참고) 빈 문자열로 남긴다(공고 쪽
 	// 데이터 부족으로 정직하게 처리됨 — 지어내지 않음).
 	region := ""
-	if it.BidPrtcptLmtYn != "Y" && it.CmmnSpldmdCorpRgnLmtYn != "Y" {
+	regionRestricted := it.BidPrtcptLmtYn == "Y" || it.CmmnSpldmdCorpRgnLmtYn == "Y"
+	if !regionRestricted {
 		region = regionNationwide
 	}
 
@@ -344,6 +345,7 @@ func (s *Source) Normalize(ctx context.Context, doc collector.RawDocument) (coll
 		Industry:         it.PubPrcrmntMidClsfcNm,
 		Status:           status,
 		OfficialURL:      officialURL,
+		RegionRestricted: &regionRestricted,
 	}
 	if t, err := parseG2BTime(it.BidNtceDt); err == nil {
 		n.PublishedAt = &t

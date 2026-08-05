@@ -62,6 +62,10 @@ type NormalizedNotice struct {
 	SupportAmount        *int64
 	Status               string
 	OfficialURL          string
+	// RegionRestricted — 지역제한 여부(2026-08-06 추가). 신뢰할 수 있는
+	// 소스만 채운다 — nil이면 "정보 없음"(이 소스가 애초에 이 값을 안
+	// 주거나 판단 불가), 지어내지 않는다.
+	RegionRestricted *bool
 }
 
 // Collector is the contract every source package (g2b, bizinfo, ...) implements.

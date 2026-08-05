@@ -486,6 +486,7 @@
   }
   .status-badge--warn { background: rgba(196,132,29,0.12); color: var(--warn); }
   .status-badge--muted { background: var(--bg-soft); color: var(--ink-soft); }
+  .row-card-region-restricted { font-size: 0.75rem; color: var(--ink-soft); white-space: nowrap; }
 
   .empty, .loading, .error {
     color: var(--ink-soft);
@@ -2543,6 +2544,22 @@ function formatFileSize(bytes) {
 }
 
 const STATUS_LABELS = { open: '진행중', closed: '마감', cancelled: '취소', reannounced: '재공고' };
+
+// NOTICE_CHANGE_FIELD_LABELS — changedetect(백엔드)가 비교하는 필드명
+// 그대로(DB 컬럼명)를 한글로 매핑. 매핑에 없는 필드는 원문 그대로 표시
+// (새 비교 필드가 추가됐는데 라벨을 깜빡해도 화면이 깨지지 않게).
+const NOTICE_CHANGE_FIELD_LABELS = {
+  title: '공고명',
+  organization_name: '발주기관',
+  department_name: '수요기관',
+  region: '지역',
+  industry: '업종',
+  status: '공고상태',
+  application_start_at: '입찰서 제출 시작',
+  application_end_at: '투찰마감일',
+  budget_amount: '예산',
+  support_amount: '지원금액',
+};
 
 // noticeTypeBadgeHtml — 입찰공고(procurement)와 지원사업(support_program,
 // 기업마당/지자체 지원사업 수집기가 채움)을 한눈에 구분. 지원사업은
@@ -6727,6 +6744,8 @@ function noticeRowHtml(n) {
         <div class="row-card-subtitle">
           ${noticeTypeBadgeHtml(n.noticeType)} ${escapeHtml(n.organizationName || '-')} · ${escapeHtml(n.region || '-')} · ${escapeHtml(n.industry || '-')} ·
           <span class="mono">${formatBudget(n.budgetAmount)}</span> · ${statusBadgeHtml(n.status)}
+          ${n.recentlyChanged ? '<span class="status-badge status-badge--warn" title="최근 7일 내 공고 내용이 변경되었습니다">정정</span>' : ''}
+          ${n.regionRestricted === true ? '<span class="row-card-region-restricted" title="지역제한 있음">📍제한</span>' : ''}
         </div>
       </div>
       <div class="row-card-side">
@@ -6828,7 +6847,7 @@ function renderDetail(container, id) {
       const changeRows = changes.length
         ? changes.map(c => `
             <tr>
-              <td>${escapeHtml(c.field)}</td>
+              <td>${escapeHtml(NOTICE_CHANGE_FIELD_LABELS[c.field] || c.field)}</td>
               <td class="mono">${escapeHtml(c.oldValue || '-')}</td>
               <td class="mono">${escapeHtml(c.newValue || '-')}</td>
               <td class="importance-${escapeHtml(c.importance || 'minor')}">${escapeHtml(c.importance || '-')}</td>
@@ -6836,6 +6855,15 @@ function renderDetail(container, id) {
             </tr>
           `).join('')
         : '';
+
+      // 데이터 신뢰성 노출(2026-08-06) — 없는 값은 그 항목만 통째로
+      // 생략한다(빈 값을 억지로 채우지 않는다는 기존 원칙 그대로).
+      const trustParts = [];
+      if (n.publishedAt) trustParts.push('공고 게시 ' + formatDate(n.publishedAt));
+      trustParts.push('플랫폼 수집 ' + formatDateTime(n.firstCollectedAt));
+      trustParts.push('마지막 확인 ' + (n.lastVerifiedAt ? formatDateTime(n.lastVerifiedAt) : '변경 확인 이력 없음'));
+      if (n.sourceName) trustParts.push('출처 ' + escapeHtml(n.sourceName));
+      const trustLine = trustParts.join(' · ');
 
       body.className = '';
       body.innerHTML = '';
@@ -6864,6 +6892,7 @@ function renderDetail(container, id) {
           </dl>
           ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 &rarr;</a>` : ''}
           <a class="official-link" href="#/notices/${escapeAttr(n.id)}/report">참여판단 보고서 보기 &rarr;</a>
+          <p class="detail-sub notice-data-trust">${trustLine}</p>
         </div>
         <h3>공고 상세정보</h3>
         <div id="notice-detail-info-section"></div>
@@ -8504,6 +8533,8 @@ async function renderBookmarks(container) {
         <div class="row-card-subtitle">
           ${noticeTypeBadgeHtml(n.noticeType)} ${escapeHtml(n.organizationName || '-')} · ${escapeHtml(n.region || '-')} · ${escapeHtml(n.industry || '-')} ·
           <span class="mono">${formatBudget(n.budgetAmount)}</span> · ${statusBadgeHtml(n.status)}
+          ${n.recentlyChanged ? '<span class="status-badge status-badge--warn" title="최근 7일 내 공고 내용이 변경되었습니다">정정</span>' : ''}
+          ${n.regionRestricted === true ? '<span class="row-card-region-restricted" title="지역제한 있음">📍제한</span>' : ''}
         </div>
       </div>
       <div class="row-card-side">

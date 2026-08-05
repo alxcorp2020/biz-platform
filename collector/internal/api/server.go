@@ -242,6 +242,20 @@ type noticeListItem struct {
 	OfficialURL      string     `json:"officialUrl"`
 	CurrentVersion   int        `json:"currentVersion"`
 	IsBookmarked     bool       `json:"isBookmarked"`
+	// PublishedAt/FirstCollectedAt/LastVerifiedAt/SourceName — 2026-08-06
+	// 데이터 신뢰성 노출. 상세 조회(handleGetNotice)에서만 채운다(목록은
+	// 이 값들을 안 씀) — 상세 화면에 "공고 게시/플랫폼 수집/마지막 확인/
+	// 출처"를 표시해 사용자가 데이터 최신성을 판단할 수 있게 한다.
+	PublishedAt      *time.Time `json:"publishedAt,omitempty"`
+	FirstCollectedAt *time.Time `json:"firstCollectedAt,omitempty"`
+	LastVerifiedAt   *time.Time `json:"lastVerifiedAt,omitempty"`
+	SourceName       string     `json:"sourceName,omitempty"`
+	// RegionRestricted/RecentlyChanged — 2026-08-06 정정 가시성 개선.
+	// RegionRestricted는 nil이면 "정보 없음"(값을 안 주는 소스), true/false면
+	// 실제 판단값. RecentlyChanged는 목록 조회에서만 계산한다(최근 7일 내
+	// notice_changes 존재 여부).
+	RegionRestricted *bool `json:"regionRestricted,omitempty"`
+	RecentlyChanged  bool  `json:"recentlyChanged,omitempty"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -318,7 +332,8 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT n.id, n.notice_type, n.title, n.organization_name, n.region, n.industry, n.status,
 		       n.application_end_at, n.budget_amount, n.official_url, n.current_version,
-		       (nb.id IS NOT NULL) AS is_bookmarked,
+		       (nb.id IS NOT NULL) AS is_bookmarked, n.region_restricted,
+		       EXISTS(SELECT 1 FROM notice_changes nc WHERE nc.notice_id = n.id AND nc.created_at >= now() - interval '7 days') AS recently_changed,
 		       COUNT(*) OVER() AS total_count
 		FROM notices n
 		LEFT JOIN notice_bookmarks nb ON nb.notice_id = n.id AND nb.user_id = ` + addArg(sql.NullString{String: userID, Valid: loggedIn}) + `
@@ -349,13 +364,18 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		var org, region, industry, officialURL sql.NullString
 		var budget sql.NullInt64
 		var deadline sql.NullTime
+		var regionRestricted sql.NullBool
 		var totalCount int
 		if err := rows.Scan(&it.ID, &it.NoticeType, &it.Title, &org, &region, &industry, &it.Status,
-			&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &totalCount); err != nil {
+			&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &regionRestricted,
+			&it.RecentlyChanged, &totalCount); err != nil {
 			s.logger.Error("scan notice row failed", "error", err)
 			continue
 		}
 		total = totalCount
+		if regionRestricted.Valid {
+			it.RegionRestricted = &regionRestricted.Bool
+		}
 		it.OrganizationName = org.String
 		it.Region = region.String
 		it.Industry = industry.String
@@ -381,19 +401,22 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	userID, loggedIn := s.currentUserID(r)
 
 	var it noticeListItem
-	var org, region, industry, officialURL, department sql.NullString
+	var org, region, industry, officialURL, department, sourceName sql.NullString
 	var budget sql.NullInt64
-	var deadline sql.NullTime
+	var deadline, publishedAt, firstCollectedAt, lastVerifiedAt sql.NullTime
 
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT n.id, n.notice_type, n.title, n.organization_name, n.region, n.industry, n.status,
 		       n.application_end_at, n.budget_amount, n.official_url, n.current_version,
-		       (nb.id IS NOT NULL) AS is_bookmarked, n.department_name
+		       (nb.id IS NOT NULL) AS is_bookmarked, n.department_name,
+		       n.published_at, n.first_collected_at, n.last_verified_at, ds.name
 		FROM notices n
 		LEFT JOIN notice_bookmarks nb ON nb.notice_id = n.id AND nb.user_id = $2
+		LEFT JOIN data_sources ds ON ds.id = n.source_id
 		WHERE n.id = $1`, id, sql.NullString{String: userID, Valid: loggedIn},
 	).Scan(&it.ID, &it.NoticeType, &it.Title, &org, &region, &industry, &it.Status,
-		&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &department)
+		&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &department,
+		&publishedAt, &firstCollectedAt, &lastVerifiedAt, &sourceName)
 
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notice_not_found"})
@@ -411,6 +434,16 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	if deadline.Valid {
 		it.ApplicationEndAt = &deadline.Time
 	}
+	if publishedAt.Valid {
+		it.PublishedAt = &publishedAt.Time
+	}
+	if firstCollectedAt.Valid {
+		it.FirstCollectedAt = &firstCollectedAt.Time
+	}
+	if lastVerifiedAt.Valid {
+		it.LastVerifiedAt = &lastVerifiedAt.Time
+	}
+	it.SourceName = sourceName.String
 
 	changes, err := s.listChanges(r.Context(), id)
 	if err != nil {

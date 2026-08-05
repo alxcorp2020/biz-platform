@@ -235,7 +235,22 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureOnboardingCompletedAtColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_profiles.onboarding_completed_at column: %w", err)
 	}
+	if err := ensureNoticeRegionRestrictedColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate notices.region_restricted column: %w", err)
+	}
 	return nil
+}
+
+// ensureNoticeRegionRestrictedColumn adds notices.region_restricted —
+// 2026-08-06, 공고 목록의 지역제한 아이콘용. 신규 컬럼 추가라
+// ensurePendingPlanColumn과 같은 이유로 ADD COLUMN IF NOT EXISTS 한 줄로
+// 충분하다(CHECK 목록을 넓히는 변경이 아님). g2b만 이 값을 채운다 —
+// bizinfo/scsbid/demo는 NULL로 남아 "정보 없음"으로 정직하게 처리된다.
+func ensureNoticeRegionRestrictedColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notices ADD COLUMN IF NOT EXISTS region_restricted BOOLEAN;
+	`)
+	return err
 }
 
 // ensureOnboardingCompletedAtColumn — 2026-08-05 온보딩 재설계("AI 분석
@@ -480,7 +495,7 @@ func ensureDeadlineD7EventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
 	`)
 	return err
 }
@@ -1124,7 +1139,7 @@ func ensureReportEventTypes(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
 	`)
 	return err
 }
@@ -1226,7 +1241,7 @@ func ensureTeamInviteEventTypes(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
 	`)
 	return err
 }
@@ -1500,7 +1515,7 @@ func ensureAdminBroadcastEventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
 	`)
 	return err
 }
@@ -1618,7 +1633,7 @@ func ensurePasswordResetEventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
 	`)
 	return err
 }
@@ -1685,7 +1700,7 @@ func ensureEmailVerificationEventType(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected'));
 	`)
 	return err
 }

@@ -57,6 +57,13 @@ type Runner struct {
 	// 이 필드와 downloadAttachment 함수만 바꾸면 된다.
 	AttachmentDir string
 	HTTPClient    *http.Client
+
+	// OnChangesRecorded — 2026-08-06, "정정된 관심공고" 즉시 알림용 콜백.
+	// runner 패키지는 api 패키지를 몰라도 되게(의존 방향을 안 뒤집으려고)
+	// 함수 타입 필드로만 훅을 노출한다 — cmd/apiserver/main.go가
+	// srv.NotifyNoticeChanged를 이 필드에 꽂는다. nil이면(테스트 등) 그냥
+	// 호출을 건너뛴다.
+	OnChangesRecorded func(ctx context.Context, noticeID, changeType string, changes []changedetect.FieldChange)
 }
 
 func New(c collector.Collector, s store.Store, logger *slog.Logger) *Runner {
@@ -189,6 +196,9 @@ func (r *Runner) processItem(ctx context.Context, item collector.RawItem) error 
 	r.Logger.Info("notice updated",
 		"notice_id", existing.ID, "version_id", versionID,
 		"change_type", changeType, "field_changes", len(changes))
+	if r.OnChangesRecorded != nil {
+		r.OnChangesRecorded(ctx, existing.ID, changeType, changes)
+	}
 	r.processAttachments(ctx, doc, versionID)
 	return nil
 }

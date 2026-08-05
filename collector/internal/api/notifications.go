@@ -23,6 +23,7 @@ import (
 	"github.com/lib/pq"
 
 	"biz-platform/collector/internal/billing"
+	"biz-platform/collector/internal/collector/changedetect"
 )
 
 const (
@@ -31,6 +32,7 @@ const (
 	notifyEventDeadlineD1           = "deadline_d1"
 	notifyEventRecommendationDigest = "recommendation_digest"
 	notifyEventAssigneeStatusChange = "assignee_status_change"
+	notifyEventNoticeCorrected      = "notice_corrected"
 
 	notifyChannelEmail = "email"
 	notifyChannelSMS   = "sms"
@@ -764,6 +766,131 @@ func (s *Server) notifyAssigneeStatusChange(ctx context.Context, profileID, pipe
 		if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
 			msg := fmt.Sprintf("[상태변경] %s %s(으)로 변경", truncateForSMS(noticeTitle, 25), newStatus)
 			s.sendNotificationSMS(ctx, notifyEventAssigneeStatusChange, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
+		}
+	}
+}
+
+// noticeChangeFieldLabelsKo — changedetect가 비교하는 필드명(DB 컬럼명
+// 그대로)을 정정 알림 문구용 한글로 매핑. index.html의
+// NOTICE_CHANGE_FIELD_LABELS와 개념은 같지만 백엔드/프론트가 서로 다른
+// 런타임이라 별도로 유지한다 — 하나를 바꾸면 다른 쪽도 확인할 것.
+var noticeChangeFieldLabelsKo = map[string]string{
+	"title":                 "공고명",
+	"organization_name":     "발주기관",
+	"department_name":       "수요기관",
+	"region":                "지역",
+	"industry":              "업종",
+	"status":                "공고상태",
+	"application_start_at":  "입찰서 제출 시작",
+	"application_end_at":    "투찰마감일",
+	"budget_amount":         "예산",
+	"support_amount":        "지원금액",
+}
+
+func noticeChangeFieldLabel(field string) string {
+	if label, ok := noticeChangeFieldLabelsKo[field]; ok {
+		return label
+	}
+	return field
+}
+
+// NotifyNoticeChanged — 2026-08-06, "정정된 관심공고" 즉시 알림. 수집
+// 파이프라인(internal/collector/runner.Runner)이 changedetect로 실제
+// 변경을 감지하고 저장까지 마친 직후 호출하는 콜백이다(runner.OnChangesRecorded,
+// cmd/apiserver/main.go에서 연결) — runner 패키지는 api 패키지를 몰라도
+// 되도록, api가 runner의 함수 타입 필드에 이 메서드를 꽂아 넣는 방향으로
+// 의존한다. major_update(낙찰하한율/마감일/예산/상태처럼 changedetect가
+// "중요"로 분류한 필드)일 때만 발송한다 — 제목 오타 수정 같은 minor 변경까지
+// 매번 알리면 알림 피로만 커진다는 판단(사용자 확정, 즉시vs모아받기
+// 선택지와 야간 quiet-hours는 이번 범위 밖 — P1로 남김).
+func (s *Server) NotifyNoticeChanged(ctx context.Context, noticeID, changeType string, changes []changedetect.FieldChange) {
+	if changeType != "major_update" || len(changes) == 0 {
+		return
+	}
+
+	var noticeTitle string
+	if err := s.db.QueryRowContext(ctx, `SELECT title FROM notices WHERE id = $1`, noticeID).Scan(&noticeTitle); err != nil {
+		s.logger.Error("notify notice changed: title lookup failed", "notice_id", noticeID, "error", err)
+		return
+	}
+
+	// 활성 파이프라인(검토전/참여검토/승인대기/준비중)에 이 공고를 담아둔
+	// 조직에게만 보낸다 — dashboard.go의 pipelineActiveStatuses/activeStatusList와
+	// 동일한 "종결된 건은 더 안 챙겨도 됨" 판단(notifyAssigneeStatusChange의
+	// pipelineActiveForNotification 원칙과 같음).
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, company_profile_id FROM notice_pipeline_entries
+		WHERE notice_id = $1 AND status = ANY($2)`,
+		noticeID, pq.Array(activeStatusList()))
+	if err != nil {
+		s.logger.Error("notify notice changed: pipeline entry lookup failed", "notice_id", noticeID, "error", err)
+		return
+	}
+	type target struct{ entryID, profileID string }
+	var targets []target
+	for rows.Next() {
+		var t target
+		if err := rows.Scan(&t.entryID, &t.profileID); err != nil {
+			continue
+		}
+		targets = append(targets, t)
+	}
+	closeErr := rows.Err()
+	rows.Close()
+	if closeErr != nil {
+		s.logger.Error("notify notice changed: pipeline entry scan failed", "error", closeErr)
+	}
+	if len(targets) == 0 {
+		return
+	}
+
+	labels := make([]string, 0, len(changes))
+	for _, c := range changes {
+		labels = append(labels, noticeChangeFieldLabel(c.Field))
+	}
+	changedSummary := strings.Join(labels, ", ")
+
+	for _, t := range targets {
+		s.notifyNoticeCorrected(ctx, t.profileID, t.entryID, noticeID, noticeTitle, changedSummary)
+	}
+}
+
+// notifyNoticeCorrected sends the notice_corrected event to one pipeline
+// entry's org — notifyAssigneeStatusChange와 완전히 같은 채널 구성(인앱+
+// 웹푸시+담당자 이메일/SMS, fetchNotifiableContacts 재사용)이라 그 함수를
+// 그대로 본떴다.
+func (s *Server) notifyNoticeCorrected(ctx context.Context, profileID, pipelineEntryID, noticeID, noticeTitle, changedSummary string) {
+	inAppTitle := fmt.Sprintf("공고 정정: %s", noticeTitle)
+	inAppBody := "변경된 항목: " + changedSummary
+	if err := s.insertEntryScopedInAppNotification(ctx, profileID, notifyEventNoticeCorrected, pipelineEntryID, noticeID, inAppTitle, inAppBody); err != nil {
+		s.logger.Error("notify: notice-corrected in-app notification insert failed", "error", err)
+	}
+	s.sendPushToProfileMembers(ctx, profileID, inAppTitle, inAppBody, "/#/pipeline/"+pipelineEntryID)
+
+	contacts, err := s.fetchNotifiableContacts(ctx, profileID, notifyEventNoticeCorrected, pipelineEntryID)
+	if err != nil {
+		s.logger.Error("notify: notice-corrected contact lookup failed", "error", err)
+		return
+	}
+	smsAllowed := s.smsAllowedForPlan(ctx, profileID)
+	emailAllowed := s.checkEmailNotificationQuota(ctx, profileID)
+	for _, c := range contacts {
+		contactID := c.id
+		if c.emailEnabled && c.email != "" && !c.emailAlreadySent {
+			subject := fmt.Sprintf("[공고 정정] %s", noticeTitle)
+			if emailAllowed {
+				body := fmt.Sprintf(
+					"<p>참여 검토 중인 <b>%s</b> 공고의 내용이 변경되었습니다.</p><p>변경된 항목: %s</p><p>원문을 다시 확인해주세요.</p>",
+					html.EscapeString(noticeTitle), html.EscapeString(changedSummary),
+				)
+				s.sendNotificationEmail(ctx, notifyEventNoticeCorrected, c.email, nil, &contactID, &pipelineEntryID, &noticeID, subject, body)
+			} else {
+				s.logSkippedEmailNotification(ctx, notifyEventNoticeCorrected, c.email, nil, &contactID, &pipelineEntryID, &noticeID, subject)
+			}
+		}
+		if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
+			msg := fmt.Sprintf("[공고 정정] %s 내용 변경(%s)", truncateForSMS(noticeTitle, 20), changedSummary)
+			s.sendNotificationSMS(ctx, notifyEventNoticeCorrected, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
 		}
 	}
 }

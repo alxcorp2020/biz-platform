@@ -62,9 +62,6 @@ func main() {
 		port = "8080"
 	}
 
-	startBackgroundCollection(dsn, logger)
-	startBackgroundBizinfoCollection(dsn, logger)
-
 	attachmentDir := os.Getenv("ATTACHMENT_DIR")
 	if attachmentDir == "" {
 		attachmentDir = "./data/attachments"
@@ -141,6 +138,12 @@ func main() {
 	}
 
 	srv := api.New(db, logger, loadSessionSecret(logger), attachmentDir, &anthropicClient, notifyClient, smsNotifyClient, tossClient, tossClientKey, appBaseURL, scsbidSrc, vapidPublicKey, vapidPrivateKey, vapidSubject, googleOAuth, naverOAuth, kakaoOAuth)
+
+	// srv가 만들어진 뒤에 수집 배치를 시작한다 — "정정된 관심공고" 즉시
+	// 알림(2026-08-06)이 runner.Runner.OnChangesRecorded 콜백으로
+	// srv.NotifyNoticeChanged를 호출해야 해서, 이 두 함수가 srv를 받는다.
+	startBackgroundCollection(dsn, logger, srv)
+	startBackgroundBizinfoCollection(dsn, logger, srv)
 	startBackgroundNotifications(srv, logger, scsbidSrc)
 	startBackgroundDocumentExtraction(srv, logger)
 
@@ -254,7 +257,7 @@ func loadSessionSecret(logger *slog.Logger) []byte {
 // collection into the web service is the free-tier workaround. On a paid
 // plan, prefer running cmd/collector-daemon as its own service instead and
 // removing this call.
-func startBackgroundCollection(dsn string, logger *slog.Logger) {
+func startBackgroundCollection(dsn string, logger *slog.Logger, srv *api.Server) {
 	go func() {
 		ctx := context.Background()
 		src, sourceName, baseURL := newCollectorSource(logger)
@@ -264,6 +267,7 @@ func startBackgroundCollection(dsn string, logger *slog.Logger) {
 			return
 		}
 		rn := runner.New(src, st, logger)
+		rn.OnChangesRecorded = srv.NotifyNoticeChanged
 
 		runOnce := func() {
 			res := rn.RunIncremental(ctx, time.Time{})
@@ -287,7 +291,7 @@ func startBackgroundCollection(dsn string, logger *slog.Logger) {
 // folding into the existing one. If BIZINFO_API_KEY isn't set, this
 // batch is skipped entirely(no demo fallback — g2b/demo already provides
 // baseline content, an empty support_program stream isn't broken).
-func startBackgroundBizinfoCollection(dsn string, logger *slog.Logger) {
+func startBackgroundBizinfoCollection(dsn string, logger *slog.Logger, srv *api.Server) {
 	key := os.Getenv("BIZINFO_API_KEY")
 	if key == "" {
 		logger.Warn("BIZINFO_API_KEY is not set; 기업마당/지자체 지원사업 수집이 비활성화됩니다")
@@ -302,6 +306,7 @@ func startBackgroundBizinfoCollection(dsn string, logger *slog.Logger) {
 			return
 		}
 		rn := runner.New(src, st, logger)
+		rn.OnChangesRecorded = srv.NotifyNoticeChanged
 
 		runOnce := func() {
 			res := rn.RunIncremental(ctx, time.Time{})
