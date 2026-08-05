@@ -2125,6 +2125,12 @@
   .landing-section--alt { background: var(--bg-soft); }
   .landing-section--tint { background: linear-gradient(180deg, rgba(49,130,246,0.06), rgba(49,130,246,0.02)); }
   .landing-container { max-width: 1100px; margin: 0 auto; }
+  /* landing-chrome-content — renderWithLandingChrome(이용약관/개인정보
+     처리방침/공지사항이 랜딩 헤더/푸터를 공유할 때 쓰는 본문 래퍼)의
+     상하좌우 여백. is-landing이 main#app의 기본 padding/max-width를
+     전부 해제하므로(body.is-landing main#app 규칙 참고) 여기서 다시
+     채워준다 — 안쪽은 .landing-container(1100px)로 폭을 관리한다. */
+  .landing-chrome-content { padding: var(--space-xl) var(--space-lg) 5rem; }
   .landing-section-eyebrow { text-align: center; font-size: 0.85rem; font-weight: 700; color: var(--accent-blue); margin: 0 0 0.6rem; }
   .landing-section-title { text-align: center; font-size: 1.6rem; font-weight: 800; color: var(--navy); margin: 0 0 0.75rem; line-height: 1.4; }
   .landing-section-desc { text-align: center; font-size: 0.98rem; color: var(--ink-soft); max-width: 640px; margin: 0 auto 2.5rem; line-height: 1.75; }
@@ -3112,6 +3118,66 @@ function legalMarkdownToHtml(text) {
   return out.join('\n');
 }
 
+// landingChromeHeaderHtml/landingChromeFooterHtml/renderWithLandingChrome —
+// 2026-08-05. 랜딩페이지(#/)의 헤더/푸터를 이용약관·개인정보처리방침·
+// 공지사항(#/terms, #/privacy, #/announcements[/{id}])에도 그대로
+// 공유한다 — 이 화면들은 전부 PUBLIC_ROUTES(로그인 불필요)이자 회원가입
+// 흐름 중 새 탭으로도 열리는 "공개 정보 페이지" 성격이라, 사이드바/
+// 상단헤더가 있는 일반 앱 셸보다 마케팅 사이트 톤의 랜딩 헤더/푸터가
+// 더 맞는다는 사용자 확정. renderLandingPage도 아래로 이 두 HTML
+// 함수를 그대로 가져다 쓴다(중복 정의 금지 — 헤더/푸터를 두 곳에서
+// 따로 관리하면 하나만 고치는 사고가 남).
+function landingChromeHeaderHtml() {
+  return `
+    <header class="landing-header">
+      <a href="#/" class="landing-logo brand-name-text">공공사업 AI 비서</a>
+      <div class="landing-header-actions">
+        <a href="#/announcements" class="link-btn">공지사항</a>
+        ${currentUser
+          ? '<a href="#/dashboard" class="home-cta-primary">대시보드로 이동</a>'
+          : '<a href="#/auth/login" class="home-cta-secondary">로그인</a><a href="#/auth/signup" class="home-cta-primary">무료로 시작하기</a>'}
+      </div>
+    </header>
+  `;
+}
+function landingChromeFooterHtml(year) {
+  return `
+    <footer class="landing-footer">
+      <div class="landing-container">
+        <div class="landing-footer-top">
+          <div class="landing-footer-info" id="landing-footer-info"></div>
+          <div class="landing-footer-links">
+            <a href="#/announcements">공지사항</a>
+            <a href="#/terms">이용약관</a>
+            <a href="#/privacy">개인정보처리방침</a>
+          </div>
+        </div>
+        <div class="landing-footer-bottom">
+          &copy; ${year} <span class="brand-name-text">공공사업 AI 비서</span>. All rights reserved.
+        </div>
+      </div>
+    </footer>
+  `;
+}
+// renderWithLandingChrome — contentHtml을 랜딩 헤더/푸터 사이의
+// .landing-container(1100px 중앙정렬)에 얹어 그린다. is-landing을 여기서
+// 직접 붙이는 이유: route()도 dispatch 직전에 동기적으로 미리 붙이지만
+// (#/ 전용 FOUC 방지 로직 재사용, 아래 route() 참고), 이 함수를 실수로
+// 다른 경로에서 단독 호출해도 항상 올바른 레이아웃이 되도록 방어적으로
+// 한 번 더 보장한다(멱등이라 무해).
+function renderWithLandingChrome(container, contentHtml) {
+  document.body.classList.add('is-landing');
+  const year = new Date().getFullYear();
+  container.innerHTML = '';
+  container.appendChild(h(`
+    ${landingChromeHeaderHtml()}
+    <main class="landing-chrome-content"><div class="landing-container">${contentHtml}</div></main>
+    ${landingChromeFooterHtml(year)}
+  `));
+  applyBrandName(currentBrandName);
+  renderLandingCompanyInfo();
+}
+
 // renderLegalDocument — #/terms, #/privacy(공개, 로그인 불필요). 회원가입
 // 2단계의 "보기" 링크가 새 탭으로 여기를 연다. docType은 'terms'|'privacy'.
 async function renderLegalDocument(container, docType) {
@@ -3125,13 +3191,12 @@ async function renderLegalDocument(container, docType) {
     container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
     return;
   }
-  container.innerHTML = '';
-  container.appendChild(h(`
+  renderWithLandingChrome(container, `
     <div class="legal-doc-page">
       <p class="license-card-meta">버전 ${escapeHtml(data.version)} · 시행일 ${escapeHtml(data.effectiveDate)}</p>
       <div class="legal-doc-content">${legalMarkdownToHtml(data.content)}</div>
     </div>
-  `));
+  `);
 }
 
 // tryRenderPopupLayer — 활성 팝업 중 오늘 아직 "하루 보지 않기"로 안 닫은
@@ -3440,15 +3505,7 @@ async function renderLandingPage(container) {
   const year = new Date().getFullYear();
   container.innerHTML = '';
   container.appendChild(h(`
-    <header class="landing-header">
-      <a href="#/" class="landing-logo brand-name-text">공공사업 AI 비서</a>
-      <div class="landing-header-actions">
-        <a href="#/announcements" class="link-btn">공지사항</a>
-        ${currentUser
-          ? '<a href="#/dashboard" class="home-cta-primary">대시보드로 이동</a>'
-          : '<a href="#/auth/login" class="home-cta-secondary">로그인</a><a href="#/auth/signup" class="home-cta-primary">무료로 시작하기</a>'}
-      </div>
-    </header>
+    ${landingChromeHeaderHtml()}
 
     <section class="landing-hero reveal">
       <div class="landing-hero-inner">
@@ -3573,21 +3630,7 @@ async function renderLandingPage(container) {
       </div>
     </section>
 
-    <footer class="landing-footer">
-      <div class="landing-container">
-        <div class="landing-footer-top">
-          <div class="landing-footer-info" id="landing-footer-info"></div>
-          <div class="landing-footer-links">
-            <a href="#/announcements">공지사항</a>
-            <a href="#/terms">이용약관</a>
-            <a href="#/privacy">개인정보처리방침</a>
-          </div>
-        </div>
-        <div class="landing-footer-bottom">
-          &copy; ${year} <span class="brand-name-text">공공사업 AI 비서</span>. All rights reserved.
-        </div>
-      </div>
-    </footer>
+    ${landingChromeFooterHtml(year)}
   `));
 
   initLandingFaqToggles(container);
@@ -12248,11 +12291,10 @@ async function renderAnnouncementList(container) {
     </a>
   `).join('')}</div>` : '<p class="empty">등록된 공지사항이 없습니다.</p>';
 
-  container.innerHTML = '';
-  container.appendChild(h(`
+  renderWithLandingChrome(container, `
     <h2>공지사항</h2>
     <div class="detail-card">${rowsHtml}</div>
-  `));
+  `);
 }
 
 async function renderAnnouncementDetail(container, id) {
@@ -12267,15 +12309,14 @@ async function renderAnnouncementDetail(container, id) {
     container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
     return;
   }
-  container.innerHTML = '';
-  container.appendChild(h(`
+  renderWithLandingChrome(container, `
     <a href="#/announcements" class="back-link">&larr; 공지사항 목록으로</a>
     <div class="detail-card">
       <h2>${a.isPinned ? '<span class="badge badge--warn">고정</span> ' : ''}${escapeHtml(a.title)}</h2>
       <p class="license-card-meta">${new Date(a.createdAt).toLocaleString('ko-KR')} · 조회 ${a.viewCount}</p>
       <div class="popup-layer-content">${simpleMarkdownToHtml(a.content)}</div>
     </div>
-  `));
+  `);
 }
 
 // ---------- 관리자 CMS 6번: 공지 게시판 관리(#/admin/announcements) ----------
@@ -12841,13 +12882,23 @@ function route() {
   // 이 분기가 path==='#/' 하나만 봤는데, 그대로 두면 로그인 사용자가
   // #/dashboard로 이동할 때마다 이 else 분기를 타서 방금 뜬 배너/팝업이
   // 매번 즉시 지워지는 회귀가 생긴다 — #/dashboard도 "홈" 취급해야 한다.
+  // ⚠️2026-08-05(3차 변경): 이용약관/개인정보처리방침/공지사항도 랜딩
+  // 헤더/푸터를 공유하게 되면서(renderWithLandingChrome 참고) is-landing이
+  // 필요해졌다 — 단, 이 화면들은 renderHomeOverlay를 안 쓰므로 배너/팝업
+  // 오버레이 정리는 그대로 필요하다(#/dashboard와 동일하게 "is-landing은
+  // 켜되 오버레이는 정리" 취급).
+  const LANDING_CHROME_ROUTES = new Set(['#/', '#/terms', '#/privacy', '#/announcements']);
+  const usesLandingChrome = LANDING_CHROME_ROUTES.has(path) || path.startsWith('#/announcements/');
   if (path === '#/') {
-    // ⚠️2026-08-05(같은 날 2차 변경, 사용자 확정): "#/는 로그인 상태면
-    // #/dashboard로 자동 리다이렉트"를 다시 뒤집었다 — 이제 #/는 로그인
-    // 여부와 무관하게 항상 랜딩페이지다(renderLandingPage가 currentUser
-    // 유무에 따라 헤더 CTA만 "로그인/회원가입" ↔ "대시보드로 이동"으로
-    // 바꿔 보여준다). is-landing도 더 이상 currentUser로 조건분기하지
-    // 않고 이 경로에서는 항상 true.
+    // ⚠️2026-08-05(2차 변경, 사용자 확정): "#/는 로그인 상태면 #/dashboard로
+    // 자동 리다이렉트"를 다시 뒤집었다 — 이제 #/는 로그인 여부와 무관하게
+    // 항상 랜딩페이지다(renderLandingPage가 currentUser 유무에 따라 헤더
+    // CTA만 "로그인/회원가입" ↔ "대시보드로 이동"으로 바꿔 보여준다).
+    // is-landing도 더 이상 currentUser로 조건분기하지 않고 항상 true.
+    document.body.classList.add('is-landing');
+  } else if (usesLandingChrome) {
+    document.getElementById('banner-layer-overlay')?.remove();
+    document.body.style.overflow = '';
     document.body.classList.add('is-landing');
   } else if (path === '#/dashboard') {
     document.body.classList.remove('is-landing');
