@@ -9,17 +9,13 @@
 //	host: apis.data.go.kr/1230000/as/ScsbidInfoService
 //	path: /getScsbidListSttusServcPPSSrch
 //
-// g2b.go가 검증한 "/ad/" 세그먼트와 마찬가지로 이 서비스는 "/as/"가 맞는
-// 경로다 — 실제로 이 경로에 대해서만 403 Forbidden(순수 텍스트, Kong 프록시
-// latency 헤더 없음)이 오고 나머지 조합(다른 접두사/오퍼레이션명)은 전부
-// 404/500이라, 게이트웨이가 이 경로 자체는 인식한다는 뜻이다. 즉 URL이
-// 틀린 게 아니라 이 서비스키에 대한 활용신청 승인이 아직 게이트웨이에
-// 반영되지 않았거나, 사용자가 승인받은 게 이 데이터셋(15129397)이 아닌
-// 유사한 다른 낙찰 관련 API일 가능성이 있다 — data.go.kr 마이페이지 >
-// 활용신청현황에서 정확히 이 데이터셋명("조달청_나라장터 낙찰정보서비스")의
-// 승인 상태를 재확인해야 한다. 이 파일의 코드는 그 문제와 무관하게 실제
-// Swagger 스키마 그대로 작성했으므로, 403이 풀리는 즉시 별도 코드 수정 없이
-// 동작해야 한다.
+// ✅ 2026-08-06 최종 확인: 이 경로/서비스키는 정상이다(운영 승인 완료,
+// 403 아님) — 예전엔 이 지점에서 403 Forbidden이 났었는데, 실제 원인은
+// URL/키/승인 문제가 아니라 **응답 파싱 버그**였다(itemsWrapper 주석
+// 참고 — items 필드가 예상과 달리 "item" 래퍼 없이 배열로 바로 옴). 운영
+// 키로 실제 프로덕션 코드를 직접 재현해 확정했다. 이 주석은 예전 진단이
+// 틀렸었다는 걸 남겨두는 기록용 — 더 이상 IP 등록/활용신청 승인 문제를
+// 의심할 필요 없음.
 package scsbid
 
 import (
@@ -30,6 +26,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"biz-platform/collector/internal/collector/common"
@@ -91,19 +88,58 @@ type apiEnvelope struct {
 
 type apiBody struct {
 	Items      itemsWrapper `json:"items"`
-	TotalCount string       `json:"totalCount"`
+	TotalCount flexibleInt  `json:"totalCount"`
 }
 
-// itemsWrapper handles the three shapes this API's "items" field can take:
-//   - "" (string) on NODATA_ERROR
-//   - {"item": {...}} when there's exactly one result (조달청 계열 API 공통
-//     XML→JSON 변환 특성 — 결과가 1건이면 배열이 아니라 단일 객체로 온다)
-//   - {"item": [...]} when there are multiple results
+// flexibleInt — 2026-08-06 실측 확인: totalCount는 문자열이 아니라 맨
+// 숫자로 온다(다른 조달청 계열 API는 문자열로 오는 경우가 있어 처음엔
+// string으로 추정했다가 파싱 에러로 잡힘). 숫자/따옴표 문자열 양쪽 다
+// 받아주는 방어적 타입 — 이 API군이 필드마다 타입 표기가 일관되지
+// 않는다는 걸 두 번째로 확인했으니(items 래퍼 건과 함께) 앞으로 이
+// 패키지에 필드를 더 추가할 때도 숫자 필드는 이 타입을 우선 검토할 것.
+type flexibleInt int
+
+func (n *flexibleInt) UnmarshalJSON(data []byte) error {
+	s := strings.Trim(string(data), `"`)
+	if s == "" {
+		*n = 0
+		return nil
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return err
+	}
+	*n = flexibleInt(v)
+	return nil
+}
+
+// itemsWrapper handles the shapes this API's "items" field can take.
+//
+// 🚨 2026-08-06 실측 정정: 이 필드가 나라장터 계열 API 공통 관행대로
+// {"item": {...}}/{"item": [...]}로 감싸져 올 것이라 추정했었으나(아래
+// 주석은 그 추정의 흔적), 운영 키로 실제 프로덕션 코드(scsbid.FetchAwards)를
+// 직접 호출해 재현한 결과 이 오퍼레이션(getScsbidListSttusServcPPSSrch)은
+// **"item" 래퍼 없이 items 필드에 곧장 배열을 내려준다**(numOfRows=1이어도
+// [{...}] 형태) — 이게 "Render에서만 낙찰이력 수집이 500으로 실패하던"
+// 진짜 원인이었다(IP 제한이 아니라 순수 JSON 파싱 버그, 로컬에서도 이
+// 코드를 실제로 돌려보기 전까진 안 잡혔음 — curl로 눈으로 확인할 때는
+// resultCode만 보고 실제 struct 파싱까지는 확인 안 했던 게 놓친 이유).
+// 배열 형태를 최우선으로 시도하고, 혹시 이 API가 상황에 따라 예전
+// 추정대로 {"item":...}로 감싸 올 수도 있으니(다른 페이지/기간에서
+// 다르게 동작할 가능성을 배제 못 해) 그 형태도 계속 폴백으로 처리한다.
+//   - [...] — 실측된 실제 형태(최우선)
+//   - "" (string) — NODATA_ERROR로 추정되는 경우
+//   - {"item": {...}} / {"item": [...]} — 예전 추정, 폴백으로 유지
 type itemsWrapper struct {
 	Items []json.RawMessage
 }
 
 func (w *itemsWrapper) UnmarshalJSON(data []byte) error {
+	var asArray []json.RawMessage
+	if err := json.Unmarshal(data, &asArray); err == nil {
+		w.Items = asArray
+		return nil
+	}
 	var asString string
 	if err := json.Unmarshal(data, &asString); err == nil {
 		w.Items = nil
@@ -204,7 +240,7 @@ func (s *Source) FetchAwards(ctx context.Context, begin, end time.Time) ([]Award
 			all = append(all, rec)
 		}
 
-		totalCount, _ := strconv.Atoi(body.TotalCount)
+		totalCount := int(body.TotalCount)
 		if pageNo*s.PageSize >= totalCount || len(body.Items.Items) == 0 {
 			return all, nil
 		}
