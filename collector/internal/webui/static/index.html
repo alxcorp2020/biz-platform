@@ -1348,6 +1348,9 @@
   }
   .chat-bubble--bot { background: var(--bg-soft); color: var(--ink); border-bottom-left-radius: 4px; }
   .chat-bubble--user { background: var(--accent-blue); color: #fff; border-bottom-right-radius: 4px; }
+  /* 타이핑 효과 중인 버블 — 클릭하면 즉시 전체 표시로 건너뛸 수 있음을
+     커서로 힌트만 준다(별도 텍스트 안내는 과하다고 판단). */
+  .chat-bubble--typing { cursor: pointer; }
   .chat-loading-dots { display: inline-flex; gap: 3px; align-items: center; padding: 0.15rem 0; }
   .chat-loading-dots span {
     width: 6px; height: 6px; border-radius: 50%; background: var(--ink-soft);
@@ -3693,13 +3696,81 @@ function scrollChatLogToBottom() {
   const el = chatLogEl();
   if (el) el.scrollTop = el.scrollHeight;
 }
-function appendBotBubble(html) {
+// appendBotBubbleRaw — 타이핑 효과 없이 즉시 전체 표시(로딩 인디케이터
+// 등 "지금 이 순간의 상태"를 보여주는 버블용 — 로딩 점 애니메이션이
+// 글자처럼 타이핑되면 오히려 부자연스럽다).
+function appendBotBubbleRaw(html) {
   const log = chatLogEl();
   if (!log) return null;
   const frag = h(`<div class="chat-row chat-row--bot"><div class="chat-bubble chat-bubble--bot">${html}</div></div>`);
   const rowEl = frag.firstElementChild;
   log.appendChild(frag);
   scrollChatLogToBottom();
+  return rowEl;
+}
+
+// CHAT_TYPING_MS_PER_CHAR — 글자당 타이핑 간격(2026-08-05 추가, 사용자
+// 스펙: 20~30ms).
+const CHAT_TYPING_MS_PER_CHAR = 24;
+
+// appendBotBubble — 실제 봇 대화 말풍선(질문/피드백)에 타이핑 효과를
+// 적용한다. html을 곧바로 innerHTML로 박아넣으면 태그 중간에서 잘려
+// "<b>안녕하세" 같은 부서진 태그가 노출될 수 있어, 먼저 완성된 DOM
+// 구조(태그는 전부 그대로)를 만들어두고 그 안의 텍스트 노드들만 순서대로
+// 한 글자씩 채운다 — 구조 자체는 처음부터 완전하므로 부분 태그 노출
+// 문제가 없다. 타이핑 중인 버블을 클릭하면 즉시 전체 표시로 건너뛴다.
+function appendBotBubble(html) {
+  const log = chatLogEl();
+  if (!log) return null;
+  const rowFrag = h(`<div class="chat-row chat-row--bot"><div class="chat-bubble chat-bubble--bot"></div></div>`);
+  const rowEl = rowFrag.firstElementChild;
+  const bubbleEl = rowEl.querySelector('.chat-bubble');
+  const contentFrag = h(`<span>${html}</span>`);
+  const sourceRoot = contentFrag.firstElementChild;
+  bubbleEl.appendChild(sourceRoot);
+
+  const textNodes = [];
+  (function collect(node) {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) textNodes.push(child);
+      else collect(child);
+    });
+  })(sourceRoot);
+  const fullTexts = textNodes.map((n) => n.data);
+  textNodes.forEach((n) => { n.data = ''; });
+
+  log.appendChild(rowFrag);
+  scrollChatLogToBottom();
+
+  const totalChars = fullTexts.reduce((sum, t) => sum + t.length, 0);
+  if (totalChars === 0) return rowEl;
+
+  bubbleEl.classList.add('chat-bubble--typing');
+  let done = false;
+  const finishNow = () => {
+    if (done) return;
+    done = true;
+    if (rowEl._typingTimer) clearInterval(rowEl._typingTimer);
+    textNodes.forEach((n, i) => { n.data = fullTexts[i]; });
+    bubbleEl.classList.remove('chat-bubble--typing');
+    scrollChatLogToBottom();
+  };
+  bubbleEl.addEventListener('click', finishNow);
+
+  let revealed = 0;
+  rowEl._typingTimer = setInterval(() => {
+    revealed += 1;
+    let remaining = revealed;
+    for (let i = 0; i < textNodes.length; i++) {
+      const len = fullTexts[i].length;
+      if (remaining >= len) { textNodes[i].data = fullTexts[i]; remaining -= len; }
+      else if (remaining > 0) { textNodes[i].data = fullTexts[i].slice(0, remaining); remaining = 0; }
+      else { textNodes[i].data = ''; }
+    }
+    scrollChatLogToBottom();
+    if (revealed >= totalChars) finishNow();
+  }, CHAT_TYPING_MS_PER_CHAR);
+
   return rowEl;
 }
 function appendUserBubble(text) {
@@ -3715,10 +3786,12 @@ function appendUserBubbleHtml(html) {
   return rowEl;
 }
 function appendChatLoadingBubble(label) {
-  return appendBotBubble(`<span class="chat-loading-dots"><span></span><span></span><span></span></span>${label ? ' ' + escapeHtml(label) : ''}`);
+  return appendBotBubbleRaw(`<span class="chat-loading-dots"><span></span><span></span><span></span></span>${label ? ' ' + escapeHtml(label) : ''}`);
 }
 function removeChatRow(rowEl) {
-  if (rowEl && rowEl.parentNode) rowEl.parentNode.removeChild(rowEl);
+  if (!rowEl) return;
+  if (rowEl._typingTimer) clearInterval(rowEl._typingTimer);
+  if (rowEl.parentNode) rowEl.parentNode.removeChild(rowEl);
 }
 function chatDelay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 function chatActionEl() { return document.getElementById('onboarding-chat-action'); }
@@ -3740,6 +3813,28 @@ async function refreshOnboardingCoverageAndContinue(state, nextFn) {
     }
   }
   nextFn(state);
+}
+
+// pushOnboardingBack/onboardingBackHandler — 공용 "이전 질문" 뒤로가기
+// 스택(2026-08-05 추가). 첫 구현 때는 각 함수마다 "직전 화면이 뭔지"를
+// 하드코딩해서 계산했는데(예: fieldIndex>0 ? ... : null), 사업자등록증
+// 업로드/OCR결과확인/신원정보질문/필드큐 등 여러 하위 흐름을 오가다 보니
+// 화면마다 빠뜨리는 경우가 계속 생겼다(실사용자 신고로 발견) — 대신
+// "이 화면으로 오기 직전에 있던 화면을 다시 그리는 방법"을 매 전환마다
+// state.backStack에 쌓아두고, [이전 질문]은 그 스택을 pop해서 그대로
+// 다시 호출하기만 하면 되도록 통일했다. 스택이 비어있으면(맨 처음 질문)
+// onBack이 null이라 버튼 자체가 안 뜬다.
+function pushOnboardingBack(state, redrawPrevScreen) {
+  state.backStack.push(redrawPrevScreen);
+}
+function onboardingBackHandler(state) {
+  if (!state.backStack.length) return null;
+  return () => {
+    appendUserBubble('‹ 이전 질문');
+    appendBotBubble('그럼 다시 여쭤볼게요.');
+    const prev = state.backStack.pop();
+    prev();
+  };
 }
 
 // renderOnboardingChat — #/onboarding/complete. 채팅형 온보딩 진입점.
@@ -3784,6 +3879,7 @@ async function renderOnboardingChat(container) {
     fieldIndex: 0,
     skipStreak: 0,
     warnedThisStreak: false,
+    backStack: [], // pushOnboardingBack/onboardingBackHandler 참고.
   };
 
   if (hasProfile) {
@@ -3811,10 +3907,12 @@ function renderOnboardingEntryChoiceAction(state) {
   `));
   document.getElementById('onboarding-entry-upload-btn').addEventListener('click', () => {
     appendUserBubble('📎 파일 첨부');
+    pushOnboardingBack(state, () => renderOnboardingEntryChoiceAction(state));
     startOnboardingFileUploadFlow(state);
   });
   document.getElementById('onboarding-entry-manual-btn').addEventListener('click', () => {
     appendUserBubble('✍️ 직접 기재');
+    pushOnboardingBack(state, () => renderOnboardingEntryChoiceAction(state));
     startOnboardingManualEntryIntro(state, false);
   });
 }
@@ -3827,14 +3925,18 @@ async function startOnboardingFileUploadFlow(state) {
   appendBotBubble('사업자등록증 파일을 올려주세요.<br><span style="color:var(--ink-soft);font-size:0.85em">PDF, JPG, PNG, WEBP · 약 30초 소요</span>');
   const actionEl = chatActionEl();
   actionEl.innerHTML = '';
+  const onBack = onboardingBackHandler(state);
   actionEl.appendChild(h(`
     <div>
       <input type="file" id="onboarding-biz-reg-file-input" accept=".pdf,.jpg,.jpeg,.png,.webp">
       <div id="onboarding-biz-reg-upload-error" class="error" style="display:none"></div>
+      ${onBack ? '<button type="button" class="btn btn-secondary" id="onboarding-biz-reg-back-btn" style="margin-top:0.6rem">‹ 이전 질문</button>' : ''}
     </div>
   `));
   const fileInput = document.getElementById('onboarding-biz-reg-file-input');
   const errorBox = document.getElementById('onboarding-biz-reg-upload-error');
+  const backBtn = document.getElementById('onboarding-biz-reg-back-btn');
+  if (backBtn) backBtn.addEventListener('click', onBack);
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files[0];
     if (!file) return;
@@ -3849,7 +3951,7 @@ async function startOnboardingFileUploadFlow(state) {
     } catch (err) {
       removeChatRow(loadingRow);
       appendBotBubble(`업로드에 실패했어요: ${escapeHtml(err.message)}`);
-      renderOnboardingEntryChoiceAction(state);
+      startOnboardingFileUploadFlow(state);
       return;
     }
     removeChatRow(loadingRow);
@@ -3858,6 +3960,7 @@ async function startOnboardingFileUploadFlow(state) {
     const loadingRow2 = appendChatLoadingBubble('분석하고 있습니다...');
     await chatDelay(700);
     removeChatRow(loadingRow2);
+    pushOnboardingBack(state, () => startOnboardingFileUploadFlow(state));
     showOnboardingBusinessRegResult(state, data.candidate || {});
   });
 }
@@ -3877,12 +3980,16 @@ function showOnboardingBusinessRegResult(state, candidate) {
   `);
   const actionEl = chatActionEl();
   actionEl.innerHTML = '';
+  const onBack = onboardingBackHandler(state);
   actionEl.appendChild(h(`
     <div class="chat-chip-row">
       <button type="button" class="chat-chip" id="onboarding-bizreg-confirm-btn">✓ 맞습니다</button>
       <button type="button" class="chat-chip" id="onboarding-bizreg-edit-btn">✍️ 직접 기재로 수정하기</button>
+      ${onBack ? '<button type="button" class="chat-chip" id="onboarding-bizreg-back-btn">‹ 이전 질문</button>' : ''}
     </div>
   `));
+  const backBtn = document.getElementById('onboarding-bizreg-back-btn');
+  if (backBtn) backBtn.addEventListener('click', onBack);
   document.getElementById('onboarding-bizreg-confirm-btn').addEventListener('click', async () => {
     appendUserBubble('✓ 맞습니다');
     actionEl.innerHTML = '';
@@ -3905,6 +4012,7 @@ function showOnboardingBusinessRegResult(state, candidate) {
     }
     removeChatRow(loadingRow);
     appendBotBubble('감사합니다! 등록했어요 :)');
+    pushOnboardingBack(state, () => showOnboardingBusinessRegResult(state, c));
     await refreshOnboardingCoverageAndContinue(state, runOnboardingIdentityQueue);
   });
   document.getElementById('onboarding-bizreg-edit-btn').addEventListener('click', () => {
@@ -3921,6 +4029,7 @@ function showOnboardingBusinessRegResult(state, candidate) {
       region: c.region || null,
       industry: c.industry || [],
     });
+    pushOnboardingBack(state, () => showOnboardingBusinessRegResult(state, c));
     startOnboardingManualEntryIntro(state, true);
   });
 }
@@ -3935,21 +4044,20 @@ function startOnboardingManualEntryIntro(state, isCorrection) {
       : '사업자등록증이 없으시거나 직접 입력을 원하시는군요!<br>사업자 정보 몇 가지만 여쭤볼게요. 질문해도 될까요?');
     const actionEl = chatActionEl();
     actionEl.innerHTML = '';
+    const onBack = onboardingBackHandler(state);
     actionEl.appendChild(h(`
       <div class="chat-chip-row">
         <button type="button" class="chat-chip" id="onboarding-manual-proceed-btn">네, 진행할게요</button>
-        <button type="button" class="chat-chip" id="onboarding-manual-back-btn">‹ 이전 질문</button>
+        ${onBack ? '<button type="button" class="chat-chip" id="onboarding-manual-back-btn">‹ 이전 질문</button>' : ''}
       </div>
     `));
     document.getElementById('onboarding-manual-proceed-btn').addEventListener('click', () => {
       appendUserBubble('네, 진행할게요');
-      runOnboardingIdentityQueue(state);
+      pushOnboardingBack(state, () => startOnboardingManualEntryIntro(state, isCorrection));
+      runOnboardingIdentityQueue(state, isCorrection);
     });
-    document.getElementById('onboarding-manual-back-btn').addEventListener('click', () => {
-      appendUserBubble('‹ 이전 질문');
-      appendBotBubble('그럼 다시 여쭤볼게요.');
-      renderOnboardingEntryChoiceAction(state);
-    });
+    const backBtn = document.getElementById('onboarding-manual-back-btn');
+    if (backBtn) backBtn.addEventListener('click', onBack);
   });
 }
 
@@ -4070,7 +4178,16 @@ const ONBOARDING_IDENTITY_FIELD_DEFS = [
   { fieldKey: 'businessType', prompt: '업태가 어떻게 되나요?', render: renderBusinessTypeChatForm, echo: (p) => (p.businessType || [])[0] || '' },
 ];
 
-function buildOnboardingIdentityQueue() {
+// buildOnboardingIdentityQueue(force) — force가 true면(경로 A OCR 결과를
+// "직접 기재로 수정하기") 이미 값이 채워져 있어도 3개 전부 다시 묻는다.
+// ⚠️2026-08-05 버그 수정: showOnboardingBusinessRegResult의 [직접 기재로
+// 수정하기]가 OCR 후보값을 currentProfile에 미리 채워넣은 뒤(폼 프리필
+// 목적) 이 함수를 그대로 호출했더니, "이미 채워졌으면 건너뛴다"는 이
+// 필터 로직 때문에 큐가 통째로 비어버려 아무 질문도 안 뜨고 바로 다음
+// 섹션(직원수 등)으로 넘어가버렸다 — 값이 있어도 "수정하러 온 것"이면
+// 무조건 다시 물어봐야 한다는 게 이 force 플래그의 목적.
+function buildOnboardingIdentityQueue(force) {
+  if (force) return ONBOARDING_IDENTITY_FIELD_DEFS.slice();
   const p = currentProfile || {};
   return ONBOARDING_IDENTITY_FIELD_DEFS.filter(def => {
     if (def.fieldKey === 'businessType') return !(p.businessType && p.businessType.length);
@@ -4078,20 +4195,35 @@ function buildOnboardingIdentityQueue() {
   });
 }
 
-function runOnboardingIdentityQueue(state) {
-  runOnboardingIdentityStep(state, buildOnboardingIdentityQueue(), 0);
+function runOnboardingIdentityQueue(state, force) {
+  runOnboardingIdentityStep(state, buildOnboardingIdentityQueue(force), 0, force);
 }
 
-async function runOnboardingIdentityStep(state, queue, index) {
+async function runOnboardingIdentityStep(state, queue, index, force) {
   if (index >= queue.length) {
     if (queue.length) {
       // 방금 신원정보(4문항 중 일부/전부)를 채웠을 때만 마무리 인사를
       // 보여준다 — 전부 이미 채워진 상태로 들어온 재진입에서는 생략.
+      // 다음 화면(업종 재확인 또는 필드큐)에서 [이전 질문]을 누르면 이
+      // 큐의 마지막 질문으로 돌아올 수 있도록 미리 쌓아둔다.
+      pushOnboardingBack(state, () => runOnboardingIdentityStep(state, queue, queue.length - 1, force));
       await refreshOnboardingCoverageAndContinue(state, () => {
         appendBotBubble('감사합니다! 입력해주신 정보로 등록할게요 :)');
-        runOnboardingFieldQueue(state);
+        if (force) {
+          // 업종은 원래 공용 필수 필드큐(judged)가 자연스럽게 묻지만,
+          // 그 큐는 "이미 채워졌으면 건너뛴다" 방식이라 OCR이 채워둔
+          // 업종을 수정할 기회가 없다 — 수정 흐름에서는 명시적으로
+          // 한 번 더 물어본다.
+          runOnboardingIndustryCorrectionStep(state);
+        } else {
+          runOnboardingFieldQueue(state);
+        }
       });
     } else {
+      // 이 하위 큐 자체가 비어있었다(신원정보가 이미 전부 채워진 상태로
+      // 들어옴) — 여기서는 아무것도 안 쌓는다. [이전 질문]을 누르면
+      // 자연스럽게 이 신원정보 큐를 건너뛰고 그 이전 화면(예: 안내 인사말)
+      // 으로 바로 돌아간다.
       runOnboardingFieldQueue(state);
     }
     return;
@@ -4101,17 +4233,38 @@ async function runOnboardingIdentityStep(state, queue, index) {
   appendBotBubble(`${def.prompt} <span class="onboarding-required-badge">필수</span>`);
   const actionEl = chatActionEl();
   actionEl.innerHTML = '';
-  const onBack = index > 0 ? () => {
-    appendUserBubble('‹ 이전 질문');
-    appendBotBubble('그럼 다시 여쭤볼게요.');
-    runOnboardingIdentityStep(state, queue, index - 1);
-  } : null;
+  const onBack = index > 0
+    ? () => {
+        appendUserBubble('‹ 이전 질문');
+        appendBotBubble('그럼 다시 여쭤볼게요.');
+        runOnboardingIdentityStep(state, queue, index - 1, force);
+      }
+    : onboardingBackHandler(state);
   def.render(actionEl, () => {
     const echoText = def.echo(currentProfile || {});
     appendUserBubble(echoText);
     appendBotBubble(`<b>${escapeHtml(echoText)}</b>로 입력하셨네요! 감사합니다 :)`);
-    runOnboardingIdentityStep(state, queue, index + 1);
+    runOnboardingIdentityStep(state, queue, index + 1, force);
   }, onBack);
+}
+
+// runOnboardingIndustryCorrectionStep — "직접 기재로 수정하기" 전용
+// 4번째 질문(업종). 위 buildOnboardingIdentityQueue의 force 주석 참고.
+function runOnboardingIndustryCorrectionStep(state) {
+  chatDelay(350).then(() => {
+    appendBotBubble('업종이 어떻게 되나요? (복수 선택 가능) <span class="onboarding-required-badge">필수</span>');
+    const actionEl = chatActionEl();
+    actionEl.innerHTML = '';
+    const onBack = onboardingBackHandler(state);
+    renderIndustryQuickForm(actionEl, () => {
+      const p = currentProfile || {};
+      const echo = (p.industry || []).join(', ');
+      appendUserBubble(echo);
+      appendBotBubble(`<b>${escapeHtml(echo)}</b>로 입력하셨네요! 감사합니다 :)`);
+      pushOnboardingBack(state, () => runOnboardingIndustryCorrectionStep(state));
+      runOnboardingFieldQueue(state);
+    }, onBack);
+  });
 }
 
 // ==================== 온보딩 정보요청 흐름(Phase UX-03→09 누적) ====================
@@ -4383,15 +4536,19 @@ async function runOnboardingFieldQueue(state) {
       runOnboardingFieldQueue(state);
     });
   };
-  // onBack — 필드큐 안에서만 뒤로 간다(첫 필드 항목에서는 없음, 신원정보
-  // 큐로 넘어가서 되돌리는 것까지는 이번 범위 밖). 신원정보 큐의 onBack과
-  // 같은 패턴("그럼 다시 여쭤볼게요" 후 같은 인덱스 재렌더).
-  const onBack = fieldIndex > 0 ? () => {
-    appendUserBubble('‹ 이전 질문');
-    appendBotBubble('그럼 다시 여쭤볼게요.');
-    state.fieldIndex -= 1;
-    runOnboardingFieldQueue(state);
-  } : null;
+  // onBack — 필드큐 안에서는 로컬로(직전 필드 인덱스) 되돌리고, 첫
+  // 필드 항목(fieldIndex===0)에서는 공용 뒤로가기 스택을 이용해 이
+  // 큐로 들어오기 직전 화면(신원정보 큐 마지막 질문/업종 재확인/인사말
+  // 등)으로 돌아간다 — 2026-08-05: 예전엔 fieldIndex===0일 때 onBack이
+  // 그냥 null이라 [이전 질문] 버튼 자체가 안 뜨는 누락이 있었다.
+  const onBack = fieldIndex > 0
+    ? () => {
+        appendUserBubble('‹ 이전 질문');
+        appendBotBubble('그럼 다시 여쭤볼게요.');
+        state.fieldIndex -= 1;
+        runOnboardingFieldQueue(state);
+      }
+    : onboardingBackHandler(state);
 
   if (card.fieldKey === 'employeeCount') {
     renderOnboardingEmployeeCountAction(actionEl, state, card, isRequired, advance, onBack);
