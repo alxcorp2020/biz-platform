@@ -1329,14 +1329,55 @@
     color: var(--ink-soft); font-size: 0.85rem; font-weight: 600; cursor: pointer; padding: 0.25rem 0.4rem;
   }
   .onboarding-exit-btn:hover { color: var(--ink); }
-  /* 카드 전환 로딩(스피너+문구) — 등록/건너뛰기 직후 다음 카드로 넘어가기 전. */
-  .onboarding-transition-loading { padding: 2.5rem 0; text-align: center; }
-  .onboarding-transition-spinner {
-    width: 28px; height: 28px; margin: 0 auto 0.75rem; border-radius: 50%;
-    border: 3px solid var(--bg-soft); border-top-color: var(--accent-blue);
-    animation: onboarding-spin 0.7s linear infinite;
+
+  /* ---------- 채팅형 온보딩(2026-08-05, 카드형 전면 재설계) ----------
+     카카오톡류 챗봇 패턴 — 봇 말풍선은 왼쪽 회색, 사용자 말풍선은 오른쪽
+     파란색. .chat-log는 내부 스크롤(위로 쌓임), .chat-action은 그 아래
+     고정된 "지금 답할 차례" 영역(칩 버튼 또는 짧은 입력폼). */
+  .chat-shell { display: flex; flex-direction: column; }
+  .chat-log {
+    max-height: 52vh; overflow-y: auto; padding: 0.25rem 0.1rem;
+    display: flex; flex-direction: column; gap: 0.15rem; margin-top: 0.5rem;
   }
-  @keyframes onboarding-spin { to { transform: rotate(360deg); } }
+  .chat-row { display: flex; margin: 0.35rem 0; }
+  .chat-row--bot { justify-content: flex-start; }
+  .chat-row--user { justify-content: flex-end; }
+  .chat-bubble {
+    max-width: 82%; padding: 0.6rem 0.85rem; border-radius: 14px; font-size: 0.92rem;
+    line-height: 1.55; white-space: pre-line; text-align: left;
+  }
+  .chat-bubble--bot { background: var(--bg-soft); color: var(--ink); border-bottom-left-radius: 4px; }
+  .chat-bubble--user { background: var(--accent-blue); color: #fff; border-bottom-right-radius: 4px; }
+  .chat-loading-dots { display: inline-flex; gap: 3px; align-items: center; padding: 0.15rem 0; }
+  .chat-loading-dots span {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--ink-soft);
+    animation: chat-blink 1.2s infinite ease-in-out;
+  }
+  .chat-loading-dots span:nth-child(2) { animation-delay: .2s; }
+  .chat-loading-dots span:nth-child(3) { animation-delay: .4s; }
+  @media (prefers-reduced-motion: reduce) { .chat-loading-dots span { animation: none; opacity: .6; } }
+  @keyframes chat-blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+  .chat-action { padding-top: 0.6rem; border-top: 1px solid var(--border); margin-top: 0.4rem; text-align: left; }
+  .chat-chip-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .chat-chip {
+    font-size: 0.88rem; padding: 0.5rem 0.95rem; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: #fff; color: var(--ink);
+  }
+  .chat-chip:hover { border-color: var(--accent-blue); }
+  .chat-chip.is-selected { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+  .chat-required-note { margin: 0.5rem 0 0; font-size: 0.82rem; color: var(--accent-blue-deep); font-weight: 600; }
+  .chat-skip-btn { margin-top: 0.6rem; }
+  /* step-card-inline — 봇 말풍선 안에 끼워넣는 작은 요약 카드(사업자등록증
+     OCR 결과 확인 등). 채팅 버블 자체의 padding에 자연스럽게 얹히도록
+     여백만 최소로. */
+  .step-card-inline {
+    background: rgba(255,255,255,0.6); border-radius: 8px; padding: 0.55rem 0.7rem;
+    margin-bottom: 0.5rem; font-size: 0.9rem;
+  }
+  .chat-skip-warning {
+    background: rgba(230,162,60,0.12); border: 1px solid rgba(230,162,60,0.35); border-radius: 10px;
+    padding: 0.5rem 0.75rem; font-size: 0.85rem; color: var(--warn); margin: 0.4rem 0;
+  }
   .glossary-btn--warn { border-color: var(--warn); color: var(--warn); }
   .glossary-btn--warn:hover, .glossary-btn--warn:focus-visible { background: var(--warn); color: #fff; }
 
@@ -1802,16 +1843,6 @@
     margin-bottom: 1.25rem; background: var(--bg-soft);
   }
   .license-confirm-form h4 { margin: 0 0 0.75rem; }
-  .biz-reg-summary-line { font-size: 1.05rem; font-weight: 600; color: var(--navy); margin: 0 0 1.25rem; }
-  .biz-reg-steps { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.5rem 0 0.25rem; }
-  .biz-reg-step { display: flex; align-items: center; gap: 0.6rem; font-size: 0.92rem; color: var(--ink-soft); }
-  .biz-reg-step-icon { width: 1.1rem; text-align: center; }
-  .biz-reg-step.is-done { color: var(--navy); }
-  .biz-reg-step.is-done .biz-reg-step-icon { color: var(--success); }
-  .biz-reg-step.is-current { color: var(--navy); font-weight: 600; }
-  .biz-reg-step.is-current .biz-reg-step-icon { color: var(--accent-blue); animation: bizRegPulse 1.1s ease-in-out infinite; }
-  .biz-reg-step.is-pending { color: var(--ink-faint, var(--ink-soft)); opacity: 0.6; }
-  @keyframes bizRegPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
   /* ---------- 기업 프로필 탭(기본정보/재무정보/수행실적/인력정보) ---------- */
   /* margin-left/right 생략 이유는 .dash-section-title 주석 참고(같은
@@ -3627,128 +3658,237 @@ function renderOnboardingHero(container) {
       </ul>
       <p class="home-hero-desc">약 30초 정도 소요됩니다.</p>
       <div class="home-hero-actions">
-        <a href="#/onboarding/business-registration" class="home-cta-primary">사업자등록증 등록</a>
+        <a href="#/onboarding/complete" class="home-cta-primary">사업자등록증 등록</a>
       </div>
     </div>
   `));
 }
 
-// renderBusinessRegistrationOnboarding — #/onboarding/business-registration
-// (Phase UX-01, 2026-08-04). 파일 업로드 → POST /api/me/business-registration/
-// extract(company_documents.go의 6개 카테고리와 같은 candidate 패턴 — DB엔
-// 아무것도 저장 안 함) → 확인 폼(전부 수정 가능) → "예, 맞습니다" →
-// PUT /api/me/company-profile(handleUpsertCompanyProfile 그대로 재사용,
-// region/industry는 AI가 채운 값을 프리필)로 저장 → #/onboarding/complete.
-//
-// 2026-08-04 추가 요청으로 이 화면은 이제 하드 게이트다("안 하면 절대
-// 이동 불가", route()의 COMPANY_PROFILE_EXEMPT_ROUTES 참고) — 휴대폰/이메일
-// 인증 화면과 같은 강제성이라 사이드바를 숨기고(is-auth) "나중에 하기"
-// 스킵 버튼은 없앴다. 대신 AI 추출이 반복 실패하거나 사용자가 그냥 직접
-// 입력하고 싶을 때를 위해 "직접 입력하기" 링크로 빈 확인폼을 열어준다 —
-// 업로드 자체를 강제하는 게 아니라 "회사 정보를 등록해야 한다"는 게
-// 핵심이라, 수동 입력도 항상 열어둔다.
-function renderBusinessRegistrationOnboarding(container) {
+// ==================== 채팅형 온보딩(2026-08-05, 카드형 전면 재설계) ====================
+// 카드형(Phase UX-03→UX-10)을 채팅형 대화 UI로 전면 교체 — 원상복구용
+// 백업은 git tag onboarding-card-ux-backup-2026-08-05(커밋 3b6d36f)에
+// 있다. 사업자등록증 유무를 첫 질문으로 물어보고("파일 첨부"/"직접
+// 기재"), 이후 지역/업종/기업규모(필수)·업력/직원수/매출액/수행실적/
+// 면허/인증/직접생산확인(선택)까지 전부 하나의 대화 로그 안에서 순차
+// 진행한다. 사용자와 사전 확정한 설계(전체 시나리오 문서 검토 후 결정):
+//  - 재진입 시 실제 채팅 로그를 서버에 저장하지 않는다 — 저장된 필드값
+//    기준으로 이미 답한 항목은 로딩 없이 즉시 재구성(리플레이)하고
+//    마지막 미답변 지점부터 라이브로 이어간다.
+//  - 직원수 구간(EMPLOYEE_COUNT_RANGE_OPTIONS)/업력 구간
+//    (BUSINESS_AGE_RANGE_OPTIONS)은 기존 #/me/profile과 통일된 값을
+//    그대로 재사용한다(새 구간 세트를 따로 안 만듦).
+//  - 면허/인증/재무(매출액)/수행실적은 1차 구현에서 직접입력만 지원—
+//    증빙파일 첨부는 2차로 미룬다. 사업자등록증 OCR과 4대보험 자동입력
+//    (직원수)은 기존에 이미 있던 핵심 기능이라 그대로 유지한다.
+//  - "재무"는 기존 온보딩 필드인 매출액(company_profiles.revenue_amount)
+//    을 그대로 가리킨다 — 재무정보(company_financials, 결산연도 등
+//    12개 필드짜리 정식 엔티티)는 예전부터 "온보딩엔 안 넣기로" 결정된
+//    이력이 있어(성장분석 세션) 이번에도 범위 밖으로 유지.
+
+// 채팅 로그/말풍선 공용 헬퍼. h()는 DocumentFragment를 반환하므로(2306행
+// 근처 정의) appendChild 전에 firstElementChild로 실제 노드 참조를 미리
+// 잡아둬야 한다 — append 후엔 프래그먼트 자체가 비워진다.
+function chatLogEl() { return document.getElementById('onboarding-chat-log'); }
+function scrollChatLogToBottom() {
+  const el = chatLogEl();
+  if (el) el.scrollTop = el.scrollHeight;
+}
+function appendBotBubble(html) {
+  const log = chatLogEl();
+  if (!log) return null;
+  const frag = h(`<div class="chat-row chat-row--bot"><div class="chat-bubble chat-bubble--bot">${html}</div></div>`);
+  const rowEl = frag.firstElementChild;
+  log.appendChild(frag);
+  scrollChatLogToBottom();
+  return rowEl;
+}
+function appendUserBubble(text) {
+  appendUserBubbleHtml(escapeHtml(text));
+}
+function appendUserBubbleHtml(html) {
+  const log = chatLogEl();
+  if (!log) return null;
+  const frag = h(`<div class="chat-row chat-row--user"><div class="chat-bubble chat-bubble--user">${html}</div></div>`);
+  const rowEl = frag.firstElementChild;
+  log.appendChild(frag);
+  scrollChatLogToBottom();
+  return rowEl;
+}
+function appendChatLoadingBubble(label) {
+  return appendBotBubble(`<span class="chat-loading-dots"><span></span><span></span><span></span></span>${label ? ' ' + escapeHtml(label) : ''}`);
+}
+function removeChatRow(rowEl) {
+  if (rowEl && rowEl.parentNode) rowEl.parentNode.removeChild(rowEl);
+}
+function chatDelay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+function chatActionEl() { return document.getElementById('onboarding-chat-action'); }
+
+// refreshOnboardingCoverageAndContinue — 저장 직후 completeness를 다시
+// 조회해 상단 게이지를 갱신하고, 값이 실제로 바뀌었을 때만 "AI 분석
+// 커버리지가 X% → Y%가 됐어요" 말풍선을 추가한 뒤 다음 단계로 넘어간다.
+async function refreshOnboardingCoverageAndContinue(state, nextFn) {
+  let fresh = null;
+  try { fresh = await apiRequest('GET', '/api/me/profile-completeness'); } catch (err) { /* 재조회 실패해도 진행은 막지 않는다 */ }
+  if (fresh) {
+    const before = state.completeness.overallCompleteness;
+    state.completeness = fresh;
+    const slot = document.getElementById('onboarding-coverage-slot');
+    if (slot) slot.innerHTML = onboardingCoverageBarHtml(fresh.overallCompleteness);
+    if (fresh.overallCompleteness !== before) {
+      const reachedGate = before < ONBOARDING_MIN_COMPLETENESS && fresh.overallCompleteness >= ONBOARDING_MIN_COMPLETENESS;
+      appendBotBubble(`AI 분석 커버리지가 <b>${before}% → ${fresh.overallCompleteness}%</b>가 됐어요.${reachedGate ? ' 필수 정보를 모두 채우셨어요 🎉' : ''}`);
+    }
+  }
+  nextFn(state);
+}
+
+// renderOnboardingChat — #/onboarding/complete. 채팅형 온보딩 진입점.
+// currentProfile이 아직 없는 신규 계정은 GET /api/dashboard·
+// /api/me/profile-completeness가 둘 다 company_profile_required(400)로
+// 거부한다(두 엔드포인트 전부 프로필 존재를 전제) — 그래서 프로필이
+// 생기기 전에는 이 두 호출을 아예 하지 않고 0%로 시작, 회사 식별정보가
+// 처음 저장된 뒤(ensureOnboardingFieldQueue)에야 조회한다.
+async function renderOnboardingChat(container) {
   document.body.classList.add('is-auth');
   document.body.classList.remove('is-landing');
   container.innerHTML = '';
+
+  const hasProfile = !!currentProfile;
+  let completenessData = { overallCompleteness: 0 };
+  if (hasProfile) {
+    container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+    try {
+      completenessData = await apiRequest('GET', '/api/me/profile-completeness');
+    } catch (err) {
+      container.innerHTML = '';
+      container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+      return;
+    }
+  }
+
+  container.innerHTML = '';
   container.appendChild(h(`
-    <div class="detail-card onboarding-shell">
-      <p class="home-hero-eyebrow" style="text-align:center">공공사업 AI 비서</p>
-      <h2 style="text-align:center">사업자등록증을 분석하여<br>귀사에 맞는 사업을 찾아드립니다</h2>
-      <ul class="home-hero-checklist" style="align-items:center">
-        <li>✓ 회사정보 자동생성</li>
-        <li>✓ 업종 자동분석</li>
-        <li>✓ 추천공고 생성</li>
-      </ul>
-      <p class="license-card-meta" style="text-align:center">약 30초 정도 소요됩니다. PDF, JPG, PNG, WEBP 파일을 올려주세요.</p>
-      <div id="biz-reg-upload-area">
-        <input type="file" id="biz-reg-file-input" accept=".pdf,.jpg,.jpeg,.png,.webp">
-        <div id="biz-reg-upload-status"></div>
-        <div id="biz-reg-upload-error" class="error" style="display:none"></div>
-      </div>
-      <div id="biz-reg-form-slot"></div>
-      <p class="auth-switch"><a href="#" id="biz-reg-manual-entry-link">직접 입력하기</a></p>
+    <div class="detail-card onboarding-shell chat-shell">
+      ${onboardingExitButtonHtml()}
+      <div id="onboarding-coverage-slot">${onboardingCoverageBarHtml(completenessData.overallCompleteness)}</div>
+      <div id="onboarding-chat-log" class="chat-log"></div>
+      <div id="onboarding-chat-action" class="chat-action"></div>
     </div>
   `));
+  wireOnboardingExitButton();
 
-  const fileInput = document.getElementById('biz-reg-file-input');
-  const statusBox = document.getElementById('biz-reg-upload-status');
-  const errorBox = document.getElementById('biz-reg-upload-error');
-  const formSlot = document.getElementById('biz-reg-form-slot');
+  const state = {
+    container,
+    completeness: completenessData,
+    fieldQueue: null, // ensureOnboardingFieldQueue가 프로필이 생긴 뒤에 채운다.
+    fieldIndex: 0,
+    skipStreak: 0,
+    warnedThisStreak: false,
+  };
 
+  if (hasProfile) {
+    // 재진입(또는 이미 회사 식별정보를 일부/전부 채운 상태) — 인사말을
+    // 처음부터 다시 묻지 않고 짧게 리플레이만 한 뒤 이어간다.
+    appendBotBubble('안녕하세요! 다시 오셨네요 :) 이어서 진행할게요.');
+    runOnboardingIdentityQueue(state);
+    return;
+  }
+
+  appendBotBubble('안녕하세요! 공공사업 참여판단을 도와드릴게요 :)<br>몇 가지만 여쭤보고 바로 맞춤 공고를 찾아드릴게요.');
+  await chatDelay(500);
+  appendBotBubble('사업자등록증이 있어야 공공사업분석이 가능합니다.<br>준비되면 클릭해주세요!');
+  renderOnboardingEntryChoiceAction(state);
+}
+
+function renderOnboardingEntryChoiceAction(state) {
+  const actionEl = chatActionEl();
+  actionEl.innerHTML = '';
+  actionEl.appendChild(h(`
+    <div class="chat-chip-row">
+      <button type="button" class="chat-chip" id="onboarding-entry-upload-btn">📎 파일 첨부</button>
+      <button type="button" class="chat-chip" id="onboarding-entry-manual-btn">✍️ 직접 기재</button>
+    </div>
+  `));
+  document.getElementById('onboarding-entry-upload-btn').addEventListener('click', () => {
+    appendUserBubble('📎 파일 첨부');
+    startOnboardingFileUploadFlow(state);
+  });
+  document.getElementById('onboarding-entry-manual-btn').addEventListener('click', () => {
+    appendUserBubble('✍️ 직접 기재');
+    startOnboardingManualEntryIntro(state, false);
+  });
+}
+
+// startOnboardingFileUploadFlow — 기존 business_registration.go의
+// POST /api/me/business-registration/extract를 그대로 재사용(로직/엔드포인트
+// 무변경, 화면 표현만 채팅 버블로 바뀜).
+async function startOnboardingFileUploadFlow(state) {
+  await chatDelay(300);
+  appendBotBubble('사업자등록증 파일을 올려주세요.<br><span style="color:var(--ink-soft);font-size:0.85em">PDF, JPG, PNG, WEBP · 약 30초 소요</span>');
+  const actionEl = chatActionEl();
+  actionEl.innerHTML = '';
+  actionEl.appendChild(h(`
+    <div>
+      <input type="file" id="onboarding-biz-reg-file-input" accept=".pdf,.jpg,.jpeg,.png,.webp">
+      <div id="onboarding-biz-reg-upload-error" class="error" style="display:none"></div>
+    </div>
+  `));
+  const fileInput = document.getElementById('onboarding-biz-reg-file-input');
+  const errorBox = document.getElementById('onboarding-biz-reg-upload-error');
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files[0];
     if (!file) return;
     errorBox.style.display = 'none';
-    formSlot.innerHTML = '';
     fileInput.disabled = true;
-    statusBox.innerHTML = bizRegAnalysisStepsHtml(1);
+    appendUserBubble(`📄 ${file.name} 첨부됨`);
+    actionEl.innerHTML = '';
+    const loadingRow = appendChatLoadingBubble();
+    let data;
     try {
-      const data = await uploadCompanyRecordDocument('/api/me/business-registration/extract', file);
-      statusBox.innerHTML = '';
-      renderBusinessRegistrationSummaryCard(formSlot, data.candidate || {});
+      data = await uploadCompanyRecordDocument('/api/me/business-registration/extract', file);
     } catch (err) {
-      statusBox.innerHTML = '';
-      errorBox.textContent = err.message;
-      errorBox.style.display = 'block';
-    } finally {
-      fileInput.disabled = false;
+      removeChatRow(loadingRow);
+      appendBotBubble(`업로드에 실패했어요: ${escapeHtml(err.message)}`);
+      renderOnboardingEntryChoiceAction(state);
+      return;
     }
-  });
-
-  document.getElementById('biz-reg-manual-entry-link').addEventListener('click', (e) => {
-    e.preventDefault();
-    errorBox.style.display = 'none';
-    renderBusinessRegistrationEditForm(formSlot, {});
+    removeChatRow(loadingRow);
+    appendBotBubble('정상적으로 업로드되었습니다 :)');
+    await chatDelay(300);
+    const loadingRow2 = appendChatLoadingBubble('분석하고 있습니다...');
+    await chatDelay(700);
+    removeChatRow(loadingRow2);
+    showOnboardingBusinessRegResult(state, data.candidate || {});
   });
 }
 
-// bizRegAnalysisStepsHtml — 업로드 직후 보여줄 실제 단계 체크리스트.
-// 백엔드는 완전 동기 호출 1건(POST .../extract)이라 서버가 중간 단계를
-// 알려줄 방법이 없다 — "사업자번호를 찾았습니다" 같은 세부 단계를 타이머로
-// 순환시키면 그게 곧 가짜 진행률이 되므로, 클라이언트가 실제로 아는 상태
-// 전이 3개(업로드 검증됨 → fetch 진행 중 → 응답 도착)만 표시한다.
-function bizRegAnalysisStepsHtml(currentIdx) {
-  const steps = ['문서를 확인했습니다', 'AI가 사업자등록증을 분석하고 있습니다', '결과를 준비합니다'];
-  const rows = steps.map((label, i) => {
-    const state = i < currentIdx ? 'is-done' : (i === currentIdx ? 'is-current' : 'is-pending');
-    const icon = i < currentIdx ? '✓' : (i === currentIdx ? '●' : '○');
-    return `<div class="biz-reg-step ${state}"><span class="biz-reg-step-icon">${icon}</span><span>${escapeHtml(label)}</span></div>`;
-  }).join('');
-  return `<div class="biz-reg-steps">${rows}</div>`;
-}
-
-// renderBusinessRegistrationSummaryCard — AI 추출 직후 첫 화면(Phase UX-02,
-// 2026-08-04). 필드 전체를 늘어놓은 편집폼 대신, 사용자가 즉시 맞다/아니다만
-// 판단할 수 있게 핵심 3개(상호·지역·업종)만 한 줄 요약으로 보여준다 —
-// "수정하기"를 눌러야만 renderBusinessRegistrationEditForm(전체 편집폼)이
-// 나온다.
-function renderBusinessRegistrationSummaryCard(formSlot, candidate) {
+// showOnboardingBusinessRegResult — 이전 카드형의 renderBusinessRegistrationSummaryCard와
+// 같은 정보(상호·지역·업종 요약)를 말풍선 카드로 보여준다. [직접 기재로
+// 수정하기]는 경로 B(신원정보 질문 큐)로 넘어가되, currentProfile에
+// OCR 후보값을 먼저 반영해 각 질문 폼이 프리필된 상태로 열리게 한다.
+function showOnboardingBusinessRegResult(state, candidate) {
   const c = candidate || {};
-  formSlot.innerHTML = '';
   const companyLabel = c.companyName || '상호 미확인';
   const regionLabel = c.region || '지역 미확인';
   const industryLabel = (c.industry && c.industry.length) ? c.industry.join(', ') : '업종 미확인';
-  formSlot.appendChild(h(`
-    <div class="license-confirm-form">
-      <h4>회사 정보를 찾았습니다</h4>
-      <p class="biz-reg-summary-line">${escapeHtml(companyLabel)} · ${escapeHtml(regionLabel)} · ${escapeHtml(industryLabel)}</p>
-      <div id="biz-reg-summary-error" class="error" style="display:none"></div>
-      <div class="license-toolbar">
-        <button type="button" class="btn btn-secondary" id="biz-reg-edit-btn">수정하기</button>
-        <button type="button" class="btn btn-primary" id="biz-reg-confirm-btn">네, 맞습니다</button>
-      </div>
+  appendBotBubble(`
+    <div class="step-card-inline"><b>${escapeHtml(companyLabel)}</b><br>${escapeHtml(regionLabel)} · ${escapeHtml(industryLabel)}</div>
+    이렇게 확인했어요. 맞나요?
+  `);
+  const actionEl = chatActionEl();
+  actionEl.innerHTML = '';
+  actionEl.appendChild(h(`
+    <div class="chat-chip-row">
+      <button type="button" class="chat-chip" id="onboarding-bizreg-confirm-btn">✓ 맞습니다</button>
+      <button type="button" class="chat-chip" id="onboarding-bizreg-edit-btn">✍️ 직접 기재로 수정하기</button>
     </div>
   `));
-
-  document.getElementById('biz-reg-edit-btn').addEventListener('click', () => {
-    renderBusinessRegistrationEditForm(formSlot, c);
-  });
-  document.getElementById('biz-reg-confirm-btn').addEventListener('click', async () => {
-    const errorBox = document.getElementById('biz-reg-summary-error');
-    errorBox.style.display = 'none';
+  document.getElementById('onboarding-bizreg-confirm-btn').addEventListener('click', async () => {
+    appendUserBubble('✓ 맞습니다');
+    actionEl.innerHTML = '';
+    const loadingRow = appendChatLoadingBubble();
     try {
-      await submitBusinessRegistrationProfile({
+      const data = await apiRequest('PUT', '/api/me/company-profile', {
         businessRegistrationNumber: c.businessRegistrationNumber || null,
         companyName: c.companyName || null,
         representativeName: c.representativeName || null,
@@ -3757,6 +3897,89 @@ function renderBusinessRegistrationSummaryCard(formSlot, candidate) {
         region: c.region || null,
         industry: c.industry || [],
       });
+      currentProfile = data.companyProfile;
+    } catch (err) {
+      removeChatRow(loadingRow);
+      appendBotBubble(`저장에 실패했어요: ${escapeHtml(err.message)}`);
+      return;
+    }
+    removeChatRow(loadingRow);
+    appendBotBubble('감사합니다! 등록했어요 :)');
+    await refreshOnboardingCoverageAndContinue(state, runOnboardingIdentityQueue);
+  });
+  document.getElementById('onboarding-bizreg-edit-btn').addEventListener('click', () => {
+    appendUserBubble('✍️ 직접 기재로 수정하기');
+    // 프로필이 아직 서버에 없으니(맞습니다를 안 눌렀으므로) OCR 후보값을
+    // 임시로 currentProfile에 얹어 각 질문 폼이 프리필되게 한다 — 실제
+    // 저장은 각 질문 답변마다 정상적으로 이루어진다.
+    currentProfile = Object.assign({}, currentProfile, {
+      businessRegistrationNumber: c.businessRegistrationNumber || null,
+      companyName: c.companyName || null,
+      representativeName: c.representativeName || null,
+      address: c.address || null,
+      businessType: c.businessType || [],
+      region: c.region || null,
+      industry: c.industry || [],
+    });
+    startOnboardingManualEntryIntro(state, true);
+  });
+}
+
+// startOnboardingManualEntryIntro — 경로 B 진입 인사말("사업자등록증이
+// 없으시거나 직접 입력을 원하시는군요!"). isCorrection이면 OCR 결과를
+// 고치러 온 것이라 문구만 다르게.
+function startOnboardingManualEntryIntro(state, isCorrection) {
+  chatDelay(300).then(() => {
+    appendBotBubble(isCorrection
+      ? '알겠습니다! 사업자 정보를 다시 확인할게요.<br>질문해도 될까요?'
+      : '사업자등록증이 없으시거나 직접 입력을 원하시는군요!<br>사업자 정보 몇 가지만 여쭤볼게요. 질문해도 될까요?');
+    const actionEl = chatActionEl();
+    actionEl.innerHTML = '';
+    actionEl.appendChild(h(`
+      <div class="chat-chip-row">
+        <button type="button" class="chat-chip" id="onboarding-manual-proceed-btn">네, 진행할게요</button>
+        <button type="button" class="chat-chip" id="onboarding-manual-back-btn">‹ 이전 질문</button>
+      </div>
+    `));
+    document.getElementById('onboarding-manual-proceed-btn').addEventListener('click', () => {
+      appendUserBubble('네, 진행할게요');
+      runOnboardingIdentityQueue(state);
+    });
+    document.getElementById('onboarding-manual-back-btn').addEventListener('click', () => {
+      appendUserBubble('‹ 이전 질문');
+      appendBotBubble('그럼 다시 여쭤볼게요.');
+      renderOnboardingEntryChoiceAction(state);
+    });
+  });
+}
+
+// ---- 경로 B(직접 기재) 4문항 중 지역/업종을 뺀 3개: 상호명/사업자등록
+// 번호/업태. 지역·업종·기업규모는 이미 있는 필수 필드큐(judged)를 그대로
+// 재사용한다(중복 정의 안 함) — 즉 이 3개 + 필수 필드큐 3개를 합치면
+// 사용자 스펙의 "4개 필수 질문 + 지역/업종/기업규모"가 정확히 나온다.
+const BUSINESS_TYPE_OPTIONS = ['제조업', '도매 및 소매업', '건설업', '정보통신업', '서비스업'];
+
+function renderCompanyNameChatForm(container, onSaved, onBack) {
+  const p = currentProfile || {};
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <form id="quick-company-name-form" class="profile-form">
+      <label>상호명<input type="text" name="companyName" value="${escapeAttr(p.companyName || '')}" required></label>
+      <div id="quick-company-name-error" class="error" style="display:none"></div>
+      ${onboardingQuickFormButtonsHtml(onBack)}
+    </form>
+  `));
+  wireOnboardingQuickBackButton(onBack);
+  const form = document.getElementById('quick-company-name-form');
+  const errorBox = document.getElementById('quick-company-name-error');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const val = new FormData(form).get('companyName');
+    try {
+      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ companyName: val || null }));
+      currentProfile = data.companyProfile;
+      onSaved();
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -3764,61 +3987,76 @@ function renderBusinessRegistrationSummaryCard(formSlot, candidate) {
   });
 }
 
-// renderBusinessRegistrationEditForm — 이전엔 AI 추출 직후 바로 이 전체
-// 폼이 나왔지만, Phase UX-02부터는 "수정하기"를 눌렀을 때만(또는 AI 추출
-// 없이 직접 입력할 때) 나온다.
-function renderBusinessRegistrationEditForm(formSlot, candidate) {
-  const c = candidate || {};
-  formSlot.innerHTML = '';
-  formSlot.appendChild(h(`
-    <div class="license-confirm-form">
-      <h4>회사 정보를 확인해주세요</h4>
-      <p class="license-card-meta">실제 사업자등록증과 다르면 직접 수정할 수 있습니다.</p>
-      <form id="biz-reg-confirm-form" class="profile-form">
-        <label>사업자등록번호<input type="text" name="businessRegistrationNumber" value="${escapeAttr(c.businessRegistrationNumber || '')}"></label>
-        <label>상호<input type="text" name="companyName" value="${escapeAttr(c.companyName || '')}" required></label>
-        <label>대표자<input type="text" name="representativeName" value="${escapeAttr(c.representativeName || '')}"></label>
-        <label>주소<input type="text" name="address" value="${escapeAttr(c.address || '')}"></label>
-        <label>업태(쉼표로 구분)<input type="text" name="businessType" value="${escapeAttr((c.businessType || []).join(', '))}"></label>
-        <label>지역
-          <select name="region" class="select-input">
-            ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === c.region ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
-          </select>
-        </label>
-        <label>업종(복수 선택 가능)
-          <div class="checkbox-grid">
-            ${INDUSTRY_GROUPS.map(g => `
-              <label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}" ${(c.industry || []).includes(g) ? 'checked' : ''}> ${escapeHtml(g)}</label>
-            `).join('')}
-          </div>
-        </label>
-        <div id="biz-reg-confirm-error" class="error" style="display:none"></div>
-        <div class="license-toolbar">
-          <button type="submit" class="btn btn-primary">예, 맞습니다</button>
-        </div>
-      </form>
-    </div>
+function renderBusinessRegNumberChatForm(container, onSaved, onBack) {
+  const p = currentProfile || {};
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <form id="quick-biz-reg-number-form" class="profile-form">
+      <label>사업자등록번호<input type="text" inputmode="numeric" name="businessRegistrationNumber" value="${escapeAttr(p.businessRegistrationNumber || '')}" placeholder="000-00-00000" required pattern="\\d{3}-\\d{2}-\\d{5}"></label>
+      <div id="quick-biz-reg-number-error" class="error" style="display:none"></div>
+      ${onboardingQuickFormButtonsHtml(onBack)}
+    </form>
   `));
+  wireOnboardingQuickBackButton(onBack);
+  const form = document.getElementById('quick-biz-reg-number-form');
+  attachBusinessRegistrationNumberAutoFormat(form.businessRegistrationNumber);
+  const errorBox = document.getElementById('quick-biz-reg-number-error');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    const val = new FormData(form).get('businessRegistrationNumber');
+    try {
+      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ businessRegistrationNumber: val || null }));
+      currentProfile = data.companyProfile;
+      onSaved();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
 
-  const form = document.getElementById('biz-reg-confirm-form');
-  const errorBox = document.getElementById('biz-reg-confirm-error');
-
+function renderBusinessTypeChatForm(container, onSaved, onBack) {
+  const p = currentProfile || {};
+  const current = (p.businessType || [])[0] || '';
+  const isOther = !!current && !BUSINESS_TYPE_OPTIONS.includes(current);
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <form id="quick-business-type-form" class="profile-form">
+      <label>업태
+        <select name="businessTypeOption" class="select-input" required>
+          <option value="">선택해주세요</option>
+          ${BUSINESS_TYPE_OPTIONS.map(o => `<option value="${escapeAttr(o)}" ${o === current ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')}
+          <option value="__other__" ${isOther ? 'selected' : ''}>기타(직접 입력)</option>
+        </select>
+      </label>
+      <label id="quick-business-type-other-wrap" style="display:${isOther ? '' : 'none'}">직접 입력<input type="text" name="businessTypeOther" value="${escapeAttr(isOther ? current : '')}"></label>
+      <div id="quick-business-type-error" class="error" style="display:none"></div>
+      ${onboardingQuickFormButtonsHtml(onBack)}
+    </form>
+  `));
+  wireOnboardingQuickBackButton(onBack);
+  const form = document.getElementById('quick-business-type-form');
+  const otherWrap = document.getElementById('quick-business-type-other-wrap');
+  form.businessTypeOption.addEventListener('change', () => {
+    otherWrap.style.display = form.businessTypeOption.value === '__other__' ? '' : 'none';
+  });
+  const errorBox = document.getElementById('quick-business-type-error');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errorBox.style.display = 'none';
     const fd = new FormData(form);
-    const businessType = (fd.get('businessType') || '').split(',').map(s => s.trim()).filter(Boolean);
-    const industry = fd.getAll('industry');
+    const sel = fd.get('businessTypeOption');
+    const finalValue = sel === '__other__' ? (fd.get('businessTypeOther') || '').trim() : sel;
+    if (!finalValue) {
+      errorBox.textContent = '업태를 입력해주세요.';
+      errorBox.style.display = 'block';
+      return;
+    }
     try {
-      await submitBusinessRegistrationProfile({
-        businessRegistrationNumber: fd.get('businessRegistrationNumber') || null,
-        companyName: fd.get('companyName') || null,
-        representativeName: fd.get('representativeName') || null,
-        address: fd.get('address') || null,
-        businessType,
-        region: fd.get('region') || null,
-        industry,
-      });
+      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ businessType: [finalValue] }));
+      currentProfile = data.companyProfile;
+      onSaved();
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -3826,15 +4064,54 @@ function renderBusinessRegistrationEditForm(formSlot, candidate) {
   });
 }
 
-// submitBusinessRegistrationProfile — 요약카드("네, 맞습니다")와 편집폼
-// 제출 둘 다 여기로 모인다. handleUpsertCompanyProfile(PUT /api/me/
-// company-profile)를 그대로 재사용한다 — company_documents.go의 6개
-// 카테고리와 동일하게 후보는 브라우저 JS 상태에만 있다가 이 호출 한 번에
-// 그대로 저장된다(별도 confirm 엔드포인트 없음).
-async function submitBusinessRegistrationProfile(payload) {
-  const data = await apiRequest('PUT', '/api/me/company-profile', payload);
-  currentProfile = data.companyProfile;
-  location.hash = '#/onboarding/complete';
+const ONBOARDING_IDENTITY_FIELD_DEFS = [
+  { fieldKey: 'companyName', prompt: '상호명이 어떻게 되나요?', render: renderCompanyNameChatForm, echo: (p) => p.companyName || '' },
+  { fieldKey: 'businessRegistrationNumber', prompt: '사업자등록번호가 어떻게 되나요?<br><span style="color:var(--ink-soft);font-size:0.85em">000-00-00000 형식으로 자동 변환돼요</span>', render: renderBusinessRegNumberChatForm, echo: (p) => p.businessRegistrationNumber || '' },
+  { fieldKey: 'businessType', prompt: '업태가 어떻게 되나요?', render: renderBusinessTypeChatForm, echo: (p) => (p.businessType || [])[0] || '' },
+];
+
+function buildOnboardingIdentityQueue() {
+  const p = currentProfile || {};
+  return ONBOARDING_IDENTITY_FIELD_DEFS.filter(def => {
+    if (def.fieldKey === 'businessType') return !(p.businessType && p.businessType.length);
+    return !p[def.fieldKey];
+  });
+}
+
+function runOnboardingIdentityQueue(state) {
+  runOnboardingIdentityStep(state, buildOnboardingIdentityQueue(), 0);
+}
+
+async function runOnboardingIdentityStep(state, queue, index) {
+  if (index >= queue.length) {
+    if (queue.length) {
+      // 방금 신원정보(4문항 중 일부/전부)를 채웠을 때만 마무리 인사를
+      // 보여준다 — 전부 이미 채워진 상태로 들어온 재진입에서는 생략.
+      await refreshOnboardingCoverageAndContinue(state, () => {
+        appendBotBubble('감사합니다! 입력해주신 정보로 등록할게요 :)');
+        runOnboardingFieldQueue(state);
+      });
+    } else {
+      runOnboardingFieldQueue(state);
+    }
+    return;
+  }
+  const def = queue[index];
+  await chatDelay(350);
+  appendBotBubble(`${def.prompt} <span class="onboarding-required-badge">필수</span>`);
+  const actionEl = chatActionEl();
+  actionEl.innerHTML = '';
+  const onBack = index > 0 ? () => {
+    appendUserBubble('‹ 이전 질문');
+    appendBotBubble('그럼 다시 여쭤볼게요.');
+    runOnboardingIdentityStep(state, queue, index - 1);
+  } : null;
+  def.render(actionEl, () => {
+    const echoText = def.echo(currentProfile || {});
+    appendUserBubble(echoText);
+    appendBotBubble(`<b>${escapeHtml(echoText)}</b>로 입력하셨네요! 감사합니다 :)`);
+    runOnboardingIdentityStep(state, queue, index + 1);
+  }, onBack);
 }
 
 // ==================== 온보딩 정보요청 흐름(Phase UX-03→09 누적) ====================
@@ -3957,12 +4234,6 @@ function onboardingCardPromptText(card) {
   return documentRequirementGapPromptText(card.label, card.count);
 }
 
-const ONBOARDING_QUICK_FORM_TITLES = {
-  region: '사업장 지역 등록', industry: '업종 등록', companySize: '기업 규모 등록',
-  businessAgeYears: '업력 등록', employeeCount: '직원 수 등록', revenueAmount: '매출액 등록',
-  trackRecord: '수행실적 등록', license: '보유 면허 등록', certification: '인증 등록',
-  directProduction: '직접생산확인 등록',
-};
 // 온보딩 카드의 [등록]은 항상 "직접 입력" 경로다(문서 업로드는 이 카드
 // 큐 흐름 밖) — 그래서 실적/면허/인증은 renderTrackRecordForm/
 // renderLicenseConfirmForm(13개/8개 필드짜리 정식 등록 폼, 문서 업로드
@@ -4009,11 +4280,10 @@ const ONBOARDING_FIELDKEY_TO_COMPLETENESS_CATEGORY = {
 // ONBOARDING_MIN_COMPLETENESS(50%)를 넘도록 서버 공식이 설계돼 있다.
 const ONBOARDING_REQUIRED_FIELD_KEYS = new Set(['region', 'industry', 'companySize']);
 
-// onboardingExitButtonHtml/wireOnboardingExitButton — 카드/인라인폼/최종
-// 확인 화면 우측 상단 "나중에 하기" 버튼(2026-08-05). 사업자등록증 화면
-// (renderBusinessRegistrationOnboarding, 하드 게이트라 스킵 자체가 없음)
-// 에는 붙이지 않는다. 확인 모달은 이 코드베이스 전역의 기존 관례(삭제/
-// 해지 등 11곳 이상)를 그대로 따라 커스텀 모달 없이 confirm()을 쓴다.
+// onboardingExitButtonHtml/wireOnboardingExitButton — 채팅형 온보딩 화면
+// 우측 상단 "나중에 하기" 버튼(2026-08-05). 확인 모달은 이 코드베이스
+// 전역의 기존 관례(삭제/해지 등 11곳 이상)를 그대로 따라 커스텀 모달
+// 없이 confirm()을 쓴다.
 function onboardingExitButtonHtml() {
   return '<button type="button" class="onboarding-exit-btn" id="onboarding-exit-btn">나중에 하기</button>';
 }
@@ -4061,164 +4331,295 @@ function onboardingCoverageBarHtml(overallCompleteness) {
   `;
 }
 
-// renderOnboardingComplete — #/onboarding/complete. 2026-08-05 재설계
-// (Phase UX-09): 카드를 한 번에 하나씩만 순서대로 보여준다(체크리스트
-// 방식은 이탈율/피로도가 높다는 피드백으로 폐기). 몰입형 온보딩에 따라
-// is-auth(사이드바 숨김)는 그대로 유지.
-async function renderOnboardingComplete(container) {
-  document.body.classList.add('is-auth');
-  document.body.classList.remove('is-landing');
-  container.innerHTML = '';
-  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
-
-  let dashboardData, completenessData;
+// ensureOnboardingFieldQueue — GET /api/dashboard도 company_profile_required
+// 를 요구하므로(프로필이 없으면 400), 회사 식별정보 큐를 통과해 프로필이
+// 막 생긴 뒤에야 호출한다. 이미 조회했으면 다시 조회하지 않는다.
+async function ensureOnboardingFieldQueue(state) {
+  if (state.fieldQueue) return;
+  let dashboardData;
   try {
-    [dashboardData, completenessData] = await Promise.all([
-      apiRequest('GET', '/api/dashboard'),
-      apiRequest('GET', '/api/me/profile-completeness'),
-    ]);
+    dashboardData = await apiRequest('GET', '/api/dashboard');
   } catch (err) {
-    container.innerHTML = '';
-    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
-    return;
+    dashboardData = { eligibilitySummary: {}, documentRequirementGaps: [] };
   }
-  const queue = buildOnboardingCardQueue(dashboardData);
-  renderOnboardingCardStep(container, queue, 0, completenessData);
+  state.fieldQueue = buildOnboardingCardQueue(dashboardData);
 }
 
-// renderOnboardingCardStep — 큐에서 딱 하나(queue[index])만 화면에 크게
-// 보여준다. 다른 항목은 전혀 안 보여줌("사용자는 지금 이것만 신경쓰면
-// 됨", 사용자 확정). 상단엔 %바(순화된 톤) + 최소 진행 표시(점/N-of-M,
-// stepIndicatorHtml 재사용)만 — 항목 목록 텍스트는 없앴다. 필수(지역/
-// 업종/기업규모)는 [건너뛰기] 자체가 없고, 나머지는 있음. 면허/인증/
-// 직접생산확인은 "보유/미보유" 두 버튼으로 라벨을 바꾼다. 커버리지가
-// 이미 50% 이상이면(필수 3개만 채워도 가중치 60%라 자동으로 이 조건을
-// 만족) 카드 아래 "지금까지 정보로 완료하기"를 추가로 보여줘 남은
-// 선택 항목을 억지로 다 거치지 않고 바로 최종 확인으로 갈 수 있게 한다.
-function renderOnboardingCardStep(container, queue, index, completenessData) {
-  const overall = completenessData.overallCompleteness;
-  if (index >= queue.length) {
-    renderOnboardingFinalConfirm(container, completenessData);
+// runOnboardingFieldQueue — 지역/업종/기업규모(필수)·업력/직원수/매출액/
+// 수행실적/면허/인증/직접생산확인(선택)을 채팅 턴으로 순서대로 진행한다.
+// 기존 ONBOARDING_QUICK_FORM_RENDERERS(render*QuickForm)의 폼/저장 로직은
+// 그대로 재사용하고, "카드 하나를 통째로 다시 그리기" 대신 "말풍선 추가 +
+// 액션 영역만 갱신"으로 표현을 바꿨다. 커버리지가 이미 50% 이상이면
+// (필수 3개만 채워도 가중치 60%라 자동 충족) 매 턴마다 "지금까지 정보로
+// 완료하기"도 함께 보여준다.
+async function runOnboardingFieldQueue(state) {
+  await ensureOnboardingFieldQueue(state);
+  const { fieldQueue, fieldIndex } = state;
+  if (fieldIndex >= fieldQueue.length) {
+    await chatDelay(300);
+    renderOnboardingFinalConfirm(state.container, state.completeness);
     return;
   }
-  const card = queue[index];
+  const card = fieldQueue[fieldIndex];
   const isRequired = ONBOARDING_REQUIRED_FIELD_KEYS.has(card.fieldKey);
   const isPossession = ONBOARDING_POSSESSION_FIELD_KEYS.has(card.fieldKey);
-  const canFinishEarly = overall >= ONBOARDING_MIN_COMPLETENESS;
 
-  container.innerHTML = '';
-  container.appendChild(h(`
-    <div class="detail-card onboarding-shell" style="text-align:center">
-      ${onboardingExitButtonHtml()}
-      ${onboardingCoverageBarHtml(overall)}
-      <div style="margin:1rem 0">${stepIndicatorHtml(index, queue.length, `${queue.length}개 중 ${index + 1}번째`)}</div>
-      <h2 style="margin-bottom:0.25rem">${escapeHtml(card.label)} ${isRequired ? '<span class="onboarding-required-badge">필수</span>' : '<span class="onboarding-optional-badge">선택</span>'}</h2>
-      <p class="license-card-meta">${escapeHtml(onboardingCardPromptText(card))}</p>
-      <div id="onboarding-card-action-area" style="margin-top:1rem"></div>
-      ${canFinishEarly ? '<button type="button" class="btn btn-secondary btn-block" id="onboarding-finish-early-btn" style="margin-top:1rem">지금까지 정보로 완료하기</button>' : ''}
-    </div>
-  `));
+  await chatDelay(350);
+  appendBotBubble(`${escapeHtml(onboardingCardPromptText(card))} ${isRequired ? '<span class="onboarding-required-badge">필수</span>' : '<span class="onboarding-optional-badge">선택</span>'}`);
 
-  const actionArea = document.getElementById('onboarding-card-action-area');
-  // 건너뛰기/미보유는 서버 왕복이 없어 즉시 다음 카드로 넘어가면 너무
-  // 급전환처럼 보인다(사용자 확인) — showOnboardingTransition으로 최소
-  // 표시시간(600ms)만큼 스피너를 보여준 뒤 다음 카드로. container 전체가
-  // 아니라 actionArea만 바꿔서 카드 틀(나가기 버튼/커버리지 바/진행
-  // 표시)은 그대로 유지한다(등록 경로의 토스트도 같은 방식으로 카드 틀을
-  // 유지하는 것과 일관되게).
-  const goNext = () => {
-    showOnboardingTransition(actionArea, Promise.resolve(), 600).then(() => {
-      renderOnboardingCardStep(container, queue, index + 1, completenessData);
+  const actionEl = chatActionEl();
+  actionEl.innerHTML = '';
+
+  // skipStreak 초기화는 여기서 하지 않는다 — 건너뛰기 경로(handleOnboardingSkip)
+  // 도 결국 이 advance()를 거치는데, 여기서 무조건 0으로 되돌리면 연속
+  // 건너뛰기가 절대 2번 누적되지 않는다(실제로 이 버그가 났었음). 대신
+  // "실제로 값을 입력했다"고 확신할 수 있는 각 호출부(일반 필드 저장,
+  // 보유 등록, 직원수 직접입력/4대보험 확인)에서 advance 호출 직전에
+  // 각자 초기화한다.
+  const advance = (feedbackHtml) => {
+    state.fieldIndex += 1;
+    refreshOnboardingCoverageAndContinue(state, () => {
+      if (feedbackHtml) appendBotBubble(feedbackHtml);
+      runOnboardingFieldQueue(state);
     });
   };
-  if (isPossession) {
-    actionArea.appendChild(h(`
-      <div class="home-hero-actions">
-        <button type="button" class="btn btn-primary" id="onboarding-card-has-btn">보유 - 등록하기</button>
-        <button type="button" class="btn btn-secondary" id="onboarding-card-none-btn">미보유 - 다음으로</button>
-      </div>
-    `));
-    document.getElementById('onboarding-card-has-btn').addEventListener('click', () => openOnboardingCardForm(container, queue, index, completenessData));
-    document.getElementById('onboarding-card-none-btn').addEventListener('click', goNext);
+  // onBack — 필드큐 안에서만 뒤로 간다(첫 필드 항목에서는 없음, 신원정보
+  // 큐로 넘어가서 되돌리는 것까지는 이번 범위 밖). 신원정보 큐의 onBack과
+  // 같은 패턴("그럼 다시 여쭤볼게요" 후 같은 인덱스 재렌더).
+  const onBack = fieldIndex > 0 ? () => {
+    appendUserBubble('‹ 이전 질문');
+    appendBotBubble('그럼 다시 여쭤볼게요.');
+    state.fieldIndex -= 1;
+    runOnboardingFieldQueue(state);
+  } : null;
+
+  if (card.fieldKey === 'employeeCount') {
+    renderOnboardingEmployeeCountAction(actionEl, state, card, isRequired, advance, onBack);
+  } else if (isPossession) {
+    renderOnboardingPossessionAction(actionEl, card, state, advance, onBack);
   } else {
-    actionArea.appendChild(h(`
-      <div class="home-hero-actions">
-        <button type="button" class="btn btn-primary" id="onboarding-card-register-btn">등록</button>
-        ${isRequired ? '' : '<button type="button" class="btn btn-secondary" id="onboarding-card-skip-btn">건너뛰기</button>'}
+    renderOnboardingGenericFieldAction(actionEl, card, isRequired, state, advance, onBack);
+  }
+
+  if (state.completeness.overallCompleteness >= ONBOARDING_MIN_COMPLETENESS) {
+    actionEl.appendChild(h('<button type="button" class="btn btn-secondary btn-block chat-finish-early-btn" style="margin-top:0.6rem">지금까지 정보로 완료하기</button>'));
+    actionEl.querySelector('.chat-finish-early-btn').addEventListener('click', () => {
+      appendUserBubble('지금까지 정보로 완료하기');
+      renderOnboardingFinalConfirm(state.container, state.completeness);
+    });
+  }
+}
+
+// onboardingFieldEchoBubbles — 저장 직후 사용자 echo 말풍선/봇 피드백
+// 문구를 만든다. region/industry/companySize/businessAgeYears/
+// revenueAmount는 companyProfileUpdatePayload로 저장돼 currentProfile에서
+// 값을 그대로 읽어 정확한 echo를 만들 수 있지만, trackRecord는 별도
+// 엔드포인트(POST /api/me/track-records)라 저장값이 currentProfile에
+// 없어 일반 확정 문구로 대체한다.
+function onboardingFieldEchoBubbles(card) {
+  if (card.fieldKey === 'trackRecord') {
+    return { userText: '수행실적 등록 완료', feedbackHtml: '수행실적을 등록해주셔서 감사합니다 :)' };
+  }
+  const p = currentProfile || {};
+  const valueMap = {
+    region: p.region || '',
+    industry: (p.industry || []).join(', '),
+    companySize: p.companySize || '',
+    businessAgeYears: p.businessAgeYears != null ? `${p.businessAgeYears}년` : '',
+    revenueAmount: p.revenueAmount != null ? `${Number(p.revenueAmount).toLocaleString()}원` : '',
+  };
+  const val = valueMap[card.fieldKey] || '';
+  return { userText: val, feedbackHtml: `<b>${escapeHtml(val)}</b>으로 입력하셨네요! 감사합니다 :)` };
+}
+
+// renderOnboardingGenericFieldAction — 지역/업종/기업규모/업력/매출액/
+// 수행실적 공용(직원수·보유계열은 각자 전용 함수). 선택 항목이면
+// [건너뛰기] 버튼도 같이 붙인다. onBack은 quick-form의 기존 [이전]
+// 버튼(onboardingQuickFormButtonsHtml)에 그대로 실어보낸다.
+function renderOnboardingGenericFieldAction(actionEl, card, isRequired, state, advance, onBack) {
+  const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[card.fieldKey];
+  renderForm(actionEl, () => {
+    const echo = onboardingFieldEchoBubbles(card);
+    appendUserBubble(echo.userText);
+    state.skipStreak = 0; // 실제로 값을 입력했으니 연속 건너뛰기 스트릭 초기화.
+    advance(echo.feedbackHtml);
+  }, onBack);
+  if (isRequired) {
+    actionEl.appendChild(h('<p class="chat-required-note">필수 항목입니다</p>'));
+  } else {
+    actionEl.appendChild(h('<button type="button" class="btn btn-secondary chat-skip-btn">건너뛰기</button>'));
+    actionEl.querySelector('.chat-skip-btn').addEventListener('click', () => handleOnboardingSkip(card, state, advance));
+  }
+}
+
+// renderOnboardingPossessionAction — 면허/인증/직접생산확인("보유 여부"
+// 개념) 공용. [보유 - 등록하기]는 해당 quick-form을, [미보유 - 다음으로]는
+// 값 변동 없이 바로 다음으로("미보유"는 건너뛰기가 아니라 확정된 답이라
+// skipStreak도 함께 초기화한다). onBack은 선택 화면(보유/미보유 버튼)에
+// "이전 질문" 칩으로 붙이고, 등록 폼 안의 [이전]은 필드큐를 되돌리는
+// 대신 이 선택 화면으로만 돌아간다(중첩 뒤로가기).
+function renderOnboardingPossessionAction(actionEl, card, state, advance, onBack) {
+  const renderChoice = () => {
+    actionEl.innerHTML = '';
+    actionEl.appendChild(h(`
+      <div class="chat-chip-row">
+        <button type="button" class="chat-chip" id="onboarding-possess-has-btn">보유 - 등록하기</button>
+        <button type="button" class="chat-chip" id="onboarding-possess-none-btn">미보유 - 다음으로</button>
+        ${onBack ? '<button type="button" class="chat-chip" id="onboarding-possess-back-btn">‹ 이전 질문</button>' : ''}
       </div>
     `));
-    document.getElementById('onboarding-card-register-btn').addEventListener('click', () => openOnboardingCardForm(container, queue, index, completenessData));
-    const skipBtn = document.getElementById('onboarding-card-skip-btn');
-    if (skipBtn) skipBtn.addEventListener('click', goNext);
-  }
-  const finishBtn = document.getElementById('onboarding-finish-early-btn');
-  if (finishBtn) finishBtn.addEventListener('click', () => renderOnboardingFinalConfirm(container, completenessData));
-  wireOnboardingExitButton();
-}
-
-// openOnboardingCardForm — 카드의 미니폼을 그 자리에 인라인으로 그린다
-// (모달도, 모바일 전용 라우트도 없음 — 화면이 하나뿐이라 Phase UX-06/07
-// 의 PC모달·모바일라우트 분기가 이번 재설계로 완전히 불필요해졌다).
-// 저장 성공 시 전/후 %델타 토스트(showOnboardingItemSavedToast, Phase
-// UX-08 그대로 재사용)를 보여준 뒤 다음 카드로 자동 진행.
-function openOnboardingCardForm(container, queue, index, completenessData) {
-  const card = queue[index];
-  const before = completenessData.overallCompleteness;
-  container.innerHTML = '';
-  container.appendChild(h(`
-    <div class="detail-card onboarding-shell">
-      ${onboardingExitButtonHtml()}
-      ${onboardingCoverageBarHtml(before)}
-      <div style="margin:1rem 0">${stepIndicatorHtml(index, queue.length, `${queue.length}개 중 ${index + 1}번째`)}</div>
-      <h3>${escapeHtml(ONBOARDING_QUICK_FORM_TITLES[card.fieldKey] || card.label)}</h3>
-      <div id="onboarding-inline-form-slot"></div>
-    </div>
-  `));
-  wireOnboardingExitButton();
-  const formSlot = document.getElementById('onboarding-inline-form-slot');
-  const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[card.fieldKey];
-  renderForm(formSlot, () => {
-    showOnboardingItemSavedToast(formSlot, before, (freshCompleteness) => {
-      renderOnboardingCardStep(container, queue, index + 1, freshCompleteness || completenessData);
+    document.getElementById('onboarding-possess-has-btn').addEventListener('click', () => {
+      appendUserBubble('보유 - 등록하기');
+      actionEl.innerHTML = '';
+      const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[card.fieldKey];
+      renderForm(actionEl, () => {
+        appendUserBubble(`${card.label} 등록 완료`);
+        state.skipStreak = 0;
+        advance(`${escapeHtml(card.label)}을(를) 등록해주셔서 감사합니다 :)`);
+      }, renderChoice);
     });
-  }, null);
+    document.getElementById('onboarding-possess-none-btn').addEventListener('click', () => {
+      appendUserBubble('미보유 - 다음으로');
+      state.skipStreak = 0;
+      advance(null);
+    });
+    const backBtn = document.getElementById('onboarding-possess-back-btn');
+    if (backBtn) backBtn.addEventListener('click', onBack);
+  };
+  renderChoice();
 }
 
-// showOnboardingTransition — 카드 전환(등록 직후/건너뛰기 직후) 사이에
-// 스피너+"공공사업 분석중..."을 최소 minMs만큼 보여준다(2026-08-05).
-// 실제 작업(work)이 더 오래 걸리면 그 시간 그대로, 이미 빠르게 끝나도
-// 최소 시간은 채워 급전환처럼 안 보이게 한다. work의 결과를 그대로
-// 반환(실패해도 이 함수 자체는 던지지 않도록 호출부에서 이미 처리됨).
-async function showOnboardingTransition(container, work, minMs) {
-  container.innerHTML = '';
-  container.appendChild(h(`
-    <div class="onboarding-transition-loading">
-      <div class="onboarding-transition-spinner"></div>
-      <p class="license-card-meta">공공사업 분석중...</p>
+// handleOnboardingSkip — 연속 2회 건너뛰기 시 1회만 경고(사용자 확정) —
+// 이후 계속 건너뛰어도 재경고하지 않고, 최종 확인 화면에서 한 번 더
+// 요약 안내한다(renderOnboardingFinalConfirm 쪽 별도 처리 없이도 이미
+// 남은 항목이 요약 표에 "-"로 자연히 드러남).
+function handleOnboardingSkip(card, state, advance) {
+  appendUserBubble('건너뛰기');
+  state.skipStreak += 1;
+  if (state.skipStreak >= 2 && !state.warnedThisStreak) {
+    state.warnedThisStreak = true;
+    showOnboardingSkipWarning(state, advance);
+    return;
+  }
+  appendBotBubble('네, 다음으로 넘어갈게요.');
+  advance(null);
+}
+function showOnboardingSkipWarning(state, advance) {
+  appendBotBubble('건너뛴 항목이 많아서 공공사업 분석 정확도가 낮아질 수 있어요.<br>지금이라도 채워보시겠어요?');
+  const actionEl = chatActionEl();
+  actionEl.innerHTML = '';
+  actionEl.appendChild(h(`
+    <div class="chat-chip-row">
+      <button type="button" class="chat-chip" id="onboarding-skip-warn-fill-btn">지금 등록하기</button>
+      <button type="button" class="chat-chip" id="onboarding-skip-warn-continue-btn">계속 건너뛰기</button>
     </div>
   `));
-  const minDelay = new Promise(resolve => setTimeout(resolve, minMs));
-  const [result] = await Promise.all([work, minDelay]);
-  return result;
+  document.getElementById('onboarding-skip-warn-fill-btn').addEventListener('click', () => {
+    appendUserBubble('지금 등록하기');
+    state.skipStreak = 0;
+    runOnboardingFieldQueue(state); // fieldIndex는 아직 그대로라 방금 건너뛰려던 항목이 다시 나온다.
+  });
+  document.getElementById('onboarding-skip-warn-continue-btn').addEventListener('click', () => {
+    appendUserBubble('계속 건너뛰기');
+    advance(null);
+  });
 }
 
-// showOnboardingItemSavedToast — 저장 성공 직후 스피너("분석중...")로
-// GET /api/me/profile-completeness 재조회를 감싸 자연스러운 전환을
-// 보여준 뒤, AI 분석 커버리지 전/후 실델타를 잠깐 보여주고 다음 카드로
-// 넘어간다. onDone에는 재조회한 completenessData를 그대로 넘겨 호출부가
-// 다시 조회하지 않아도 되게 한다(재조회 실패 시 null).
-async function showOnboardingItemSavedToast(toastContainer, before, onDone) {
-  const completenessData = await showOnboardingTransition(
-    toastContainer,
-    apiRequest('GET', '/api/me/profile-completeness').catch(() => null),
-    700
-  );
-  const after = completenessData ? completenessData.overallCompleteness : before;
-  const delta = after - before;
-  const deltaText = delta > 0 ? ` (+${delta}%p)` : (delta < 0 ? ` (${delta}%p)` : ' (변동 없음)');
-  toastContainer.innerHTML = '';
-  toastContainer.appendChild(h(`<p class="license-card-meta" style="text-align:center;font-weight:700;padding:1rem 0">✓ 등록 완료 — AI 분석 커버리지 ${before}% → ${after}%${deltaText}</p>`));
-  setTimeout(() => onDone(completenessData), 1300);
+// renderOnboardingEmployeeCountAction — 직원수는 1순위 4대보험 파일첨부
+// 자동입력, 2순위 직접 선택(EMPLOYEE_COUNT_RANGE_OPTIONS, 기존 #/me/profile
+// 과 동일 구간 재사용) 두 갈래. 기존 employee-verification 엔드포인트
+// (POST .../employee-verification/documents + POST .../employee-verification,
+// company_employee_verification.go)를 그대로 재사용 — 온보딩 챗봇에
+// 새로 연결하는 것 외 백엔드 변경 없음.
+function renderOnboardingEmployeeCountAction(actionEl, state, card, isRequired, advance, onBack) {
+  const renderChoice = () => {
+    actionEl.innerHTML = '';
+    actionEl.appendChild(h(`
+      <div class="chat-chip-row">
+        <button type="button" class="chat-chip" id="onboarding-employee-upload-btn">📎 4대보험 파일첨부로 자동입력</button>
+        <button type="button" class="chat-chip" id="onboarding-employee-manual-btn">직접 선택</button>
+        ${isRequired ? '' : '<button type="button" class="chat-chip" id="onboarding-employee-skip-btn">건너뛰기</button>'}
+        ${onBack ? '<button type="button" class="chat-chip" id="onboarding-employee-back-btn">‹ 이전 질문</button>' : ''}
+      </div>
+    `));
+    document.getElementById('onboarding-employee-upload-btn').addEventListener('click', () => {
+      appendUserBubble('📎 4대보험 파일첨부로 자동입력');
+      startOnboardingEmployeeVerificationUpload(actionEl, state, advance, renderChoice);
+    });
+    document.getElementById('onboarding-employee-manual-btn').addEventListener('click', () => {
+      appendUserBubble('직접 선택');
+      actionEl.innerHTML = '';
+      renderOnboardingEmployeeCountManualFallback(actionEl, state, advance, renderChoice);
+    });
+    const skipBtn = document.getElementById('onboarding-employee-skip-btn');
+    if (skipBtn) skipBtn.addEventListener('click', () => handleOnboardingSkip(card, state, advance));
+    const backBtn = document.getElementById('onboarding-employee-back-btn');
+    if (backBtn) backBtn.addEventListener('click', onBack);
+  };
+  renderChoice();
+}
+function renderOnboardingEmployeeCountManualFallback(actionEl, state, advance, onBack) {
+  renderEmployeeCountQuickForm(actionEl, () => {
+    const p = currentProfile || {};
+    const echo = p.employeeCount != null ? `${p.employeeCount}명` : '';
+    appendUserBubble(echo);
+    state.skipStreak = 0;
+    advance(`<b>${escapeHtml(echo)}</b>으로 입력하셨네요! 감사합니다 :)`);
+  }, onBack || null);
+}
+async function startOnboardingEmployeeVerificationUpload(actionEl, state, advance, onBack) {
+  actionEl.innerHTML = '';
+  actionEl.appendChild(h(`
+    <div>
+      <input type="file" id="onboarding-employee-file-input" accept=".pdf,.jpg,.jpeg,.png,.webp">
+      <div id="onboarding-employee-upload-error" class="error" style="display:none"></div>
+    </div>
+  `));
+  const fileInput = document.getElementById('onboarding-employee-file-input');
+  const errorBox = document.getElementById('onboarding-employee-upload-error');
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    errorBox.style.display = 'none';
+    fileInput.disabled = true;
+    appendUserBubble(`📄 ${file.name} 첨부됨`);
+    actionEl.innerHTML = '';
+    const loadingRow = appendChatLoadingBubble('분석하고 있습니다...');
+    let uploadData;
+    try {
+      uploadData = await uploadCompanyRecordDocument('/api/me/company-profile/employee-verification/documents', file);
+    } catch (err) {
+      removeChatRow(loadingRow);
+      appendBotBubble(`업로드에 실패했어요: ${escapeHtml(err.message)}<br>직접 입력해주시겠어요?`);
+      renderOnboardingEmployeeCountManualFallback(actionEl, state, advance, onBack);
+      return;
+    }
+    const candidate = uploadData.candidate || {};
+    removeChatRow(loadingRow);
+    if (!candidate.totalSubscriberCount) {
+      appendBotBubble('총 가입자 수를 찾지 못했어요. 직접 입력해주시겠어요?');
+      renderOnboardingEmployeeCountManualFallback(actionEl, state, advance, onBack);
+      return;
+    }
+    const loadingRow2 = appendChatLoadingBubble();
+    try {
+      const data = await apiRequest('POST', '/api/me/company-profile/employee-verification', {
+        totalSubscriberCount: candidate.totalSubscriberCount,
+        sourceDocumentId: uploadData.documentId || null,
+      });
+      currentProfile.employeeCount = data.employeeCount;
+      currentProfile.employeeCountConfidence = data.confidence;
+      currentProfile.employeeCountVerifiedAt = new Date().toISOString();
+      removeChatRow(loadingRow2);
+      appendUserBubble(`총 ${data.employeeCount}명`);
+      state.skipStreak = 0;
+      advance(`<b>총 ${data.employeeCount}명</b>으로 확인했어요! 감사합니다 :)`);
+    } catch (err) {
+      removeChatRow(loadingRow2);
+      appendBotBubble(`확인에 실패했어요: ${escapeHtml(err.message)}<br>직접 입력해주시겠어요?`);
+      renderOnboardingEmployeeCountManualFallback(actionEl, state, advance, onBack);
+    }
+  });
 }
 
 // renderOnboardingFinalConfirm — AI 분석 커버리지 50% 이상 달성 후
@@ -4257,7 +4658,8 @@ function renderOnboardingFinalConfirm(container, completenessData) {
       <button type="button" class="btn btn-secondary btn-block" id="onboarding-final-back-btn" style="margin-top:0.5rem">더 등록하기</button>
     </div>
   `));
-  document.getElementById('onboarding-final-back-btn').addEventListener('click', () => renderOnboardingComplete(container));
+  document.getElementById('onboarding-final-back-btn').addEventListener('click', () => renderOnboardingChat(container));
+  wireOnboardingExitButton();
   const errorBox = document.getElementById('onboarding-final-confirm-error');
   document.getElementById('onboarding-final-confirm-btn').addEventListener('click', async () => {
     errorBox.style.display = 'none';
@@ -6982,6 +7384,24 @@ function attachPhoneAutoFormat(input) {
   if (!input) return;
   input.addEventListener('input', () => {
     input.value = formatPhoneNumber(input.value);
+  });
+}
+
+// formatBusinessRegistrationNumber/attachBusinessRegistrationNumberAutoFormat
+// — 사업자등록번호(000-00-00000, 3-2-5 고정 10자리) 자동 하이픈. 채팅형
+// 온보딩(2026-08-05)의 "직접 기재" 경로에서 신규로 씀 — formatPhoneNumber와
+// 같은 원리(통째로 다시 쓰는 단순 포맷터)지만 자릿수 구성이 항상 고정이라
+// 분기가 필요 없다.
+function formatBusinessRegistrationNumber(raw) {
+  const digits = (raw || '').replace(/\D/g, '').slice(0, 10);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 5) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
+}
+function attachBusinessRegistrationNumberAutoFormat(input) {
+  if (!input) return;
+  input.addEventListener('input', () => {
+    input.value = formatBusinessRegistrationNumber(input.value);
   });
 }
 
@@ -11901,7 +12321,7 @@ function route() {
   // 정확히 한 번만 리다이렉트된다.
   const AUTH_ONBOARDING_ROUTES = new Set([
     '#/auth/oauth-profile', '#/auth/verify-email-pending', '#/auth/verify-email',
-    '#/onboarding/business-registration', '#/onboarding/complete',
+    '#/onboarding/complete',
     '#/terms', '#/privacy',
   ]);
   // isAuthOnboardingRoute — 네 게이트(온보딩 동의/이메일인증/사업자등록/
@@ -11937,31 +12357,24 @@ function route() {
     location.hash = '#/auth/verify-email-pending';
     return;
   }
-  // 사업자등록증 미등록 사용자 강제 온보딩(2026-08-04, 사용자 명시 요청 —
-  // "안 하면 절대 이동 불가"). Phase UX-01 최초 구현 때는 "나중에 하기"로
-  // 건너뛸 수 있는 소프트 유도였는데, 이후 사용자가 하드 게이트로 바꿔달라고
-  // 명시적으로 요청해 위 두 게이트(약관동의/이메일인증)와 같은 방식으로
-  // 승격시켰다. currentProfile은 loadMe()가 이미 채워둔 전역 상태(company_profiles
-  // 존재 여부의 유일한 신호)라 별도 필드를 새로 만들 필요 없이 그대로
-  // 재사용한다. role==='user'만 대상(내부 운영 계정은 회사 프로필 개념
-  // 자체가 없어 대상 아님).
-  if (currentUser && currentUser.role === 'user' && !currentProfile && !isAuthOnboardingRoute(path)) {
-    location.hash = '#/onboarding/business-registration';
-    return;
-  }
-  // 4번째 게이트(2026-08-05, "AI 분석 커버리지 50% 미만이면 완료 차단"
-  // 재설계) — currentProfile.onboardingCompletedAt이 null이면 신규 필수
-  // 온보딩(체크리스트에서 50% 이상 달성 후 최종확인)을 아직 안 마친 것.
-  // 기존 회원은 마이그레이션 때 이 값이 일괄 백필돼 있어 대상이 아니다
-  // (소급 적용 안 함, 사용자 확인). 위 세 게이트와 마찬가지로 반드시
-  // 같은 공용 예외목록(isAuthOnboardingRoute)을 써야 한다 — 게이트마다
-  // 자기 화면만 예외로 두면 두 게이트가 서로를 무한 리다이렉트시키는
-  // 사고가 이미 한 번 났었다([[feedback-sequential-route-gates-shared-exempt-list]]).
-  // 2026-08-05: "나중에 하기"로 나간 경우 sessionStorage.onboarding_snoozed가
-  // 서 있으면 이번 로그인 세션 동안은 이 게이트만 건너뛴다(다른 세 게이트는
+  // 3번째 게이트(2026-08-05, 채팅형 온보딩 전면 재설계로 통합) — 예전엔
+  // "회사 프로필 없음"(사업자등록증 화면으로)과 "커버리지 50% 미달"
+  // (카드 큐 화면으로) 두 개의 별도 게이트였는데, 채팅형에서는 사업자
+  // 등록증 유무 자체가 대화의 첫 질문("파일 첨부"/"직접 기재")이 되면서
+  // 그 전용 화면(#/onboarding/business-registration)이 사라졌다 — 그래서
+  // "프로필이 아예 없음"과 "있지만 아직 완료 안 함"을 하나의 게이트로
+  // 합쳤다(renderOnboardingChat이 currentProfile 유무에 따라 인사말부터
+  // 시작할지 이어할지 알아서 분기). 기존 회원은 마이그레이션 때
+  // onboardingCompletedAt이 일괄 백필돼 있어 대상이 아니다(소급 적용
+  // 안 함, 사용자 확인). 위 두 게이트와 마찬가지로 반드시 같은 공용
+  // 예외목록(isAuthOnboardingRoute)을 써야 한다 — 게이트마다 자기 화면만
+  // 예외로 두면 두 게이트가 서로를 무한 리다이렉트시키는 사고가 이미 한
+  // 번 났었다([[feedback-sequential-route-gates-shared-exempt-list]]).
+  // "나중에 하기"로 나간 경우 sessionStorage.onboarding_snoozed가 서
+  // 있으면 이번 로그인 세션 동안은 이 게이트만 건너뛴다(다른 두 게이트는
   // 여전히 하드 게이트라 영향 없음) — 로그아웃 시 이 플래그를 지우므로
   // 다음 로그인에서는 다시 이 게이트가 정상 작동한다.
-  if (currentUser && currentUser.role === 'user' && currentProfile && !currentProfile.onboardingCompletedAt && !isAuthOnboardingRoute(path) && !sessionStorage.getItem('onboarding_snoozed')) {
+  if (currentUser && currentUser.role === 'user' && (!currentProfile || !currentProfile.onboardingCompletedAt) && !isAuthOnboardingRoute(path) && !sessionStorage.getItem('onboarding_snoozed')) {
     location.hash = '#/onboarding/complete';
     return;
   }
@@ -12009,8 +12422,7 @@ function route() {
   if (path === '#/auth/verify-email-pending') { renderEmailVerifyPending(app); return; }
   if (path === '#/auth/verify-email') { renderVerifyEmail(app); return; }
   if (path === '#/auth/oauth-profile') { document.body.classList.add('is-auth'); renderOAuthProfileStep(app); return; }
-  if (path === '#/onboarding/business-registration') { renderBusinessRegistrationOnboarding(app); return; }
-  if (path === '#/onboarding/complete') { renderOnboardingComplete(app); return; }
+  if (path === '#/onboarding/complete') { renderOnboardingChat(app); return; }
   if (path === '#/me/profile') { renderProfile(app); return; }
   if (path === '#/me/bookmarks') { renderBookmarks(app); return; }
   if (path === '#/notifications') { renderNotifications(app); return; }
