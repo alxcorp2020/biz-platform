@@ -1311,6 +1311,25 @@
   }
   .onboarding-required-badge { background: rgba(49,130,246,0.12); color: var(--accent-blue-deep); }
   .onboarding-optional-badge { background: var(--bg-soft); color: var(--ink-soft); }
+  /* onboarding-shell — 2026-08-05. 사업자등록증 업로드/카드/인라인폼/
+     최종확인 4개 화면이 각자 다른 max-width(480/560px 혼재)를 인라인
+     style로 들고 있어 항목마다 카드 넓이가 달라 보이던 문제 — 공용
+     클래스 하나로 통일(항목이 늘어도 여기 한 곳만 고치면 됨). */
+  .onboarding-shell { max-width: 480px; margin: 1.5rem auto; position: relative; }
+  /* 온보딩 이탈("나중에 하기") 버튼 — 카드 우측 상단 고정. */
+  .onboarding-exit-btn {
+    position: absolute; top: 0.75rem; right: 0.9rem; background: none; border: none;
+    color: var(--ink-soft); font-size: 0.85rem; font-weight: 600; cursor: pointer; padding: 0.25rem 0.4rem;
+  }
+  .onboarding-exit-btn:hover { color: var(--ink); }
+  /* 카드 전환 로딩(스피너+문구) — 등록/건너뛰기 직후 다음 카드로 넘어가기 전. */
+  .onboarding-transition-loading { padding: 2.5rem 0; text-align: center; }
+  .onboarding-transition-spinner {
+    width: 28px; height: 28px; margin: 0 auto 0.75rem; border-radius: 50%;
+    border: 3px solid var(--bg-soft); border-top-color: var(--accent-blue);
+    animation: onboarding-spin 0.7s linear infinite;
+  }
+  @keyframes onboarding-spin { to { transform: rotate(360deg); } }
   .glossary-btn--warn { border-color: var(--warn); color: var(--warn); }
   .glossary-btn--warn:hover, .glossary-btn--warn:focus-visible { background: var(--warn); color: #fff; }
 
@@ -2404,6 +2423,7 @@ function renderSidebar() {
       try { await apiRequest('POST', '/api/auth/logout'); } catch (err) { /* ignore */ }
       currentUser = null;
       currentProfile = null;
+      sessionStorage.removeItem('onboarding_snoozed');
       renderHeader();
       location.hash = '#/';
     });
@@ -2916,6 +2936,7 @@ function renderHeader() {
       try { await apiRequest('POST', '/api/auth/logout'); } catch (err) { /* ignore */ }
       currentUser = null;
       currentProfile = null;
+      sessionStorage.removeItem('onboarding_snoozed');
       renderHeader();
       location.hash = '#/';
     });
@@ -3624,7 +3645,7 @@ function renderBusinessRegistrationOnboarding(container) {
   document.body.classList.remove('is-landing');
   container.innerHTML = '';
   container.appendChild(h(`
-    <div class="detail-card" style="max-width:560px;margin:1.5rem auto">
+    <div class="detail-card onboarding-shell">
       <p class="home-hero-eyebrow" style="text-align:center">공공사업 AI 비서</p>
       <h2 style="text-align:center">사업자등록증을 분석하여<br>귀사에 맞는 사업을 찾아드립니다</h2>
       <ul class="home-hero-checklist" style="align-items:center">
@@ -3981,6 +4002,31 @@ const ONBOARDING_FIELDKEY_TO_COMPLETENESS_CATEGORY = {
 // ONBOARDING_MIN_COMPLETENESS(50%)를 넘도록 서버 공식이 설계돼 있다.
 const ONBOARDING_REQUIRED_FIELD_KEYS = new Set(['region', 'industry', 'companySize']);
 
+// onboardingExitButtonHtml/wireOnboardingExitButton — 카드/인라인폼/최종
+// 확인 화면 우측 상단 "나중에 하기" 버튼(2026-08-05). 사업자등록증 화면
+// (renderBusinessRegistrationOnboarding, 하드 게이트라 스킵 자체가 없음)
+// 에는 붙이지 않는다. 확인 모달은 이 코드베이스 전역의 기존 관례(삭제/
+// 해지 등 11곳 이상)를 그대로 따라 커스텀 모달 없이 confirm()을 쓴다.
+function onboardingExitButtonHtml() {
+  return '<button type="button" class="onboarding-exit-btn" id="onboarding-exit-btn">나중에 하기</button>';
+}
+function wireOnboardingExitButton() {
+  const btn = document.getElementById('onboarding-exit-btn');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    if (!confirm('지금까지 입력한 내용은 저장되며, 나중에 기업프로필에서 이어서 작성할 수 있습니다. 나가시겠습니까?')) return;
+    // 이미 등록한 항목은 각 미니폼 저장 시점에 이미 서버에 반영돼 있어
+    // 그대로 유지된다(buildOnboardingCardQueue가 이미 채워진 필드는
+    // 다음에 다시 들어와도 알아서 걸러내므로 별도 이어하기 로직 불필요).
+    // sessionStorage 스누즈 플래그로 route()의 4번째 게이트가 이번
+    // 로그인 세션 동안은 다시 붙잡지 않게 하고, 로그아웃 시 이 플래그를
+    // 지워 "다음 로그인 시 다시 온보딩부터"를 보장한다(필수 3개를 하나도
+    // 안 채운 초기상태였다면 큐가 처음부터 그대로 다시 보인다).
+    sessionStorage.setItem('onboarding_snoozed', '1');
+    location.hash = '#/';
+  });
+}
+
 // ONBOARDING_POSSESSION_FIELD_KEYS — "보유/미보유" 개념인 선택 항목(면허/
 // 인증/직접생산확인). 일반 [건너뛰기] 대신 [보유 - 등록하기]/[미보유 -
 // 다음으로]로 라벨을 명확히 해서, "미보유"를 선택해도 페널티 없이
@@ -4055,7 +4101,8 @@ function renderOnboardingCardStep(container, queue, index, completenessData) {
 
   container.innerHTML = '';
   container.appendChild(h(`
-    <div class="detail-card" style="max-width:480px;margin:1.5rem auto;text-align:center">
+    <div class="detail-card onboarding-shell" style="text-align:center">
+      ${onboardingExitButtonHtml()}
       ${onboardingCoverageBarHtml(overall)}
       <div style="margin:1rem 0">${stepIndicatorHtml(index, queue.length, `${queue.length}개 중 ${index + 1}번째`)}</div>
       <h2 style="margin-bottom:0.25rem">${escapeHtml(card.label)} ${isRequired ? '<span class="onboarding-required-badge">필수</span>' : '<span class="onboarding-optional-badge">선택</span>'}</h2>
@@ -4066,7 +4113,17 @@ function renderOnboardingCardStep(container, queue, index, completenessData) {
   `));
 
   const actionArea = document.getElementById('onboarding-card-action-area');
-  const goNext = () => renderOnboardingCardStep(container, queue, index + 1, completenessData);
+  // 건너뛰기/미보유는 서버 왕복이 없어 즉시 다음 카드로 넘어가면 너무
+  // 급전환처럼 보인다(사용자 확인) — showOnboardingTransition으로 최소
+  // 표시시간(600ms)만큼 스피너를 보여준 뒤 다음 카드로. container 전체가
+  // 아니라 actionArea만 바꿔서 카드 틀(나가기 버튼/커버리지 바/진행
+  // 표시)은 그대로 유지한다(등록 경로의 토스트도 같은 방식으로 카드 틀을
+  // 유지하는 것과 일관되게).
+  const goNext = () => {
+    showOnboardingTransition(actionArea, Promise.resolve(), 600).then(() => {
+      renderOnboardingCardStep(container, queue, index + 1, completenessData);
+    });
+  };
   if (isPossession) {
     actionArea.appendChild(h(`
       <div class="home-hero-actions">
@@ -4089,6 +4146,7 @@ function renderOnboardingCardStep(container, queue, index, completenessData) {
   }
   const finishBtn = document.getElementById('onboarding-finish-early-btn');
   if (finishBtn) finishBtn.addEventListener('click', () => renderOnboardingFinalConfirm(container, completenessData));
+  wireOnboardingExitButton();
 }
 
 // openOnboardingCardForm — 카드의 미니폼을 그 자리에 인라인으로 그린다
@@ -4101,44 +4159,59 @@ function openOnboardingCardForm(container, queue, index, completenessData) {
   const before = completenessData.overallCompleteness;
   container.innerHTML = '';
   container.appendChild(h(`
-    <div class="detail-card" style="max-width:480px;margin:1.5rem auto">
+    <div class="detail-card onboarding-shell">
+      ${onboardingExitButtonHtml()}
       ${onboardingCoverageBarHtml(before)}
       <div style="margin:1rem 0">${stepIndicatorHtml(index, queue.length, `${queue.length}개 중 ${index + 1}번째`)}</div>
       <h3>${escapeHtml(ONBOARDING_QUICK_FORM_TITLES[card.fieldKey] || card.label)}</h3>
       <div id="onboarding-inline-form-slot"></div>
     </div>
   `));
+  wireOnboardingExitButton();
   const formSlot = document.getElementById('onboarding-inline-form-slot');
   const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[card.fieldKey];
   renderForm(formSlot, () => {
-    showOnboardingItemSavedToast(formSlot, before, async () => {
-      let freshCompleteness = completenessData;
-      try {
-        freshCompleteness = await apiRequest('GET', '/api/me/profile-completeness');
-      } catch (err) {
-        // 재조회 실패해도 등록 자체는 이미 성공했으니 직전 값으로 계속 진행.
-      }
-      renderOnboardingCardStep(container, queue, index + 1, freshCompleteness);
+    showOnboardingItemSavedToast(formSlot, before, (freshCompleteness) => {
+      renderOnboardingCardStep(container, queue, index + 1, freshCompleteness || completenessData);
     });
   }, null);
 }
 
-// showOnboardingItemSavedToast — 저장 성공 직후 AI 분석 커버리지 전/후
-// 실델타(등록 전/후 GET /api/me/profile-completeness 두 값의 차이 —
-// 하드코딩 아님)를 잠깐 보여준 뒤 다음 카드로 넘어간다.
+// showOnboardingTransition — 카드 전환(등록 직후/건너뛰기 직후) 사이에
+// 스피너+"공공사업 분석중..."을 최소 minMs만큼 보여준다(2026-08-05).
+// 실제 작업(work)이 더 오래 걸리면 그 시간 그대로, 이미 빠르게 끝나도
+// 최소 시간은 채워 급전환처럼 안 보이게 한다. work의 결과를 그대로
+// 반환(실패해도 이 함수 자체는 던지지 않도록 호출부에서 이미 처리됨).
+async function showOnboardingTransition(container, work, minMs) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="onboarding-transition-loading">
+      <div class="onboarding-transition-spinner"></div>
+      <p class="license-card-meta">공공사업 분석중...</p>
+    </div>
+  `));
+  const minDelay = new Promise(resolve => setTimeout(resolve, minMs));
+  const [result] = await Promise.all([work, minDelay]);
+  return result;
+}
+
+// showOnboardingItemSavedToast — 저장 성공 직후 스피너("분석중...")로
+// GET /api/me/profile-completeness 재조회를 감싸 자연스러운 전환을
+// 보여준 뒤, AI 분석 커버리지 전/후 실델타를 잠깐 보여주고 다음 카드로
+// 넘어간다. onDone에는 재조회한 completenessData를 그대로 넘겨 호출부가
+// 다시 조회하지 않아도 되게 한다(재조회 실패 시 null).
 async function showOnboardingItemSavedToast(toastContainer, before, onDone) {
-  let after = before;
-  try {
-    const completenessData = await apiRequest('GET', '/api/me/profile-completeness');
-    after = completenessData.overallCompleteness;
-  } catch (err) {
-    // 재계산 실패해도 등록 자체는 이미 성공했으니 결과 표시 없이 넘어간다.
-  }
+  const completenessData = await showOnboardingTransition(
+    toastContainer,
+    apiRequest('GET', '/api/me/profile-completeness').catch(() => null),
+    700
+  );
+  const after = completenessData ? completenessData.overallCompleteness : before;
   const delta = after - before;
   const deltaText = delta > 0 ? ` (+${delta}%p)` : (delta < 0 ? ` (${delta}%p)` : ' (변동 없음)');
   toastContainer.innerHTML = '';
   toastContainer.appendChild(h(`<p class="license-card-meta" style="text-align:center;font-weight:700;padding:1rem 0">✓ 등록 완료 — AI 분석 커버리지 ${before}% → ${after}%${deltaText}</p>`));
-  setTimeout(onDone, 1300);
+  setTimeout(() => onDone(completenessData), 1300);
 }
 
 // renderOnboardingFinalConfirm — AI 분석 커버리지 50% 이상 달성 후
@@ -4160,7 +4233,8 @@ function renderOnboardingFinalConfirm(container, completenessData) {
   ];
   container.innerHTML = '';
   container.appendChild(h(`
-    <div class="detail-card" style="max-width:560px;margin:1.5rem auto">
+    <div class="detail-card onboarding-shell">
+      ${onboardingExitButtonHtml()}
       <h2 style="text-align:center">등록하신 정보를 확인해주세요</h2>
       ${onboardingCoverageBarHtml(completenessData.overallCompleteness)}
       <div class="profile-summary-list" style="margin-top:1rem">
@@ -7491,6 +7565,7 @@ function renderEmailVerifyPending(container) {
     await apiRequest('POST', '/api/auth/logout');
     currentUser = null;
     currentProfile = null;
+    sessionStorage.removeItem('onboarding_snoozed');
     renderHeader();
     location.hash = '#/auth/login';
   });
@@ -11874,7 +11949,11 @@ function route() {
   // 같은 공용 예외목록(isAuthOnboardingRoute)을 써야 한다 — 게이트마다
   // 자기 화면만 예외로 두면 두 게이트가 서로를 무한 리다이렉트시키는
   // 사고가 이미 한 번 났었다([[feedback-sequential-route-gates-shared-exempt-list]]).
-  if (currentUser && currentUser.role === 'user' && currentProfile && !currentProfile.onboardingCompletedAt && !isAuthOnboardingRoute(path)) {
+  // 2026-08-05: "나중에 하기"로 나간 경우 sessionStorage.onboarding_snoozed가
+  // 서 있으면 이번 로그인 세션 동안은 이 게이트만 건너뛴다(다른 세 게이트는
+  // 여전히 하드 게이트라 영향 없음) — 로그아웃 시 이 플래그를 지우므로
+  // 다음 로그인에서는 다시 이 게이트가 정상 작동한다.
+  if (currentUser && currentUser.role === 'user' && currentProfile && !currentProfile.onboardingCompletedAt && !isAuthOnboardingRoute(path) && !sessionStorage.getItem('onboarding_snoozed')) {
     location.hash = '#/onboarding/complete';
     return;
   }
