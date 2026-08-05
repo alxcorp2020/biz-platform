@@ -35,6 +35,11 @@ import (
 const (
 	baseURL   = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService"
 	operation = "getBidPblancListInfoServc"
+	// regionNationwide — internal/api/eligibility.go의 regionNationwide와
+	// 반드시 같은 문자열이어야 한다(별도 패키지라 상수 공유 대신 문자열
+	// 리터럴을 이 코드베이스 기존 관례대로 중복 정의 — REGION_OPTIONS류가
+	// 프론트/백엔드 여러 곳에 이미 각자 정의돼 있는 것과 같은 패턴).
+	regionNationwide = "전국"
 )
 
 type Source struct {
@@ -83,6 +88,17 @@ type bidItem struct {
 	AsignBdgtAmt string `json:"asignBdgtAmt"` // 배정예산액
 
 	PubPrcrmntMidClsfcNm string `json:"pubPrcrmntMidClsfcNm"` // 공공조달분류 중분류명 (업종 근사치)
+
+	// BidPrtcptLmtYn/CmmnSpldmdCorpRgnLmtYn — 지역제한 여부(Y/N). 2026-08-05
+	// 추가 — Region을 아예 안 채우던 걸 발견(온보딩 화면의 "지역" 질문이
+	// eligibility.go의 scoreRegion을 거쳐 항상 "공고 쪽 데이터 부족"으로만
+	// 잡혀 회사 지역 미입력이 결코 감지되지 못하던 근본 원인). 실측(raw_documents
+	// 원본 JSON) 확인 결과 이 목록 조회(용역 부문) 응답은 지역제한이 있을 때도
+	// RgnLmtBidLocplcJdgmBssNm(제한 지역명) 자체를 채워주지 않는다 — 그래서
+	// 그 필드는 신뢰할 수 없어 아예 안 쓴다. 대신 "제한이 있는지 없는지"는
+	// 신뢰할 수 있으므로, 제한이 없으면(실측상 99%+) "전국"으로 매핑한다.
+	BidPrtcptLmtYn         string `json:"bidPrtcptLmtYn"`         // 입찰참가 지역제한 여부
+	CmmnSpldmdCorpRgnLmtYn string `json:"cmmnSpldmdCorpRgnLmtYn"` // 공동수급 법인 지역제한 여부
 
 	BidNtceDtlUrl string `json:"bidNtceDtlUrl"` // 공고 상세 링크
 	BidNtceUrl    string `json:"bidNtceUrl"`
@@ -309,6 +325,14 @@ func (s *Source) Normalize(ctx context.Context, doc collector.RawDocument) (coll
 		officialURL = it.BidNtceUrl
 	}
 
+	// region — 지역제한이 없으면(대다수) "전국", 있으면 실제 지역명을 이
+	// API가 안 줘서(위 bidItem 필드 주석 참고) 빈 문자열로 남긴다(공고 쪽
+	// 데이터 부족으로 정직하게 처리됨 — 지어내지 않음).
+	region := ""
+	if it.BidPrtcptLmtYn != "Y" && it.CmmnSpldmdCorpRgnLmtYn != "Y" {
+		region = regionNationwide
+	}
+
 	n := collector.NormalizedNotice{
 		SourceID:         s.SourceCode(),
 		ExternalNoticeID: it.BidNtceNo,
@@ -316,6 +340,7 @@ func (s *Source) Normalize(ctx context.Context, doc collector.RawDocument) (coll
 		Title:            it.BidNtceNm,
 		OrganizationName: it.NtceInsttNm,
 		DepartmentName:   it.DminsttNm,
+		Region:           region,
 		Industry:         it.PubPrcrmntMidClsfcNm,
 		Status:           status,
 		OfficialURL:      officialURL,
