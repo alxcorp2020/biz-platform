@@ -2322,7 +2322,7 @@
      참고) 이 너비에서는 위 .site-header를 대신한다. 좁은 화면에서는
      기존 상단 헤더가 그대로 쓰인다. -->
 <nav class="sidebar" id="sidebar">
-  <a href="#/" class="sidebar-brand">
+  <a href="#/dashboard" class="sidebar-brand">
     <span class="sidebar-brand-title brand-name-text">공공사업 AI 비서</span>
   </a>
   <div class="sidebar-menu" id="sidebar-menu"></div>
@@ -2411,8 +2411,13 @@ const SIDEBAR_ICONS = {
 // Phase 5(인앱 알림함) 추가로 7개. TABBAR_MENU는 그대로 5개 유지 —
 // 모바일에서는 기존에 구독관리도 탭바에 없었던 것과 같은 이유로 auth-nav
 // 헤더 링크로만 노출한다.
+// ⚠️2026-08-05: "홈"(#/)이 랜딩페이지/대시보드 두 역할을 겸하던 걸
+// 분리 — 회원 전용 진입점은 #/dashboard로 명확히 하고 라벨도 "대시보드"로
+// 바꿨다(#/는 이제 비로그인 전용 랜딩페이지 고정, route() 참고). 공지사항은
+// 원래부터 인증 불필요(PUBLIC_ROUTES)였는데 사이드바에만 있어 비로그인
+// 사용자가 못 찾았다 — 랜딩페이지 헤더/푸터로 옮기고 회원 사이드바에서는 뺐다.
 const SIDEBAR_MENU = [
-  { path: '#/', label: '홈', icon: 'home' },
+  { path: '#/dashboard', label: '대시보드', icon: 'home' },
   { path: '#/notices', label: '공고 검색', icon: 'search' },
   { path: '#/pipeline', label: '진행 중 사업', icon: 'pipeline' },
   { path: '#/notifications', label: '알림', icon: 'bell' },
@@ -2420,7 +2425,6 @@ const SIDEBAR_MENU = [
   { path: '#/me/profile', label: '기업 프로필', icon: 'profile' },
   { path: '#/growth', label: '성장분석', icon: 'chart' },
   { path: '#/me/subscription', label: '구독 관리', icon: 'card' },
-  { path: '#/announcements', label: '공지사항', icon: 'notice' },
 ];
 // 모바일 하단 탭바 — PC 사이드바와 다른 5개 구성(요청사항). '진행중'/
 // '내정보'는 사이드바의 파이프라인/프로필과 동일 라우트. '관심공고'가
@@ -2428,7 +2432,7 @@ const SIDEBAR_MENU = [
 // 생기면서 제자리를 찾았다 — 관심공고는 auth-nav 헤더 링크(모바일
 // 햄버거)로 계속 노출된다(원래 거기 있었음, 안 없어짐).
 const TABBAR_MENU = [
-  { path: '#/', label: '홈', icon: 'home' },
+  { path: '#/dashboard', label: '대시보드', icon: 'home' },
   { path: '#/notices', label: '검색', icon: 'search' },
   { path: '#/pipeline', label: '진행중', icon: 'pipeline' },
   { path: '#/notifications', label: '알림', icon: 'bell' },
@@ -2484,8 +2488,7 @@ function updateSidebarActiveState() {
   const path = (location.hash || '#/').split('?')[0];
   document.querySelectorAll('.sidebar-menu-item').forEach(el => {
     const itemPath = el.dataset.path;
-    const isActive = itemPath === '#/' ? path === '#/' : path.startsWith(itemPath);
-    el.classList.toggle('is-active', isActive);
+    el.classList.toggle('is-active', path.startsWith(itemPath));
   });
 }
 
@@ -2505,8 +2508,7 @@ function updateTabbarActiveState() {
   const path = (location.hash || '#/').split('?')[0];
   document.querySelectorAll('.tabbar-item').forEach(el => {
     const itemPath = el.dataset.path;
-    const isActive = itemPath === '#/' ? path === '#/' : path.startsWith(itemPath);
-    el.classList.toggle('is-active', isActive);
+    el.classList.toggle('is-active', path.startsWith(itemPath));
   });
 }
 
@@ -2994,9 +2996,18 @@ function renderHeader() {
 }
 
 // ---------- 홈: AI 대시보드 ----------
-// #/의 첫 화면. 로그인 상태·프로필 등록 여부는 /api/dashboard 응답 자체로
-// 판단한다(401 → 마케팅 CTA, hasProfile:false → 온보딩 CTA) — currentUser
-// 전역값은 loadMe()가 비동기로 채우는 중일 수 있어 신뢰하지 않는다.
+// #/dashboard(회원 전용 진입점)의 화면. ⚠️2026-08-05: 예전엔 이 함수가
+// #/(비로그인/로그인 공용) 자체의 핸들러였는데, "홈이 랜딩페이지와
+// 대시보드 두 역할을 겸해 혼란스럽다"는 이유로 분리했다 — #/는 이제
+// route()에서 로그인 여부만 보고 즉시 랜딩페이지 또는 #/dashboard로
+// 리다이렉트하고(가능하면 이 함수를 아예 안 부름), 실제 대시보드
+// 렌더링은 이 함수(#/dashboard 전용)와 route() 최하단 fallback(알 수
+// 없는 경로)만 담당한다. 401 처리는 route()의 상단 게이트가 이미
+// #/dashboard를 비로그인 접근에서 막아주므로 정상 흐름에서는 거의 안
+// 일어나지만, currentUser가 클라이언트에 남아있는데 세션 쿠키만 만료된
+// 경우처럼 방어적으로 필요해 로그인 화면으로 보낸다(과거처럼 랜딩페이지를
+// #/dashboard URL 아래 인라인 렌더하지 않음 — 주소와 화면이 어긋나는
+// 걸 피하기 위함).
 async function renderHome(container) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
@@ -3006,7 +3017,7 @@ async function renderHome(container) {
     data = await apiRequest('GET', '/api/dashboard');
   } catch (err) {
     if (err.status === 401) {
-      renderLandingPage(container);
+      location.hash = '#/auth/login';
       return;
     }
     container.innerHTML = '';
@@ -3302,13 +3313,14 @@ async function renderGlobalProfileBanner() {
   `;
 }
 
-// ---------- 랜딩페이지(비로그인 첫 화면) ----------
-// 지금 앱(로그인 후 대시보드)과 완전히 독립된 레이아웃 — body.is-landing
+// ---------- 랜딩페이지(비로그인 전용, #/) ----------
+// 지금 앱(로그인 후 #/dashboard)과 완전히 독립된 레이아웃 — body.is-landing
 // 클래스로 사이드바/헤더/탭바를 숨기고 이 함수가 자체 헤더+푸터를 그린다
-// (CSS는 "랜딩페이지" 주석 블록 참고). renderOnboardingHero/renderDashboard가
-// is-landing을 다시 지운다 — 로그인 직후처럼 같은 '#/' 경로에서 렌더 분기만
-// 바뀌는 경우 route()의 "path !== '#/'일 때만 정리" 로직으로는 안 잡히기
-// 때문에, 세 분기 함수 각자가 자기 상태를 명시적으로 맞춘다.
+// (CSS는 "랜딩페이지" 주석 블록 참고). renderOnboardingHero/renderDashboard도
+// 각자 진입 시 is-landing을 지운다 — 2026-08-05 라우팅 분리(#/=비로그인
+// 랜딩 고정, #/dashboard=회원 진입점) 이후로는 로그인/온보딩완료가 항상
+// 다른 경로(#/dashboard)로 이동하므로 route()의 경로별 정리 로직만으로도
+// 충분하지만, 두 함수의 방어적 클린업은 그대로 남겨둔다(멱등이라 무해).
 // LANDING_FEATURE_SPOTLIGHTS — 실제 화면 스크린샷이 있는 3개 기능은 하나씩
 // 크게(제목+설명+스크린샷) 보여준다. 이미지는 헤드리스 브라우저로 실제
 // 로그인 화면을 찍어 static/screenshots/에 저장한 것(placeholder/목업
@@ -3425,6 +3437,7 @@ async function renderLandingPage(container) {
     <header class="landing-header">
       <a href="#/" class="landing-logo brand-name-text">공공사업 AI 비서</a>
       <div class="landing-header-actions">
+        <a href="#/announcements" class="link-btn">공지사항</a>
         <a href="#/auth/login" class="home-cta-secondary">로그인</a>
         <a href="#/auth/signup" class="home-cta-primary">무료로 시작하기</a>
       </div>
@@ -3558,6 +3571,7 @@ async function renderLandingPage(container) {
         <div class="landing-footer-top">
           <div class="landing-footer-info" id="landing-footer-info"></div>
           <div class="landing-footer-links">
+            <a href="#/announcements">공지사항</a>
             <a href="#/terms">이용약관</a>
             <a href="#/privacy">개인정보처리방침</a>
           </div>
@@ -4522,7 +4536,7 @@ function wireOnboardingExitButton() {
     // 지워 "다음 로그인 시 다시 온보딩부터"를 보장한다(필수 3개를 하나도
     // 안 채운 초기상태였다면 큐가 처음부터 그대로 다시 보인다).
     sessionStorage.setItem('onboarding_snoozed', '1');
-    location.hash = '#/';
+    location.hash = '#/dashboard';
   });
 }
 
@@ -4990,7 +5004,7 @@ function renderOnboardingFinalConfirm(container, completenessData) {
     try {
       await apiRequest('POST', '/api/me/onboarding/complete', {});
       await loadMe();
-      location.hash = '#/';
+      location.hash = '#/dashboard';
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -7965,7 +7979,7 @@ async function renderSignup(container) {
       if (pendingInviteToken) {
         await acceptPendingInviteIfAny();
       }
-      location.hash = '#/';
+      location.hash = '#/dashboard';
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -8038,7 +8052,7 @@ async function renderOAuthOnboardingStep(container) {
       });
       currentUser.phoneVerified = phoneVerificationRequired;
       currentUser.onboarded = true;
-      location.hash = '#/';
+      location.hash = '#/dashboard';
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -8098,7 +8112,7 @@ function renderLogin(container) {
       renderHeader();
       await loadMe();
       await acceptPendingInviteIfAny();
-      location.hash = '#/';
+      location.hash = '#/dashboard';
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -8320,7 +8334,7 @@ async function renderVerifyEmail(container) {
       <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
       <h2>이메일 인증</h2>
       ${resultHtml}
-      <p class="auth-switch"><a href="#/${currentUser ? '' : 'auth/login'}">${currentUser ? '홈으로 이동' : '로그인하러 가기'}</a></p>
+      <p class="auth-switch"><a href="#/${currentUser ? 'dashboard' : 'auth/login'}">${currentUser ? '대시보드로 이동' : '로그인하러 가기'}</a></p>
     </div>
   `));
 }
@@ -12520,7 +12534,7 @@ async function renderInviteAccept(container) {
       try {
         await apiRequest('POST', '/api/invitations/' + encodeURIComponent(token) + '/accept', {});
         await loadMe();
-        location.hash = '#/';
+        location.hash = '#/dashboard';
       } catch (err) {
         errBox.textContent = err.message;
         errBox.style.display = 'block';
@@ -12650,20 +12664,22 @@ function route() {
   renderGlobalProfileBanner();
   // 배너/팝업 오버레이(renderHomeOverlay)는 document.body에 직접 붙어
   // #app 밖에 있어 route()가 페이지를 갈아끼워도 저절로 안 없어진다 —
-  // 홈이 아닌 다른 화면으로 이동하면(관리자 화면 등) 지난 방문에서 뜬
-  // 오버레이가 뒤 화면을 계속 가리는 버그가 있어, 홈이 아닌 경로로 갈
+  // "홈"(비로그인 랜딩페이지 #/ + 로그인 대시보드 #/dashboard) 화면이
+  // 아닌 다른 화면으로 이동하면(관리자 화면 등) 지난 방문에서 뜬
+  // 오버레이가 뒤 화면을 계속 가리는 버그가 있어, 그 밖의 경로로 갈
   // 때는 항상 정리한다. "오늘 하루 보지 않기"로 닫은 게 아니라면 다시
   // 홈으로 돌아왔을 때는 renderHomeOverlay가 새로 판단해서 다시 띄운다.
+  // ⚠️2026-08-05: #/dashboard 신설(홈의 랜딩/대시보드 역할 분리) 전에는
+  // 이 분기가 path==='#/' 하나만 봤는데, 그대로 두면 로그인 사용자가
+  // #/dashboard로 이동할 때마다 이 else 분기를 타서 방금 뜬 배너/팝업이
+  // 매번 즉시 지워지는 회귀가 생긴다 — #/dashboard도 "홈" 취급해야 한다.
   if (path === '#/') {
-    // renderHome은 async라 대시보드 API 응답(비로그인 401 감지)을 받고서야
-    // is-landing을 뒤늦게 붙인다 — 그 사이 사이드바 있는 레이아웃이 잠깐
-    // 보였다 사라지는 깜빡임이 생긴다. currentUser는 route() 호출 전에
-    // await loadMe()로 이미 확정돼있으므로(app-booting 부팅 시퀀스 참고)
-    // 여기서 미리 동기적으로 결정해두면 renderHome의 API 호출을 기다릴
-    // 필요가 없다 — 로그인 사용자는 항상 대시보드/온보딩(is-landing 아님),
-    // 비로그인은 항상 랜딩(is-landing)이라 renderHome이 나중에 내리는
-    // 결론과 절대 어긋나지 않는다.
+    // renderLandingPage는 이제 항상 비로그인 상태에서만 호출되므로(로그인
+    // 사용자는 아래 dispatch에서 #/dashboard로 즉시 리다이렉트됨) is-landing은
+    // 사실상 항상 true가 되지만, 방어적으로 currentUser 기준을 그대로 둔다.
     document.body.classList.toggle('is-landing', !currentUser);
+  } else if (path === '#/dashboard') {
+    document.body.classList.remove('is-landing');
   } else {
     document.getElementById('banner-layer-overlay')?.remove();
     document.body.style.overflow = '';
@@ -12682,6 +12698,18 @@ function route() {
   if (path !== '#/auth/login' && path !== '#/auth/signup' && path !== '#/auth/oauth-profile') {
     document.body.classList.remove('is-auth');
   }
+  // 2026-08-05: "홈"(#/) 역할 분리 — 비로그인이면 랜딩페이지를 그 자리에서
+  // 바로 그리고(API 호출 불필요), 로그인 상태면 명확한 회원 진입점인
+  // #/dashboard로 리다이렉트한다(과거처럼 #/ URL 아래 대시보드를 인라인
+  // 렌더하지 않음 — 주소와 화면 의미를 일치시키기 위함). 이 시점의
+  // currentUser는 위 온보딩 게이트들을 이미 통과했으므로 로그인+온보딩
+  // 완료가 보장된다.
+  if (path === '#/') {
+    if (currentUser) { location.hash = '#/dashboard'; return; }
+    renderLandingPage(app);
+    return;
+  }
+  if (path === '#/dashboard') { renderHome(app); return; }
   if (path === '#/auth/signup') { renderSignup(app); return; }
   if (path === '#/auth/login') { renderLogin(app); return; }
   if (path === '#/auth/find-account') { renderFindAccount(app); return; }

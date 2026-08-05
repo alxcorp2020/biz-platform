@@ -176,7 +176,13 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("oauth-callback: onboarded check failed", "error", err)
 	}
 
-	target := "/#/"
+	// 2026-08-05: "홈"(#/) 역할 분리로 로그인 후 진입점이 #/dashboard로
+	// 명확해졌다 — index.html route()가 #/를 비로그인 랜딩페이지 전용으로
+	// 고정하고 로그인 상태면 자체적으로 #/dashboard로 리다이렉트하지만,
+	// 소셜로그인 콜백은 서버가 직접 302를 쏘는 경로라 여기서부터 최종
+	// 목적지를 정확히 지정하는 게 맞다(한 번의 추가 클라이언트 리다이렉트
+	// 홉을 아낀다).
+	target := "/#/dashboard"
 	if !onboarded {
 		target = "/#/auth/oauth-profile"
 	}

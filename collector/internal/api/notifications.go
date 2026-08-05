@@ -603,8 +603,12 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 			// 나오면 이 링크(그리고 아래 digestNoticeItemHTML의 공고별
 			// 링크)를 Universal Link(iOS)/App Link(Android) 방식으로 바꿔서,
 			// 앱이 설치돼있으면 자동으로 앱이 열리게 전환해야 한다 — 지금은
-			// 앱 자체가 없어 이번 범위에서는 웹 URL만 발송한다.
-			dashboardLink := s.appBaseURL + "/#/"
+			// 앱 자체가 없어 이번 범위에서는 웹 URL만 발송한다. 2026-08-05:
+			// "#/"가 이제 비로그인 전용 랜딩페이지로 고정돼 회원용 진입점을
+			// "#/dashboard"로 명시했다(로그인 상태면 "#/"도 결국 리다이렉트
+			// 되지만, 이메일 클라이언트의 링크 래핑을 거치며 해시가 씹히는
+			// 사고를 줄이려 처음부터 최종 목적지를 지정).
+			dashboardLink := s.appBaseURL + "/#/dashboard"
 			body := fmt.Sprintf(`
 				<p>안녕하세요. %s!</p>
 				<p>회원님께 맞는 공고가 <b>%d건</b> 발생하였습니다.</p>
