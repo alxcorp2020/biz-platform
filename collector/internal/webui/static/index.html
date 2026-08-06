@@ -5883,15 +5883,20 @@ function renderPipelineListView(container, items) {
 // 떨어진다고 판단 — 요구사항 확정 시 사용자와 합의된 내용).
 const PIPELINE_TERMINAL_STATUSES = PIPELINE_STATUS_LIST.filter(s => !PIPELINE_ACTIVE_STATUSES.includes(s));
 
+// 2026-08-06: 리스트 뷰(pipelineListRowHtml)에 이어 칸반 카드에도 예산/
+// 공고상태/공고유형배지를 추가 — noticeRowHtml/pipelineListRowHtml과
+// 같은 포맷 함수 재사용. 칸반 카드는 폭이 좁아 지역/업종까지는 넣지
+// 않고 요청받은 3개(예산·공고상태·입찰공고 배지)만 반영.
 function pipelineKanbanCardHtml(entry) {
   const assignee = entry.assigneeName ? escapeHtml(entry.assigneeName) : '담당자 미지정';
   const gradeHtml = entry.aiGrade ? gradeBadgeHtml(entry.aiGrade, GRADE_LABELS[entry.aiGrade] || entry.aiGrade) : '';
   return `
     <div class="kanban-card" draggable="true" data-id="${escapeAttr(entry.id)}">
       <div class="kanban-card-title">${escapeHtml(entry.noticeTitle)}</div>
-      <div class="kanban-card-org">${escapeHtml(entry.organizationName || '-')}</div>
+      <div class="kanban-card-org">${noticeTypeBadgeHtml(entry.noticeType)} ${escapeHtml(entry.organizationName || '-')} · ${statusBadgeHtml(entry.noticeStatus)}</div>
       <div class="kanban-card-meta">
         <span class="kanban-card-assignee">${assignee}</span>
+        <span class="mono">${formatBudget(entry.budgetAmount)}</span>
         ${ddayBadgeHtml(entry.submissionDeadline)}
       </div>
       ${gradeHtml ? `<div class="kanban-card-grade">${gradeHtml}</div>` : ''}
@@ -6081,7 +6086,7 @@ function renderPipelineTable(container, items) {
 // 화면만의 핵심 정보라 그대로 유지 — statusBadgeHtml이 보여주는 건
 // "공고 자체"의 상태(진행중/마감/취소/재공고)로 서로 다른 개념이다.
 function pipelineListRowHtml(entry) {
-  const assignee = entry.assigneeName ? `담당: ${escapeHtml(entry.assigneeName)}` : '담당자 미지정';
+  const assignee = entry.assigneeName ? `담당자: ${escapeHtml(entry.assigneeName)}` : '담당자 미지정';
   return `
     <div class="row-card pipeline-row" data-id="${escapeAttr(entry.id)}">
       <span class="row-card-icon">${LIST_ROW_ICONS.pipeline}</span>
