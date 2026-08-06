@@ -896,6 +896,24 @@
   .home-list-side { display: flex; align-items: center; gap: 0.6rem; flex-shrink: 0; }
   .home-list-arrow { color: var(--border); font-size: 1.2rem; line-height: 1; }
 
+  /* ---------- 공고상세 탭(2026-08-06, 스크롤형→탭 구조 전환) ----------
+     6개 탭(요약/판정/참가조건/제출서류/낙찰이력/변경이력)을 가로로
+     나열한다. 탭이 화면 폭보다 많아지면(작은 화면) overflow-x:auto가
+     그대로 가로 스크롤을 만들어줘서 별도 media query 없이 모바일에서도
+     자연스럽게 스와이프로 넘길 수 있다. */
+  .detail-tabs {
+    display: flex; gap: 0.25rem; overflow-x: auto; white-space: nowrap;
+    border-bottom: 1px solid var(--border); margin: 1.25rem 0 1.25rem;
+  }
+  .detail-tab {
+    flex: 0 0 auto; padding: 0.65rem 1rem; background: none; border: none;
+    border-bottom: 2px solid transparent; cursor: pointer;
+    font-size: 0.92rem; color: var(--ink-soft); font-weight: 500;
+  }
+  .detail-tab:hover { color: var(--ink); }
+  .detail-tab.is-active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); font-weight: 700; }
+  .detail-tab-panel[hidden] { display: none; }
+
   /* ---------- AI 참여 분석 (공고 상세 첫 화면) ---------- */
   .ai-section-title { margin: 0 0 1rem; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
   .ai-summary-card {
@@ -1372,6 +1390,14 @@
   .chat-chip.is-selected { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
   .chat-required-note { margin: 0.5rem 0 0; font-size: 0.82rem; color: var(--accent-blue-deep); font-weight: 600; }
   .chat-skip-btn { margin-top: 0.6rem; }
+  /* chat-card-footer — 2026-08-06, 온보딩 카드 공용 하단(이전/건너뛰기).
+     카드 콘텐츠(칩 선택/파일첨부/폼)와 시각적으로 분리되도록 위에 점선
+     구분선을 두고, 항상 같은 자리(왼쪽 이전 · 오른쪽 건너뛰기)에 옅은
+     텍스트 버튼으로만 — 콘텐츠의 주 액션(chat-chip/btn-primary)과 눈에
+     띄게 구분해 "이건 언제나 같은 부가 기능"임을 알 수 있게 한다. */
+  .chat-card-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px dashed var(--border); }
+  .chat-footer-btn { font-size: 0.85rem; color: var(--ink-soft); background: none; border: none; cursor: pointer; padding: 0.3rem 0.2rem; }
+  .chat-footer-btn:hover { color: var(--accent-blue); text-decoration: underline; }
   /* step-card-inline — 봇 말풍선 안에 끼워넣는 작은 요약 카드(사업자등록증
      OCR 결과 확인 등). 채팅 버블 자체의 padding에 자연스럽게 얹히도록
      여백만 최소로. */
@@ -3940,6 +3966,28 @@ function onboardingBackHandler(state) {
   };
 }
 
+// appendChatCardFooter — 2026-08-06, 온보딩 카드 공용 하단 푸터(이전/
+// 건너뛰기). 예전엔 "이전 질문"(chat-chip, 카드마다 문구/스타일이 조금씩
+// 다르게 하드코딩)과 "이전"(quick-form 안, btn-secondary — 완전히 다른
+// 스타일)이 따로 있어서 카드 종류(파일첨부/선택형/폼)마다 위치·모양이
+// 들쭉날쭉했다 — 이제 카드 콘텐츠를 그리는 함수는 onBack/onSkip 콜백만
+// 넘기면 되고, 버튼 마크업 자체는 이 함수 하나가 항상 같은 자리(왼쪽
+// 이전 · 오른쪽 건너뛰기)에 그린다. onBack/onSkip이 둘 다 없으면 아무것도
+// 안 그린다(예: 맨 첫 질문).
+function appendChatCardFooter(actionEl, onBack, onSkip) {
+  if (!onBack && !onSkip) return;
+  actionEl.insertAdjacentHTML('beforeend', `
+    <div class="chat-card-footer">
+      <div>${onBack ? '<button type="button" class="chat-footer-btn" id="chat-card-footer-back-btn">‹ 이전</button>' : ''}</div>
+      <div>${onSkip ? '<button type="button" class="chat-footer-btn chat-footer-btn--skip" id="chat-card-footer-skip-btn">건너뛰기</button>' : ''}</div>
+    </div>
+  `);
+  const backBtn = actionEl.querySelector('#chat-card-footer-back-btn');
+  if (backBtn) backBtn.addEventListener('click', onBack);
+  const skipBtn = actionEl.querySelector('#chat-card-footer-skip-btn');
+  if (skipBtn) skipBtn.addEventListener('click', onSkip);
+}
+
 // renderOnboardingChat — #/onboarding/complete. 채팅형 온보딩 진입점.
 // currentProfile이 아직 없는 신규 계정은 GET /api/dashboard·
 // /api/me/profile-completeness가 둘 다 company_profile_required(400)로
@@ -4031,13 +4079,11 @@ async function startOnboardingFileUploadFlow(state) {
     <div>
       <input type="file" id="onboarding-biz-reg-file-input" accept=".pdf,.jpg,.jpeg,.png,.webp">
       <div id="onboarding-biz-reg-upload-error" class="error" style="display:none"></div>
-      ${onBack ? '<button type="button" class="btn btn-secondary" id="onboarding-biz-reg-back-btn" style="margin-top:0.6rem">‹ 이전 질문</button>' : ''}
     </div>
   `));
+  appendChatCardFooter(actionEl, onBack, null);
   const fileInput = document.getElementById('onboarding-biz-reg-file-input');
   const errorBox = document.getElementById('onboarding-biz-reg-upload-error');
-  const backBtn = document.getElementById('onboarding-biz-reg-back-btn');
-  if (backBtn) backBtn.addEventListener('click', onBack);
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files[0];
     if (!file) return;
@@ -4092,11 +4138,9 @@ function showOnboardingBusinessRegResult(state, candidate) {
     <div class="chat-chip-row">
       <button type="button" class="chat-chip" id="onboarding-bizreg-confirm-btn">✓ 맞습니다</button>
       <button type="button" class="chat-chip" id="onboarding-bizreg-edit-btn">✍️ 직접 기재로 수정하기</button>
-      ${onBack ? '<button type="button" class="chat-chip" id="onboarding-bizreg-back-btn">‹ 이전 질문</button>' : ''}
     </div>
   `));
-  const backBtn = document.getElementById('onboarding-bizreg-back-btn');
-  if (backBtn) backBtn.addEventListener('click', onBack);
+  appendChatCardFooter(actionEl, onBack, null);
   document.getElementById('onboarding-bizreg-confirm-btn').addEventListener('click', async () => {
     appendUserBubble('✓ 맞습니다');
     actionEl.innerHTML = '';
@@ -4156,16 +4200,14 @@ function startOnboardingManualEntryIntro(state, isCorrection) {
     actionEl.appendChild(h(`
       <div class="chat-chip-row">
         <button type="button" class="chat-chip" id="onboarding-manual-proceed-btn">네, 진행할게요</button>
-        ${onBack ? '<button type="button" class="chat-chip" id="onboarding-manual-back-btn">‹ 이전 질문</button>' : ''}
       </div>
     `));
+    appendChatCardFooter(actionEl, onBack, null);
     document.getElementById('onboarding-manual-proceed-btn').addEventListener('click', () => {
       appendUserBubble('네, 진행할게요');
       pushOnboardingBack(state, () => startOnboardingManualEntryIntro(state, isCorrection));
       runOnboardingIdentityQueue(state, isCorrection);
     });
-    const backBtn = document.getElementById('onboarding-manual-back-btn');
-    if (backBtn) backBtn.addEventListener('click', onBack);
   });
 }
 
@@ -4176,17 +4218,16 @@ function startOnboardingManualEntryIntro(state, isCorrection) {
 // 지역/업종/기업규모"가 정확히 나온다.
 const BUSINESS_TYPE_OPTIONS = ['제조업', '도매 및 소매업', '건설업', '정보통신업', '서비스업'];
 
-function renderCompanyNameChatForm(container, onSaved, onBack) {
+function renderCompanyNameChatForm(container, onSaved) {
   const p = currentProfile || {};
   container.innerHTML = '';
   container.appendChild(h(`
     <form id="quick-company-name-form" class="profile-form">
       <label>상호명<input type="text" name="companyName" value="${escapeAttr(p.companyName || '')}" required></label>
       <div id="quick-company-name-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
+      ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
-  wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-company-name-form');
   const errorBox = document.getElementById('quick-company-name-error');
   form.addEventListener('submit', async (e) => {
@@ -4204,17 +4245,16 @@ function renderCompanyNameChatForm(container, onSaved, onBack) {
   });
 }
 
-function renderBusinessRegNumberChatForm(container, onSaved, onBack) {
+function renderBusinessRegNumberChatForm(container, onSaved) {
   const p = currentProfile || {};
   container.innerHTML = '';
   container.appendChild(h(`
     <form id="quick-biz-reg-number-form" class="profile-form">
       <label>사업자등록번호<input type="text" inputmode="numeric" name="businessRegistrationNumber" value="${escapeAttr(p.businessRegistrationNumber || '')}" placeholder="000-00-00000" required pattern="\\d{3}-\\d{2}-\\d{5}"></label>
       <div id="quick-biz-reg-number-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
+      ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
-  wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-biz-reg-number-form');
   attachBusinessRegistrationNumberAutoFormat(form.businessRegistrationNumber);
   const errorBox = document.getElementById('quick-biz-reg-number-error');
@@ -4233,7 +4273,7 @@ function renderBusinessRegNumberChatForm(container, onSaved, onBack) {
   });
 }
 
-function renderBusinessTypeChatForm(container, onSaved, onBack) {
+function renderBusinessTypeChatForm(container, onSaved) {
   const p = currentProfile || {};
   const current = (p.businessType || [])[0] || '';
   const isOther = !!current && !BUSINESS_TYPE_OPTIONS.includes(current);
@@ -4249,10 +4289,9 @@ function renderBusinessTypeChatForm(container, onSaved, onBack) {
       </label>
       <label id="quick-business-type-other-wrap" style="display:${isOther ? '' : 'none'}">직접 입력<input type="text" name="businessTypeOther" value="${escapeAttr(isOther ? current : '')}"></label>
       <div id="quick-business-type-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
+      ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
-  wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-business-type-form');
   const otherWrap = document.getElementById('quick-business-type-other-wrap');
   form.businessTypeOption.addEventListener('change', () => {
@@ -4285,17 +4324,16 @@ function renderBusinessTypeChatForm(container, onSaved, onBack) {
 // 경로 전용 4번째 신원정보 질문. 업력을 직접 묻지 않고 개업일만 받아
 // computeBusinessAgeYears로 역산해 저장한다 — OCR 경로(showOnboardingBusinessRegResult)와
 // 동일한 계산식.
-function renderFoundingDateChatForm(container, onSaved, onBack) {
+function renderFoundingDateChatForm(container, onSaved) {
   const today = new Date().toISOString().slice(0, 10);
   container.innerHTML = '';
   container.appendChild(h(`
     <form id="quick-founding-date-form" class="profile-form">
       <label>개업일<input type="date" name="foundingDate" max="${today}" required></label>
       <div id="quick-founding-date-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
+      ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
-  wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-founding-date-form');
   const errorBox = document.getElementById('quick-founding-date-error');
   form.addEventListener('submit', async (e) => {
@@ -4399,7 +4437,8 @@ async function runOnboardingIdentityStep(state, queue, index, force) {
     appendUserBubble(echoText);
     appendBotBubble(`<b>${escapeHtml(echoText)}</b>로 입력하셨네요! 감사합니다 :)`);
     runOnboardingIdentityStep(state, queue, index + 1, force);
-  }, onBack);
+  });
+  appendChatCardFooter(actionEl, onBack, null);
 }
 
 // runOnboardingIndustryCorrectionStep — "직접 기재로 수정하기" 전용
@@ -4417,7 +4456,8 @@ function runOnboardingIndustryCorrectionStep(state) {
       appendBotBubble(`<b>${escapeHtml(echo)}</b>로 입력하셨네요! 감사합니다 :)`);
       pushOnboardingBack(state, () => runOnboardingIndustryCorrectionStep(state));
       runOnboardingFieldQueue(state);
-    }, onBack);
+    });
+    appendChatCardFooter(actionEl, onBack, null);
   });
 }
 
@@ -4566,8 +4606,8 @@ const ONBOARDING_QUICK_FORM_RENDERERS = {
   employeeCount: renderEmployeeCountQuickForm,
   revenueAmount: renderRevenueAmountQuickForm,
   trackRecord: renderTrackRecordQuickForm,
-  license: (slot, onSaved, onBack) => renderLicenseQuickForm(slot, 'license', onSaved, onBack),
-  certification: (slot, onSaved, onBack) => renderLicenseQuickForm(slot, 'certification', onSaved, onBack),
+  license: (slot, onSaved) => renderLicenseQuickForm(slot, 'license', onSaved),
+  certification: (slot, onSaved) => renderLicenseQuickForm(slot, 'certification', onSaved),
   directProduction: renderDirectProductionQuickForm,
 };
 
@@ -4737,9 +4777,9 @@ function onboardingFieldEchoBubbles(card) {
 }
 
 // renderOnboardingGenericFieldAction — 지역/업종/기업규모/업력/매출액/
-// 수행실적 공용(직원수·보유계열은 각자 전용 함수). 선택 항목이면
-// [건너뛰기] 버튼도 같이 붙인다. onBack은 quick-form의 기존 [이전]
-// 버튼(onboardingQuickFormButtonsHtml)에 그대로 실어보낸다.
+// 수행실적 공용(직원수·보유계열은 각자 전용 함수). 폼 렌더링과 이전/
+// 건너뛰기는 완전히 분리 — 폼은 [다음]만 그리고, 이전/건너뛰기는 공용
+// 카드 푸터(appendChatCardFooter)가 폼 바깥에 붙인다.
 function renderOnboardingGenericFieldAction(actionEl, card, isRequired, state, advance, onBack) {
   const renderForm = ONBOARDING_QUICK_FORM_RENDERERS[card.fieldKey];
   renderForm(actionEl, () => {
@@ -4747,21 +4787,22 @@ function renderOnboardingGenericFieldAction(actionEl, card, isRequired, state, a
     appendUserBubble(echo.userText);
     state.skipStreak = 0; // 실제로 값을 입력했으니 연속 건너뛰기 스트릭 초기화.
     advance(echo.feedbackHtml);
-  }, onBack);
+  });
   if (isRequired) {
     actionEl.appendChild(h('<p class="chat-required-note">필수 항목입니다</p>'));
+    appendChatCardFooter(actionEl, onBack, null);
   } else {
-    actionEl.appendChild(h('<button type="button" class="btn btn-secondary chat-skip-btn">건너뛰기</button>'));
-    actionEl.querySelector('.chat-skip-btn').addEventListener('click', () => handleOnboardingSkip(card, state, advance));
+    appendChatCardFooter(actionEl, onBack, () => handleOnboardingSkip(card, state, advance));
   }
 }
 
 // renderOnboardingPossessionAction — 면허/인증/직접생산확인("보유 여부"
 // 개념) 공용. [보유 - 등록하기]는 해당 quick-form을, [미보유 - 다음으로]는
 // 값 변동 없이 바로 다음으로("미보유"는 건너뛰기가 아니라 확정된 답이라
-// skipStreak도 함께 초기화한다). onBack은 선택 화면(보유/미보유 버튼)에
-// "이전 질문" 칩으로 붙이고, 등록 폼 안의 [이전]은 필드큐를 되돌리는
-// 대신 이 선택 화면으로만 돌아간다(중첩 뒤로가기).
+// skipStreak도 함께 초기화한다). onBack은 선택 화면(보유/미보유 버튼)의
+// 공용 카드 푸터(appendChatCardFooter)에 붙이고, 등록 폼으로 들어가면
+// 그 폼의 푸터는 필드큐를 되돌리는 대신 이 선택 화면(renderChoice)으로만
+// 돌아간다(중첩 뒤로가기).
 function renderOnboardingPossessionAction(actionEl, card, state, advance, onBack) {
   const renderChoice = () => {
     actionEl.innerHTML = '';
@@ -4769,9 +4810,9 @@ function renderOnboardingPossessionAction(actionEl, card, state, advance, onBack
       <div class="chat-chip-row">
         <button type="button" class="chat-chip" id="onboarding-possess-has-btn">보유 - 등록하기</button>
         <button type="button" class="chat-chip" id="onboarding-possess-none-btn">미보유 - 다음으로</button>
-        ${onBack ? '<button type="button" class="chat-chip" id="onboarding-possess-back-btn">‹ 이전 질문</button>' : ''}
       </div>
     `));
+    appendChatCardFooter(actionEl, onBack, null);
     document.getElementById('onboarding-possess-has-btn').addEventListener('click', () => {
       appendUserBubble('보유 - 등록하기');
       actionEl.innerHTML = '';
@@ -4780,15 +4821,14 @@ function renderOnboardingPossessionAction(actionEl, card, state, advance, onBack
         appendUserBubble(`${card.label} 등록 완료`);
         state.skipStreak = 0;
         advance(`${escapeHtml(card.label)}을(를) 등록해주셔서 감사합니다 :)`);
-      }, renderChoice);
+      });
+      appendChatCardFooter(actionEl, renderChoice, null);
     });
     document.getElementById('onboarding-possess-none-btn').addEventListener('click', () => {
       appendUserBubble('미보유 - 다음으로');
       state.skipStreak = 0;
       advance(null);
     });
-    const backBtn = document.getElementById('onboarding-possess-back-btn');
-    if (backBtn) backBtn.addEventListener('click', onBack);
   };
   renderChoice();
 }
@@ -4842,10 +4882,9 @@ function renderOnboardingEmployeeCountAction(actionEl, state, card, isRequired, 
       <div class="chat-chip-row">
         <button type="button" class="chat-chip" id="onboarding-employee-upload-btn">📎 4대보험 파일첨부로 자동입력</button>
         <button type="button" class="chat-chip" id="onboarding-employee-manual-btn">직접 입력</button>
-        ${isRequired ? '' : '<button type="button" class="chat-chip" id="onboarding-employee-skip-btn">건너뛰기</button>'}
-        ${onBack ? '<button type="button" class="chat-chip" id="onboarding-employee-back-btn">‹ 이전 질문</button>' : ''}
       </div>
     `));
+    appendChatCardFooter(actionEl, onBack, isRequired ? null : () => handleOnboardingSkip(card, state, advance));
     document.getElementById('onboarding-employee-upload-btn').addEventListener('click', () => {
       appendUserBubble('📎 4대보험 파일첨부로 자동입력');
       startOnboardingEmployeeVerificationUpload(actionEl, state, advance, renderChoice);
@@ -4855,10 +4894,6 @@ function renderOnboardingEmployeeCountAction(actionEl, state, card, isRequired, 
       actionEl.innerHTML = '';
       renderOnboardingEmployeeCountManualFallback(actionEl, state, advance, renderChoice);
     });
-    const skipBtn = document.getElementById('onboarding-employee-skip-btn');
-    if (skipBtn) skipBtn.addEventListener('click', () => handleOnboardingSkip(card, state, advance));
-    const backBtn = document.getElementById('onboarding-employee-back-btn');
-    if (backBtn) backBtn.addEventListener('click', onBack);
   };
   renderChoice();
 }
@@ -4869,7 +4904,8 @@ function renderOnboardingEmployeeCountManualFallback(actionEl, state, advance, o
     appendUserBubble(echo);
     state.skipStreak = 0;
     advance(`<b>${escapeHtml(echo)}</b>으로 입력하셨네요! 감사합니다 :)`);
-  }, onBack || null);
+  });
+  appendChatCardFooter(actionEl, onBack || null, null);
 }
 async function startOnboardingEmployeeVerificationUpload(actionEl, state, advance, onBack) {
   actionEl.innerHTML = '';
@@ -4879,6 +4915,7 @@ async function startOnboardingEmployeeVerificationUpload(actionEl, state, advanc
       <div id="onboarding-employee-upload-error" class="error" style="display:none"></div>
     </div>
   `));
+  appendChatCardFooter(actionEl, onBack || null, null);
   const fileInput = document.getElementById('onboarding-employee-file-input');
   const errorBox = document.getElementById('onboarding-employee-upload-error');
   fileInput.addEventListener('change', async () => {
@@ -4943,10 +4980,9 @@ function renderOnboardingRevenueAction(actionEl, state, card, isRequired, advanc
       <div class="chat-chip-row">
         <button type="button" class="chat-chip" id="onboarding-revenue-upload-btn">📎 재무제표 첨부로 자동추출</button>
         <button type="button" class="chat-chip" id="onboarding-revenue-manual-btn">직접 입력</button>
-        ${isRequired ? '' : '<button type="button" class="chat-chip" id="onboarding-revenue-skip-btn">건너뛰기</button>'}
-        ${onBack ? '<button type="button" class="chat-chip" id="onboarding-revenue-back-btn">‹ 이전 질문</button>' : ''}
       </div>
     `));
+    appendChatCardFooter(actionEl, onBack, isRequired ? null : () => handleOnboardingSkip(card, state, advance));
     document.getElementById('onboarding-revenue-upload-btn').addEventListener('click', () => {
       appendUserBubble('📎 재무제표 첨부로 자동추출');
       startOnboardingRevenueVerificationUpload(actionEl, state, advance, renderChoice);
@@ -4956,10 +4992,6 @@ function renderOnboardingRevenueAction(actionEl, state, card, isRequired, advanc
       actionEl.innerHTML = '';
       renderOnboardingRevenueManualFallback(actionEl, state, advance, renderChoice);
     });
-    const skipBtn = document.getElementById('onboarding-revenue-skip-btn');
-    if (skipBtn) skipBtn.addEventListener('click', () => handleOnboardingSkip(card, state, advance));
-    const backBtn = document.getElementById('onboarding-revenue-back-btn');
-    if (backBtn) backBtn.addEventListener('click', onBack);
   };
   renderChoice();
 }
@@ -4970,7 +5002,8 @@ function renderOnboardingRevenueManualFallback(actionEl, state, advance, onBack)
     appendUserBubble(echo);
     state.skipStreak = 0;
     advance(`<b>${escapeHtml(echo)}</b>으로 입력하셨네요! 감사합니다 :)`);
-  }, onBack || null);
+  });
+  appendChatCardFooter(actionEl, onBack || null, null);
 }
 async function startOnboardingRevenueVerificationUpload(actionEl, state, advance, onBack) {
   actionEl.innerHTML = '';
@@ -4980,6 +5013,7 @@ async function startOnboardingRevenueVerificationUpload(actionEl, state, advance
       <div id="onboarding-revenue-upload-error" class="error" style="display:none"></div>
     </div>
   `));
+  appendChatCardFooter(actionEl, onBack || null, null);
   const fileInput = document.getElementById('onboarding-revenue-file-input');
   const errorBox = document.getElementById('onboarding-revenue-upload-error');
   fileInput.addEventListener('change', async () => {
@@ -5100,24 +5134,19 @@ function companyProfileUpdatePayload(overrides) {
   }, overrides);
 }
 
-// onboardingQuickFormButtonsHtml/wireOnboardingQuickBackButton — 온보딩
-// 미니 등록폼이 전부 공유하는 [이전]/[저장] 버튼 줄. onBack이 없으면
-// (첫 카드) [이전]을 아예 안 그린다.
-function onboardingQuickFormButtonsHtml(onBack) {
+// onboardingQuickFormButtonsHtml — 온보딩 미니 등록폼이 전부 공유하는
+// [다음](submit) 버튼 줄. 2026-08-06: [이전]은 여기서 더 이상 안 그린다
+// — 폼을 호출한 쪽이 appendChatCardFooter로 폼 바깥에 공용 푸터를
+// 붙인다(카드 콘텐츠와 이전/건너뛰기를 완전히 분리).
+function onboardingQuickFormButtonsHtml() {
   return `
     <div class="license-toolbar">
-      ${onBack ? '<button type="button" class="btn btn-secondary" id="onboarding-quick-back-btn">이전</button>' : ''}
       <button type="submit" class="btn btn-primary">다음</button>
     </div>
   `;
 }
-function wireOnboardingQuickBackButton(onBack) {
-  if (!onBack) return;
-  const btn = document.getElementById('onboarding-quick-back-btn');
-  if (btn) btn.addEventListener('click', onBack);
-}
 
-function renderRegionQuickForm(container, onSaved, onBack) {
+function renderRegionQuickForm(container, onSaved) {
   const p = currentProfile || {};
   container.innerHTML = '';
   container.appendChild(h(`
@@ -5129,10 +5158,9 @@ function renderRegionQuickForm(container, onSaved, onBack) {
         </select>
       </label>
       <div id="quick-region-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
+      ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
-  wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-region-form');
   const errorBox = document.getElementById('quick-region-error');
   form.addEventListener('submit', async (e) => {
@@ -5150,7 +5178,7 @@ function renderRegionQuickForm(container, onSaved, onBack) {
   });
 }
 
-function renderIndustryQuickForm(container, onSaved, onBack) {
+function renderIndustryQuickForm(container, onSaved) {
   const p = currentProfile || {};
   const selected = new Set(p.industry || []);
   container.innerHTML = '';
@@ -5163,10 +5191,9 @@ function renderIndustryQuickForm(container, onSaved, onBack) {
         </div>
       </div>
       <div id="quick-industry-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
+      ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
-  wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-industry-form');
   const errorBox = document.getElementById('quick-industry-error');
   form.addEventListener('submit', async (e) => {
@@ -5189,7 +5216,7 @@ function renderIndustryQuickForm(container, onSaved, onBack) {
   });
 }
 
-function renderCompanySizeQuickForm(container, onSaved, onBack) {
+function renderCompanySizeQuickForm(container, onSaved) {
   const p = currentProfile || {};
   container.innerHTML = '';
   container.appendChild(h(`
@@ -5201,10 +5228,9 @@ function renderCompanySizeQuickForm(container, onSaved, onBack) {
         </select>
       </label>
       <div id="quick-company-size-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
+      ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
-  wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-company-size-form');
   const errorBox = document.getElementById('quick-company-size-error');
   form.addEventListener('submit', async (e) => {
@@ -5234,17 +5260,16 @@ function renderCompanySizeQuickForm(container, onSaved, onBack) {
 // 버리고 정확한 숫자 직접입력으로 바꿨다("구간 대표값이 정확한 수치처럼
 // 저장되는" 왜곡의 근본 원인 제거). 4대보험 자동입력(1순위)이 실패했을
 // 때만 이 폼으로 온다(renderOnboardingEmployeeCountManualFallback).
-function renderEmployeeCountQuickForm(container, onSaved, onBack) {
+function renderEmployeeCountQuickForm(container, onSaved) {
   const p = currentProfile || {};
   container.innerHTML = '';
   container.appendChild(h(`
     <form id="quick-employee-count-form" class="profile-form">
       <label>직원 수(명)<input type="number" min="0" step="1" name="employeeCount" value="${p.employeeCount != null ? escapeAttr(String(p.employeeCount)) : ''}" required></label>
       <div id="quick-employee-count-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
+      ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
-  wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-employee-count-form');
   const errorBox = document.getElementById('quick-employee-count-error');
   form.addEventListener('submit', async (e) => {
@@ -5264,17 +5289,16 @@ function renderEmployeeCountQuickForm(container, onSaved, onBack) {
 
 // renderRevenueAmountQuickForm — 연매출액 직접입력(1순위 재무제표 첨부 AI
 // 자동추출이 실패했을 때의 폴백 — renderOnboardingRevenueAction 참고).
-function renderRevenueAmountQuickForm(container, onSaved, onBack) {
+function renderRevenueAmountQuickForm(container, onSaved) {
   const p = currentProfile || {};
   container.innerHTML = '';
   container.appendChild(h(`
     <form id="quick-revenue-amount-form" class="profile-form">
       <label>연매출액(원)<input type="text" inputmode="numeric" name="revenueAmount" value="${escapeAttr(formatCurrency(p.revenueAmount))}" required></label>
       <div id="quick-revenue-amount-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
+      ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
-  wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-revenue-amount-form');
   attachCurrencyAutoFormat(form.revenueAmount);
   const errorBox = document.getElementById('quick-revenue-amount-error');
@@ -5299,7 +5323,7 @@ function renderRevenueAmountQuickForm(container, onSaved, onBack) {
 // 전용이다 — 나머지 세부항목(발주기관/계약일/수행기간/사업유형/산업분야/
 // 수행지역/공동수급여부/지분율/수행범위/핵심기술)은 #/me/profile의 정식
 // 등록 화면에서 나중에 채운다.
-function renderTrackRecordQuickForm(container, onSaved, onBack) {
+function renderTrackRecordQuickForm(container, onSaved) {
   container.innerHTML = '';
   container.appendChild(h(`
     <form id="quick-track-record-form" class="profile-form">
@@ -5308,10 +5332,9 @@ function renderTrackRecordQuickForm(container, onSaved, onBack) {
       <label>완료 여부${triStateSelectHtml('isCompleted', null)}</label>
       <p class="license-card-meta" style="margin-top:0.25rem">발주기관·계약일 등 나머지 정보는 나중에 기업프로필에서 채울 수 있습니다.</p>
       <div id="quick-track-record-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
+      ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
-  wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-track-record-form');
   attachCurrencyAutoFormat(form.contractAmount);
   const errorBox = document.getElementById('quick-track-record-error');
@@ -5341,7 +5364,7 @@ function renderTrackRecordQuickForm(container, onSaved, onBack) {
 // 왔는지로 이미 정해져 있어 대상 select를 아예 안 보여준다. category는
 // 백엔드가 필수로 요구해서(company_licenses.go) 대상 라벨을 그대로 채워
 // 보낸다 — 상세 구분은 나중에 #/me/licenses 화면에서 정식으로 수정 가능.
-function renderLicenseQuickForm(container, target, onSaved, onBack) {
+function renderLicenseQuickForm(container, target, onSaved) {
   const label = target === 'certification' ? '인증' : '면허';
   container.innerHTML = '';
   container.appendChild(h(`
@@ -5353,10 +5376,9 @@ function renderLicenseQuickForm(container, target, onSaved, onBack) {
         </select>
       </label>
       <div id="quick-license-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml(onBack)}
+      ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
-  wireOnboardingQuickBackButton(onBack);
   const form = document.getElementById('quick-license-form');
   const errorBox = document.getElementById('quick-license-error');
   form.addEventListener('submit', async (e) => {
@@ -5380,19 +5402,17 @@ function renderLicenseQuickForm(container, target, onSaved, onBack) {
 // 이 카드는 "보유 여부를 몰라서" 온 게 아니라 "아직 등록 안 해서" 온
 // 경우가 대부분이라 확인 즉시 등록이 더 자연스럽다). dashboard.go의
 // computeDocumentRequirementGaps가 이 컬럼값을 직접 확인하도록 고쳐뒀다.
-function renderDirectProductionQuickForm(container, onSaved, onBack) {
+function renderDirectProductionQuickForm(container, onSaved) {
   container.innerHTML = '';
   container.appendChild(h(`
     <div>
       <p class="license-card-meta">직접생산확인증명서를 보유하고 계신가요?</p>
       <div id="quick-direct-production-error" class="error" style="display:none"></div>
       <div class="license-toolbar">
-        ${onBack ? '<button type="button" class="btn btn-secondary" id="quick-direct-production-back-btn">이전</button>' : ''}
         <button type="button" id="quick-direct-production-confirm-btn" class="btn btn-primary">예, 보유하고 있습니다</button>
       </div>
     </div>
   `));
-  if (onBack) document.getElementById('quick-direct-production-back-btn').addEventListener('click', onBack);
   const errorBox = document.getElementById('quick-direct-production-error');
   document.getElementById('quick-direct-production-confirm-btn').addEventListener('click', async () => {
     errorBox.style.display = 'none';
@@ -7193,13 +7213,16 @@ function renderDetail(container, id) {
       if (n.sourceName) trustParts.push('출처 ' + escapeHtml(n.sourceName));
       const trustLine = trustParts.join(' · ');
 
+      const extractionBannerHtml = `
+        <div class="extraction-banner">
+          <span aria-hidden="true">ℹ</span>
+          아래 내용은 첨부문서에서 자동으로 추출되었습니다. 원문과 다를 수 있으니 반드시 대조 확인하세요.
+        </div>
+      `;
+
       body.className = '';
       body.innerHTML = '';
       body.appendChild(h(`
-        <h3 class="ai-section-title">핵심 요약</h3>
-        <div id="ai-summary-section"></div>
-        <h3 class="ai-section-title">AI 참여 분석</h3>
-        <div id="ai-participation-section"></div>
         <div class="detail-card">
           <div class="detail-card-head">
             <div>
@@ -7209,6 +7232,27 @@ function renderDetail(container, id) {
             ${bookmarkButtonHtml(n.id, n.isBookmarked)}
           </div>
           <div id="pipeline-review-action"></div>
+          ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 &rarr;</a>` : ''}
+          <a class="official-link" href="#/notices/${escapeAttr(n.id)}/report">참여판단 보고서 보기 &rarr;</a>
+          <p class="detail-sub notice-data-trust">${trustLine}</p>
+        </div>
+
+        <div class="detail-tabs" role="tablist">
+          <button type="button" class="detail-tab is-active" role="tab" aria-selected="true" data-tab="summary">요약</button>
+          <button type="button" class="detail-tab" role="tab" aria-selected="false" data-tab="participation">판정</button>
+          <button type="button" class="detail-tab" role="tab" aria-selected="false" data-tab="conditions">참가조건</button>
+          <button type="button" class="detail-tab" role="tab" aria-selected="false" data-tab="documents">제출서류</button>
+          <button type="button" class="detail-tab" role="tab" aria-selected="false" data-tab="award-history">낙찰이력</button>
+          <button type="button" class="detail-tab" role="tab" aria-selected="false" data-tab="changes">변경이력</button>
+        </div>
+
+        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="summary">
+          <div id="ai-summary-section"></div>
+        </div>
+        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="participation" hidden>
+          <div id="ai-participation-section"></div>
+        </div>
+        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="conditions" hidden>
           <dl class="detail-meta">
             <div><dt>발주기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
             <div><dt>지역</dt><dd>${escapeHtml(n.region || '-')}</dd></div>
@@ -7218,34 +7262,33 @@ function renderDetail(container, id) {
             <div><dt>예산</dt><dd class="mono">${formatBudget(n.budgetAmount)}</dd></div>
             <div><dt>버전</dt><dd class="mono">v${n.currentVersion}</dd></div>
           </dl>
-          ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 &rarr;</a>` : ''}
-          <a class="official-link" href="#/notices/${escapeAttr(n.id)}/report">참여판단 보고서 보기 &rarr;</a>
-          <p class="detail-sub notice-data-trust">${trustLine}</p>
+          <h3>공고 상세정보</h3>
+          <div id="notice-detail-info-section"></div>
+          <h3>적격심사 계산기</h3>
+          <div id="bid-calculator-section"></div>
+          ${extractionBannerHtml}
+          <h3>참가자격 요건</h3>
+          <div id="eligibility-conditions-section"></div>
         </div>
-        <h3>공고 상세정보</h3>
-        <div id="notice-detail-info-section"></div>
-        <h3>적격심사 계산기</h3>
-        <div id="bid-calculator-section"></div>
-        <h3>첨부파일</h3>
-        <div id="attachments-section"></div>
-        <div class="extraction-banner">
-          <span aria-hidden="true">ℹ</span>
-          아래 내용은 첨부문서에서 자동으로 추출되었습니다. 원문과 다를 수 있으니 반드시 대조 확인하세요.
+        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="documents" hidden>
+          ${extractionBannerHtml}
+          <h3>제출서류</h3>
+          <div id="required-documents-section"></div>
+          <h3>첨부파일</h3>
+          <div id="attachments-section"></div>
         </div>
-        <h3>참가자격 요건</h3>
-        <div id="eligibility-conditions-section"></div>
-        <h3>제출서류</h3>
-        <div id="required-documents-section"></div>
-        <h3>동일 발주기관 과거 낙찰 이력</h3>
-        <div id="award-history-section"></div>
-        <h3>변경 이력</h3>
-        ${changeRows
-          ? `<div class="table-scroll"><table>
-              <thead><tr><th>항목</th><th>이전 값</th><th>변경 값</th><th>중요도</th><th>일시</th></tr></thead>
-              <tbody>${changeRows}</tbody>
-            </table></div>`
-          : '<p class="empty">변경 이력이 없습니다.</p>'}
-        <div id="change-impact-section"></div>
+        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="award-history" hidden>
+          <div id="award-history-section"></div>
+        </div>
+        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="changes" hidden>
+          ${changeRows
+            ? `<div class="table-scroll"><table>
+                <thead><tr><th>항목</th><th>이전 값</th><th>변경 값</th><th>중요도</th><th>일시</th></tr></thead>
+                <tbody>${changeRows}</tbody>
+              </table></div>`
+            : '<p class="empty">변경 이력이 없습니다.</p>'}
+          <div id="change-impact-section"></div>
+        </div>
       `));
       renderAISummary(document.getElementById('ai-summary-section'), data.aiSummary);
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.isMinimalProfile);
@@ -7258,11 +7301,33 @@ function renderDetail(container, id) {
       renderAwardHistory(document.getElementById('award-history-section'), data.organizationAwardHistory, data.hasCompetitiveOverlap);
       renderPipelineReviewAction(document.getElementById('pipeline-review-action'), id, data.existingPipelineEntryId);
       wireBookmarkButtons(body);
+      wireDetailTabs(body);
     })
     .catch(err => {
       body.className = 'error';
       body.textContent = err.message;
     });
+}
+
+// wireDetailTabs — 2026-08-06, 공고상세 스크롤형→탭 구조 전환. 각 탭
+// 패널 안의 서브 렌더 함수(renderAISummary 등)는 컨테이너 id만 보고
+// DOM 어디에 있는지 신경 안 쓰므로, 이 함수는 순수하게 탭 버튼 클릭 →
+// 해당 패널만 보이기(hidden 토글) + 스크롤 위치 초기화만 담당한다.
+function wireDetailTabs(body) {
+  const tabs = body.querySelectorAll('.detail-tab');
+  const panels = body.querySelectorAll('.detail-tab-panel');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab;
+      tabs.forEach(t => {
+        const active = t === tab;
+        t.classList.toggle('is-active', active);
+        t.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      panels.forEach(p => { p.hidden = p.dataset.tabPanel !== target; });
+      window.scrollTo(0, 0);
+    });
+  });
 }
 
 // renderPipelineReviewAction — 원클릭 참여검토(Phase 1)의 공고 상세 상단
