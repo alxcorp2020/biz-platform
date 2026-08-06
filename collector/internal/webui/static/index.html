@@ -769,22 +769,12 @@
   }
   .cms-form-card h3 { margin-top: 0; }
 
-  /* ---------- 프로필 미완성 안내 배너 — #app 밖의 #global-profile-banner에
-     렌더링되어 라우트 변경과 무관하게 모든 화면 최상단에 항상 붙어있다
-     (position: sticky — 스크롤해도 계속 보임). 데스크톱(≥900px)에서는
-     고정 사이드바 폭만큼 margin-left를 줘서 사이드바와 안 겹치게 한다
-     (main과 동일한 오프셋 규칙, 191~201줄 .sidebar/main 규칙 참고). 사용자
-     피드백으로 배경을 옅은 틴트 대신 꽉 찬 색으로 강조했다 — 지역·업종·
+  /* ---------- 프로필 미완성 안내 배너 — 2026-08-07부터 대시보드(홈) 화면
+     안에서만 렌더링된다(renderDashboardProfileBanner). 전역 헤더에 항상
+     떠 있던 이전 방식은 모바일에서 화면 공간을 계속 잡아먹고 공고검색/
+     캘린더 등 다른 작업에 방해가 된다는 피드백으로 폐지했다 — 커버리지
+     정보는 대시보드에서 요약을 볼 때만 필요하다는 판단. 지역·업종·
      기업규모(온보딩 3개 필수항목)가 아예 없으면 danger 톤으로 더 강조. */
-  #global-profile-banner:empty { display: none; }
-  #global-profile-banner {
-    position: sticky;
-    top: 0;
-    z-index: 15;
-  }
-  @media (min-width: 900px) {
-    #global-profile-banner { margin-left: var(--sidebar-width); }
-  }
   .profile-incomplete-banner {
     display: flex;
     align-items: center;
@@ -792,10 +782,12 @@
     gap: 1rem;
     background: var(--accent-blue-deep);
     padding: 0.75rem 1.25rem;
+    border-radius: var(--radius-card);
     font-size: 0.87rem;
     font-weight: 600;
     color: #fff;
     text-align: center;
+    margin-bottom: var(--space-lg);
   }
   .profile-incomplete-banner--urgent { background: var(--danger); }
   .profile-incomplete-banner-text { flex: 0 1 auto; }
@@ -2173,7 +2165,6 @@
      JS가 실행되기 전부터 이미 적용된 상태로 첫 페인트가 일어나고,
      route()가 최종 레이아웃 클래스를 다 정한 뒤에야 JS가 클래스를
      제거한다. ---------- */
-  body.app-booting #global-profile-banner,
   body.app-booting .site-header,
   body.app-booting .sidebar,
   body.app-booting .tabbar,
@@ -2212,8 +2203,7 @@
      main의 기본 max-width/padding은 여기서 전부 해제한다. */
   body.is-landing .sidebar,
   body.is-landing .site-header,
-  body.is-landing .tabbar,
-  body.is-landing #global-profile-banner {
+  body.is-landing .tabbar {
     display: none !important;
   }
   body.is-landing main#app {
@@ -2228,8 +2218,7 @@
      띄운다. 배경은 --bg 톤 그대로 두어 심플하게 유지. ---------- */
   body.is-auth .sidebar,
   body.is-auth .site-header,
-  body.is-auth .tabbar,
-  body.is-auth #global-profile-banner {
+  body.is-auth .tabbar {
     display: none !important;
   }
   body.is-auth main#app {
@@ -2434,10 +2423,6 @@
      body.app-booting이 정적 HTML에 이미 박혀있어 이 아래 앱 셸이
      첫 페인트부터 숨김 처리되고, 이 오버레이만 그 위에 보인다. -->
 <div class="app-boot-overlay"><div class="app-boot-spinner"></div></div>
-<!-- 프로필 미완성 안내 — 로그인+프로필 보유 상태에서 모든 화면 최상단에
-     항상 노출(route()가 갈아끼우는 #app 밖에 둬서 페이지 이동에도 안
-     사라짐). 비어있으면(is:empty) CSS로 자동 숨김. -->
-<div id="global-profile-banner"></div>
 <header class="site-header">
   <div class="header-inner">
     <a href="#/" class="brand-link">
@@ -3088,7 +3073,6 @@ async function loadMe() {
   }
   renderHeader();
   if (currentUser) refreshUnreadNotificationCount();
-  renderGlobalProfileBanner();
 }
 
 // setNotificationBadge — 사이드바/탭바의 "알림" 아이콘 위에 안읽음
@@ -3497,22 +3481,20 @@ function renderBannerSlideInto(overlay, items) {
   overlay.addEventListener('mouseleave', () => { timer = setInterval(() => go(1), AUTO_ADVANCE_MS); });
 }
 
-// ---------- 전역 프로필 미완성 안내 배너 ----------
-// #app 밖의 #global-profile-banner에 렌더링되어 route()가 화면을 갈아
-// 끼워도 사라지지 않는다(사용자 피드백: "메인에만 있는게 아니다, 최상단에
-// 계속 있어야 한다"). loadMe()(로그인/로그아웃/부팅 시)와 route()(모든
-// 페이지 이동)가 매번 호출해 항상 최신 상태를 반영한다. 회사 프로필을
-// 저장하는 모달(#/me/saved-searches의 수정 폼)처럼 해시가 안 바뀌는 곳은 저장
-// 성공 직후 직접 호출한다.
+// ---------- 대시보드 프로필 미완성 안내 배너 ----------
+// 2026-08-07부터 대시보드(홈) 화면 안에서만 렌더링된다(renderDashboard가
+// 자기 컨테이너 안의 슬롯을 넘겨서 호출) — 이전에는 #app 밖 전역 슬롯에
+// 렌더링돼 모든 화면 최상단에 항상 떠 있었지만, 모바일에서 화면 공간을
+// 계속 잡아먹고 공고검색/캘린더 등 다른 작업에 방해가 된다는 피드백으로
+// 대시보드 전용으로 되돌렸다. "AI 분석 커버리지가 낮다"는 정보는 대시보드
+// 에서 요약을 볼 때만 필요하다는 판단.
 //
-// 완성도%는 /api/me/profile-completeness(기존 API, 스펙 요구사항대로
-// 재사용)를 직접 호출해서 얻는다 — dashboard.go의 growthSummary를
-// 재사용하던 이전 버전은 홈 화면에서만 동작해 전역으로 못 썼다. 지역/
-// 업종/기업규모(온보딩 3개 필수항목)는 이 API 응답에 없어서(선택
-// 카테고리만 채점, company_profile_completeness.go) currentProfile(이미
-// loadMe()가 채워둔 값)에서 직접 확인한다 — 별도 API 호출 불필요.
-async function renderGlobalProfileBanner() {
-  const slot = document.getElementById('global-profile-banner');
+// 완성도%는 /api/me/profile-completeness(기존 API)를 직접 호출해서
+// 얻는다. 지역/업종/기업규모(온보딩 3개 필수항목)는 이 API 응답에
+// 없어서(선택 카테고리만 채점, company_profile_completeness.go)
+// currentProfile(이미 loadMe()가 채워둔 값)에서 직접 확인한다 — 별도
+// API 호출 불필요.
+async function renderDashboardProfileBanner(slot) {
   if (!slot) return;
   if (!currentUser || !currentProfile) { slot.innerHTML = ''; return; }
 
@@ -3529,11 +3511,11 @@ async function renderGlobalProfileBanner() {
 
   const text = missingRequired
     ? '필수 정보를 입력해주세요. 지역·업종·기업규모를 등록해야 맞춤 공고 추천과 AI 분석을 받을 수 있습니다.'
-    : `기업 프로필을 완성하면 더 정확한 분석을 받을 수 있습니다. (현재 ${pct}%)`;
+    : `AI 분석 커버리지 ${pct}% — 맞춤공고를 완성하면 더 정확한 분석을 받을 수 있어요.`;
   slot.innerHTML = `
     <div class="profile-incomplete-banner ${missingRequired ? 'profile-incomplete-banner--urgent' : ''}">
       <span class="profile-incomplete-banner-text">${escapeHtml(text)}</span>
-      <a href="#/me/saved-searches" class="profile-incomplete-banner-cta">프로필 완성하기 →</a>
+      <a href="#/me/saved-searches" class="profile-incomplete-banner-cta">맞춤공고 완성하기 →</a>
     </div>
   `;
 }
@@ -5610,9 +5592,8 @@ function pipelineStepIndicatorHtml(status) {
 function renderDashboard(container, data) {
   document.body.classList.remove('is-landing');
   container.innerHTML = '';
-  // 프로필 미완성 안내는 이제 #global-profile-banner(전역, #app 밖)가
-  // 담당한다 — route()가 매 페이지 이동마다 renderGlobalProfileBanner()를
-  // 호출하므로 여기서 따로 그릴 필요가 없다.
+  // 프로필 미완성 안내는 대시보드 전용(2026-08-07) — 인사말 바로 아래,
+  // 숫자 타일 위에 renderDashboardProfileBanner로 렌더링한다.
   renderHomeOverlay();
 
   const s = data.summary;
@@ -5661,6 +5642,7 @@ function renderDashboard(container, data) {
       <p class="dash-greeting-eyebrow">안녕하세요.</p>
       <h2 class="dash-greeting-title">오늘 확인할 업무입니다.</h2>
     </div>
+    <div id="dashboard-profile-banner"></div>
     <div class="dash-brief-card">
       <p class="dash-brief-text">${escapeHtml(data.briefing || '')}</p>
     </div>
@@ -5673,6 +5655,7 @@ function renderDashboard(container, data) {
     ${requirementGapsHtml}
     ${automationHtml}
   `));
+  renderDashboardProfileBanner(document.getElementById('dashboard-profile-banner'));
 
   container.querySelectorAll('.dash-tile--clickable').forEach(tile => {
     tile.addEventListener('click', () => { location.hash = tile.dataset.href; });
@@ -10328,7 +10311,6 @@ function openProfileEditModal(summaryContainer) {
       currentProfile = data.companyProfile;
       closeModal();
       renderProfileSummaryCard(summaryContainer);
-      renderGlobalProfileBanner();
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -14034,7 +14016,6 @@ function route() {
   }
   updateSidebarActiveState();
   updateTabbarActiveState();
-  renderGlobalProfileBanner();
   // 배너/팝업 오버레이(renderHomeOverlay)는 document.body에 직접 붙어
   // #app 밖에 있어 route()가 페이지를 갈아끼워도 저절로 안 없어진다 —
   // "홈"(비로그인 랜딩페이지 #/ + 로그인 대시보드 #/dashboard) 화면이
