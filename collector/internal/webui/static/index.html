@@ -12030,6 +12030,13 @@ function renderAdminSystemStatus(container) {
       ${actions.map(a => `<button type="button" class="btn btn-secondary btn-sm admin-action-btn" data-path="${escapeAttr(a.path)}">${escapeHtml(a.label)}</button>`).join('')}
     </div>
     <div id="admin-action-result"></div>
+    <h3 style="margin-top:1.5rem">테스트 웹 푸시 발송</h3>
+    <p class="license-card-meta">특정 계정에 등록된 기기 전부로 실제 웹 푸시를 즉시 보내고, 기기별 성공/실패를 바로 보여줍니다("#/notifications 알림 받기 배너가 안 보인다" 류 신고 진단용).</p>
+    <div class="filters">
+      <input type="email" id="test-push-email" placeholder="테스트 대상 이메일" style="min-width:16rem">
+      <button type="button" id="test-push-btn" class="btn btn-secondary btn-sm">발송</button>
+    </div>
+    <div id="test-push-result"></div>
   `;
   const resultBox = document.getElementById('admin-action-result');
   container.querySelectorAll('.admin-action-btn').forEach(btn => {
@@ -12044,6 +12051,31 @@ function renderAdminSystemStatus(container) {
       }
       btn.disabled = false;
     });
+  });
+
+  const testPushBtn = document.getElementById('test-push-btn');
+  const testPushResult = document.getElementById('test-push-result');
+  testPushBtn.addEventListener('click', async () => {
+    const email = document.getElementById('test-push-email').value.trim();
+    if (!email) { testPushResult.innerHTML = '<p class="error">이메일을 입력해주세요.</p>'; return; }
+    testPushBtn.disabled = true;
+    testPushResult.innerHTML = '<div class="loading">발송 중...</div>';
+    try {
+      const data = await apiRequest('POST', '/api/admin/push/test', { email });
+      const rows = (data.results || []).map(r => `
+        <div class="license-card">
+          <div class="license-card-main">
+            <div class="license-card-name">${r.success ? '✅ 성공' : '❌ 실패'} <span class="badge ${r.success ? 'badge--success' : 'badge--gray'}">HTTP ${r.statusCode || '-'}</span></div>
+            <div class="license-card-meta mono">${escapeHtml(r.endpoint)}</div>
+            ${r.error ? `<div class="license-card-meta">${escapeHtml(r.error)}</div>` : ''}
+          </div>
+        </div>
+      `).join('');
+      testPushResult.innerHTML = `<p class="license-card-meta">${escapeHtml(data.targetEmail)} — 등록된 기기 ${(data.results || []).length}개</p><div class="license-list">${rows}</div>`;
+    } catch (err) {
+      testPushResult.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+    }
+    testPushBtn.disabled = false;
   });
 }
 

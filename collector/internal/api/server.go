@@ -189,6 +189,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/push/vapid-public-key", s.handleGetPushPublicKey)
 	mux.HandleFunc("POST /api/me/push-subscriptions", s.handleSubscribePush)
 	mux.HandleFunc("DELETE /api/me/push-subscriptions", s.handleUnsubscribePush)
+	mux.HandleFunc("POST /api/admin/push/test", s.handleAdminTestPush)
 	mux.HandleFunc("POST /api/admin/run-notifications", s.handleRunNotifications)
 	mux.HandleFunc("POST /api/admin/run-pipeline-auto-transitions", s.handleRunPipelineAutoTransitions)
 	mux.HandleFunc("POST /api/admin/run-award-history-ingestion", s.handleRunAwardHistoryIngestion)

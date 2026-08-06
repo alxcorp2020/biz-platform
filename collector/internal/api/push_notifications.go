@@ -8,8 +8,11 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 )
@@ -137,7 +140,11 @@ func (s *Server) sendPushToUser(ctx context.Context, userID, title, body, url st
 	}
 }
 
-func (s *Server) sendPushToSubscription(ctx context.Context, sc pushSubscriptionRow, payload []byte, userID string) {
+// sendPushToSubscription — statusCode/err를 돌려주는 이유는 오직
+// handleAdminTestPush(수동 진단용, 결과를 그 자리에서 보여줘야 함) 때문이다.
+// 나머지 프로덕션 발송 경로(sendPushToUser)는 기존과 동일하게 반환값을
+// 버리고 "베스트에포트 — 실패해도 로그만" 원칙을 그대로 유지한다.
+func (s *Server) sendPushToSubscription(ctx context.Context, sc pushSubscriptionRow, payload []byte, userID string) (statusCode int, err error) {
 	resp, sendErr := webpush.SendNotificationWithContext(ctx, payload, &webpush.Subscription{
 		Endpoint: sc.endpoint,
 		Keys:     webpush.Keys{P256dh: sc.p256dh, Auth: sc.auth},
@@ -149,7 +156,7 @@ func (s *Server) sendPushToSubscription(ctx context.Context, sc pushSubscription
 	})
 	if sendErr != nil {
 		s.logger.Error("push: send failed", "userId", userID, "error", sendErr)
-		return
+		return 0, sendErr
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusGone || resp.StatusCode == http.StatusNotFound {
@@ -157,13 +164,119 @@ func (s *Server) sendPushToSubscription(ctx context.Context, sc pushSubscription
 		if _, err := s.db.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE id = $1`, sc.id); err != nil {
 			s.logger.Error("push: cleanup expired subscription failed", "error", err)
 		}
-		return
+		return resp.StatusCode, fmt.Errorf("subscription expired (status %d) — 자동 정리됨", resp.StatusCode)
 	}
 	if resp.StatusCode >= 300 {
 		s.logger.Warn("push: non-2xx response", "userId", userID, "status", resp.StatusCode)
-		return
+		return resp.StatusCode, fmt.Errorf("push service returned status %d", resp.StatusCode)
 	}
 	s.logger.Info("push: sent", "userId", userID, "status", resp.StatusCode)
+	return resp.StatusCode, nil
+}
+
+// handleAdminTestPush — POST /api/admin/push/test. system_admin 전용 수동
+// 진단 도구(2026-08-06, "#/notifications 알림 받기 배너가 안 보인다" 신고
+// 조사 중 추가) — 이메일로 대상 계정을 지정하면 그 계정의 등록된 기기
+// 전부에 실제 웹 푸시를 즉시 보내고, 기기별 성공/실패를 그 자리에서
+// 응답으로 보여준다. sendPushToUser(프로덕션 발송 경로)는 실패해도 로그만
+// 남기고 조용히 넘어가는 게 원칙이지만, 이건 "지금 이 계정에 진짜 푸시가
+// 가는지" 확인이 목적이라 결과를 숨기면 안 된다 — 그래서 별도 함수로
+// 분리했다.
+func (s *Server) handleAdminTestPush(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	role, err := s.userRole(r.Context(), userID)
+	if err != nil {
+		s.logger.Error("admin-test-push: role lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if role != "system_admin" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Email) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_body"})
+		return
+	}
+
+	if s.vapidPrivateKey == "" || s.vapidPublicKey == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "push_not_configured"})
+		return
+	}
+
+	var targetUserID string
+	err = s.db.QueryRowContext(r.Context(), `SELECT id FROM users WHERE email = $1`, strings.TrimSpace(strings.ToLower(req.Email))).Scan(&targetUserID)
+	if err == sql.ErrNoRows {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
+		return
+	}
+	if err != nil {
+		s.logger.Error("admin-test-push: user lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+
+	rows, err := s.db.QueryContext(r.Context(), `SELECT id, endpoint, p256dh_key, auth_key FROM push_subscriptions WHERE user_id = $1`, targetUserID)
+	if err != nil {
+		s.logger.Error("admin-test-push: subscription query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	var subs []pushSubscriptionRow
+	for rows.Next() {
+		var sc pushSubscriptionRow
+		if err := rows.Scan(&sc.id, &sc.endpoint, &sc.p256dh, &sc.auth); err != nil {
+			continue
+		}
+		subs = append(subs, sc)
+	}
+	rows.Close()
+	if len(subs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no_subscriptions", "detail": "이 계정에 등록된 푸시 구독이 없습니다"})
+		return
+	}
+
+	payload, err := json.Marshal(pushPayload{
+		Title: "테스트 알림",
+		Body:  "관리자가 발송한 테스트 웹 푸시입니다. 이게 보이면 정상 수신 중입니다.",
+		URL:   "/#/notifications",
+	})
+	if err != nil {
+		s.logger.Error("admin-test-push: payload marshal failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	type result struct {
+		Endpoint   string `json:"endpoint"` // 앞 40자만 — 전체 endpoint는 사실상 그 기기의 식별용 시크릿이라 로그/응답에 그대로 노출하지 않는다
+		Success    bool   `json:"success"`
+		StatusCode int    `json:"statusCode"`
+		Error      string `json:"error,omitempty"`
+	}
+	maskEndpoint := func(endpoint string) string {
+		if len(endpoint) <= 40 {
+			return endpoint
+		}
+		return endpoint[:40] + "…"
+	}
+	results := make([]result, 0, len(subs))
+	for _, sc := range subs {
+		statusCode, sendErr := s.sendPushToSubscription(r.Context(), sc, payload, targetUserID)
+		res := result{Endpoint: maskEndpoint(sc.endpoint), StatusCode: statusCode, Success: sendErr == nil}
+		if sendErr != nil {
+			res.Error = sendErr.Error()
+		}
+		results = append(results, res)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"targetEmail": req.Email, "results": results})
 }
 
 // sendPushToProfileMembers fans out to every member of the org — 마감
