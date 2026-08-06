@@ -851,6 +851,11 @@
   .dash-tile--not-recommended .dash-tile-label::before { background: var(--danger); }
   .dash-tile--clickable { cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; }
   .dash-tile--clickable:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-1px); }
+  /* dash-tile-cta — 숫자만 보여주던 타일에 "확인하기" 등 행동 버튼
+     텍스트를 덧붙인다(대시보드 행동유도, 2026-08-06). 실제 클릭 영역은
+     타일 전체(dash-tile--clickable)라 이건 별도 버튼이 아니라 시각적
+     라벨 — 강조색은 파랑 하나로(.official-link와 동일 색) 통일. */
+  .dash-tile-cta { margin-top: 0.6rem; font-size: 0.8rem; font-weight: 700; color: var(--accent-blue); }
   /* margin-left/right는 일부러 안 씀 — 900px 이상 사이드바 레이아웃에서
      main > *(아래 미디어쿼리)가 margin-left/right:auto로 각 섹션을
      1080px 폭으로 가운데 정렬하는데, 여기서 좌우 margin을 0으로 명시하면
@@ -895,6 +900,17 @@
   .home-list-subtitle { font-size: var(--text-caption); color: var(--ink-soft); margin-top: 0.15rem; }
   .home-list-side { display: flex; align-items: center; gap: 0.6rem; flex-shrink: 0; }
   .home-list-arrow { color: var(--border); font-size: 1.2rem; line-height: 1; }
+  /* home-list-cta — 행마다 서버가 이미 계산해 내려주는 item.ctaLabel
+     ("서류 확인"/"담당자 지정"/"검토하기")을 클릭 전에도 바로 보이는
+     버튼으로 노출한다(대시보드 행동유도, 2026-08-06). 행 전체가 이미
+     ctaHref로 이동하는 클릭 영역이라(wireHomeListNav) 이 버튼도 별도
+     리스너 없이 같은 이동을 그대로 상속받는다. */
+  .home-list-cta {
+    padding: 0.35rem 0.8rem; border-radius: 999px; white-space: nowrap;
+    background: rgba(49,130,246,0.08); color: var(--accent-blue);
+    font-size: 0.78rem; font-weight: 700; border: none;
+  }
+  .home-list-row--urgent .home-list-cta { background: rgba(192,57,43,0.08); color: var(--danger); }
 
   /* ---------- 공고상세 탭(2026-08-06, 스크롤형→탭 구조 전환) ----------
      6개 탭(요약/판정/참가조건/제출서류/낙찰이력/변경이력)을 가로로
@@ -5509,11 +5525,16 @@ function renderDashboard(container, data) {
   // filter는 renderPipelineList가 읽는 쿼리 파라미터 값(dashboard.go 요약
   // 집계와 반드시 같은 정의를 쓴다 — 카드 숫자와 클릭 후 목록 건수가
   // 어긋나면 안 됨. AI 분석 카드만 목적지가 다르다(#/ai-usage).
+  // cta — Phase(대시보드 행동유도, 2026-08-06): 숫자만 나열하던 타일에
+  // "다음에 뭘 눌러야 하는지"를 명시적 버튼 텍스트로 덧붙인다. 클릭 이동
+  // 로직(data-href + 아래 dash-tile--clickable 리스너)은 기존 그대로
+  // 재사용 — 타일 전체가 여전히 하나의 클릭 영역이고, cta는 그 위에
+  // 얹는 시각적 라벨일 뿐 별도 이벤트 리스너를 새로 달지 않는다.
   const tiles = [
-    { label: '참여검토 대기', count: s.reviewPendingCount, cls: 'dash-tile--review', href: '#/pipeline?filter=reviewPending' },
-    { label: '마감임박', count: s.deadlineSoonCount, cls: 'dash-tile--not-recommended', href: '#/pipeline?filter=deadlineSoon' },
-    { label: '서류확인필요', count: s.needsDocumentCount, cls: '', href: '#/pipeline?filter=needsDocument' },
-    { label: '담당자미지정', count: s.unassignedCount, cls: '', href: '#/pipeline?filter=unassigned' },
+    { label: '참여검토 대기', cta: '확인하기', count: s.reviewPendingCount, cls: 'dash-tile--review', href: '#/pipeline?filter=reviewPending' },
+    { label: '마감임박', cta: '확인하기', count: s.deadlineSoonCount, cls: 'dash-tile--not-recommended', href: '#/pipeline?filter=deadlineSoon' },
+    { label: '서류확인필요', cta: '서류 확인하기', count: s.needsDocumentCount, cls: '', href: '#/pipeline?filter=needsDocument' },
+    { label: '담당자미지정', cta: '담당자 지정하기', count: s.unassignedCount, cls: '', href: '#/pipeline?filter=unassigned' },
   ];
   const aiLimitLabel = s.aiAnalysisLimit < 0 ? '무제한' : s.aiAnalysisLimit;
   const aiCountLabel = s.aiAnalysisLimit < 0 ? `${s.aiAnalysisUsedCount}건` : `${s.aiAnalysisUsedCount}/${aiLimitLabel}건`;
@@ -5521,11 +5542,13 @@ function renderDashboard(container, data) {
     <div class="dash-tile ${t.cls} dash-tile--clickable" data-href="${escapeAttr(t.href)}">
       <div class="dash-tile-count">${t.count}건</div>
       <div class="dash-tile-label">${escapeHtml(t.label)}</div>
+      <div class="dash-tile-cta">${escapeHtml(t.cta)} &rarr;</div>
     </div>
   `).join('') + `
     <div class="dash-tile dash-tile--clickable" data-href="#/ai-usage">
       <div class="dash-tile-count">${aiCountLabel}</div>
       <div class="dash-tile-label">AI 분석 (이번달)</div>
+      <div class="dash-tile-cta">사용내역 보기 &rarr;</div>
     </div>
   `;
 
@@ -5695,11 +5718,16 @@ const LIST_ROW_ICONS = {
   notice_change: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
 };
 
-// homeListRowHtml — 원형 아이콘 + 제목/부제 + D-day 배지 + 화살표(토스
-// 스타일 행 리스트). 부제는 "기관 · 상태" 대신 서버가 내려주는 reason
-// (사유)을 그대로 써서 왜 이 항목이 여기 있는지 바로 알 수 있게 한다.
-// 행 전체가 ctaHref로 이동한다(kind별 이동 규칙은 서버가 이미 확정해
-// 내려주므로 프론트는 다시 판단하지 않는다).
+// homeListRowHtml — 원형 아이콘 + 제목/부제 + D-day 배지 + 행동 버튼 +
+// 화살표(토스 스타일 행 리스트). 부제는 "기관 · 상태" 대신 서버가
+// 내려주는 reason(사유)을 그대로 써서 왜 이 항목이 여기 있는지 바로
+// 알 수 있게 한다. ctaLabel(서버가 이미 계산한 "서류 확인"/"담당자
+// 지정"/"검토하기")은 클릭 전에도 바로 보이도록 버튼으로 노출한다
+// (대시보드 행동유도, 2026-08-06 — 이전엔 data-cta-href에만 담겨있어
+// 클릭해봐야 뭘 하는 버튼인지 알 수 있었다). 행 전체가 ctaHref로
+// 이동한다(kind별 이동 규칙은 서버가 이미 확정해 내려주므로 프론트는
+// 다시 판단하지 않는다) — 버튼도 별도 리스너 없이 이 이동을 그대로
+// 상속받는다.
 function homeListRowHtml(item) {
   const org = item.organizationName || '-';
   const subtitle = item.reason ? `${org} · ${item.reason}` : org;
@@ -5715,6 +5743,7 @@ function homeListRowHtml(item) {
       </div>
       <div class="home-list-side">
         ${ddayBadgeHtml(item.applicationEndAt)}
+        ${item.ctaLabel ? `<button type="button" class="home-list-cta" tabindex="-1">${escapeHtml(item.ctaLabel)}</button>` : ''}
         <span class="home-list-arrow">&rsaquo;</span>
       </div>
     </div>
