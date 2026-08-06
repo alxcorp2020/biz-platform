@@ -8973,6 +8973,16 @@ async function renderPushBanner(container) {
     registration = await navigator.serviceWorker.ready;
     subscription = await registration.pushManager.getSubscription();
   } catch (e) {
+    // 2026-08-06: 예전엔 여기서 그냥 조용히 return해서 배너 자체가
+    // 흔적도 없이 사라졌다 — "알림 받기 배너가 안 보인다"는 신고를
+    // 받고서야 원인을 알 방법이 없다는 걸 알게 됨. 콘솔 로그 + 최소한의
+    // 화면 안내를 남겨서 다음엔 바로 원인이 보이게 한다.
+    console.error('push banner: registration/getSubscription failed', e);
+    container.innerHTML = `
+      <div class="pipeline-filter-banner">
+        <span class="error">알림 상태를 확인하지 못했습니다(${escapeHtml(e && e.message || String(e))}). 페이지를 새로고침해보시고, 계속되면 브라우저 콘솔(F12)의 에러 메시지를 알려주세요.</span>
+      </div>
+    `;
     return;
   }
 
