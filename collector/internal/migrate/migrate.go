@@ -250,6 +250,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureSavedSearchesOriginColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches.origin column: %w", err)
 	}
+	if err := ensurePipelineAssigneeUserIDColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate notice_pipeline_entries.assignee_user_id column: %w", err)
+	}
 	return nil
 }
 
@@ -1836,6 +1839,19 @@ func ensureAuthLookupKindBizRegExtract(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE auth_lookup_attempts DROP CONSTRAINT IF EXISTS auth_lookup_attempts_kind_check;
 		ALTER TABLE auth_lookup_attempts ADD CONSTRAINT auth_lookup_attempts_kind_check
 			CHECK (kind IN ('find_email','reset_password','email_verify_resend','biz_reg_extract'));
+	`)
+	return err
+}
+
+// ensurePipelineAssigneeUserIDColumn — 2026-08-06, 담당자-회원계정 FK 연결.
+// 기존 assignee_name/email/phone(자유텍스트)은 조직에 등록된 로그인
+// 계정이 아닌 개인사업자·외부 협력자를 담당자로 지정할 때도 여전히 필요해
+// 그대로 남겨두고, 조직에 실제 회원계정(company_members)이 있는 경우
+// 그 계정과 연결할 수 있도록 nullable FK 하나만 추가한다. NULL이면
+// 기존처럼 자유텍스트 담당자라는 뜻 — 기존 데이터는 손대지 않는다.
+func ensurePipelineAssigneeUserIDColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS assignee_user_id UUID REFERENCES users(id);
 	`)
 	return err
 }

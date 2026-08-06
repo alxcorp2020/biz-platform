@@ -741,6 +741,44 @@ func (s *Server) fetchDigestedNoticeIDs(ctx context.Context, userID string) (map
 	return ids, rows.Err()
 }
 
+// notifyPipelineAssigneeAccount — 2026-08-06, 담당자-회원계정 FK 연결.
+// notice_pipeline_entries.assignee_user_id가 설정된 경우 그 계정의 실제
+// 로그인 이메일로도 알림을 보낸다 — company_contacts(자유텍스트 담당자
+// 목록)와는 별개 경로다. 같은 이메일이 우연히 company_contacts에도 등록돼
+// 있으면 중복 발송하지 않도록 그 목록과 먼저 대조하고, notification_log도
+// contact_id가 아니라 user_id로 재발송 여부를 확인한다(디지스트 이벤트와
+// 같은 방식). SMS는 계정에 검증된 연락처가 아니라 대상 밖 — 요청 범위가
+// "로그인 이메일로 발송"이라 이메일만 다룬다.
+func (s *Server) notifyPipelineAssigneeAccount(ctx context.Context, eventType, pipelineEntryID, noticeID, subject, bodyHTML string, emailAllowed bool, contacts []contactNotifyTarget) {
+	var assigneeUserID, assigneeEmail sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT u.id, u.email FROM notice_pipeline_entries pe
+		JOIN users u ON u.id = pe.assignee_user_id
+		WHERE pe.id = $1`, pipelineEntryID).Scan(&assigneeUserID, &assigneeEmail)
+	if err != nil || !assigneeEmail.Valid || assigneeEmail.String == "" {
+		return
+	}
+	for _, c := range contacts {
+		if strings.EqualFold(c.email, assigneeEmail.String) {
+			return
+		}
+	}
+	var alreadySent bool
+	s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM notification_log WHERE event_type=$1 AND pipeline_entry_id=$2
+		    AND channel='email' AND status='sent' AND user_id=$3)`,
+		eventType, pipelineEntryID, assigneeUserID.String).Scan(&alreadySent)
+	if alreadySent {
+		return
+	}
+	uid := assigneeUserID.String
+	if emailAllowed {
+		s.sendNotificationEmail(ctx, eventType, assigneeEmail.String, &uid, nil, &pipelineEntryID, &noticeID, subject, bodyHTML)
+	} else {
+		s.logSkippedEmailNotification(ctx, eventType, assigneeEmail.String, &uid, nil, &pipelineEntryID, &noticeID, subject)
+	}
+}
+
 // notifyAssigneeStatusChange sends the third notification event: pipeline
 // status changed. Called as a fire-and-forget goroutine from
 // company_pipeline.go's PATCH handler — never blocks the HTTP response, and
@@ -783,6 +821,11 @@ func (s *Server) notifyAssigneeStatusChange(ctx context.Context, profileID, pipe
 			s.sendNotificationSMS(ctx, notifyEventAssigneeStatusChange, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
 		}
 	}
+
+	subject := fmt.Sprintf("[상태변경] %s", noticeTitle)
+	body := fmt.Sprintf("<p><b>%s</b>의 참여 상태가 <b>%s</b>(으)로 변경되었습니다.</p>",
+		html.EscapeString(noticeTitle), html.EscapeString(newStatus))
+	s.notifyPipelineAssigneeAccount(ctx, notifyEventAssigneeStatusChange, pipelineEntryID, noticeID, subject, body, emailAllowed, contacts)
 }
 
 // noticeChangeFieldLabelsKo — changedetect가 비교하는 필드명(DB 컬럼명
@@ -932,6 +975,13 @@ func (s *Server) notifyNoticeCorrected(ctx context.Context, profileID, pipelineE
 			s.sendNotificationSMS(ctx, notifyEventNoticeCorrected, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
 		}
 	}
+
+	subject := fmt.Sprintf("[공고 정정] %s", noticeTitle)
+	body := fmt.Sprintf(
+		"<p>참여 검토 중인 <b>%s</b> 공고의 내용이 변경되었습니다.</p><p>변경된 항목: %s</p><p>원문을 다시 확인해주세요.</p>",
+		html.EscapeString(noticeTitle), html.EscapeString(changedSummary),
+	)
+	s.notifyPipelineAssigneeAccount(ctx, notifyEventNoticeCorrected, pipelineEntryID, noticeID, subject, body, emailAllowed, contacts)
 }
 
 // notifyNoticeCancelled — 2026-08-06 추가. notifyNoticeCorrected와 채널
@@ -971,6 +1021,13 @@ func (s *Server) notifyNoticeCancelled(ctx context.Context, profileID, pipelineE
 			s.sendNotificationSMS(ctx, notifyEventNoticeCancelled, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
 		}
 	}
+
+	subject := fmt.Sprintf("[공고 취소] %s", noticeTitle)
+	body := fmt.Sprintf(
+		"<p>참여 검토 중인 <b>%s</b> 공고가 발주기관에 의해 취소되었습니다.</p><p>참여 준비를 중단하시고, 원문을 다시 확인해주세요.</p>",
+		html.EscapeString(noticeTitle),
+	)
+	s.notifyPipelineAssigneeAccount(ctx, notifyEventNoticeCancelled, pipelineEntryID, noticeID, subject, body, emailAllowed, contacts)
 }
 
 // handleRunNotifications manually fires the daily notification batch

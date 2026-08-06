@@ -42,6 +42,7 @@ type pipelineEntry struct {
 	AssigneeName            *string    `json:"assigneeName"`
 	AssigneeEmail           *string    `json:"assigneeEmail"`
 	AssigneePhone           *string    `json:"assigneePhone"`
+	AssigneeUserID          *string    `json:"assigneeUserId"` // 회원계정으로 지정된 경우만(자유텍스트 담당자면 nil)
 	DecidedAt               *time.Time `json:"decidedAt"`
 	SubmissionDeadline      *string    `json:"submissionDeadline"`
 	Memo                    *string    `json:"memo"`
@@ -61,10 +62,10 @@ type pipelineEntryRowScanner interface {
 
 func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 	var e pipelineEntry
-	var org, assignee, assigneeEmail, assigneePhone, memo sql.NullString
+	var org, assignee, assigneeEmail, assigneePhone, assigneeUserID, memo sql.NullString
 	var decidedAt, deadline sql.NullTime
 	var awardedAmount sql.NullInt64
-	err := row.Scan(&e.ID, &e.NoticeID, &e.NoticeTitle, &org, &e.Status, &assignee, &assigneeEmail, &assigneePhone,
+	err := row.Scan(&e.ID, &e.NoticeID, &e.NoticeTitle, &org, &e.Status, &assignee, &assigneeEmail, &assigneePhone, &assigneeUserID,
 		&decidedAt, &deadline, &memo, &awardedAmount, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -73,6 +74,7 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 	e.AssigneeName = nullStringPtr(assignee)
 	e.AssigneeEmail = nullStringPtr(assigneeEmail)
 	e.AssigneePhone = nullStringPtr(assigneePhone)
+	e.AssigneeUserID = nullStringPtr(assigneeUserID)
 	e.Memo = nullStringPtr(memo)
 	if decidedAt.Valid {
 		e.DecidedAt = &decidedAt.Time
@@ -88,7 +90,7 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 }
 
 const pipelineEntrySelect = `
-	SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status, pe.assignee_name, pe.assignee_email, pe.assignee_phone,
+	SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status, pe.assignee_name, pe.assignee_email, pe.assignee_phone, pe.assignee_user_id,
 	       pe.decided_at, pe.submission_deadline, pe.memo, pe.awarded_amount, pe.created_at, pe.updated_at
 	FROM notice_pipeline_entries pe
 	JOIN notices n ON n.id = pe.notice_id`
@@ -379,8 +381,18 @@ func (s *Server) handleUpdatePipelineEntry(w http.ResponseWriter, r *http.Reques
 
 	sets := []string{}
 	args := []any{}
+	colIndex := map[string]int{}
+	// 같은 컬럼에 두 번 addSet이 호출되면(예: assigneeName과 assigneeUserId가
+	// 한 요청에 동시에 와서 둘 다 assignee_name을 건드리는 경우) UPDATE에
+	// 같은 컬럼이 중복 등장해 SQL 에러가 나므로, 이미 등록된 컬럼이면 새 SET
+	// 절을 추가하지 않고 기존 자리의 값만 덮어쓴다 — 나중 호출이 이긴다.
 	addSet := func(column string, value any) {
+		if idx, ok := colIndex[column]; ok {
+			args[idx] = value
+			return
+		}
 		args = append(args, value)
+		colIndex[column] = len(args) - 1
 		sets = append(sets, fmt.Sprintf("%s = $%d", column, len(args)))
 	}
 
@@ -405,6 +417,11 @@ func (s *Server) handleUpdatePipelineEntry(w http.ResponseWriter, r *http.Reques
 		} else {
 			addSet("assignee_name", name)
 		}
+		// 자유텍스트 담당자명을 명시적으로 보냈다는 건 회원계정 연결을 쓰지
+		// 않겠다는 뜻 — assigneeUserId가 같은 요청에 없으면 기존 연결을 끊는다.
+		if _, alsoAssigningAccount := raw["assigneeUserId"]; !alsoAssigningAccount {
+			addSet("assignee_user_id", nil)
+		}
 	}
 	if rawAssigneeEmail, present := raw["assigneeEmail"]; present {
 		var email string
@@ -422,6 +439,39 @@ func (s *Server) handleUpdatePipelineEntry(w http.ResponseWriter, r *http.Reques
 			addSet("assignee_phone", nil)
 		} else {
 			addSet("assignee_phone", strings.TrimSpace(phone))
+		}
+	}
+	if rawAssigneeUserID, present := raw["assigneeUserId"]; present {
+		var uid string
+		json.Unmarshal(rawAssigneeUserID, &uid)
+		uid = strings.TrimSpace(uid)
+		if uid == "" {
+			addSet("assignee_user_id", nil)
+		} else {
+			// 지정하려는 계정이 실제로 이 회사 소속(company_members)인지 확인 —
+			// 다른 회사 소속 계정을 담당자로 잘못/악의적으로 연결할 수 없게 한다.
+			var memberEmail string
+			lookupErr := s.db.QueryRowContext(ctx, `
+				SELECT u.email FROM company_members cm JOIN users u ON u.id = cm.user_id
+				WHERE cm.company_profile_id = $1 AND cm.user_id = $2`, profile.ID, uid).Scan(&memberEmail)
+			if lookupErr == sql.ErrNoRows {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_assignee_user"})
+				return
+			}
+			if lookupErr != nil {
+				s.logger.Error("update-pipeline: assignee member lookup failed", "error", lookupErr)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+				return
+			}
+			addSet("assignee_user_id", uid)
+			// 표시용 담당자명/이메일도 계정 정보로 맞춰 report.go의 팀원별
+			// 통계(assignee_name 기준 GROUP BY)와 대시보드 미배정 판정이
+			// 계속 정확히 동작하게 한다 — 회원계정 이메일 외 별도 이름
+			// 필드가 없어(company_members에 name 컬럼 없음) 이메일을 그대로
+			// 표시명으로 쓴다.
+			addSet("assignee_name", memberEmail)
+			addSet("assignee_email", memberEmail)
+			addSet("assignee_phone", nil)
 		}
 	}
 	if rawMemo, present := raw["memo"]; present {
