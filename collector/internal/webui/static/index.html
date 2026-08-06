@@ -7456,25 +7456,41 @@ function renderBudgetRangeSlider(container, minInput, maxInput) {
   updateVisual();
 }
 
-// ---------- 맞춤공고 키워드 태그(칩) 입력(2026-08-07) ----------
-// renderKeywordTagInput — 라이브러리 없는 순수 JS 태그 입력. 현재 태그
-// 배열은 컨테이너 DOM 노드에 직접 매달아둔다(container._tags) — 별도
-// 상태 관리나 hidden input 없이, 제출 시 getTagInputValues로 그대로
-// 읽으면 된다. tone('include'|'exclude')은 CSS 색상 구분에만 쓰인다
-// (포함=파란 계열, 제외=회색/빨간 계열 — .tag-input--exclude 참고).
+// ---------- 맞춤공고 키워드 태그(칩) 입력(2026-08-07, 전면 재작성) ----------
+// renderKeywordTagInput — 라이브러리 없는 순수 JS 태그 입력.
+//
+// 태그 생성 규칙은 정확히 이 두 지점, 이 두 지점에서만 일어난다:
+//   (1) input 이벤트에서 값이 쉼표(,)로 끝나는 걸 감지했을 때
+//   (2) keydown 이벤트에서 Enter가 눌렸고, 그 시점에 한글 등 조합형
+//       입력이 진행 중이 아닐 때(isComposing === false)
+// 그 외의 어떤 코드 경로도 태그를 만들지 않는다 — 이전 버전이
+// compositionend/blur에서도 태그를 만들다가, 조합 확정용 Enter가
+// keydown을 브라우저에 따라 한 번 또는 두 번 발생시키는 것과 겹쳐
+// "고구마" 입력 시 "고구마"+"마" 두 태그가 생기는 버그로 실제 나타났다
+// (2026-08-07 실사용 재보고). 이번엔 그 원인 자체(여러 지점에서 각자
+// 판단해 태그를 만드는 구조)를 없앤다 — 조합 상태(isComposing)는
+// "언제 태그를 만들지"의 판단 조건일 뿐, 별도의 생성 경로가 아니다.
+//
+// 4개 이벤트 핸들러의 역할은 이것만 한다:
+//   compositionstart → isComposing = true (그 외 아무 동작 없음)
+//   compositionend   → isComposing = false (그 외 아무 동작 없음, 태그 생성 없음)
+//   input            → 값이 ','로 끝나면 그 앞부분을 커밋하고 입력창을 비움(그 외엔 아무 동작 없음)
+//   keydown(Enter)   → isComposing이면 아무 동작 없음, 아니면 전체 값을 커밋하고 입력창을 비움
+//
+// tone('include'|'exclude')은 CSS 색상 구분에만 쓰인다.
 function renderKeywordTagInput(container, initialValues, tone) {
   container._tags = (initialValues || []).slice();
   container.classList.add(`tag-input--${tone}`);
   // 입력창(.tag-input-field) 자체는 처음 한 번만 만들고 다시 안 지운다 —
   // 태그를 추가할 때마다 container.innerHTML을 통째로 갈아치우면, 그
-  // 순간 포커스를 갖고 있던(keydown 이벤트가 막 발생한) input 자신이
-  // DOM에서 제거되면서 브라우저가 즉시 blur를 발생시키고, 그 blur
-  // 핸들러가 다시 같은 렌더 함수를 재진입 호출해 "이미 제거된 노드"를
-  // 또 지우려다 예외가 나는 문제가 실제로 있었다(헤드리스 검증 중
-  // 재현). pills 영역만 따로 둬서 input은 항상 살아있게 한다.
+  // 순간 포커스를 갖고 있던 input 자신이 DOM에서 제거되며 브라우저가
+  // 즉시 blur를 발생시키고, 그 핸들러가 재진입 호출돼 예외가 나는
+  // 문제가 실제로 있었다(이전 버전에서 재현). pills 영역만 따로 둬서
+  // input은 항상 살아있게 한다.
   container.innerHTML = `<div class="tag-pills"></div><input type="text" class="tag-input-field" placeholder="입력 후 Enter 또는 쉼표">`;
   const pillsEl = container.querySelector('.tag-pills');
   const field = container.querySelector('.tag-input-field');
+  let isComposing = false;
 
   function renderPills() {
     pillsEl.innerHTML = container._tags.map((tag, i) => `
@@ -7487,67 +7503,48 @@ function renderKeywordTagInput(container, initialValues, tone) {
       });
     });
   }
-  function addFromField() {
-    const val = field.value.replace(/,/g, '').trim();
-    if (val) {
-      if (!container._tags.includes(val)) container._tags.push(val);
-      renderPills();
-    }
-    field.value = ''; // 중복이어도 입력창은 항상 비운다
+
+  // commitTag — 유일한 태그 생성 지점. input(쉼표 감지)과 keydown(Enter,
+  // 비조합)만 이 함수를 호출한다.
+  function commitTag(rawValue) {
+    const val = rawValue.trim();
+    if (val && !container._tags.includes(val)) container._tags.push(val);
+    field.value = '';
+    renderPills();
   }
 
-  // 한글(등 조합형 문자) IME 처리 — 2026-08-07, 실사용 중 발견된 버그
-  // 수정: "고구마"를 입력하고 Enter로 확정하면 "고구마"와 "마" 두 개의
-  // 태그가 생겼다. 원인은 조합 확정을 위한 Enter가 keydown을 두 번
-  // 발생시키는 경우가 있어서(브라우저/OS마다 정확한 횟수가 다름) —
-  // 첫 keydown이 완성된 값으로 태그를 만들고 입력창을 비운 직후, IME가
-  // 마지막 음절을 마저 흘려보내며 남은 keydown이 그 잔여값으로 또
-  // 태그를 만들었다. 두 가지를 함께 적용해 방어한다(사용자 제안 두
-  // 방식을 합침 — 어느 한쪽만으로는 브라우저별 이벤트 횟수 차이에
-  // 취약하다):
-  // 1) compositionend에서 완성된 값으로 직접 태그를 만든다(조합이 끝난
-  //    바로 그 순간이 가장 신뢰할 수 있는 "완성된 값" 시점).
-  // 2) keydown(Enter)은 e.isComposing이 true면 항상 무시하고, 방금
-  //    compositionend가 이미 처리했다면(skipNextEnter) 뒤이어 오는
-  //    Enter 한 번도 무시한다 — 새 조합이 시작되면 이 가드는 즉시
-  //    풀어서 이후 입력에 영향이 없게 한다.
-  let isComposing = false;
-  let skipNextEnter = false;
   field.addEventListener('compositionstart', () => {
     isComposing = true;
-    skipNextEnter = false;
   });
   field.addEventListener('compositionend', () => {
     isComposing = false;
-    skipNextEnter = true;
-    addFromField();
+  });
+  field.addEventListener('input', () => {
+    if (field.value.endsWith(',')) {
+      commitTag(field.value.slice(0, -1));
+    }
   });
   field.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault(); // 조합 중이어도 폼이 실수로 제출되지 않게 항상 막는다
-      if (isComposing || e.isComposing) return;
-      if (skipNextEnter) { skipNextEnter = false; return; }
-      addFromField();
+    if (e.key === 'Enter') {
+      if (isComposing) return; // 조합 확정용 Enter — 아무 동작도 하지 않는다
+      e.preventDefault(); // 태그 생성으로 처리하는 Enter라 폼 제출은 막는다
+      commitTag(field.value);
     } else if (e.key === 'Backspace' && field.value === '' && container._tags.length) {
+      // 태그 생성과 무관한 삭제 동작(기존 UX 유지) — commitTag를 호출하지 않는다.
       container._tags.pop();
       renderPills();
     }
   });
-  field.addEventListener('blur', () => {
-    if (!isComposing) addFromField();
-  });
   renderPills();
 }
 
-// getTagInputValues — 제출 시점에 태그 배열을 읽는다. 아직 Enter를
-// 안 누르고 입력창에 남아있는 텍스트("쉼표/Enter 안 누르고 바로
-// 저장 버튼 클릭"하는 흔한 경우)도 놓치지 않고 포함시킨다.
+// getTagInputValues — 제출 시점에 태그 배열을 그대로 읽기만 한다.
+// ⚠️입력창에 남아있는(Enter/쉼표로 아직 확정 안 된) 텍스트는 포함하지
+// 않는다 — 태그 생성 지점을 input(쉼표)/keydown(Enter) 두 곳으로
+// 한정하는 규칙을 여기서 다시 깨지 않기 위함(사용자 확정, 2026-08-07).
+// 확정 안 된 텍스트가 있으면 저장 시 조용히 버려진다.
 function getTagInputValues(container) {
-  const tags = (container._tags || []).slice();
-  const field = container.querySelector('.tag-input-field');
-  const pending = field ? field.value.replace(/,/g, '').trim() : '';
-  if (pending && !tags.includes(pending)) tags.push(pending);
-  return tags;
+  return (container._tags || []).slice();
 }
 
 // isDefaultSavedSearchCard — "내 기본 조건"(온보딩 자동생성) 여부. 이
