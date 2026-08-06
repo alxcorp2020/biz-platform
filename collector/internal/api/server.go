@@ -294,6 +294,13 @@ type noticeListItem struct {
 	// 프론트는 맞춤공고 결과 화면(savedSearchName 파라미터가 있을 때)에서만
 	// 배지로 그린다(평소 검색 화면은 원칙대로 단순하게 유지).
 	MatchReasons []string `json:"matchReasons,omitempty"`
+	// Grade/GradeReason — 2026-08-06, "추천공고 왜 목록단계 노출"(브랜딩/UX
+	// 현황점검 4번). 상세 페이지(AI 참여분석 탭)에서만 보이던 등급판정을
+	// 검색 목록에서도 바로 보여준다 — attachNoticeGrades가 로그인 + 회사
+	// 프로필이 있을 때만 채운다(company_pipeline.go의 attachPipelineGrades와
+	// 동일하게 영속 컬럼이 아니라 매 요청 scoreNoticeForCompany로 재계산).
+	Grade       string `json:"grade,omitempty"`
+	GradeReason string `json:"gradeReason,omitempty"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -515,6 +522,28 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	baseMatchReasons := computeBaseMatchReasons(region, industry, q.Get("organizationName"), q.Get("budgetMin"), q.Get("budgetMax"))
 	matchKeywords := splitNonEmpty(q.Get("keywordsInclude"))
 
+	// scoringCompany — 로그인 + 회사 프로필이 있을 때만 채워서 아래 row
+	// 루프에서 바로 등급을 계산한다(회사 정보를 못 구하면 grade는 그냥
+	// 비워둔다 — company_pipeline.go attachPipelineGrades와 동일한
+	// best-effort 원칙, 검색 자체를 막지 않는다).
+	var scoringCompany *companyScoringInput
+	if loggedIn {
+		if profile, err := s.getCompanyProfile(r, userID); err == nil && profile != nil {
+			var profRegion, profSize sql.NullString
+			if profile.Region != nil {
+				profRegion = sql.NullString{String: *profile.Region, Valid: true}
+			}
+			if profile.CompanySize != nil {
+				profSize = sql.NullString{String: *profile.CompanySize, Valid: true}
+			}
+			trackRecordMax, err := s.fetchTrackRecordMaxAmount(r.Context(), profile.ID)
+			if err != nil {
+				s.logger.Error("list notices: track record lookup failed", "error", err)
+			}
+			scoringCompany = &companyScoringInput{Region: profRegion, Industry: profile.Industry, Size: profSize, TrackRecordMaxAmount: trackRecordMax}
+		}
+	}
+
 	rows, err := s.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
 		s.logger.Error("list notices query failed", "error", err)
@@ -551,6 +580,24 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		}
 		if deadline.Valid {
 			it.ApplicationEndAt = &deadline.Time
+		}
+		if scoringCompany != nil {
+			score := scoreNoticeForCompany(noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget}, *scoringCompany)
+			it.Grade = score.Grade
+			it.GradeReason = score.GradeReason
+			// gradeFromCategories는 "참여 곤란" 등급에도 대부분 top-level
+			// 사유를 안 채운다(카테고리별 Reason에만 있음) — 목록에서
+			// "왜 참여 곤란인지"가 비어 보이면 등급 노출의 의미가 없으므로,
+			// 이 등급일 때만 막힌 첫 카테고리 사유를 대신 채운다(참여
+			// 권장/조건부는 배지만으로 충분해 그대로 비워둔다).
+			if it.GradeReason == "" && score.Grade == gradeNotRecommended {
+				for _, c := range score.Categories {
+					if c.Result == "not_met" {
+						it.GradeReason = c.Reason
+						break
+					}
+				}
+			}
 		}
 		if len(baseMatchReasons) > 0 || len(matchKeywords) > 0 {
 			reasons := append([]string{}, baseMatchReasons...)
