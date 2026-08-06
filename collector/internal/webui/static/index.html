@@ -1216,12 +1216,6 @@
   .saved-search-notify-section legend { font-weight: 700; font-size: var(--text-body); padding: 0 0.3rem; }
   .saved-search-notify-section label { margin-top: 0.5rem; }
   .saved-search-reminder-days { display: flex; gap: 1rem; margin: 0.4rem 0 0.6rem 1.6rem; }
-  /* saved-search-founding-date-form — "내 기본 조건" 카드 전용 개업일
-     인라인 등록(2026-08-06). 카드 메타 줄들 사이에 끼는 작은 폼이라
-     label/input/button을 한 줄에 이어붙인다. */
-  .saved-search-founding-date-form { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.4rem; }
-  .saved-search-founding-date-form label { display: flex; align-items: center; gap: 0.5rem; margin: 0; }
-  .saved-search-founding-date-form .error { margin: 0; }
 
   /* ---------- 파이프라인 표 뷰 ---------- */
   .pipeline-table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 1rem 0 0.6rem; }
@@ -7257,7 +7251,6 @@ async function renderSavedSearchesListTab(container) {
   listEl.querySelectorAll('.saved-search-results-link').forEach(a => {
     a.addEventListener('click', () => { noticeListState = null; }); // 새 조건 결과이므로 무한스크롤 캐시 폐기
   });
-  wireFoundingDateCardControls(listEl, items, contacts, () => renderSavedSearchesListTab(container));
 }
 
 function savedSearchResultsHash(item) {
@@ -7295,59 +7288,9 @@ function savedSearchNotificationSummary(item, contacts) {
   return parts.join(' · ');
 }
 
-// foundingDateSectionHtml — 2026-08-06, "내 기본 조건"(origin==='onboarding')
-// 카드 전용 개업일/업력 표시. founding_date는 카드 단위가 아니라
-// company_profiles(회사 전체) 필드라 currentProfile 전역을 그대로 읽는다
-// — 이 카드가 "우리 회사 기본 정보"를 대표하는 온보딩 자동생성 카드라는
-// 기존 배지 관례를 그대로 이어받아, 이미 등록돼 있으면 계산된 값만
-// 읽기전용으로 보여주고(개업일이 source of truth, 직접입력 아님), 아직
-// 없으면 등록할 수 있는 입력창을 연다.
-function foundingDateSectionHtml(item) {
-  if (item.origin !== 'onboarding') return '';
-  const p = currentProfile || {};
-  if (p.foundingDate) {
-    const ageLabel = p.businessAgeYears != null ? `약 ${p.businessAgeYears}년` : '계산 중';
-    return `<p class="license-card-meta">개업일 ${escapeHtml(p.foundingDate)} · 업력 ${escapeHtml(ageLabel)}</p>`;
-  }
-  return `
-    <div class="saved-search-founding-date-form">
-      <label class="license-card-meta">개업일을 등록하면 업력을 자동으로 계산해요
-        <input type="date" class="saved-search-founding-date-input" max="${new Date().toISOString().slice(0, 10)}">
-      </label>
-      <button type="button" class="btn btn-secondary btn-sm saved-search-founding-date-save-btn">저장</button>
-      <span class="saved-search-founding-date-error error" style="display:none"></span>
-    </div>
-  `;
-}
-
-// wireFoundingDateCardControls — foundingDateSectionHtml의 저장 버튼 클릭
-// 처리. companyProfileUpdatePayload(다른 필드는 현재 값 그대로 재전송,
-// foundingDate만 덮어씀)를 그대로 재사용 — 새 엔드포인트 없음.
-function wireFoundingDateCardControls(listEl, items, contacts, onSaved) {
-  listEl.querySelectorAll('.saved-search-founding-date-save-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const wrap = btn.closest('.saved-search-founding-date-form');
-      const input = wrap.querySelector('.saved-search-founding-date-input');
-      const errorEl = wrap.querySelector('.saved-search-founding-date-error');
-      errorEl.style.display = 'none';
-      if (!input.value || computeBusinessAgeYears(input.value) == null) {
-        errorEl.textContent = '올바른 개업일을 입력해주세요.';
-        errorEl.style.display = 'block';
-        return;
-      }
-      btn.disabled = true;
-      try {
-        const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ foundingDate: input.value }));
-        currentProfile = data.companyProfile;
-        onSaved();
-      } catch (err) {
-        errorEl.textContent = err.message;
-        errorEl.style.display = 'block';
-        btn.disabled = false;
-      }
-    });
-  });
-}
+// 개업일/업력 입력은 목록 카드가 아니라 "수정" 클릭 시 열리는 편집
+// 폼(regionIndustryCompanySizeFieldsHtml의 isDefault 분기)에만 있다 —
+// 2026-08-07, 목록 화면에 바로 노출돼 있던 걸 편집 화면 안으로 이동.
 
 function savedSearchCardHtml(item, contacts) {
   const conditionParts = [];
@@ -7378,7 +7321,6 @@ function savedSearchCardHtml(item, contacts) {
         <div class="license-card-name">${escapeHtml(item.name)} ${item.alertEnabled ? '<span class="badge badge--success">알림 켜짐</span>' : '<span class="badge badge--gray">알림 꺼짐</span>'} ${originBadge}</div>
         <div class="license-card-meta">${conditionParts.length ? conditionParts.join(' · ') : '조건 없음(전체 공고)'}</div>
         <div class="license-card-meta">${escapeHtml(savedSearchNotificationSummary(item, contacts))}</div>
-        ${foundingDateSectionHtml(item)}
       </div>
       <div class="license-card-side">
         <a class="btn btn-secondary btn-sm saved-search-results-link" href="${escapeAttr(savedSearchResultsHash(item))}">결과 보기</a>
@@ -7650,6 +7592,10 @@ function regionIndustryCompanySizeFieldsHtml(item, isDefault) {
           ${COMPANY_SIZE_OPTIONS.map(sz => `<option value="${escapeAttr(sz)}" ${sz === p.companySize ? 'selected' : ''}>${escapeHtml(sz)}</option>`).join('')}
         </select>
       </label>
+      <label>개업일 <span style="font-weight:400;color:var(--ink-soft);font-size:0.85em">(업력을 자동으로 계산해요)</span>
+        <input type="date" name="defaultCardFoundingDate" max="${new Date().toISOString().slice(0, 10)}" value="${escapeAttr(p.foundingDate || '')}">
+      </label>
+      ${p.businessAgeYears != null ? `<p class="license-card-meta">현재 업력: 약 ${p.businessAgeYears}년</p>` : ''}
     `;
   }
   const currentRegion = item ? (item.region || '') : '';
@@ -7758,9 +7704,15 @@ function renderSavedSearchForm(formSlot, item, contacts, onSaved) {
       // 그대로 실어 보내 응답 순서와 무관하게 항상 일치하도록 한다.
       const industryList = fd.getAll('defaultCardIndustry');
       const companySizeVal = fd.get('defaultCardCompanySize') || null;
+      const foundingDateVal = fd.get('defaultCardFoundingDate') || null;
+      if (foundingDateVal && computeBusinessAgeYears(foundingDateVal) == null) {
+        errorBox.textContent = '올바른 개업일을 입력해주세요.';
+        errorBox.style.display = 'block';
+        return;
+      }
       try {
         const profileData = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({
-          region: regionVal, industry: industryList, companySize: companySizeVal,
+          region: regionVal, industry: industryList, companySize: companySizeVal, foundingDate: foundingDateVal,
         }));
         currentProfile = profileData.companyProfile;
         regionVal = currentProfile.region || null;
