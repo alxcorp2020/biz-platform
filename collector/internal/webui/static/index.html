@@ -1132,6 +1132,21 @@
   .saved-search-advanced { margin: 0.5rem 0; }
   .saved-search-advanced summary { cursor: pointer; font-size: var(--text-body); font-weight: 600; color: var(--ink-soft); padding: 0.4rem 0; }
   .saved-search-advanced label { margin-top: 0.6rem; }
+  /* saved-search-notify-section — 폼 안 "알림 설정" 묶음. fieldset 기본
+     테두리 대신 다른 <details> 섹션들과 같은 옅은 경계선으로 통일. */
+  .saved-search-notify-section {
+    border: 1px solid var(--border); border-radius: var(--radius-card);
+    padding: 0.9rem 1rem; margin: 0.9rem 0; min-width: 0;
+  }
+  .saved-search-notify-section legend { font-weight: 700; font-size: var(--text-body); padding: 0 0.3rem; }
+  .saved-search-notify-section label { margin-top: 0.5rem; }
+  .saved-search-reminder-days { display: flex; gap: 1rem; margin: 0.4rem 0 0.6rem 1.6rem; }
+  /* saved-search-contacts-section — 맞춤공고 화면 상단 접이식 담당자
+     관리(2026-08-06, 기업프로필에서 이동). saved-search-advanced와 같은
+     톤이되, 카드형 배경으로 구분감을 준다. */
+  .saved-search-contacts-section { margin: 0 0 1.2rem; background: #fff; border-radius: var(--radius-card); box-shadow: var(--shadow-soft); padding: 1rem 1.2rem; }
+  .saved-search-contacts-section summary { cursor: pointer; font-size: 1.05rem; font-weight: 700; color: var(--ink); padding: 0.2rem 0; }
+  .saved-search-contacts-section[open] summary { margin-bottom: 0.6rem; }
 
   /* ---------- 파이프라인 표 뷰 ---------- */
   .pipeline-table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 1rem 0 0.6rem; }
@@ -7041,24 +7056,40 @@ const SAVED_SEARCH_NOTICE_TYPE_OPTIONS = [
   { value: 'support_program', label: '지원사업' },
 ];
 
+// renderSavedSearches — 2026-08-06, 기업프로필의 "담당자 관리"를 이
+// 화면으로 통합(경쟁서비스 격차정리 — 담당자 관리와 맞춤공고 알림설정이
+// 같은 화면에 있어야 "이 알림을 받을 담당자"를 바로 고를 수 있다).
+// 담당자 목록(/api/me/contacts)을 병렬로 불러와 (1) 상단 접이식 "담당자
+// 관리" 섹션(renderContactsTab을 그대로 재사용 — 컨테이너만 받으면
+// 동작하는 범용 함수라 탭이든 여기든 그대로 꽂힌다), (2) 각 카드/폼의
+// "이 알림을 받을 담당자" 체크박스 목록 두 곳에 같이 쓴다.
 async function renderSavedSearches(container) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
 
-  let data;
+  let data, contactsData;
   try {
-    data = await apiRequest('GET', '/api/me/saved-searches');
+    [data, contactsData] = await Promise.all([
+      apiRequest('GET', '/api/me/saved-searches'),
+      apiRequest('GET', '/api/me/contacts'),
+    ]);
   } catch (err) {
     container.innerHTML = '';
     container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
     return;
   }
   const items = data.items || [];
+  const contacts = contactsData.items || [];
 
   container.innerHTML = '';
   container.appendChild(h(`
     <h2>맞춤공고</h2>
     <p class="license-card-meta">검색조건을 저장해두면 새로 등록되는 공고가 매일 아침 이메일로 도착합니다.</p>
+    <details class="saved-search-contacts-section">
+      <summary>담당자 관리 (${contacts.length}명)</summary>
+      <p class="license-card-meta">여기 등록한 담당자를 아래 각 맞춤공고 조건의 "알림을 받을 담당자"로 선택할 수 있습니다.</p>
+      <div id="saved-search-contacts-slot"></div>
+    </details>
     <div class="license-toolbar">
       <button type="button" id="saved-search-add-btn" class="btn btn-primary btn-sm">새 조건 만들기</button>
     </div>
@@ -7066,21 +7097,23 @@ async function renderSavedSearches(container) {
     <div class="license-list" id="saved-search-list"></div>
   `));
 
+  renderContactsTab(document.getElementById('saved-search-contacts-slot'));
+
   const listEl = document.getElementById('saved-search-list');
   if (!items.length) {
     listEl.appendChild(h('<p class="empty">아직 저장된 맞춤공고 조건이 없습니다. "새 조건 만들기"로 시작해보세요.</p>'));
   } else {
-    items.forEach(item => listEl.appendChild(h(savedSearchCardHtml(item))));
+    items.forEach(item => listEl.appendChild(h(savedSearchCardHtml(item, contacts))));
   }
 
   const formSlot = document.getElementById('saved-search-form-slot');
   document.getElementById('saved-search-add-btn').addEventListener('click', () => {
-    renderSavedSearchForm(formSlot, null, () => renderSavedSearches(container));
+    renderSavedSearchForm(formSlot, null, contacts, () => renderSavedSearches(container));
   });
   listEl.querySelectorAll('.saved-search-edit-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const item = items.find(i => i.id === btn.dataset.id);
-      renderSavedSearchForm(formSlot, item, () => renderSavedSearches(container));
+      renderSavedSearchForm(formSlot, item, contacts, () => renderSavedSearches(container));
     });
   });
   listEl.querySelectorAll('.saved-search-delete-btn').forEach(btn => {
@@ -7113,7 +7146,28 @@ function savedSearchResultsHash(item) {
   return '#/notices?' + p.toString();
 }
 
-function savedSearchCardHtml(item) {
+// savedSearchNotificationSummary — 카드에 보여줄 "알림 설정" 요약 줄.
+// 상세 편집(다중선택 D-day/담당자 체크박스)은 renderSavedSearchForm에서만
+// 하고, 카드에는 지금 어떻게 설정돼있는지만 한 줄로 보여준다(다른
+// 조건 항목들과 같은 요약형 표시 관례).
+function savedSearchNotificationSummary(item, contacts) {
+  const parts = [];
+  parts.push(item.alertEnabled ? '추천공고 다이제스트 켜짐' : '추천공고 다이제스트 꺼짐');
+  if (item.reminderEnabled) {
+    const days = (item.reminderDaysBefore || []).slice().sort((a, b) => b - a).map(d => `D-${d}`).join(', ');
+    parts.push(`제출마감 리마인더 켜짐(${days || '시점 미선택'})`);
+  }
+  const ids = item.recipientContactIds || [];
+  if (ids.length) {
+    const names = ids.map(id => (contacts.find(c => c.id === id) || {}).name).filter(Boolean);
+    parts.push('수신 담당자: ' + (names.length ? names.join(', ') : `${ids.length}명`));
+  } else {
+    parts.push('수신 담당자: 미지정(계정 이메일로 발송)');
+  }
+  return parts.join(' · ');
+}
+
+function savedSearchCardHtml(item, contacts) {
   const conditionParts = [];
   const noticeTypeLabel = (SAVED_SEARCH_NOTICE_TYPE_OPTIONS.find(o => o.value === (item.noticeType || '')) || {}).label;
   if (noticeTypeLabel && item.noticeType) conditionParts.push(noticeTypeLabel);
@@ -7135,6 +7189,7 @@ function savedSearchCardHtml(item) {
       <div class="license-card-main">
         <div class="license-card-name">${escapeHtml(item.name)} ${item.alertEnabled ? '<span class="badge badge--success">알림 켜짐</span>' : '<span class="badge badge--gray">알림 꺼짐</span>'} ${originBadge}</div>
         <div class="license-card-meta">${conditionParts.length ? conditionParts.join(' · ') : '조건 없음(전체 공고)'}</div>
+        <div class="license-card-meta">${escapeHtml(savedSearchNotificationSummary(item, contacts))}</div>
       </div>
       <div class="license-card-side">
         <a class="btn btn-secondary btn-sm saved-search-results-link" href="${escapeAttr(savedSearchResultsHash(item))}">결과 보기</a>
@@ -7145,10 +7200,22 @@ function savedSearchCardHtml(item) {
   `;
 }
 
-function renderSavedSearchForm(formSlot, item, onSaved) {
+// SAVED_SEARCH_REMINDER_DAY_OPTIONS — 제출마감 리마인더 다중선택
+// (D-7/D-3/D-1), sendSavedSearchDeadlineReminders가 스케줄하는 오프셋과
+// 정확히 같은 값(validSavedSearchReminderDays도 이 3개만 허용).
+const SAVED_SEARCH_REMINDER_DAY_OPTIONS = [7, 3, 1];
+
+function renderSavedSearchForm(formSlot, item, contacts, onSaved) {
   const c = item || {};
   const currentNoticeType = c.noticeType || '';
   const currentRegion = c.region || '';
+  const currentReminderDays = c.reminderDaysBefore || [];
+  const currentRecipientIds = c.recipientContactIds || [];
+  const contactsCheckboxesHtml = contacts.length
+    ? contacts.map(ct => `
+        <label class="checkbox-label"><input type="checkbox" name="recipientContactIds" value="${escapeAttr(ct.id)}" ${currentRecipientIds.includes(ct.id) ? 'checked' : ''}> ${escapeHtml(ct.name)}${ct.email ? ` (${escapeHtml(ct.email)})` : ''}</label>
+      `).join('')
+    : `<p class="license-card-meta">등록된 담당자가 없습니다. 위 "담당자 관리"에서 먼저 등록해주세요.</p>`;
   formSlot.innerHTML = '';
   formSlot.appendChild(h(`
     <div class="license-confirm-form">
@@ -7175,7 +7242,19 @@ function renderSavedSearchForm(formSlot, item, onSaved) {
           <label>포함 키워드(콤마로 구분)<input type="text" name="keywordsInclude" placeholder="예: 유지보수, 구축" value="${escapeAttr((c.keywordsInclude || []).join(', '))}"></label>
           <label>제외 키워드(콤마로 구분)<input type="text" name="keywordsExclude" placeholder="예: 청소, 경비" value="${escapeAttr((c.keywordsExclude || []).join(', '))}"></label>
         </details>
-        <label class="checkbox-label"><input type="checkbox" name="alertEnabled" ${item ? (c.alertEnabled ? 'checked' : '') : 'checked'}> 새로 매칭되는 공고를 이메일로 알림 받기</label>
+        <fieldset class="saved-search-notify-section">
+          <legend>알림 설정</legend>
+          <label class="checkbox-label"><input type="checkbox" name="alertEnabled" ${item ? (c.alertEnabled ? 'checked' : '') : 'checked'}> 추천공고 다이제스트 이메일 받기</label>
+          <label class="checkbox-label"><input type="checkbox" name="reminderEnabled" id="saved-search-reminder-enabled" ${c.reminderEnabled ? 'checked' : ''}> 제출마감 리마인더 받기</label>
+          <div id="saved-search-reminder-days" class="saved-search-reminder-days" style="${c.reminderEnabled ? '' : 'display:none'}">
+            ${SAVED_SEARCH_REMINDER_DAY_OPTIONS.map(d => `
+              <label class="checkbox-label"><input type="checkbox" name="reminderDaysBefore" value="${d}" ${currentReminderDays.includes(d) ? 'checked' : ''}> D-${d}</label>
+            `).join('')}
+          </div>
+          <p class="license-card-meta">이 알림을 받을 담당자</p>
+          ${contactsCheckboxesHtml}
+          <p class="license-card-meta">실제 수신자는 담당자 관리 탭에서 담당자별로 설정합니다(이메일/SMS/웹푸시 개별 채널 설정과 연동됨). 담당자를 선택하지 않으면 내 계정 이메일로 발송됩니다.</p>
+        </fieldset>
         <div id="saved-search-form-error" class="error" style="display:none"></div>
         <div class="license-toolbar">
           <button type="submit" class="btn btn-primary btn-sm">저장</button>
@@ -7190,6 +7269,9 @@ function renderSavedSearchForm(formSlot, item, onSaved) {
   attachCurrencyAutoFormat(form.budgetMax);
   const errorBox = document.getElementById('saved-search-form-error');
   document.getElementById('saved-search-form-cancel').addEventListener('click', () => { formSlot.innerHTML = ''; });
+  document.getElementById('saved-search-reminder-enabled').addEventListener('change', (e) => {
+    document.getElementById('saved-search-reminder-days').style.display = e.target.checked ? '' : 'none';
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -7209,6 +7291,9 @@ function renderSavedSearchForm(formSlot, item, onSaved) {
       keywordsInclude: splitKeywords(fd.get('keywordsInclude')),
       keywordsExclude: splitKeywords(fd.get('keywordsExclude')),
       alertEnabled: fd.get('alertEnabled') === 'on',
+      reminderEnabled: fd.get('reminderEnabled') === 'on',
+      reminderDaysBefore: fd.getAll('reminderDaysBefore').map(Number),
+      recipientContactIds: fd.getAll('recipientContactIds'),
     };
     try {
       if (item) {
@@ -9370,10 +9455,14 @@ async function renderProfile(container) {
       <button type="button" class="profile-tab-btn" data-tab="financials">재무정보</button>
       <button type="button" class="profile-tab-btn" data-tab="track-records">수행실적</button>
       <button type="button" class="profile-tab-btn" data-tab="personnel">인력정보</button>
-      <button type="button" class="profile-tab-btn" data-tab="contacts">담당자 관리</button>
     </div>
     <div id="profile-tab-content"></div>
   `));
+  // 담당자 관리 — 2026-08-06, 맞춤공고 화면(#/me/saved-searches)으로
+  // 이동(그 화면에서 맞춤공고별 알림 수신자로 바로 고를 수 있어야 해서).
+  // 기업프로필에는 완전히 숨기지 않고 바로가기 링크만 남긴다.
+  container.querySelector('.profile-tabs').insertAdjacentHTML('afterend',
+    `<p class="license-card-meta" style="margin:-0.5rem 0 1rem;">담당자 관리는 <a href="#/me/saved-searches">맞춤공고</a> 화면으로 이동했습니다.</p>`);
 
   renderProfileCompletenessCard(document.getElementById('profile-completeness-section'));
 
@@ -9383,7 +9472,6 @@ async function renderProfile(container) {
     financials: () => renderFinancialsTab(tabContent),
     'track-records': () => renderTrackRecordsTab(tabContent),
     personnel: () => renderPersonnelTab(tabContent),
-    contacts: () => renderContactsTab(tabContent),
   };
   tabRenderers.basic();
 

@@ -256,6 +256,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureSubscriptionsPreviousPlanColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate subscriptions.previous_plan columns: %w", err)
 	}
+	if err := ensureSavedSearchNotificationColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate saved_searches notification columns: %w", err)
+	}
 	return nil
 }
 
@@ -294,13 +297,19 @@ func ensureSavedSearchesTable(ctx context.Context, db *sql.DB) error {
 // ensureSavedSearchMatchEventType widens notification_log_event_type_check
 // for 'saved_search_match' — 이 제약을 건드리는 다른 6개 함수와 마찬가지로
 // 항상 "현재 최종" 전체 목록을 써야 한다(ensureDeadlineD7EventType 주석의
-// 사고 이력 참고, 이 함수도 그 그룹에 합류).
+// 사고 이력 참고, 이 함수도 그 그룹에 합류). 2026-08-06: Run() 호출
+// 순서상 이 함수가 이 제약을 건드리는 함수들 중 지금 "마지막"으로
+// 실행되므로(그 뒤로는 saved_search_deadline_d7/d3/d1을 추가한 이번
+// 변경까지 포함해 항상 여기가 최종 목록이다), 새 이벤트 타입을 추가할
+// 땐 이후에도 계속 이 함수의 목록을 갱신할 것 — Run()에 새 constraint-
+// widening 함수를 이 함수보다 뒤에 추가하지 않는 한.
 func ensureSavedSearchMatchEventType(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE notification_log DROP CONSTRAINT IF EXISTS notification_log_event_type_check;
 		ALTER TABLE notification_log ADD CONSTRAINT notification_log_event_type_check
 			CHECK (event_type IN ('deadline_d7','deadline_d3','deadline_d1','recommendation_digest','assignee_status_change',
-			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected','saved_search_match','notice_cancelled'));
+			                       'weekly_report','monthly_report','team_invite','team_invite_accepted','admin_broadcast','password_reset','email_verification','notice_corrected','saved_search_match','notice_cancelled',
+			                       'saved_search_deadline_d7','saved_search_deadline_d3','saved_search_deadline_d1'));
 	`)
 	return err
 }
@@ -1169,6 +1178,51 @@ func ensureSavedSearchesOriginColumn(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS origin TEXT;
 	`)
 	return err
+}
+
+// ensureSavedSearchNotificationColumns adds saved_searches.recipient_contact_ids/
+// reminder_enabled/reminder_days_before — 2026-08-06, 기업프로필의 "담당자
+// 관리"/"알림 설정"을 맞춤공고 화면으로 통합. recipient_contact_ids는
+// company_contacts.id 배열(FK 제약은 안 걺 — saved_searches.go가 저장
+// 시점에 호출자 회사 소속 담당자인지 직접 검증하고, 담당자가 삭제되면
+// 그냥 존재하지 않는 id로 남아 발송 대상에서 자연히 빠진다). reminder_
+// days_before는 company_profiles.notification_days_before와 같은 INTEGER[]
+// 패턴(7/3/1 중 선택). "컬럼이 처음 생기는 이번 한 번만 기존 행 전원
+// 백필" 관례(ensureOnboardingCompletedAtColumn과 동일) — 기존 맞춤공고
+// 다이제스트가 지금까지 "검색 소유자 로그인 이메일"로 발송되던 것을
+// 이번에 "recipient_contact_ids 대상"으로 바꾸므로, 이 컬럼이 비어있는
+// 채로 두면 기존 사용자들이 알림을 못 받게 되는 공백이 생긴다 — 그래서
+// 컬럼이 새로 생기는 시점에, 그 검색을 소유한 계정이 속한 회사의 담당자
+// 전원을 기본 수신자로 백필한다(담당자가 하나도 없는 회사는 빈 배열로
+// 남고, 발송 시점에 검색 소유자 이메일로 폴백한다 — saved_search_digest.go
+// resolveSavedSearchRecipients 참고). reminder_enabled는 새 기능이라
+// 기존 행은 계속 false로 남겨 사용자가 명시적으로 켜야만 동작한다(다이제스트와
+// 달리 "이미 받고 있던 알림"이 아니므로 소급 활성화하지 않음).
+func ensureSavedSearchNotificationColumns(ctx context.Context, db *sql.DB) error {
+	var columnExists bool
+	if err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'saved_searches' AND column_name = 'recipient_contact_ids'
+		)`).Scan(&columnExists); err != nil {
+		return fmt.Errorf("check saved_searches.recipient_contact_ids column: %w", err)
+	}
+	if !columnExists {
+		if _, err := db.ExecContext(ctx, `
+			ALTER TABLE saved_searches ADD COLUMN recipient_contact_ids UUID[] NOT NULL DEFAULT '{}';
+			ALTER TABLE saved_searches ADD COLUMN reminder_enabled BOOLEAN NOT NULL DEFAULT false;
+			ALTER TABLE saved_searches ADD COLUMN reminder_days_before INTEGER[] NOT NULL DEFAULT '{7,3,1}';
+			UPDATE saved_searches ss
+			SET recipient_contact_ids = COALESCE((
+				SELECT array_agg(cc.id) FROM company_contacts cc
+				JOIN company_members cm ON cm.company_profile_id = cc.company_profile_id
+				WHERE cm.user_id = ss.user_id
+			), '{}');
+		`); err != nil {
+			return fmt.Errorf("add and backfill saved_searches notification columns: %w", err)
+		}
+	}
+	return nil
 }
 
 // ensureCompanyContactsTable adds company_contacts — 참여 검토(파이프라인

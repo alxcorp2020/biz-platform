@@ -35,6 +35,14 @@ const (
 	notifyEventNoticeCorrected      = "notice_corrected"
 	notifyEventNoticeCancelled      = "notice_cancelled"
 	notifyEventSavedSearchMatch     = "saved_search_match"
+	// notifyEventSavedSearchDeadlineD7/D3/D1 — 2026-08-06, 맞춤공고
+	// "제출마감 리마인더". 파이프라인 기반 notifyEventDeadlineD7/D3/D1과는
+	// 완전히 별개 이벤트다(대상이 파이프라인에 추가한 건이 아니라 이
+	// 검색 조건에 매칭되는 공고 전체 — pipeline_entry_id 없이 notice_id
+	// 기준으로만 dedup한다, saved_search_digest.go 참고).
+	notifyEventSavedSearchDeadlineD7 = "saved_search_deadline_d7"
+	notifyEventSavedSearchDeadlineD3 = "saved_search_deadline_d3"
+	notifyEventSavedSearchDeadlineD1 = "saved_search_deadline_d1"
 
 	notifyChannelEmail = "email"
 	notifyChannelSMS   = "sms"
@@ -68,6 +76,7 @@ var notificationEmailEventTypes = []string{
 	notifyEventDeadlineD7, notifyEventDeadlineD3, notifyEventDeadlineD1,
 	notifyEventAssigneeStatusChange, notifyEventRecommendationDigest,
 	notifyEventWeeklyReport, notifyEventMonthlyReport, notifyEventSavedSearchMatch,
+	notifyEventSavedSearchDeadlineD7, notifyEventSavedSearchDeadlineD3, notifyEventSavedSearchDeadlineD1,
 }
 
 // checkEmailNotificationQuota — Free 플랜 월간 알림성 이메일 한도(기본
@@ -114,7 +123,10 @@ func (s *Server) checkEmailNotificationQuota(ctx context.Context, profileID stri
 // 이메일 수"로 정규화한다 — saved_search_match도 sendSavedSearchDigest가
 // recommendation_digest와 똑같은 로깅 구조(매칭 공고마다 한 행)를 쓰므로
 // 이 목록에 함께 넣는다.
-var notificationDigestEventTypes = []string{notifyEventRecommendationDigest, notifyEventSavedSearchMatch}
+var notificationDigestEventTypes = []string{
+	notifyEventRecommendationDigest, notifyEventSavedSearchMatch,
+	notifyEventSavedSearchDeadlineD7, notifyEventSavedSearchDeadlineD3, notifyEventSavedSearchDeadlineD1,
+}
 
 // countNotificationEmailsThisMonth — notificationDigestEventTypes에 속한
 // 이벤트는 다이제스트 이메일 1통에 매칭된 항목마다 notification_log 행을
@@ -181,6 +193,19 @@ func (s *Server) RunDailyNotifications(ctx context.Context) {
 	}
 	if err := s.sendDeadlineReminders(ctx, 1, notifyEventDeadlineD1); err != nil {
 		s.logger.Error("notify: D-1 reminder batch failed", "error", err)
+	}
+	// 맞춤공고(saved_searches) 제출마감 리마인더 — 2026-08-06, 파이프라인
+	// 리마인더(위)와 완전히 별개 배치. 대상이 파이프라인에 추가한 건이
+	// 아니라 이 검색 조건에 매칭되는 공고 "전체"라 sendDeadlineReminders를
+	// 재사용하지 않고 saved_search_digest.go에 새로 둔다.
+	if err := s.sendSavedSearchDeadlineReminders(ctx, 7, notifyEventSavedSearchDeadlineD7); err != nil {
+		s.logger.Error("notify: saved-search D-7 reminder batch failed", "error", err)
+	}
+	if err := s.sendSavedSearchDeadlineReminders(ctx, 3, notifyEventSavedSearchDeadlineD3); err != nil {
+		s.logger.Error("notify: saved-search D-3 reminder batch failed", "error", err)
+	}
+	if err := s.sendSavedSearchDeadlineReminders(ctx, 1, notifyEventSavedSearchDeadlineD1); err != nil {
+		s.logger.Error("notify: saved-search D-1 reminder batch failed", "error", err)
 	}
 	// 추천공고 다이제스트는 이메일 전용으로 유지한다(판단 근거): 매칭
 	// 건수가 0~N건으로 가변적이라 SMS 90바이트 예산 안에 의미 있게 요약할
@@ -833,16 +858,16 @@ func (s *Server) notifyAssigneeStatusChange(ctx context.Context, profileID, pipe
 // NOTICE_CHANGE_FIELD_LABELS와 개념은 같지만 백엔드/프론트가 서로 다른
 // 런타임이라 별도로 유지한다 — 하나를 바꾸면 다른 쪽도 확인할 것.
 var noticeChangeFieldLabelsKo = map[string]string{
-	"title":                 "공고명",
-	"organization_name":     "발주기관",
-	"department_name":       "수요기관",
-	"region":                "지역",
-	"industry":              "업종",
-	"status":                "공고상태",
-	"application_start_at":  "입찰서 제출 시작",
-	"application_end_at":    "투찰마감일",
-	"budget_amount":         "예산",
-	"support_amount":        "지원금액",
+	"title":                "공고명",
+	"organization_name":    "발주기관",
+	"department_name":      "수요기관",
+	"region":               "지역",
+	"industry":             "업종",
+	"status":               "공고상태",
+	"application_start_at": "입찰서 제출 시작",
+	"application_end_at":   "투찰마감일",
+	"budget_amount":        "예산",
+	"support_amount":       "지원금액",
 }
 
 func noticeChangeFieldLabel(field string) string {
