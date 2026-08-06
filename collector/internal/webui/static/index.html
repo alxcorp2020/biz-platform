@@ -1132,6 +1132,58 @@
   .saved-search-advanced { margin: 0.5rem 0; }
   .saved-search-advanced summary { cursor: pointer; font-size: var(--text-body); font-weight: 600; color: var(--ink-soft); padding: 0.4rem 0; }
   .saved-search-advanced label { margin-top: 0.6rem; }
+
+  /* ---------- 맞춤공고 예산 듀얼 슬라이더(2026-08-07) ---------- */
+  .budget-slider-values { display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 700; color: var(--ink); margin-bottom: 0.5rem; font-variant-numeric: tabular-nums; }
+  .budget-slider { position: relative; height: 28px; margin: 0 9px; } /* 좌우 여백 9px = 핸들 반지름, 핸들이 트랙 끝에서 밖으로 안 삐져나가게 */
+  .budget-slider-track { position: absolute; top: 50%; left: 0; right: 0; height: 4px; background: var(--border); border-radius: 2px; transform: translateY(-50%); }
+  .budget-slider-range { position: absolute; top: 50%; height: 4px; background: var(--accent-blue); border-radius: 2px; transform: translateY(-50%); }
+  /* .profile-form input(공용 폼 배경 #fff)와 클래스+엘리먼트 선택자
+     명시도가 같아 소스 순서로 이겨야 하는데, 순서가 반대로 걸려 흰
+     배경이 이겼었다(듀얼 슬라이더에서 뒤쪽 핸들이 앞쪽 input의 불투명
+     배경에 완전히 가려지는 버그로 실제 발견) — ".profile-form input"
+     보다 명시도를 확실히 높여서(class 2개+엘리먼트 1개) 투명 배경이
+     항상 이기게 한다. */
+  .profile-form input.budget-slider-input,
+  .budget-slider-input {
+    position: absolute; top: 50%; left: -9px; width: calc(100% + 18px); margin: 0; height: 18px;
+    -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none;
+    transform: translateY(-50%);
+  }
+  .budget-slider-input::-webkit-slider-runnable-track { -webkit-appearance: none; background: transparent; height: 18px; }
+  .budget-slider-input::-moz-range-track { background: transparent; height: 18px; border: none; }
+  .budget-slider-input::-webkit-slider-thumb {
+    -webkit-appearance: none; pointer-events: auto; margin-top: 0;
+    width: 18px; height: 18px; border-radius: 50%; background: #fff;
+    border: 2px solid var(--accent-blue); box-shadow: 0 1px 3px rgba(0,0,0,0.25); cursor: pointer;
+  }
+  .budget-slider-input::-moz-range-thumb {
+    pointer-events: auto; width: 14px; height: 14px; border-radius: 50%; background: #fff;
+    border: 2px solid var(--accent-blue); box-shadow: 0 1px 3px rgba(0,0,0,0.25); cursor: pointer;
+  }
+  .budget-slider-input--max { z-index: 3; }
+  .budget-slider-input--min { z-index: 4; }
+  .budget-number-inputs { display: flex; gap: 0.8rem; margin-top: 1rem; }
+  .budget-number-inputs label { flex: 1; margin-top: 0; }
+
+  /* ---------- 맞춤공고 키워드 태그(칩) 입력(2026-08-07) ---------- */
+  .tag-input {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem;
+    border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.6rem; min-height: 2.6rem;
+  }
+  .tag-input-field { border: none; outline: none; flex: 1; min-width: 120px; font-size: var(--text-body); background: transparent; padding: 0.2rem 0; }
+  .tag-pill {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.25rem 0.3rem 0.25rem 0.6rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600;
+    white-space: nowrap;
+  }
+  .tag-input--include .tag-pill { background: rgba(49,130,246,0.1); color: var(--accent-blue); }
+  .tag-input--exclude .tag-pill { background: rgba(192,57,43,0.08); color: var(--danger); }
+  .tag-pill-remove {
+    border: none; background: transparent; cursor: pointer; font-size: 1rem; line-height: 1;
+    color: inherit; opacity: 0.7; padding: 0 0.2rem; border-radius: 50%;
+  }
+  .tag-pill-remove:hover { opacity: 1; background: rgba(0,0,0,0.08); }
   /* saved-search-notify-section — 폼 안 "알림 설정" 묶음. fieldset 기본
      테두리 대신 다른 <details> 섹션들과 같은 옅은 경계선으로 통일. */
   .saved-search-notify-section {
@@ -7319,6 +7371,189 @@ function savedSearchCardHtml(item, contacts) {
 // 정확히 같은 값(validSavedSearchReminderDays도 이 3개만 허용).
 const SAVED_SEARCH_REMINDER_DAY_OPTIONS = [7, 3, 1];
 
+// ---------- 맞춤공고 예산 슬라이더(2026-08-07) ----------
+// BUDGET_SLIDER_BREAKPOINTS — 슬라이더 위치(0~1000)를 금액(원)으로
+// 매핑하는 구간별 선형보간표. 순수 로그공식 대신 손으로 구간을 잡은
+// 이유: 로컬 운영 데이터 실측(열린 공고 775건, budget_amount>0 기준
+// 중앙값 약 7천만원 · 90번째 백분위수 약 5억원 · 99번째 백분위수 약
+// 59억원 · 최댓값 약 938억원)에 맞춰 "실제 공고가 몰려있는 0~5억원
+// 구간은 촘촘하게, 그 이상 드문 구간은 넓게" 배분하기 위함 — 순수
+// 로그스케일보다 실데이터 분포를 더 정확히 반영한다. 100억원을 상한으로
+// 잡음(사용자 스펙).
+const BUDGET_SLIDER_MAX_POS = 1000;
+const BUDGET_SLIDER_BREAKPOINTS = [
+  { pos: 0, amount: 0 },
+  { pos: 100, amount: 10000000 },      // 1천만원
+  { pos: 250, amount: 50000000 },      // 5천만원 (실측 중앙값 부근)
+  { pos: 400, amount: 100000000 },     // 1억원
+  { pos: 550, amount: 300000000 },     // 3억원
+  { pos: 700, amount: 1000000000 },    // 10억원 (실측 90번째 백분위수 부근)
+  { pos: 850, amount: 3000000000 },    // 30억원
+  { pos: 1000, amount: 10000000000 },  // 100억원
+];
+
+function budgetSliderPosToAmount(pos) {
+  const bps = BUDGET_SLIDER_BREAKPOINTS;
+  const p = Math.max(0, Math.min(BUDGET_SLIDER_MAX_POS, pos));
+  for (let i = 1; i < bps.length; i++) {
+    if (p <= bps[i].pos) {
+      const a = bps[i - 1], b = bps[i];
+      const ratio = (p - a.pos) / (b.pos - a.pos);
+      return Math.round(a.amount + (b.amount - a.amount) * ratio);
+    }
+  }
+  return bps[bps.length - 1].amount;
+}
+
+function budgetAmountToSliderPos(amount) {
+  const bps = BUDGET_SLIDER_BREAKPOINTS;
+  const amt = Math.max(0, Math.min(bps[bps.length - 1].amount, amount));
+  for (let i = 1; i < bps.length; i++) {
+    if (amt <= bps[i].amount) {
+      const a = bps[i - 1], b = bps[i];
+      if (b.amount === a.amount) return b.pos;
+      const ratio = (amt - a.amount) / (b.amount - a.amount);
+      return Math.round(a.pos + (b.pos - a.pos) * ratio);
+    }
+  }
+  return bps[bps.length - 1].pos;
+}
+
+// renderBudgetRangeSlider — 듀얼 핸들 range slider. 라이브러리 없이
+// <input type="range"> 두 개를 같은 자리에 겹쳐서 구현하는 관례적
+// 방법(트랙 배경은 투명 처리하고 CSS로 핸들에만 pointer-events를
+// 살려서 각각 독립적으로 잡을 수 있게 함 — .budget-slider-input CSS
+// 참고). minInput/maxInput은 실제 폼 제출에 쓰이는 기존 텍스트
+// 필드(name="budgetMin"/"budgetMax")를 그대로 받아 양방향으로 동기화
+// 한다 — 슬라이더를 움직이면 텍스트도 바뀌고, 텍스트를 직접 입력해도
+// 슬라이더가 그 위치로 따라간다(정밀 조정 병행 지원).
+function renderBudgetRangeSlider(container, minInput, maxInput) {
+  const initialMinAmount = parseCurrencyInput(minInput.value);
+  const initialMaxAmount = parseCurrencyInput(maxInput.value);
+  const initialMinPos = initialMinAmount != null ? budgetAmountToSliderPos(Number(initialMinAmount)) : 0;
+  const initialMaxPos = initialMaxAmount != null ? budgetAmountToSliderPos(Number(initialMaxAmount)) : BUDGET_SLIDER_MAX_POS;
+
+  container.innerHTML = `
+    <div class="budget-slider-values">
+      <span id="budget-slider-min-label"></span>
+      <span id="budget-slider-max-label"></span>
+    </div>
+    <div class="budget-slider">
+      <div class="budget-slider-track"></div>
+      <div class="budget-slider-range" id="budget-slider-range"></div>
+      <input type="range" class="budget-slider-input budget-slider-input--min" id="budget-slider-min" min="0" max="${BUDGET_SLIDER_MAX_POS}" value="${initialMinPos}">
+      <input type="range" class="budget-slider-input budget-slider-input--max" id="budget-slider-max" min="0" max="${BUDGET_SLIDER_MAX_POS}" value="${initialMaxPos}">
+    </div>
+  `;
+
+  const rangeEl = container.querySelector('#budget-slider-range');
+  const minRangeInput = container.querySelector('#budget-slider-min');
+  const maxRangeInput = container.querySelector('#budget-slider-max');
+  const minLabel = container.querySelector('#budget-slider-min-label');
+  const maxLabel = container.querySelector('#budget-slider-max-label');
+
+  function updateVisual() {
+    const minP = Number(minRangeInput.value);
+    const maxP = Number(maxRangeInput.value);
+    rangeEl.style.left = (minP / BUDGET_SLIDER_MAX_POS * 100) + '%';
+    rangeEl.style.width = ((maxP - minP) / BUDGET_SLIDER_MAX_POS * 100) + '%';
+    minLabel.textContent = minP > 0 ? formatCurrency(budgetSliderPosToAmount(minP)) + '원' : '제한없음';
+    maxLabel.textContent = maxP < BUDGET_SLIDER_MAX_POS ? formatCurrency(budgetSliderPosToAmount(maxP)) + '원' : '제한없음';
+  }
+
+  function syncFromSlider(movedInput) {
+    let minP = Number(minRangeInput.value);
+    let maxP = Number(maxRangeInput.value);
+    if (minP > maxP) {
+      // 핸들이 서로 교차하지 못하게 고정 — 방금 움직인 쪽에 상대편을 붙인다.
+      if (movedInput === minRangeInput) { maxP = minP; maxRangeInput.value = maxP; }
+      else { minP = maxP; minRangeInput.value = minP; }
+    }
+    minInput.value = minP > 0 ? formatCurrency(budgetSliderPosToAmount(minP)) : '';
+    maxInput.value = maxP < BUDGET_SLIDER_MAX_POS ? formatCurrency(budgetSliderPosToAmount(maxP)) : '';
+    updateVisual();
+  }
+
+  minRangeInput.addEventListener('input', () => syncFromSlider(minRangeInput));
+  maxRangeInput.addEventListener('input', () => syncFromSlider(maxRangeInput));
+
+  minInput.addEventListener('change', () => {
+    const amount = parseCurrencyInput(minInput.value);
+    minRangeInput.value = amount != null ? budgetAmountToSliderPos(Number(amount)) : 0;
+    updateVisual();
+  });
+  maxInput.addEventListener('change', () => {
+    const amount = parseCurrencyInput(maxInput.value);
+    maxRangeInput.value = amount != null ? budgetAmountToSliderPos(Number(amount)) : BUDGET_SLIDER_MAX_POS;
+    updateVisual();
+  });
+
+  updateVisual();
+}
+
+// ---------- 맞춤공고 키워드 태그(칩) 입력(2026-08-07) ----------
+// renderKeywordTagInput — 라이브러리 없는 순수 JS 태그 입력. 현재 태그
+// 배열은 컨테이너 DOM 노드에 직접 매달아둔다(container._tags) — 별도
+// 상태 관리나 hidden input 없이, 제출 시 getTagInputValues로 그대로
+// 읽으면 된다. tone('include'|'exclude')은 CSS 색상 구분에만 쓰인다
+// (포함=파란 계열, 제외=회색/빨간 계열 — .tag-input--exclude 참고).
+function renderKeywordTagInput(container, initialValues, tone) {
+  container._tags = (initialValues || []).slice();
+  container.classList.add(`tag-input--${tone}`);
+  // 입력창(.tag-input-field) 자체는 처음 한 번만 만들고 다시 안 지운다 —
+  // 태그를 추가할 때마다 container.innerHTML을 통째로 갈아치우면, 그
+  // 순간 포커스를 갖고 있던(keydown 이벤트가 막 발생한) input 자신이
+  // DOM에서 제거되면서 브라우저가 즉시 blur를 발생시키고, 그 blur
+  // 핸들러가 다시 같은 렌더 함수를 재진입 호출해 "이미 제거된 노드"를
+  // 또 지우려다 예외가 나는 문제가 실제로 있었다(헤드리스 검증 중
+  // 재현). pills 영역만 따로 둬서 input은 항상 살아있게 한다.
+  container.innerHTML = `<div class="tag-pills"></div><input type="text" class="tag-input-field" placeholder="입력 후 Enter 또는 쉼표">`;
+  const pillsEl = container.querySelector('.tag-pills');
+  const field = container.querySelector('.tag-input-field');
+
+  function renderPills() {
+    pillsEl.innerHTML = container._tags.map((tag, i) => `
+      <span class="tag-pill">${escapeHtml(tag)}<button type="button" class="tag-pill-remove" data-index="${i}" aria-label="'${escapeAttr(tag)}' 삭제">×</button></span>
+    `).join('');
+    pillsEl.querySelectorAll('.tag-pill-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        container._tags.splice(Number(btn.dataset.index), 1);
+        renderPills();
+      });
+    });
+  }
+  function addFromField() {
+    const val = field.value.replace(/,/g, '').trim();
+    if (val) {
+      if (!container._tags.includes(val)) container._tags.push(val);
+      renderPills();
+    }
+    field.value = ''; // 중복이어도 입력창은 항상 비운다
+  }
+  field.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addFromField();
+    } else if (e.key === 'Backspace' && field.value === '' && container._tags.length) {
+      container._tags.pop();
+      renderPills();
+    }
+  });
+  field.addEventListener('blur', addFromField);
+  renderPills();
+}
+
+// getTagInputValues — 제출 시점에 태그 배열을 읽는다. 아직 Enter를
+// 안 누르고 입력창에 남아있는 텍스트("쉼표/Enter 안 누르고 바로
+// 저장 버튼 클릭"하는 흔한 경우)도 놓치지 않고 포함시킨다.
+function getTagInputValues(container) {
+  const tags = (container._tags || []).slice();
+  const field = container.querySelector('.tag-input-field');
+  const pending = field ? field.value.replace(/,/g, '').trim() : '';
+  if (pending && !tags.includes(pending)) tags.push(pending);
+  return tags;
+}
+
 // isDefaultSavedSearchCard — "내 기본 조건"(온보딩 자동생성) 여부. 이
 // 카드만 지역/업종/기업규모의 원본이 saved_searches가 아니라
 // company_profiles다(2026-08-07, 기업정보 탭과의 필드 중복 정리) —
@@ -7401,10 +7636,20 @@ function renderSavedSearchForm(formSlot, item, contacts, onSaved) {
         <details class="saved-search-advanced">
           <summary>상세 조건 (발주기관 · 금액 · 키워드)</summary>
           <label>발주기관<input type="text" name="organizationName" placeholder="예: 서울특별시" value="${escapeAttr(c.organizationName || '')}"></label>
-          <label>최소 금액(원)<input type="text" inputmode="numeric" name="budgetMin" placeholder="예: 10,000,000" value="${c.budgetMin != null ? escapeAttr(formatCurrency(c.budgetMin)) : ''}"></label>
-          <label>최대 금액(원)<input type="text" inputmode="numeric" name="budgetMax" placeholder="예: 500,000,000" value="${c.budgetMax != null ? escapeAttr(formatCurrency(c.budgetMax)) : ''}"></label>
-          <label>포함 키워드(콤마로 구분)<input type="text" name="keywordsInclude" placeholder="예: 유지보수, 구축" value="${escapeAttr((c.keywordsInclude || []).join(', '))}"></label>
-          <label>제외 키워드(콤마로 구분)<input type="text" name="keywordsExclude" placeholder="예: 청소, 경비" value="${escapeAttr((c.keywordsExclude || []).join(', '))}"></label>
+          <div class="field-group">
+            <span class="field-group-label">예산 범위</span>
+            <div id="saved-search-budget-slider"></div>
+            <div class="budget-number-inputs">
+              <label>최소 금액(원)<input type="text" inputmode="numeric" name="budgetMin" placeholder="예: 10,000,000" value="${c.budgetMin != null ? escapeAttr(formatCurrency(c.budgetMin)) : ''}"></label>
+              <label>최대 금액(원)<input type="text" inputmode="numeric" name="budgetMax" placeholder="예: 500,000,000" value="${c.budgetMax != null ? escapeAttr(formatCurrency(c.budgetMax)) : ''}"></label>
+            </div>
+          </div>
+          <label>포함 키워드
+            <div id="saved-search-keywords-include-tags" class="tag-input"></div>
+          </label>
+          <label>제외 키워드
+            <div id="saved-search-keywords-exclude-tags" class="tag-input"></div>
+          </label>
         </details>
         <fieldset class="saved-search-notify-section">
           <legend>알림 설정</legend>
@@ -7431,6 +7676,9 @@ function renderSavedSearchForm(formSlot, item, contacts, onSaved) {
   const form = document.getElementById('saved-search-form');
   attachCurrencyAutoFormat(form.budgetMin);
   attachCurrencyAutoFormat(form.budgetMax);
+  renderBudgetRangeSlider(document.getElementById('saved-search-budget-slider'), form.budgetMin, form.budgetMax);
+  renderKeywordTagInput(document.getElementById('saved-search-keywords-include-tags'), c.keywordsInclude || [], 'include');
+  renderKeywordTagInput(document.getElementById('saved-search-keywords-exclude-tags'), c.keywordsExclude || [], 'exclude');
   const errorBox = document.getElementById('saved-search-form-error');
   document.getElementById('saved-search-form-cancel').addEventListener('click', () => { formSlot.innerHTML = ''; });
   document.getElementById('saved-search-reminder-enabled').addEventListener('change', (e) => {
@@ -7441,7 +7689,6 @@ function renderSavedSearchForm(formSlot, item, contacts, onSaved) {
     e.preventDefault();
     errorBox.style.display = 'none';
     const fd = new FormData(form);
-    const splitKeywords = (v) => (v || '').split(',').map(s => s.trim()).filter(Boolean);
     const budgetMinRaw = parseCurrencyInput(fd.get('budgetMin'));
     const budgetMaxRaw = parseCurrencyInput(fd.get('budgetMax'));
 
@@ -7479,8 +7726,8 @@ function renderSavedSearchForm(formSlot, item, contacts, onSaved) {
       organizationName: fd.get('organizationName') || null,
       budgetMin: budgetMinRaw ? Number(budgetMinRaw) : null,
       budgetMax: budgetMaxRaw ? Number(budgetMaxRaw) : null,
-      keywordsInclude: splitKeywords(fd.get('keywordsInclude')),
-      keywordsExclude: splitKeywords(fd.get('keywordsExclude')),
+      keywordsInclude: getTagInputValues(document.getElementById('saved-search-keywords-include-tags')),
+      keywordsExclude: getTagInputValues(document.getElementById('saved-search-keywords-exclude-tags')),
       alertEnabled: fd.get('alertEnabled') === 'on',
       reminderEnabled: fd.get('reminderEnabled') === 'on',
       reminderDaysBefore: fd.getAll('reminderDaysBefore').map(Number),
