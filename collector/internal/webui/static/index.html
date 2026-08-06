@@ -35,6 +35,7 @@
     --text-body: 0.95rem;
     --text-caption: 0.8rem;
 
+    --space-xs: 0.5rem;
     --space-sm: 0.75rem;
     --space-md: 1.25rem;
     --space-lg: 2rem;
@@ -123,16 +124,25 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .row-card-subtitle { font-size: var(--text-caption); color: var(--ink-soft); }
-  .row-card-match-reasons { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
+  .row-card-match-reasons { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: var(--space-sm); }
   .row-card-match-reasons .badge { font-size: 0.72rem; }
   /* row-card-grade-reason — 목록 단계 AI 등급 사유(2026-08-06, "추천공고
      왜 목록단계 노출"). .ai-grade-reason(상세 페이지)과 같은 톤이지만
-     목록 행 안에 들어가므로 여백/글자크기만 더 작게. */
+     목록 행 안에 들어가므로 여백/글자크기만 더 작게. 2026-08-07: 원래
+     .row-card-main 안에 있어서 .row-card-side(별점/D-day) 폭만큼 카드
+     오른쪽이 비어보이는 "쏠려 보임" 문제가 있었다 — .row-card-main 밖으로
+     빼서 .row-card.notice-row(아래 flex-wrap)의 새 줄로 강제해 카드
+     좌우 폭 전체와 정확히 맞춘다. */
   .row-card-grade-reason {
-    margin: 0.4rem 0 0; padding: 0.5rem 0.7rem; border-radius: 8px;
+    margin: var(--space-sm) 0 0; padding: 0.5rem 0.7rem; border-radius: 8px;
     background: rgba(196,132,29,0.08); color: var(--ink-soft); font-size: 0.8rem;
   }
   .row-card-side { display: flex; align-items: center; gap: 0.85rem; flex-shrink: 0; }
+  .row-card.notice-row { flex-wrap: wrap; }
+  .row-card.notice-row > .row-card-grade-reason,
+  .row-card.notice-row > .row-card-match-reasons {
+    flex: 1 0 100%;
+  }
   .row-card-arrow { color: var(--border); font-size: 1.2rem; line-height: 1; }
   .row-card:hover .row-card-arrow { color: var(--accent-blue); }
   @media (max-width: 640px) {
@@ -1039,7 +1049,7 @@
   .detail-meta {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 1rem;
+    gap: var(--space-lg) var(--space-md);
     margin: 1.25rem 0 0;
     padding-top: 1.25rem;
     border-top: 1px solid var(--border);
@@ -1057,6 +1067,31 @@
     align-items: center;
     gap: 0.5rem;
   }
+  @media (max-width: 640px) {
+    /* 라벨-값 쌍이 좁은 화면에서 2열 그리드로 촘촘히 붙어 어디까지가
+       한 항목인지 구분이 안 된다는 피드백(2026-08-07) — 한 줄씩 세로로
+       쌓고 옅은 구분선을 더해 각 항목을 명확히 나눈다. */
+    .detail-meta {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+    .detail-meta > div {
+      padding-bottom: var(--space-md);
+      margin-bottom: var(--space-md);
+      border-bottom: 1px solid var(--border);
+    }
+    .detail-meta > div:last-child {
+      padding-bottom: 0;
+      margin-bottom: 0;
+      border-bottom: none;
+    }
+  }
+  /* #assignee-section(파이프라인 상세, assigneeSectionHtml)은 .profile-form의
+     직속 자식이 아니라 그 안에 감싸인 <div>라 .profile-form의 gap이 안쪽
+     label들 사이에는 적용되지 않는다 — 그 자체도 flex column으로 만들어야
+     같은 여백 규칙이 이어진다(2026-08-07, 모바일 여백 정비). */
+  #assignee-section { display: flex; flex-direction: column; gap: var(--space-md); }
+  .pipeline-assignee-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
   .pipeline-review-btn {
     margin-top: 1rem; padding: 0.6rem 1.1rem; border: 1px solid var(--accent-blue);
     background: var(--accent-blue); color: #fff; border-radius: 8px; cursor: pointer;
@@ -1712,7 +1747,7 @@
   .auth-form, .profile-form {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: var(--space-md);
   }
   .profile-form { max-width: 560px; margin: 0 auto; }
   .auth-form label, .profile-form label {
@@ -1880,7 +1915,7 @@
   .license-list { display: flex; flex-direction: column; gap: var(--space-sm); }
   .license-card {
     display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap;
-    gap: 0.75rem 1rem; padding: var(--space-md); border: 1px solid var(--border);
+    gap: var(--space-md) 1rem; padding: var(--space-md); border: 1px solid var(--border);
     border-radius: var(--radius-card); background: #fff;
   }
   .license-card-main { display: flex; flex-direction: column; gap: 0.3rem; }
@@ -1959,7 +1994,7 @@
   .donut-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .donut-legend-label { flex: 1; color: var(--ink-soft); }
   .donut-legend-value { font-weight: 700; color: var(--ink); }
-  .license-card-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0.35rem; }
+  .license-card-side { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-md); }
   .confidence-badge {
     display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
     font-size: 0.72rem; font-weight: 700;
@@ -2437,7 +2472,6 @@
     </button>
     <div class="header-right" id="header-right">
       <nav class="header-links">
-        <a href="#/notices">전체 공고</a>
         <a href="#/announcements">공지사항</a>
       </nav>
       <nav id="auth-nav" class="auth-nav"></nav>
@@ -3105,6 +3139,14 @@ async function refreshUnreadNotificationCount() {
 
 const REVIEWER_ROLES = ['analyst', 'operator', 'system_admin'];
 
+// renderHeader의 auth-nav(모바일 햄버거 메뉴) — 2026-08-07 정리: TABBAR_MENU
+// (대시보드/검색/진행중/알림/맞춤공고)와 겹치는 "진행 중 사업"/"맞춤공고"를
+// 빼고, 기업프로필 메뉴 삭제([[project_profile_menu_removal]]) 이후에도
+// 남아있던 죽은 링크 "내 프로필"/"면허·인증"(둘 다 #/me/saved-searches로
+// 가리켜 위 "맞춤공고"와 완전 중복)도 제거했다. "관심공고"(#/me/bookmarks)는
+// 겉보기엔 맞춤공고에 통합된 것처럼 보이지만 실제로는 route()에 여전히
+// 살아있는 독립 라우트(renderBookmarks)이고 TABBAR_MENU에도 없어 계속
+// 남겨둔다 — 라우트 유효성은 코드로 직접 확인.
 function renderHeader() {
   const nav = document.getElementById('auth-nav');
   if (currentUser) {
@@ -3114,12 +3156,8 @@ function renderHeader() {
     nav.appendChild(h(`
       ${reviewLink}
       ${adminLink}
-      <a href="#/pipeline">진행 중 사업</a>
       <a href="#/calendar">캘린더</a>
-      <a href="#/me/saved-searches">맞춤공고</a>
       <a href="#/me/bookmarks">관심공고</a>
-      <a href="#/me/saved-searches">내 프로필</a>
-      <a href="#/me/saved-searches">면허·인증</a>
       <a href="#/growth">성장분석</a>
       <a href="#/me/subscription">내 구독</a>
       <a href="#/billing/plans">요금제</a>
@@ -6695,7 +6733,7 @@ function assigneeSectionHtml(entry) {
     <label>담당자 이메일<input type="email" name="assigneeEmail" value="${escapeAttr(entry.assigneeEmail || '')}" placeholder="상태 변경 시 이 주소로 알림이 발송됩니다"></label>
     <label>담당자 전화번호<input type="tel" name="assigneePhone" value="${escapeAttr(entry.assigneePhone || '')}" placeholder="상태 변경 시 이 번호로 SMS가 발송됩니다"></label>
     <input type="hidden" name="assigneeUserId" value="">
-    <div>
+    <div class="pipeline-assignee-actions">
       <button type="button" id="load-contact-btn" class="btn btn-secondary btn-sm">담당자 목록에서 불러오기</button>
       <button type="button" id="load-member-btn" class="btn btn-secondary btn-sm">회원 목록에서 선택</button>
       <div id="load-contact-picker"></div>
@@ -7014,14 +7052,14 @@ function noticeRowHtml(n, showMatchReasons) {
           ${n.recentlyChanged ? '<span class="status-badge status-badge--warn" title="최근 7일 내 공고 내용이 변경되었습니다">정정</span>' : ''}
           ${n.regionRestricted === true ? '<span class="row-card-region-restricted" title="지역제한 있음">📍제한</span>' : ''}
         </div>
-        ${gradeReasonHtml}
-        ${matchReasonsHtml}
       </div>
       <div class="row-card-side">
         ${bookmarkButtonHtml(n.id, n.isBookmarked)}
         ${ddayBadgeHtml(n.applicationEndAt)}
         <span class="row-card-arrow">›</span>
       </div>
+      ${gradeReasonHtml}
+      ${matchReasonsHtml}
     </div>
   `;
 }
