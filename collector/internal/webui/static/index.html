@@ -3508,7 +3508,7 @@ const LANDING_CASES = [
 ];
 
 const LANDING_FAQS = [
-  { q: '무료로 얼마나 쓸 수 있나요?', a: 'Free 플랜은 파이프라인 3건까지 무료로 이용하실 수 있습니다. 공고 검색과 참여 가능성 확인은 별도 비용 없이 계속 쓰실 수 있고, AI 정밀분석·서류자동화가 더 필요하시면 유료 플랜으로 업그레이드하시면 됩니다.' },
+  { q: '무료로 얼마나 쓸 수 있나요?', a: 'Free 플랜은 파이프라인 3건까지 무료로 이용하실 수 있습니다. 공고 검색과 참여 가능성 확인은 별도 비용 없이 계속 쓰실 수 있고, AI 분석·서류자동화가 더 필요하시면 유료 플랜으로 업그레이드하시면 됩니다.' },
   { q: '실제 나라장터 데이터인가요?', a: '네, 조달청 나라장터 공식 API를 통해 공고 데이터를 수집합니다. 기업마당 등 지자체·중앙부처 지원사업 공고도 함께 제공합니다.' },
   { q: 'AI 분석이 얼마나 정확한가요?', a: 'AI는 공고 원문에 명시된 조건(지역·업종·자격요건 등)을 근거로 참여 가능성을 판단합니다. 다만 이는 참고용 1차 필터이며 최종 확정 판정이 아닙니다 — 실제 참여 여부는 반드시 발주기관 공고 원문과 공식 안내를 직접 확인해주세요.' },
   { q: '결제는 어떻게 하나요?', a: '토스페이먼츠를 통해 안전하게 결제하실 수 있으며, 매월 자동으로 결제됩니다. 플랜은 언제든 업그레이드·다운그레이드하실 수 있습니다.' },
@@ -6045,7 +6045,7 @@ const PIPELINE_TABLE_COLUMNS = [
   { key: 'status', label: '상태' },
   { key: 'assigneeName', label: '담당자' },
   { key: 'submissionDeadline', label: '마감일' },
-  { key: 'aiGrade', label: 'AI판정등급' },
+  { key: 'aiGrade', label: 'AI 판정등급' },
   { key: 'incompleteDocumentCount', label: '서류미비' },
   { key: 'updatedAt', label: '최근수정일' },
 ];
@@ -11006,7 +11006,7 @@ const PLAN_STATUS_BADGE_TONE = { active: 'badge--success', pending: 'badge--warn
 // 백엔드(GET /api/billing/config)는 가격/한도 숫자만 주고, 마케팅 문구
 // (기획서 기준 기능 bullet)는 여기서 따로 관리한다.
 const PLAN_FEATURES = {
-  free: ['파이프라인 3건', 'AI 정밀분석 없음'],
+  free: ['파이프라인 3건', 'AI 분석 없음'],
   basic: ['파이프라인 무제한', 'AI 분석 월 5건'],
   pro: ['AI 분석 월 20건', '실적매칭 가능'],
   business: ['사용자 3명', 'AI 분석 월 60건'],
@@ -11477,7 +11477,7 @@ function reportCardHtml(item) {
         <div class="license-card-name">${label} 리포트 · ${escapeHtml(item.periodStart)} ~ ${escapeHtml(item.periodEnd)}</div>
         <div class="license-card-meta">
           신규추천 ${s.newRecommendedCount}건 · 참여검토시작 ${s.pipelineStartedCount}건 · 제출완료 ${s.pipelineCompletedCount}건 ·
-          종료 ${s.pipelineClosedCount}건 · 마감임박 ${s.deadlineSoonCount}건 · 마감경과 ${s.deadlinePassedCount}건 · AI분석 ${s.aiAnalysisUsedCount}건
+          종료 ${s.pipelineClosedCount}건 · 마감임박 ${s.deadlineSoonCount}건 · 마감경과 ${s.deadlinePassedCount}건 · AI 분석 ${s.aiAnalysisUsedCount}건
         </div>
         ${teamHtml}
       </div>
