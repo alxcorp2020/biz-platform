@@ -2949,6 +2949,7 @@ const ERROR_MESSAGES = {
   invalid_status: '보유 상태 값이 올바르지 않습니다.',
   invalid_awarded_amount: '낙찰 금액은 0 이상의 숫자여야 합니다.',
   completeness_below_threshold: 'AI 분석 커버리지가 아직 부족합니다. 선택 항목을 조금 더 채우면 완료할 수 있어요.',
+  duplicate_saved_search: '이미 동일한 조건의 맞춤공고가 있습니다.',
   no_pending_downgrade: '예약된 플랜 전환이 없습니다.',
   no_active_paid_subscription: '환불/해지할 유료 구독이 없습니다.',
   no_payment_to_refund: '환불할 결제 내역을 찾을 수 없습니다.',
@@ -7213,7 +7214,12 @@ async function renderSavedSearches(container) {
 // renderSavedSearches의 본문). 담당자 목록은 "이 알림을 받을 담당자"
 // 체크박스/카드 요약에 계속 필요해 그대로 불러온다 — 관리 UI 자체는
 // "담당자 관리" 탭으로 옮겨갔다.
-async function renderSavedSearchesListTab(container) {
+// autoEditId(2026-08-07, "복제" 버튼) — 값이 있으면 목록을 새로 그린
+// 직후 그 id 항목의 수정 폼을 자동으로 열고 그쪽으로 스크롤한다. "복제
+// 클릭 → 생성 즉시 그 새 조건의 수정 화면으로 이동"을 이 화면은 별도
+// URL 라우트 없이 인라인 폼으로 구현하므로, "이동"은 목록 재조회 후
+// 해당 카드의 수정 폼을 여는 것으로 표현한다.
+async function renderSavedSearchesListTab(container, autoEditId) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
 
@@ -7258,6 +7264,18 @@ async function renderSavedSearchesListTab(container) {
       renderSavedSearchForm(formSlot, item, contacts, () => renderSavedSearchesListTab(container));
     });
   });
+  listEl.querySelectorAll('.saved-search-duplicate-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const res = await apiRequest('POST', '/api/me/saved-searches/' + encodeURIComponent(btn.dataset.id) + '/duplicate');
+        renderSavedSearchesListTab(container, res.id);
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+      }
+    });
+  });
   listEl.querySelectorAll('.saved-search-delete-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (!confirm('이 맞춤공고 조건을 삭제하시겠습니까?')) return;
@@ -7272,6 +7290,14 @@ async function renderSavedSearchesListTab(container) {
   listEl.querySelectorAll('.saved-search-results-link').forEach(a => {
     a.addEventListener('click', () => { noticeListState = null; }); // 새 조건 결과이므로 무한스크롤 캐시 폐기
   });
+
+  if (autoEditId) {
+    const newItem = items.find(i => i.id === autoEditId);
+    if (newItem) {
+      renderSavedSearchForm(formSlot, newItem, contacts, () => renderSavedSearchesListTab(container));
+      formSlot.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
 }
 
 function savedSearchResultsHash(item) {
@@ -7346,6 +7372,7 @@ function savedSearchCardHtml(item, contacts) {
       <div class="license-card-side">
         <a class="btn btn-secondary btn-sm saved-search-results-link" href="${escapeAttr(savedSearchResultsHash(item))}">결과 보기</a>
         <button type="button" class="btn btn-secondary btn-sm saved-search-edit-btn" data-id="${escapeAttr(item.id)}">수정</button>
+        <button type="button" class="btn btn-secondary btn-sm saved-search-duplicate-btn" data-id="${escapeAttr(item.id)}">복제</button>
         <button type="button" class="btn btn-secondary btn-sm saved-search-delete-btn" data-id="${escapeAttr(item.id)}">삭제</button>
       </div>
     </div>
@@ -7766,7 +7793,15 @@ function renderSavedSearchForm(formSlot, item, contacts, onSaved) {
       formSlot.innerHTML = '';
       onSaved();
     } catch (err) {
-      errorBox.textContent = err.message;
+      // duplicate_saved_search — 서버가 기존 조건 이름(existingName)을
+      // 같이 내려주므로(err.data) ERROR_MESSAGES의 정적 문구 대신 그
+      // 이름을 넣은 정확한 안내문을 조립한다(already_used/usage와 같은
+      // 기존 관례, apiRequest 참고).
+      if (err.code === 'duplicate_saved_search' && err.data && err.data.existingName) {
+        errorBox.textContent = `이미 동일한 조건의 맞춤공고가 있습니다 ('${err.data.existingName}'). 조건을 다르게 설정하거나, 기존 조건을 사용해주세요.`;
+      } else {
+        errorBox.textContent = err.message;
+      }
       errorBox.style.display = 'block';
     }
   });

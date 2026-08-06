@@ -15,7 +15,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -194,6 +196,101 @@ func cleanKeywords(in []string) []string {
 	return out
 }
 
+// ---------- 중복 조건 방지(2026-08-07) ----------
+// savedSearchConditionFields — "이 값들이 전부 같으면 동일한 조건"의
+// 비교 대상 필드만 모은 구조체. 이름/알림설정(alertEnabled)/수신담당자/
+// 리마인더 설정은 사용자 스펙상 비교 대상이 아니다(이것만 달라도 중복
+// 아님). companySize는 saved_searches 테이블에 컬럼 자체가 없다 — 그
+// 값은 company_profiles에서 오는 전역 값이라 같은 사용자의 모든 조건에
+// 항상 동일하므로(변별력이 없음) 비교에 넣으나 빼나 결과가 같아 생략.
+type savedSearchConditionFields struct {
+	Region           *string
+	Industry         *string
+	OrganizationName *string
+	BudgetMin        *int64
+	BudgetMax        *int64
+	KeywordsInclude  []string
+	KeywordsExclude  []string
+}
+
+func stringPtrEqual(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func int64PtrEqual(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func stringSliceEqualSorted(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	sa := append([]string(nil), a...)
+	sb := append([]string(nil), b...)
+	sort.Strings(sa)
+	sort.Strings(sb)
+	for i := range sa {
+		if sa[i] != sb[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (f savedSearchConditionFields) equal(o savedSearchConditionFields) bool {
+	return stringPtrEqual(f.Region, o.Region) &&
+		stringPtrEqual(f.Industry, o.Industry) &&
+		stringPtrEqual(f.OrganizationName, o.OrganizationName) &&
+		int64PtrEqual(f.BudgetMin, o.BudgetMin) &&
+		int64PtrEqual(f.BudgetMax, o.BudgetMax) &&
+		stringSliceEqualSorted(f.KeywordsInclude, o.KeywordsInclude) &&
+		stringSliceEqualSorted(f.KeywordsExclude, o.KeywordsExclude)
+}
+
+// findDuplicateSavedSearch — 저장(생성/수정) 직전에 같은 사용자가 가진
+// 다른 맞춤공고 중 조건 필드가 완전히 같은 게 있는지 찾는다. excludeID는
+// 수정 시 자기 자신을 비교 대상에서 빼기 위함(생성 시엔 빈 문자열 —
+// saved_searches.id는 항상 uuid라 빈 문자열과 절대 같을 수 없어 안전).
+// 동시 저장 경합(두 탭에서 동시에 같은 조건을 저장하는 등)에 대비해
+// DB 유니크 제약이 아니라 매 저장 요청마다 서버에서 재검증한다(스펙
+// 요구사항 — 폼 입력 중에는 막지 않고 실제 저장 시도 시점에만 검증).
+func (s *Server) findDuplicateSavedSearch(ctx context.Context, userID, excludeID string, candidate savedSearchConditionFields) (*savedSearchItem, error) {
+	// excludeID가 빈 문자열(생성 시)이면 그대로 uuid 파라미터에 바인딩하지
+	// 않는다 — id 컬럼이 uuid 타입이라 ""를 캐스팅하려다 "invalid input
+	// syntax for type uuid" 에러가 난다. nil을 넘겨 SQL NULL로 보내고,
+	// $2::uuid IS NULL이면 그 어떤 행도 제외하지 않도록 한다.
+	var excludeArg any
+	if excludeID != "" {
+		excludeArg = excludeID
+	}
+	rows, err := s.db.QueryContext(ctx, savedSearchSelect+` WHERE user_id = $1 AND ($2::uuid IS NULL OR id != $2::uuid)`, userID, excludeArg)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		it, err := scanSavedSearch(rows)
+		if err != nil {
+			continue
+		}
+		existing := savedSearchConditionFields{
+			Region: it.Region, Industry: it.Industry, OrganizationName: it.OrganizationName,
+			BudgetMin: it.BudgetMin, BudgetMax: it.BudgetMax,
+			KeywordsInclude: it.KeywordsInclude, KeywordsExclude: it.KeywordsExclude,
+		}
+		if candidate.equal(existing) {
+			return it, nil
+		}
+	}
+	return nil, rows.Err()
+}
+
 func (s *Server) handleCreateSavedSearch(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {
@@ -218,6 +315,23 @@ func (s *Server) handleCreateSavedSearch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	includeKeywords := cleanKeywords(req.KeywordsInclude)
+	excludeKeywords := cleanKeywords(req.KeywordsExclude)
+	dup, err := s.findDuplicateSavedSearch(ctx, userID, "", savedSearchConditionFields{
+		Region: req.Region, Industry: req.Industry, OrganizationName: req.OrganizationName,
+		BudgetMin: req.BudgetMin, BudgetMax: req.BudgetMax,
+		KeywordsInclude: includeKeywords, KeywordsExclude: excludeKeywords,
+	})
+	if err != nil {
+		s.logger.Error("create-saved-search: duplicate check failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if dup != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "duplicate_saved_search", "existingName": dup.Name})
+		return
+	}
+
 	var id string
 	err = s.db.QueryRowContext(ctx, `
 		INSERT INTO saved_searches
@@ -226,7 +340,7 @@ func (s *Server) handleCreateSavedSearch(w http.ResponseWriter, r *http.Request)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		RETURNING id`,
 		userID, req.Name, req.NoticeType, req.Region, req.Industry, req.OrganizationName, req.BudgetMin, req.BudgetMax,
-		pq.Array(cleanKeywords(req.KeywordsInclude)), pq.Array(cleanKeywords(req.KeywordsExclude)), req.AlertEnabled,
+		pq.Array(includeKeywords), pq.Array(excludeKeywords), req.AlertEnabled,
 		pq.Array(ownedContactIDs), req.ReminderEnabled, pq.Array(validSavedSearchReminderDays(req.ReminderDaysBefore)),
 	).Scan(&id)
 	if err != nil {
@@ -262,6 +376,23 @@ func (s *Server) handleUpdateSavedSearch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	includeKeywords := cleanKeywords(req.KeywordsInclude)
+	excludeKeywords := cleanKeywords(req.KeywordsExclude)
+	dup, err := s.findDuplicateSavedSearch(ctx, userID, id, savedSearchConditionFields{
+		Region: req.Region, Industry: req.Industry, OrganizationName: req.OrganizationName,
+		BudgetMin: req.BudgetMin, BudgetMax: req.BudgetMax,
+		KeywordsInclude: includeKeywords, KeywordsExclude: excludeKeywords,
+	})
+	if err != nil {
+		s.logger.Error("update-saved-search: duplicate check failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if dup != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "duplicate_saved_search", "existingName": dup.Name})
+		return
+	}
+
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE saved_searches SET
 			name = $1, notice_type = $2, region = $3, industry = $4, organization_name = $5,
@@ -270,7 +401,7 @@ func (s *Server) handleUpdateSavedSearch(w http.ResponseWriter, r *http.Request)
 			updated_at = now()
 		WHERE id = $14 AND user_id = $15`,
 		req.Name, req.NoticeType, req.Region, req.Industry, req.OrganizationName, req.BudgetMin, req.BudgetMax,
-		pq.Array(cleanKeywords(req.KeywordsInclude)), pq.Array(cleanKeywords(req.KeywordsExclude)), req.AlertEnabled,
+		pq.Array(includeKeywords), pq.Array(excludeKeywords), req.AlertEnabled,
 		pq.Array(ownedContactIDs), req.ReminderEnabled, pq.Array(validSavedSearchReminderDays(req.ReminderDaysBefore)),
 		id, userID,
 	)
@@ -304,4 +435,95 @@ func (s *Server) handleDeleteSavedSearch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// savedSearchNamesForUser — handleDuplicateSavedSearch가 "OO 복제/복제 2/
+// 복제 3..." 순번을 매길 때 이미 쓰인 이름을 피하기 위해 조회한다.
+func (s *Server) savedSearchNamesForUser(ctx context.Context, userID string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT name FROM saved_searches WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	names := map[string]bool{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			continue
+		}
+		names[n] = true
+	}
+	return names, rows.Err()
+}
+
+// nextDuplicateName — base("{원본이름} 복제")가 안 쓰였으면 그대로, 이미
+// 있으면 "{base} 2", "{base} 3"...으로 다음 빈 순번을 찾는다.
+func nextDuplicateName(existing map[string]bool, base string) string {
+	if !existing[base] {
+		return base
+	}
+	for n := 2; ; n++ {
+		candidate := fmt.Sprintf("%s %d", base, n)
+		if !existing[candidate] {
+			return candidate
+		}
+	}
+}
+
+// handleDuplicateSavedSearch — 2026-08-07, 카드의 "복제" 버튼. 조건 필드를
+// 그대로 복사한 새 저장검색을 만들어 프론트가 곧바로 그 새 항목의 수정
+// 폼을 열 수 있게 한다. 의도적으로 findDuplicateSavedSearch(중복 조건
+// 저장 방지)를 거치지 않는다 — 복제는 "일부러 똑같은 조건을 복사해서
+// 그 다음에 사용자가 값을 바꾸게" 하는 흐름이라, 이 시점엔 원본과
+// 조건이 100% 같은 게 당연하고 의도된 상태다. origin은 절대 그대로
+// 복사하지 않는다 — 'onboarding'은 "내 기본 조건" 카드 정확히 1개를
+// 가리키는 특수 값(기업정보와 지역/업종/기업규모를 양방향 동기화하는
+// 코드가 origin='onboarding' 항목이 하나뿐이라고 가정한다) — 복제본은
+// 항상 독립된 일반 조건(origin=NULL)으로 만든다.
+func (s *Server) handleDuplicateSavedSearch(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	id := r.PathValue("id")
+	ctx := r.Context()
+
+	row := s.db.QueryRowContext(ctx, savedSearchSelect+` WHERE id = $1 AND user_id = $2`, id, userID)
+	source, err := scanSavedSearch(row)
+	if err == sql.ErrNoRows {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "saved_search_not_found"})
+		return
+	}
+	if err != nil {
+		s.logger.Error("duplicate-saved-search: lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+
+	existingNames, err := s.savedSearchNamesForUser(ctx, userID)
+	if err != nil {
+		s.logger.Error("duplicate-saved-search: name lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	newName := nextDuplicateName(existingNames, source.Name+" 복제")
+
+	var newID string
+	err = s.db.QueryRowContext(ctx, `
+		INSERT INTO saved_searches
+			(user_id, name, notice_type, region, industry, organization_name, budget_min, budget_max,
+			 keywords_include, keywords_exclude, alert_enabled, recipient_contact_ids, reminder_enabled, reminder_days_before)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		RETURNING id`,
+		userID, newName, source.NoticeType, source.Region, source.Industry, source.OrganizationName,
+		source.BudgetMin, source.BudgetMax, pq.Array(source.KeywordsInclude), pq.Array(source.KeywordsExclude),
+		source.AlertEnabled, pq.Array(source.RecipientContactIDs), source.ReminderEnabled, pq.Array(source.ReminderDaysBefore),
+	).Scan(&newID)
+	if err != nil {
+		s.logger.Error("duplicate-saved-search: insert failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"id": newID, "status": "duplicated"})
 }
