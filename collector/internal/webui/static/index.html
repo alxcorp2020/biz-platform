@@ -6741,6 +6741,9 @@ function noticeListApiParams(filterParams) {
   if (filterParams.get('region')) apiParams.set('region', filterParams.get('region'));
   if (filterParams.get('industry')) apiParams.set('industry', filterParams.get('industry'));
   if (filterParams.get('sort')) apiParams.set('sort', filterParams.get('sort'));
+  // 2026-08-06: 기본은 진행중 공고만(백엔드 기본값과 동일) — 체크박스를
+  // 켰을 때만 마감된 공고까지 포함해서 보여준다.
+  if (filterParams.get('includeClosed')) apiParams.set('includeClosed', filterParams.get('includeClosed'));
   SAVED_SEARCH_ONLY_PARAMS.forEach(key => {
     if (filterParams.get(key)) apiParams.set(key, filterParams.get(key));
   });
@@ -6767,6 +6770,7 @@ function renderList(container) {
       <select name="sort" class="select-input">
         ${NOTICE_SORT_OPTIONS.map(o => `<option value="${o.value}" ${o.value === currentSort ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}
       </select>
+      <label class="checkbox-label"><input type="checkbox" name="includeClosed" value="1" ${params.get('includeClosed') === '1' ? 'checked' : ''}> 지난 공고 포함</label>
       <button type="submit">검색</button>
     </form>
     <div id="list-body">${skeletonListHtml(6)}</div>

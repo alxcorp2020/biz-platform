@@ -4,8 +4,16 @@
 // 건을 자동으로 "제외"로 옮긴다. 판정 기준은 이미 시스템에 있는 신호
 // 2가지만 쓴다(새 추측성 로직 없음):
 //   1. 제출마감일이 지났는데 아직 제출완료로 넘어가지 못한 경우
-//   2. 공고 자체가 마감/취소된 경우(수집 파이프라인이 notices.status를
-//      갱신해줌)
+//   2. 공고 자체가 취소된 경우(g2b.go가 ntceKindNm=="취소공고"를
+//      notices.status='cancelled'로 반영해줌)
+// 🚨 2026-08-06: 아래 autoExcludeNoticeClosed의 IN 목록에 있는 'closed'는
+// 사실상 도달 불가능한 조건이다 — g2b/bizinfo 수집기는 마감일이 지나도
+// notices.status를 절대 'closed'로 바꾸지 않는다(의도된 설계: 마감
+// 여부는 항상 application_end_at을 조회 시점에 비교해서 판단하고,
+// status는 'open'/'reannounced'/'cancelled'만 실제로 쓰인다 —
+// bizinfo.go/g2b.go의 Normalize 참고). 그래도 문제가 되지 않는 이유는
+// 바로 위 1번(autoExcludeDeadlinePassed)이 이미 날짜 기준으로 마감경과를
+// 정확히 처리하고 있어서다 — 이 함수는 "취소"만 실질적으로 담당한다.
 // 두 경우 모두 memo에 사유와 날짜를 남겨, 사용자가 "왜 자동으로
 // 바뀌었는지" 나중에 확인할 수 있게 한다 — 조용히 상태만 바꾸지 않는다.
 //
@@ -61,6 +69,9 @@ func (s *Server) autoExcludeDeadlinePassed(ctx context.Context) (int, error) {
 	return n, rows.Err()
 }
 
+// autoExcludeNoticeClosed — 이름과 달리 실질적으로는 "취소된 공고"만
+// 잡는다. IN 목록의 'closed'는 실제로 도달 불가능하다(파일 상단 주석
+// 참고) — 이름은 과거 설계 흔적으로 그대로 남겨둔다(동작에는 영향 없음).
 func (s *Server) autoExcludeNoticeClosed(ctx context.Context) (int, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		UPDATE notice_pipeline_entries pe

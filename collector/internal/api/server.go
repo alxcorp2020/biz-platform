@@ -443,6 +443,18 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		FROM notices n
 		LEFT JOIN notice_bookmarks nb ON nb.notice_id = n.id AND nb.user_id = ` + addArg(sql.NullString{String: userID, Valid: loggedIn}) + `
 		WHERE 1=1`
+	// includeClosed=1이 없으면 진행중 공고만 — 2026-08-06, 검색결과
+	// 3,920건 중 25.8%(1,013건)가 이미 마감일이 지났는데도 status는
+	// 'open'으로 남아 전부 섞여 나오던 걸 발견해 추가. status 컬럼은
+	// 거의 항상 'open'이라(수집기가 마감을 감지해 status를 바꿔주는
+	// 경로가 없음 — bizinfo.go/g2b.go 관례상 의도된 설계, 실제 마감
+	// 판정은 항상 application_end_at로 한다) 주 판단 기준은 날짜다.
+	// status 체크는 명시적으로 취소된(cancelled) 공고까지 같이 걸러내는
+	// 보조 조건 — dashboard.go/growth_analytics.go 등 기존 재계산
+	// 쿼리들이 이미 쓰고 있는 것과 동일한 조건을 그대로 재사용한다.
+	if q.Get("includeClosed") != "1" {
+		query += " AND n.status NOT IN ('closed','cancelled') AND (n.application_end_at IS NULL OR n.application_end_at >= CURRENT_DATE)"
+	}
 	if region != "" {
 		query += " AND n.region = " + addArg(region)
 	}
