@@ -179,7 +179,9 @@ func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var items []eligibilityItem
-	var grade, gradeReason string
+	var grade string
+	var jvRecommended bool
+	var jvReason string
 	if noticeType == noticeTypeSupportProgram {
 		// 지원사업은 procurement 3-카테고리(지역/업종/예산) 자동판정이
 		// 성립하지 않는다 — scoring.go의 supportProgramScore 주석 참고.
@@ -191,7 +193,7 @@ func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		items = []eligibilityItem{item}
-		grade, gradeReason = gradeNeedsConfirmation, ""
+		grade = gradeNeedsConfirmation
 	} else {
 		regionItem, err := s.evaluateRegion(ctx, versionID, profileID, noticeRegion, companyRegion)
 		if err != nil {
@@ -222,17 +224,19 @@ func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 		for i, it := range items {
 			categories[i] = categoryScore{Category: it.Category, Result: it.Result, Reason: it.Reason}
 		}
-		grade, gradeReason = gradeFromCategories(categories, trackRecordThin(budgetAmount, trackRecordMax))
+		grade = gradeFromCategories(categories)
+		jvRecommended, jvReason = computeJointVentureSignal(budgetAmount, trackRecordMax)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"noticeId":         noticeID,
-		"companyProfileId": profileID,
-		"overallResult":    overallResult(items),
-		"grade":            grade,
-		"gradeReason":      gradeReason,
-		"items":            items,
-		"disclaimer":       evalDisclaimer,
+		"noticeId":                noticeID,
+		"companyProfileId":        profileID,
+		"overallResult":           overallResult(items),
+		"grade":                   grade,
+		"jointVentureRecommended": jvRecommended,
+		"jointVentureReason":      jvReason,
+		"items":                   items,
+		"disclaimer":              evalDisclaimer,
 	})
 }
 

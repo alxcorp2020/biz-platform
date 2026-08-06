@@ -6,7 +6,12 @@
 // eligibility.go의 evaluate* 함수(영속)를 그대로 쓴다.
 package api
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 type noticeScoringInput struct {
 	// NoticeType: "procurement"(기본값, 빈 문자열도 이걸로 취급 — 기존
@@ -44,17 +49,31 @@ type categoryScore struct {
 }
 
 // participationScore.Bucket is one of "ready" | "needs_review" | "not_recommended"
-// (기존 3버킷 — 하위호환을 위해 그대로 유지). Grade는 5단계 종합판정
-// (아래 grade* 상수) — 기획서 세분화 요청으로 추가된 필드이며 Bucket을
-// 대체하지 않는다. MetCount/TotalCount back the "N개 조건 중 M개 충족" 문구 —
-// 근거 없는 확률 대신 항상 이 비율을 함께 보여준다(스펙 논의에서 확정한 원칙).
+// (기존 3버킷 — 하위호환을 위해 그대로 유지). Grade는 4단계 종합판정
+// (아래 grade* 상수) — 지역/업종/예산 규모 3요소만으로 계산되는 "통과/
+// 불통과"의 핵심 기준이다. MetCount/TotalCount back the "N개 조건 중 M개
+// 충족" 문구 — 근거 없는 확률 대신 항상 이 비율을 함께 보여준다(스펙
+// 논의에서 확정한 원칙).
+//
+// JointVentureRecommended/JointVentureReason — 2026-08-07, 실적 규모
+// 신뢰도 보조지표(판정엔진 확장 1단계). 과거엔 "실적 규모가 얕음"이
+// gradeJointVentureReview라는 별도 등급으로 Grade 자체를 대체했는데,
+// "메인 등급(참여권장/조건보완/참여어려움)은 절대 안 바뀌고 같은 등급
+// 안에서 신뢰도만 세분화한다"는 새 원칙으로 Grade와 완전히 독립된
+// 필드로 분리했다(사용자 확인 — 대시보드 "오늘 할 일"/추천공고 다이제스트
+// 이메일/자동화 통계/리포트 4곳에서 이 등급 공고들이 이제 "참여권장"으로
+// 카운트되는 실제 동작 변화를 인지하고 승인함). computeJointVentureSignal이
+// 채운다 — 데이터(공고 예산 또는 회사 실적)가 없으면 절대 추측하지 않고
+// false/안내문구로 남긴다.
 type participationScore struct {
-	Bucket      string          `json:"bucket"`
-	Grade       string          `json:"grade"`
-	GradeReason string          `json:"gradeReason,omitempty"`
-	MetCount    int             `json:"metCount"`
-	TotalCount  int             `json:"totalCount"`
-	Categories  []categoryScore `json:"categories"`
+	Bucket                  string          `json:"bucket"`
+	Grade                   string          `json:"grade"`
+	GradeReason             string          `json:"gradeReason,omitempty"`
+	JointVentureRecommended bool            `json:"jointVentureRecommended,omitempty"`
+	JointVentureReason      string          `json:"jointVentureReason,omitempty"`
+	MetCount                int             `json:"metCount"`
+	TotalCount              int             `json:"totalCount"`
+	Categories              []categoryScore `json:"categories"`
 }
 
 // noticeTypeSupportProgram matches notices.notice_type/collector.NormalizedNotice.NoticeType's
@@ -105,15 +124,17 @@ func scoreNoticeForCompany(notice noticeScoringInput, company companyScoringInpu
 		}
 	}
 
-	grade, gradeReason := gradeFromCategories(categories, trackRecordThin(notice.BudgetAmount, company.TrackRecordMaxAmount))
+	grade := gradeFromCategories(categories)
+	jvRecommended, jvReason := computeJointVentureSignal(notice.BudgetAmount, company.TrackRecordMaxAmount)
 
 	return participationScore{
-		Bucket:      bucketFromCategories(categories),
-		Grade:       grade,
-		GradeReason: gradeReason,
-		MetCount:    metCount,
-		TotalCount:  len(categories),
-		Categories:  categories,
+		Bucket:                  bucketFromCategories(categories),
+		Grade:                   grade,
+		JointVentureRecommended: jvRecommended,
+		JointVentureReason:      jvReason,
+		MetCount:                metCount,
+		TotalCount:              len(categories),
+		Categories:              categories,
 	}
 }
 
@@ -137,37 +158,71 @@ func bucketFromCategories(categories []categoryScore) string {
 }
 
 const (
-	gradeRecommended        = "recommended"          // 참여 권장: 모든 필수조건 충족
-	gradeConditional        = "conditional"          // 조건부 참여 가능: 애매하지만 보완 여지 있음
-	gradeJointVentureReview = "joint_venture_review" // 공동수급 검토: 실적 규모 부족 후보(휴리스틱)
-	gradeNeedsConfirmation  = "needs_confirmation"   // 확인 필요: 공고/회사 데이터 자체가 불완전
-	gradeNotRecommended     = "not_recommended"      // 참여 곤란: 핵심 필수조건 명확히 미충족
+	gradeRecommended = "recommended"        // 참여 권장: 모든 필수조건 충족
+	gradeConditional = "conditional"        // 조건부 참여 가능: 애매하지만 보완 여지 있음
+	// gradeJointVentureReview("joint_venture_review")는 2026-08-07 폐지 —
+	// 실적 규모 신호는 이제 Grade를 대체하지 않고 JointVentureRecommended
+	// 서브태그로 독립됐다(participationScore 주석 참고). 과거 값이라
+	// GRADE_LABELS/GRADE_BADGE_TONE(프론트) 매핑에는 하위호환용으로 남아있음.
+	gradeNeedsConfirmation = "needs_confirmation" // 확인 필요: 공고/회사 데이터 자체가 불완전
+	gradeNotRecommended    = "not_recommended"    // 참여 곤란: 핵심 필수조건 명확히 미충족
 )
 
 // trackRecordThinBudgetRatio: 회사의 최대 계약실적이 공고 예산의 이 비율
-// 미만이면 "실적 규모가 부족해 보인다"는 휴리스틱 신호로 본다. 실제
-// 참가자격의 실적 요건(문서에서 추출되지 않음 — analyzer가 category='general'
-// 로만 저장하고 수치 파싱을 하지 않는다)과는 무관한 참고용 추정치이며,
-// gradeReason에 그 사실을 명시한다.
+// 미만이면 "실적 규모가 부족해 보인다"는 신호로 보고 공동수급 검토
+// 서브태그를 켠다. 실제 참가자격의 실적 요건(문서에서 추출되지 않음 —
+// analyzer가 category='general'로만 저장하고 수치 파싱을 하지 않는다)과는
+// 무관한 참고용 추정치이며, JointVentureReason에 그 사실을 명시한다.
 const trackRecordThinBudgetRatio = 0.5
 
-func trackRecordThin(budgetAmount, trackRecordMaxAmount sql.NullInt64) bool {
-	if !budgetAmount.Valid || budgetAmount.Int64 <= 0 {
-		return false // 공고 예산 자체를 모르면 실적 규모 비교 불가 — 부족하다고 단정하지 않음
+// formatKRWAmount — "12345678" -> "12,345,678". 실적/예산 금액은 항상
+// 0 이상이라 음수 부호 케이스는 다루지 않는다.
+func formatKRWAmount(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return s
 	}
-	if !trackRecordMaxAmount.Valid {
-		return true // 등록된 실적이 아예 없음
+	var parts []string
+	for len(s) > 3 {
+		parts = append([]string{s[len(s)-3:]}, parts...)
+		s = s[:len(s)-3]
 	}
-	return float64(trackRecordMaxAmount.Int64) < float64(budgetAmount.Int64)*trackRecordThinBudgetRatio
+	parts = append([]string{s}, parts...)
+	return strings.Join(parts, ",")
 }
 
-// gradeFromCategories computes the 5-tier overall grade on top of the same
-// per-category results bucketFromCategories already uses, plus the
-// track-record-scale heuristic. Priority order (worst-to-best signal wins):
-// 지역/업종/예산 중 하나라도 not_met이면 실적과 무관하게 참여 곤란으로
-// 본다 — 공동수급 검토는 사용자 지정 범위대로 "실적 부족" 케이스에만
-// 후보로 표시한다.
-func gradeFromCategories(categories []categoryScore, thin bool) (grade, reason string) {
+// computeJointVentureSignal — 실적 규모 vs 공고 예산 실측 비교(판정엔진
+// 확장 1단계, 2026-08-07). 과거엔 "회사의 최근 수행실적 규모가 이 공고
+// 예산 대비 작아 보입니다"라는 고정 문구를 항상 내보냈는데, 실제
+// company_track_records 데이터로 정확한 금액·비율을 계산해서 대체한다.
+//
+// 데이터가 없으면 절대 추측하지 않는다(원칙 재확인): 공고 예산 자체를
+// 모르면 비교가 성립하지 않아 빈 값을 반환하고, 회사 실적이 아예
+// 등록되지 않았으면(예전처럼 "얕다"고 단정하지 않고) 등록을 유도하는
+// 중립 안내만 반환한다 — recommended=false, reason=등록 유도 문구.
+func computeJointVentureSignal(budgetAmount, trackRecordMaxAmount sql.NullInt64) (recommended bool, reason string) {
+	if !budgetAmount.Valid || budgetAmount.Int64 <= 0 {
+		return false, ""
+	}
+	if !trackRecordMaxAmount.Valid {
+		return false, "실적을 등록하면 더 정확한 분석이 가능합니다."
+	}
+	ratio := float64(trackRecordMaxAmount.Int64) / float64(budgetAmount.Int64)
+	pct := int(ratio*100 + 0.5)
+	comment := fmt.Sprintf("최근 실적 %s원, 이 공고 예산의 %d%% 수준입니다.", formatKRWAmount(trackRecordMaxAmount.Int64), pct)
+	if ratio < trackRecordThinBudgetRatio {
+		return true, comment + " 공동수급(협력사와 함께 참여)을 검토해보세요 — 실제 참가자격의 실적 요건과는 별개의 참고용 추정입니다."
+	}
+	return false, comment
+}
+
+// gradeFromCategories computes the 4-tier overall grade purely from 지역/
+// 업종/예산 규모 3요소(scoreRegion/scoreIndustry/scoreBudgetSize) — 이
+// 함수는 2026-08-07부로 실적 규모 신호를 전혀 반영하지 않는다(과거엔
+// "실적 규모가 얕음"이면 이 등급 자체를 joint_venture_review로 대체했지만,
+// "메인 등급은 안 바뀌고 서브태그만 추가"라는 새 원칙으로 완전히
+// 분리했다 — computeJointVentureSignal 참고).
+func gradeFromCategories(categories []categoryScore) string {
 	hasNotMet := false
 	hasInsufficientData := false
 	hasNeedsConfirmation := false
@@ -184,16 +239,12 @@ func gradeFromCategories(categories []categoryScore, thin bool) (grade, reason s
 
 	switch {
 	case hasNotMet:
-		return gradeNotRecommended, ""
+		return gradeNotRecommended
 	case hasInsufficientData:
-		return gradeNeedsConfirmation, ""
-	case thin:
-		return gradeJointVentureReview,
-			"회사의 최근 수행실적 규모가 이 공고 예산 대비 작아 보입니다. 공동수급(협력사와 함께 참여)을 " +
-				"검토해보세요 — 실제 참가자격의 실적 요건과는 별개의 참고용 추정입니다."
+		return gradeNeedsConfirmation
 	case hasNeedsConfirmation:
-		return gradeConditional, ""
+		return gradeConditional
 	default:
-		return gradeRecommended, ""
+		return gradeRecommended
 	}
 }

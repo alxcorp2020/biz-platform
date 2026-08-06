@@ -199,9 +199,11 @@ func (s *Server) fetchGrowthTrend(ctx context.Context, profileID string) ([]grow
 }
 
 // gradeDisplayOrder — 응답 배열 순서(좋은 등급 → 나쁜 등급), 프론트가
-// 그대로 막대그래프 순서로 쓴다.
+// 그대로 막대그래프 순서로 쓴다. 2026-08-07: joint_venture_review가
+// Grade 자체에서 서브태그(JointVentureRecommended)로 분리되면서 4단계로
+// 줄었다 — scoring.go의 gradeFromCategories 주석 참고.
 var gradeDisplayOrder = []string{
-	gradeRecommended, gradeConditional, gradeJointVentureReview, gradeNeedsConfirmation, gradeNotRecommended,
+	gradeRecommended, gradeConditional, gradeNeedsConfirmation, gradeNotRecommended,
 }
 
 // fetchGradeDistribution — 현재 시점 라이브 스냅샷(성장분석 화면의

@@ -302,6 +302,11 @@ type noticeListItem struct {
 	// 동일하게 영속 컬럼이 아니라 매 요청 scoreNoticeForCompany로 재계산).
 	Grade       string `json:"grade,omitempty"`
 	GradeReason string `json:"gradeReason,omitempty"`
+	// JointVentureRecommended/JointVentureReason — 2026-08-07, 실적 규모
+	// 신뢰도 서브태그(Grade와 독립, scoring.go의 participationScore 주석
+	// 참고). attachNoticeGrades가 Grade/GradeReason과 함께 채운다.
+	JointVentureRecommended bool   `json:"jointVentureRecommended,omitempty"`
+	JointVentureReason      string `json:"jointVentureReason,omitempty"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -586,6 +591,8 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 			score := scoreNoticeForCompany(noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget}, *scoringCompany)
 			it.Grade = score.Grade
 			it.GradeReason = score.GradeReason
+			it.JointVentureRecommended = score.JointVentureRecommended
+			it.JointVentureReason = score.JointVentureReason
 			// gradeFromCategories는 "참여 곤란" 등급에도 대부분 top-level
 			// 사유를 안 채운다(카테고리별 Reason에만 있음) — 목록에서
 			// "왜 참여 곤란인지"가 비어 보이면 등급 노출의 의미가 없으므로,

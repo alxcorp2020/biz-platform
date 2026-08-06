@@ -7043,12 +7043,20 @@ function noticeRowHtml(n, showMatchReasons) {
     : '';
   const gradeHtml = n.grade ? gradeBadgeHtml(n.grade, GRADE_LABELS[n.grade] || n.grade) : '';
   const gradeReasonHtml = n.gradeReason ? `<p class="row-card-grade-reason">${escapeHtml(n.gradeReason)}</p>` : '';
+  // 공동수급 검토 서브태그(2026-08-07, 판정엔진 확장 1단계) — 메인 등급
+  // 배지(gradeHtml)와 별개로 붙는 독립 배지다. jointVentureReason은
+  // "등록하면 분석 가능"(중립 안내, 실적 없음) 상태에도 채워질 수 있어
+  // 배지 유무와 무관하게 항상 렌더링한다.
+  const jointVentureBadgeHtml = n.jointVentureRecommended
+    ? '<span class="badge badge--warn" title="실적 규모가 이 공고 예산 대비 작아 보입니다 — 참고용 신호일 뿐 메인 등급은 그대로입니다">공동수급 검토 권장</span>'
+    : '';
+  const jointVentureReasonHtml = n.jointVentureReason ? `<p class="row-card-grade-reason">${escapeHtml(n.jointVentureReason)}</p>` : '';
   return `
     <div class="row-card notice-row" data-id="${escapeAttr(n.id)}">
       <div class="row-card-main">
         <div class="row-card-title">${escapeHtml(n.title)}</div>
         <div class="row-card-subtitle">
-          ${noticeTypeBadgeHtml(n.noticeType)} ${gradeHtml} ${escapeHtml(n.organizationName || '-')} · ${escapeHtml(n.region || '-')} · ${escapeHtml(n.industry || '-')} ·
+          ${noticeTypeBadgeHtml(n.noticeType)} ${gradeHtml} ${jointVentureBadgeHtml} ${escapeHtml(n.organizationName || '-')} · ${escapeHtml(n.region || '-')} · ${escapeHtml(n.industry || '-')} ·
           <span class="mono">${formatBudget(n.budgetAmount)}</span> · ${statusBadgeHtml(n.status)}
           ${n.recentlyChanged ? '<span class="status-badge status-badge--warn" title="최근 7일 내 공고 내용이 변경되었습니다">정정</span>' : ''}
           ${n.regionRestricted === true ? '<span class="row-card-region-restricted" title="지역제한 있음">📍제한</span>' : ''}
@@ -7060,6 +7068,7 @@ function noticeRowHtml(n, showMatchReasons) {
         <span class="row-card-arrow">›</span>
       </div>
       ${gradeReasonHtml}
+      ${jointVentureReasonHtml}
       ${matchReasonsHtml}
     </div>
   `;
@@ -8644,13 +8653,22 @@ function renderParticipationSection(container, score, isMinimalProfile) {
     ? '<a href="#/me/saved-searches" class="ai-next-action">회사 정보 보완하기 &rarr;</a>'
     : '';
 
+  // 공동수급 검토 서브태그(2026-08-07) — score.grade와 완전히 독립된
+  // 실적 규모 신호. jointVentureReason은 실적 미등록 시 중립 안내로도
+  // 채워지므로 배지(jointVentureRecommended) 유무와 무관하게 항상 보여준다.
+  const jointVentureBadgeHtml = score.jointVentureRecommended
+    ? '<span class="ai-bucket-badge badge--warn">공동수급 검토 권장</span>'
+    : '';
+
   container.appendChild(h(`
     <div class="ai-participation-card ai-participation-card--${escapeHtml(score.grade)}">
       <div class="ai-participation-head">
         ${gradeBadgeHtml(score.grade, gradeLabel)}
+        ${jointVentureBadgeHtml}
         <span class="ai-participation-score">${score.totalCount}개 중 ${score.metCount}개 충족</span>
       </div>
       ${score.gradeReason ? `<p class="ai-grade-reason">${escapeHtml(score.gradeReason)}</p>` : ''}
+      ${score.jointVentureReason ? `<p class="ai-grade-reason">${escapeHtml(score.jointVentureReason)}</p>` : ''}
       ${isMinimalProfile ? `<p class="ai-minimal-profile-notice">간이 판정입니다 — 정확도를 높이려면 <a href="#/me/saved-searches">프로필을 더 채워주세요</a>.</p>` : ''}
       <p class="ai-participation-subtitle">부족한 조건</p>
       ${missingHtml}
