@@ -34,10 +34,20 @@ type pipelineChecklistItem struct {
 }
 
 type pipelineEntry struct {
-	ID                      string     `json:"id"`
-	NoticeID                string     `json:"noticeId"`
-	NoticeTitle             string     `json:"noticeTitle"`
-	OrganizationName        *string    `json:"organizationName"`
+	ID               string  `json:"id"`
+	NoticeID         string  `json:"noticeId"`
+	NoticeTitle      string  `json:"noticeTitle"`
+	OrganizationName *string `json:"organizationName"`
+	// NoticeType/Region/Industry/BudgetAmount/NoticeStatus — 2026-08-06,
+	// 목록 화면을 공고검색 결과 카드와 같은 형식(발주기관·지역·업종·
+	// 예산·공고상태)으로 보여주기 위해 추가. "Status"(파이프라인 자체
+	// 진행상태: 검토전/참여검토/.../낙찰 등)와는 별개 — 헷갈리지 않게
+	// 이쪽은 전부 Notice 접두어를 붙였다.
+	NoticeType              string     `json:"noticeType"`
+	Region                  *string    `json:"region"`
+	Industry                *string    `json:"industry"`
+	BudgetAmount            *int64     `json:"budgetAmount"`
+	NoticeStatus            string     `json:"noticeStatus"`
 	Status                  string     `json:"status"`
 	AssigneeName            *string    `json:"assigneeName"`
 	AssigneeEmail           *string    `json:"assigneeEmail"`
@@ -63,10 +73,13 @@ type pipelineEntryRowScanner interface {
 func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 	var e pipelineEntry
 	var org, assignee, assigneeEmail, assigneePhone, assigneeUserID, memo sql.NullString
+	var region, industry sql.NullString
+	var budgetAmount sql.NullInt64
 	var decidedAt, deadline sql.NullTime
 	var awardedAmount sql.NullInt64
 	err := row.Scan(&e.ID, &e.NoticeID, &e.NoticeTitle, &org, &e.Status, &assignee, &assigneeEmail, &assigneePhone, &assigneeUserID,
-		&decidedAt, &deadline, &memo, &awardedAmount, &e.CreatedAt, &e.UpdatedAt)
+		&decidedAt, &deadline, &memo, &awardedAmount, &e.CreatedAt, &e.UpdatedAt,
+		&e.NoticeType, &region, &industry, &budgetAmount, &e.NoticeStatus)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +89,8 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 	e.AssigneePhone = nullStringPtr(assigneePhone)
 	e.AssigneeUserID = nullStringPtr(assigneeUserID)
 	e.Memo = nullStringPtr(memo)
+	e.Region = nullStringPtr(region)
+	e.Industry = nullStringPtr(industry)
 	if decidedAt.Valid {
 		e.DecidedAt = &decidedAt.Time
 	}
@@ -86,12 +101,16 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 	if awardedAmount.Valid {
 		e.AwardedAmount = &awardedAmount.Int64
 	}
+	if budgetAmount.Valid {
+		e.BudgetAmount = &budgetAmount.Int64
+	}
 	return &e, nil
 }
 
 const pipelineEntrySelect = `
 	SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status, pe.assignee_name, pe.assignee_email, pe.assignee_phone, pe.assignee_user_id,
-	       pe.decided_at, pe.submission_deadline, pe.memo, pe.awarded_amount, pe.created_at, pe.updated_at
+	       pe.decided_at, pe.submission_deadline, pe.memo, pe.awarded_amount, pe.created_at, pe.updated_at,
+	       n.notice_type, n.region, n.industry, n.budget_amount, n.status
 	FROM notice_pipeline_entries pe
 	JOIN notices n ON n.id = pe.notice_id`
 

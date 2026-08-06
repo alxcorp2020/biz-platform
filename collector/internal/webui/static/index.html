@@ -6074,6 +6074,12 @@ function renderPipelineTable(container, items) {
   });
 }
 
+// pipelineListRowHtml — 2026-08-06, 공고검색 결과 카드(noticeRowHtml)와
+// 같은 형식(공고유형배지 발주기관 · 지역 · 업종 · 예산 · 공고상태 ·
+// 담당자)으로 통일. 사이드의 pipelineStepIndicatorHtml(검토전/참여검토/
+// .../낙찰 등 파이프라인 자체 진행상태)은 noticeRowHtml에는 없는, 이
+// 화면만의 핵심 정보라 그대로 유지 — statusBadgeHtml이 보여주는 건
+// "공고 자체"의 상태(진행중/마감/취소/재공고)로 서로 다른 개념이다.
 function pipelineListRowHtml(entry) {
   const assignee = entry.assigneeName ? `담당: ${escapeHtml(entry.assigneeName)}` : '담당자 미지정';
   return `
@@ -6081,7 +6087,10 @@ function pipelineListRowHtml(entry) {
       <span class="row-card-icon">${LIST_ROW_ICONS.pipeline}</span>
       <div class="row-card-main">
         <div class="row-card-title">${escapeHtml(entry.noticeTitle)}</div>
-        <div class="row-card-subtitle">${escapeHtml(entry.organizationName || '-')} · ${assignee}</div>
+        <div class="row-card-subtitle">
+          ${noticeTypeBadgeHtml(entry.noticeType)} ${escapeHtml(entry.organizationName || '-')} · ${escapeHtml(entry.region || '-')} · ${escapeHtml(entry.industry || '-')} ·
+          <span class="mono">${formatBudget(entry.budgetAmount)}</span> · ${statusBadgeHtml(entry.noticeStatus)} · ${assignee}
+        </div>
       </div>
       <div class="row-card-side">
         ${pipelineStepIndicatorHtml(entry.status)}
