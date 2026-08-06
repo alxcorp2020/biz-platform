@@ -11206,8 +11206,14 @@ async function renderMySubscription(container) {
       if (!confirm('결제 후 서비스를 이용하지 않으셨습니다. 전액 환불 처리됩니다. 진행하시겠습니까?')) return;
       refundBtn.disabled = true;
       try {
-        await apiRequest('POST', '/api/billing/refund-request', {});
-        alert('환불이 완료되었습니다.');
+        const res = await apiRequest('POST', '/api/billing/refund-request', {});
+        // 2026-08-06: 이 결제 밑에 아직 유효한 이전 플랜 결제가 남아있으면
+        // Free가 아니라 그 플랜으로 자동 복귀한다 — 사용자가 헷갈리지 않게
+        // 어디로 복귀됐는지 명시한다.
+        const restoredName = PLAN_DISPLAY_NAMES[res.restoredPlan] || res.restoredPlan;
+        alert(res.restoredPlan && res.restoredPlan !== 'free'
+          ? `환불이 완료되었습니다. 이전에 결제하신 ${restoredName} 플랜으로 복귀합니다.`
+          : '환불이 완료되었습니다.');
         renderMySubscription(container);
       } catch (err) {
         // already_used는 서버가 사용 이력 요약(usage)도 같이 내려준다 —

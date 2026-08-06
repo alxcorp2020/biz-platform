@@ -23,6 +23,19 @@ import (
 	"biz-platform/collector/internal/webui"
 )
 
+// tossPaymentClient — *billing.TossClient의 실제 사용 부분만 뗀 인터페이스.
+// 프로덕션에서는 항상 *billing.TossClient가 이 자리를 채우지만(New의
+// tossClient 파라미터 타입은 그대로 *billing.TossClient — 호출부 변경
+// 없음, 암묵적 인터페이스 충족), 결제 관련 테스트(billing_refund_test.go
+// 등)에서 실제 Toss 서버에 네트워크 요청을 보내지 않는 가짜 구현으로
+// 바꿔 끼울 수 있게 하려고 도입했다 — 2026-08-06 상위 플랜 환불 사고
+// 수정을 로컬에서 재현 검증하면서 필요해짐.
+type tossPaymentClient interface {
+	Configured() bool
+	Confirm(ctx context.Context, paymentKey, orderID string, amount int64) (*billing.ConfirmResult, []byte, error)
+	Cancel(ctx context.Context, paymentKey, cancelReason string) (*billing.CancelResult, []byte, error)
+}
+
 type Server struct {
 	db              *sql.DB
 	logger          *slog.Logger
@@ -31,7 +44,7 @@ type Server struct {
 	anthropicClient *anthropic.Client
 	notify          *notify.Client
 	smsNotify       *notify.SMSClient
-	toss            *billing.TossClient
+	toss            tossPaymentClient
 	tossClientKey   string
 	// appBaseURL — 팀 초대 이메일 링크 생성에만 쓰인다(company_team.go).
 	// 프론트의 다른 리다이렉트(Toss 성공/실패 URL 등)는 location.origin을
@@ -59,6 +72,16 @@ func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir st
 	if logger == nil {
 		logger = slog.Default()
 	}
+	// tossClient(*billing.TossClient)가 nil로 들어오면 그대로 인터페이스
+	// 필드에 대입하지 않는다 — 인터페이스에 담긴 "타입 있는 nil 포인터"는
+	// 그 자체로 nil이 아닌 값이 되어(Go의 흔한 함정) 기존 `s.toss == nil`
+	// 가드가 더 이상 true가 안 되고, 뒤이은 s.toss.Configured() 호출이
+	// nil 포인터 역참조로 패닉난다. 명시적으로 걸러서 진짜 nil 인터페이스로
+	// 남겨야 그 가드가 계속 정상 동작한다.
+	var toss tossPaymentClient
+	if tossClient != nil {
+		toss = tossClient
+	}
 	return &Server{
 		db:              db,
 		logger:          logger,
@@ -67,7 +90,7 @@ func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir st
 		anthropicClient: anthropicClient,
 		notify:          notifyClient,
 		smsNotify:       smsNotifyClient,
-		toss:            tossClient,
+		toss:            toss,
 		tossClientKey:   tossClientKey,
 		appBaseURL:      appBaseURL,
 		scsbidSource:    scsbidSource,

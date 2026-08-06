@@ -253,6 +253,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensurePipelineAssigneeUserIDColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate notice_pipeline_entries.assignee_user_id column: %w", err)
 	}
+	if err := ensureSubscriptionsPreviousPlanColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate subscriptions.previous_plan columns: %w", err)
+	}
 	return nil
 }
 
@@ -1852,6 +1855,25 @@ func ensureAuthLookupKindBizRegExtract(ctx context.Context, db *sql.DB) error {
 func ensurePipelineAssigneeUserIDColumn(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS assignee_user_id UUID REFERENCES users(id);
+	`)
+	return err
+}
+
+// ensureSubscriptionsPreviousPlanColumns — 2026-08-06, 상위 플랜 환불 사고
+// (Basic 유효 중 Pro로 즉시업그레이드한 뒤 Pro만 환불했더니 Basic까지
+// 통째로 사라짐 — 실사고 발생, 수동 조치로 우선 복구함) 이후 재설계.
+// subscriptions는 프로필당 한 행만 유지하는 구조라 즉시업그레이드가 이전
+// plan/expires_at을 덮어쓰는 순간 그 정보가 영구히 사라진다. 전체
+// 이력 테이블로 바꾸는 대신 "직전 한 단계"만 기억하는 절충안 컬럼 2개를
+// 추가한다 — 실제 환불 판단(billing_refund.go의 bestValidPriorPayment)은
+// 이 컬럼이 아니라 payment_log를 다시 계산해서 하지만(여러 건이 겹친
+// 경우까지 안전하게 커버하려고), 이 컬럼은 지원팀이 계정 상태를 볼 때
+// "즉시업그레이드 직전에 뭐가 있었는지"를 바로 확인할 수 있는 감사 근거로
+// 남긴다.
+func ensureSubscriptionsPreviousPlanColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS previous_plan TEXT;
+		ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS previous_plan_expires_at TIMESTAMPTZ;
 	`)
 	return err
 }

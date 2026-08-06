@@ -642,11 +642,28 @@ func (s *Server) handleBillingConfirm(w http.ResponseWriter, r *http.Request) {
 
 	// 즉시 적용 — 업그레이드, 또는 만료 후 재구독. 이전에 예약해둔
 	// 다운그레이드가 있었다면 이번 결제로 의미가 없어지므로 같이 지운다.
+	//
+	// previous_plan/previous_plan_expires_at — 2026-08-06, 상위 플랜 환불
+	// 사고 이후 도입. 지금 덮어쓰려는 게 아직 유효한 유료 플랜이면(Free나
+	// 이미 만료된 플랜이면 지킬 게 없음) 그 plan/expires_at을 스냅샷으로
+	// 남겨둔다. 매 즉시적용마다 무조건 다시 쓴다(유효한 게 없으면 NULL로
+	// 지우는 것까지 포함) — 조건부로만 쓰면 몇 달 전 스냅샷이 그대로
+	// 남아있는 상태 오염이 생긴다. 실제 환불 판단은 이 컬럼이 아니라
+	// billing_refund.go가 payment_log를 다시 계산해서 한다(이 컬럼은
+	// 감사·지원용 참고 정보).
+	var previousPlan *string
+	var previousPlanExpiresAt *time.Time
+	if effectiveCurrent != billing.PlanFree {
+		p := string(currentPlan)
+		previousPlan = &p
+		previousPlanExpiresAt = currentExpiresAt
+	}
 	expiresAt := requestedAt.AddDate(0, 1, 0)
 	if _, err := s.db.ExecContext(r.Context(), `
-		UPDATE subscriptions SET plan = $1, status = 'active', started_at = $2, expires_at = $3, amount = $4, pending_plan = NULL
+		UPDATE subscriptions SET plan = $1, status = 'active', started_at = $2, expires_at = $3, amount = $4, pending_plan = NULL,
+		    previous_plan = $6, previous_plan_expires_at = $7
 		WHERE id = $5`,
-		string(plan), requestedAt, expiresAt, req.Amount, subscriptionID,
+		string(plan), requestedAt, expiresAt, req.Amount, subscriptionID, previousPlan, previousPlanExpiresAt,
 	); err != nil {
 		s.logger.Error("billing-confirm: subscription activation failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
@@ -744,7 +761,8 @@ func (s *Server) ApplyScheduledDowngrades(ctx context.Context) (int, error) {
 		newExpiresAt := t.expiresAt.AddDate(0, 1, 0)
 		if _, err := s.db.ExecContext(ctx, `
 			UPDATE subscriptions
-			SET plan = $1, started_at = $2, expires_at = $3, amount = $4, pending_plan = NULL
+			SET plan = $1, started_at = $2, expires_at = $3, amount = $4, pending_plan = NULL,
+			    previous_plan = NULL, previous_plan_expires_at = NULL
 			WHERE id = $5`,
 			string(plan), t.expiresAt, newExpiresAt, s.effectivePlanInfo(ctx, plan).AmountKRW, t.id,
 		); err != nil {
