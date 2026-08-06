@@ -33,6 +33,7 @@ const (
 	notifyEventRecommendationDigest = "recommendation_digest"
 	notifyEventAssigneeStatusChange = "assignee_status_change"
 	notifyEventNoticeCorrected      = "notice_corrected"
+	notifyEventNoticeCancelled      = "notice_cancelled"
 	notifyEventSavedSearchMatch     = "saved_search_match"
 
 	notifyChannelEmail = "email"
@@ -822,6 +823,17 @@ func (s *Server) NotifyNoticeChanged(ctx context.Context, noticeID, changeType s
 		return
 	}
 
+	// 2026-08-06 추가: status가 "cancelled"로 바뀐 경우는 정정(notice_corrected)이
+	// 아니라 별도의 취소(notice_cancelled) 알림으로 분기한다 — g2b.go가
+	// ntceKindNm=="취소공고"를 이 status값으로 매핑한다.
+	cancelled := false
+	for _, c := range changes {
+		if c.Field == "status" && c.NewValue == "cancelled" {
+			cancelled = true
+			break
+		}
+	}
+
 	var noticeTitle string
 	if err := s.db.QueryRowContext(ctx, `SELECT title FROM notices WHERE id = $1`, noticeID).Scan(&noticeTitle); err != nil {
 		s.logger.Error("notify notice changed: title lookup failed", "notice_id", noticeID, "error", err)
@@ -831,11 +843,17 @@ func (s *Server) NotifyNoticeChanged(ctx context.Context, noticeID, changeType s
 	// 활성 파이프라인(검토전/참여검토/승인대기/준비중)에 이 공고를 담아둔
 	// 조직에게만 보낸다 — dashboard.go의 pipelineActiveStatuses/activeStatusList와
 	// 동일한 "종결된 건은 더 안 챙겨도 됨" 판단(notifyAssigneeStatusChange의
-	// pipelineActiveForNotification 원칙과 같음).
+	// pipelineActiveForNotification 원칙과 같음). 단, 취소는 이미 입찰서를
+	// 제출한 조직에게도 알려야 한다(제출한 입찰 자체가 무효가 되는 소식이라
+	// 정정보다 더 넓게 알림) — '제출완료'를 추가한다.
+	statuses := activeStatusList()
+	if cancelled {
+		statuses = append(statuses, "제출완료")
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, company_profile_id FROM notice_pipeline_entries
 		WHERE notice_id = $1 AND status = ANY($2)`,
-		noticeID, pq.Array(activeStatusList()))
+		noticeID, pq.Array(statuses))
 	if err != nil {
 		s.logger.Error("notify notice changed: pipeline entry lookup failed", "notice_id", noticeID, "error", err)
 		return
@@ -855,6 +873,13 @@ func (s *Server) NotifyNoticeChanged(ctx context.Context, noticeID, changeType s
 		s.logger.Error("notify notice changed: pipeline entry scan failed", "error", closeErr)
 	}
 	if len(targets) == 0 {
+		return
+	}
+
+	if cancelled {
+		for _, t := range targets {
+			s.notifyNoticeCancelled(ctx, t.profileID, t.entryID, noticeID, noticeTitle)
+		}
 		return
 	}
 
@@ -905,6 +930,45 @@ func (s *Server) notifyNoticeCorrected(ctx context.Context, profileID, pipelineE
 		if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
 			msg := fmt.Sprintf("[공고 정정] %s 내용 변경(%s)", truncateForSMS(noticeTitle, 20), changedSummary)
 			s.sendNotificationSMS(ctx, notifyEventNoticeCorrected, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
+		}
+	}
+}
+
+// notifyNoticeCancelled — 2026-08-06 추가. notifyNoticeCorrected와 채널
+// 구성은 동일(인앱+웹푸시+담당자 이메일/SMS)하되, 카피가 "정정" 대신
+// "취소"를 명시하고 변경 항목 요약이 없다(상태 자체가 전부이므로).
+func (s *Server) notifyNoticeCancelled(ctx context.Context, profileID, pipelineEntryID, noticeID, noticeTitle string) {
+	inAppTitle := fmt.Sprintf("공고 취소: %s", noticeTitle)
+	inAppBody := "발주기관이 이 공고를 취소했습니다. 참여 준비를 중단해주세요."
+	if err := s.insertEntryScopedInAppNotification(ctx, profileID, notifyEventNoticeCancelled, pipelineEntryID, noticeID, inAppTitle, inAppBody); err != nil {
+		s.logger.Error("notify: notice-cancelled in-app notification insert failed", "error", err)
+	}
+	s.sendPushToProfileMembers(ctx, profileID, inAppTitle, inAppBody, "/#/pipeline/"+pipelineEntryID)
+
+	contacts, err := s.fetchNotifiableContacts(ctx, profileID, notifyEventNoticeCancelled, pipelineEntryID)
+	if err != nil {
+		s.logger.Error("notify: notice-cancelled contact lookup failed", "error", err)
+		return
+	}
+	smsAllowed := s.smsAllowedForPlan(ctx, profileID)
+	emailAllowed := s.checkEmailNotificationQuota(ctx, profileID)
+	for _, c := range contacts {
+		contactID := c.id
+		if c.emailEnabled && c.email != "" && !c.emailAlreadySent {
+			subject := fmt.Sprintf("[공고 취소] %s", noticeTitle)
+			if emailAllowed {
+				body := fmt.Sprintf(
+					"<p>참여 검토 중인 <b>%s</b> 공고가 발주기관에 의해 취소되었습니다.</p><p>참여 준비를 중단하시고, 원문을 다시 확인해주세요.</p>",
+					html.EscapeString(noticeTitle),
+				)
+				s.sendNotificationEmail(ctx, notifyEventNoticeCancelled, c.email, nil, &contactID, &pipelineEntryID, &noticeID, subject, body)
+			} else {
+				s.logSkippedEmailNotification(ctx, notifyEventNoticeCancelled, c.email, nil, &contactID, &pipelineEntryID, &noticeID, subject)
+			}
+		}
+		if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
+			msg := fmt.Sprintf("[공고 취소] %s 공고가 취소되었습니다", truncateForSMS(noticeTitle, 20))
+			s.sendNotificationSMS(ctx, notifyEventNoticeCancelled, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
 		}
 	}
 }

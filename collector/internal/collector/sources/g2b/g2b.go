@@ -76,6 +76,13 @@ type bidItem struct {
 	BidNtceNo  string `json:"bidNtceNo"`  // 입찰공고번호
 	BidNtceOrd string `json:"bidNtceOrd"` // 입찰공고차수 (재공고 시 증가)
 	ReNtceYn   string `json:"reNtceYn"`   // 재공고 여부 Y/N
+	// NtceKindNm — 2026-08-06 추가. "취소공고" 감지용(별도 API 불필요 —
+	// 이미 쓰고 있는 이 오퍼레이션 응답에 있었는데 그동안 안 읽고 있었다).
+	// 실측(최근 29일, 500건) 확인된 값: 등록공고/재공고/변경공고/취소공고
+	// 4종. "재공고"는 기존처럼 ReNtceYn으로 판단하고 이 필드는 정확히
+	// "취소공고"인지만 확인하는 용도로 좁게 쓴다(재공고 판단 로직을
+	// 굳이 바꿀 이유가 없어 그대로 둠).
+	NtceKindNm string `json:"ntceKindNm"`
 
 	BidNtceNm   string `json:"bidNtceNm"`   // 입찰공고명
 	NtceInsttNm string `json:"ntceInsttNm"` // 공고기관명
@@ -318,6 +325,11 @@ func (s *Source) Normalize(ctx context.Context, doc collector.RawDocument) (coll
 	status := "open"
 	if it.ReNtceYn == "Y" {
 		status = "reannounced"
+	}
+	// 취소공고가 재공고와 동시에 해당되는 극단적 케이스(취소된 뒤 다시
+	// 재공고된 건)는 취소가 더 최종적인 상태라 우선한다.
+	if it.NtceKindNm == "취소공고" {
+		status = "cancelled"
 	}
 
 	officialURL := it.BidNtceDtlUrl
