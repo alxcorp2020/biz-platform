@@ -7889,15 +7889,27 @@ function renderChangeImpact(container, impact) {
 // 미연동 또는 아직 수집된 이력이 없는 발주기관)이면 조용히 빈 상태
 // 문구만 보여준다 — data.organizationAwardHistory가 애초에 null일 수도
 // 있다(공고에 발주기관명 자체가 없는 경우).
+// AWARD_HISTORY_MIN_SAMPLE — 2026-08-06, "데이터가 적은 초기 플랫폼"
+// 원칙(과장 금지, 표본 부족은 정직하게 표시) 적용. 운영 데이터 실측
+// 결과 발주기관 172곳 중 5건 이상은 4곳뿐이라(70%가 1건짜리) 이 기준
+// 미만이면 평균/추이 같은 "통계"를 아예 안 보여주고 부족 안내만 준다.
+const AWARD_HISTORY_MIN_SAMPLE = 5;
+
 function renderAwardHistory(container, history, hasCompetitiveOverlap) {
   container.innerHTML = '';
   if (!history || history.count === 0) {
     container.appendChild(h('<p class="empty">아직 수집된 낙찰 이력이 없습니다.</p>'));
     return;
   }
+  if (history.count < AWARD_HISTORY_MIN_SAMPLE) {
+    container.appendChild(h(`<p class="empty">낙찰이력 데이터가 아직 부족합니다 (현재 ${history.count}건, 최소 ${AWARD_HISTORY_MIN_SAMPLE}건 필요).</p>`));
+    return;
+  }
 
   const avgParts = [];
-  avgParts.push(history.averageRate != null ? `평균 낙찰률 ${history.averageRate.toFixed(1)}%` : '평균 낙찰률 정보 없음');
+  avgParts.push(history.averageRate != null
+    ? `평균 낙찰률 ${history.averageRate.toFixed(1)}% (표본 ${history.count}건 기준, 신뢰도 참고용)`
+    : '평균 낙찰률 정보 없음');
   if (history.averageParticipants != null) avgParts.push(`평균 참가업체 수 ${history.averageParticipants.toFixed(1)}개사`);
   const overlapNote = hasCompetitiveOverlap
     ? '<p class="ai-minimal-profile-notice">우리 회사의 수행실적과 겹치는 발주기관·분야입니다 — 경쟁 강도 참고.</p>'

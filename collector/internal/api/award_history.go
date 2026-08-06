@@ -1,10 +1,23 @@
 // award_history.go — 공고 상세의 "동일 발주기관 과거 낙찰 이력" +
 // "경쟁 강도 참고". notice_award_history는 조달청 나라장터
-// 낙찰정보서비스(ScsbidInfoService) 연동으로 채워질 예정이지만, 그
-// 수집기는 API 활용신청 승인 후 별도로 추가한다(collector/internal/
-// collector/sources/scsbid — 아직 없음). 이 파일의 조회 로직은 테이블이
-// 비어 있어도 정상적으로 "아직 수집된 낙찰 이력이 없습니다" 상태를
-// 반환하도록 만들어졌다 — 수집기가 나중에 붙어도 이쪽은 손댈 필요 없음.
+// 낙찰정보서비스(ScsbidInfoService) 수집기(collector/internal/collector/
+// sources/scsbid)로 실제 채워지고 있다(2026-08-06, award_history_ingest.go
+// 배치). 이 파일의 조회 로직은 테이블이 비어 있어도 정상적으로 "아직
+// 수집된 낙찰 이력이 없습니다" 상태를 반환한다.
+//
+// 🚨 업종별 통계는 이번 범위에서 제외한다(2026-08-06, 사용자 확인) —
+// notice_award_history.industry 컬럼은 스키마엔 있지만 항상 NULL이다.
+// scsbid API(getScsbidListSttusServcPPSSrch) 응답 자체에 업종 분류
+// 필드가 없어서 수집 코드가 애초에 채운 적이 없다(억지로 notices.industry와
+// 이름 매칭해서 유추하는 방법도 있지만 신뢰도가 낮아 이번 범위 밖 —
+// "데이터가 적은 초기 플랫폼" 원칙: 계산 불가능하면 억지로 만들지
+// 않는다). 발주기관별 통계(지역 개념)만 이 파일에서 다룬다.
+//
+// 최소 표본 게이트(AWARD_HISTORY_MIN_SAMPLE=5, index.html)도 같은
+// 원칙 — 발주기관 172곳 중 5건 이상은 4곳뿐(2026-08-06 실측)이라
+// 이 백엔드는 표본 수와 무관하게 항상 전체 데이터를 내려주고, "몇 건
+// 미만이면 안 보여준다"는 판단은 프론트가 한다(백엔드는 있는 그대로의
+// 사실만 전달, 표시 정책은 화면 쪽 책임으로 분리).
 package api
 
 import (
