@@ -332,6 +332,12 @@ func (s *Server) sendReportEmail(ctx context.Context, profileID, periodType stri
 	if err := s.insertInAppNotification(ctx, &profileID, nil, eventType, subject, inAppBody, nil, nil); err != nil {
 		s.logger.Error("report: in-app notification insert failed", "error", err)
 	}
+	// 2026-08-06: Phase 5 2단계에서 인앱 알림함 연동만 추가되고 그보다
+	// 나중에 생긴 Phase 6(웹푸시)와는 한 번도 연결이 안 돼 있던 걸
+	// "실제 브라우저 팝업이 안 온다" 신고 조사 중 발견 — 다른 5개 이벤트
+	// (마감리마인더/추천다이제스트/상태변경/정정/취소)는 전부 인앱 삽입
+	// 바로 옆에 push 호출이 있는데 이 리포트만 빠져 있었다.
+	s.sendPushToProfileMembers(ctx, profileID, subject, inAppBody, "/#/me/subscription")
 
 	members, err := s.fetchCompanyMemberEmails(ctx, profileID)
 	if err != nil {

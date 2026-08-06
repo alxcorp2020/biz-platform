@@ -415,10 +415,14 @@ func (s *Server) handleAcceptInvitation(w http.ResponseWriter, r *http.Request) 
 	// 없었다 — 인앱 알림함(항상 남김, 다른 이벤트와 동일 원칙)과 이메일
 	// (설정돼 있을 때만) 양쪽으로 알린다.
 	notifySubject := fmt.Sprintf("%s님이 팀에 합류했습니다", callerEmail)
+	inAppBody := "초대를 수락해 조직에 합류했습니다."
 	if err := s.insertInAppNotification(r.Context(), nil, &invitedByUserID, notifyEventTeamInviteAccepted,
-		notifySubject, "초대를 수락해 조직에 합류했습니다.", nil, nil); err != nil {
+		notifySubject, inAppBody, nil, nil); err != nil {
 		s.logger.Error("accept-invitation: in-app notification insert failed", "error", err)
 	}
+	// 2026-08-06: reports.go의 주간/월간 리포트와 같은 이유로 같이 빠져
+	// 있던 웹푸시 연결 — "실제 브라우저 팝업이 안 온다" 신고 조사 중 발견.
+	s.sendPushToUser(r.Context(), invitedByUserID, notifySubject, inAppBody, "/#/me/subscription")
 	if s.notify != nil {
 		var inviterEmail string
 		if err := s.db.QueryRowContext(r.Context(), `SELECT email FROM users WHERE id = $1`, invitedByUserID).Scan(&inviterEmail); err != nil {
