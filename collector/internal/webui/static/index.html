@@ -1141,12 +1141,12 @@
   .saved-search-notify-section legend { font-weight: 700; font-size: var(--text-body); padding: 0 0.3rem; }
   .saved-search-notify-section label { margin-top: 0.5rem; }
   .saved-search-reminder-days { display: flex; gap: 1rem; margin: 0.4rem 0 0.6rem 1.6rem; }
-  /* saved-search-contacts-section — 맞춤공고 화면 상단 접이식 담당자
-     관리(2026-08-06, 기업프로필에서 이동). saved-search-advanced와 같은
-     톤이되, 카드형 배경으로 구분감을 준다. */
-  .saved-search-contacts-section { margin: 0 0 1.2rem; background: #fff; border-radius: var(--radius-card); box-shadow: var(--shadow-soft); padding: 1rem 1.2rem; }
-  .saved-search-contacts-section summary { cursor: pointer; font-size: 1.05rem; font-weight: 700; color: var(--ink); padding: 0.2rem 0; }
-  .saved-search-contacts-section[open] summary { margin-bottom: 0.6rem; }
+  /* saved-search-founding-date-form — "내 기본 조건" 카드 전용 개업일
+     인라인 등록(2026-08-06). 카드 메타 줄들 사이에 끼는 작은 폼이라
+     label/input/button을 한 줄에 이어붙인다. */
+  .saved-search-founding-date-form { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.4rem; }
+  .saved-search-founding-date-form label { display: flex; align-items: center; gap: 0.5rem; margin: 0; }
+  .saved-search-founding-date-form .error { margin: 0; }
 
   /* ---------- 파이프라인 표 뷰 ---------- */
   .pipeline-table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 1rem 0 0.6rem; }
@@ -2497,21 +2497,22 @@ const SIDEBAR_MENU = [
   { path: '#/pipeline', label: '진행 중 사업', icon: 'pipeline' },
   { path: '#/notifications', label: '알림', icon: 'bell' },
   { path: '#/calendar', label: '캘린더', icon: 'calendar' },
-  { path: '#/me/profile', label: '기업 프로필', icon: 'profile' },
   { path: '#/growth', label: '성장분석', icon: 'chart' },
   { path: '#/me/subscription', label: '구독 관리', icon: 'card' },
 ];
-// 모바일 하단 탭바 — PC 사이드바와 다른 5개 구성(요청사항). '진행중'/
-// '내정보'는 사이드바의 파이프라인/프로필과 동일 라우트. '관심공고'가
-// 원래 이 자리(원래 요청한 "알림")를 대신하고 있었는데, 인앱 알림함이
-// 생기면서 제자리를 찾았다 — 관심공고는 auth-nav 헤더 링크(모바일
-// 햄버거)로 계속 노출된다(원래 거기 있었음, 안 없어짐).
+// 모바일 하단 탭바 — PC 사이드바와 다른 5개 구성(요청사항). '진행중'은
+// 사이드바의 파이프라인과 동일 라우트. '관심공고'가 원래 이 자리(원래
+// 요청한 "알림")를 대신하고 있었는데, 인앱 알림함이 생기면서 제자리를
+// 찾았다 — 관심공고는 auth-nav 헤더 링크(모바일 햄버거)로 계속 노출된다
+// (원래 거기 있었음, 안 없어짐). 2026-08-06: 기업프로필 메뉴 삭제로
+// 마지막 자리가 "내정보"(#/me/profile)에서 "맞춤공고"(#/me/saved-searches,
+// 사이드바와 동일 아이콘)로 바뀌었다.
 const TABBAR_MENU = [
   { path: '#/dashboard', label: '대시보드', icon: 'home' },
   { path: '#/notices', label: '검색', icon: 'search' },
   { path: '#/pipeline', label: '진행중', icon: 'pipeline' },
   { path: '#/notifications', label: '알림', icon: 'bell' },
-  { path: '#/me/profile', label: '내정보', icon: 'user' },
+  { path: '#/me/saved-searches', label: '맞춤공고', icon: 'bookmark' },
 ];
 
 function renderSidebar() {
@@ -3064,8 +3065,8 @@ function renderHeader() {
       <a href="#/calendar">캘린더</a>
       <a href="#/me/saved-searches">맞춤공고</a>
       <a href="#/me/bookmarks">관심공고</a>
-      <a href="#/me/profile">내 프로필</a>
-      <a href="#/me/licenses">면허·인증</a>
+      <a href="#/me/saved-searches">내 프로필</a>
+      <a href="#/me/saved-searches">면허·인증</a>
       <a href="#/growth">성장분석</a>
       <a href="#/me/subscription">내 구독</a>
       <a href="#/billing/plans">요금제</a>
@@ -3432,7 +3433,7 @@ function renderBannerSlideInto(overlay, items) {
 // 끼워도 사라지지 않는다(사용자 피드백: "메인에만 있는게 아니다, 최상단에
 // 계속 있어야 한다"). loadMe()(로그인/로그아웃/부팅 시)와 route()(모든
 // 페이지 이동)가 매번 호출해 항상 최신 상태를 반영한다. 회사 프로필을
-// 저장하는 모달(#/me/profile의 수정 폼)처럼 해시가 안 바뀌는 곳은 저장
+// 저장하는 모달(#/me/saved-searches의 수정 폼)처럼 해시가 안 바뀌는 곳은 저장
 // 성공 직후 직접 호출한다.
 //
 // 완성도%는 /api/me/profile-completeness(기존 API, 스펙 요구사항대로
@@ -3463,7 +3464,7 @@ async function renderGlobalProfileBanner() {
   slot.innerHTML = `
     <div class="profile-incomplete-banner ${missingRequired ? 'profile-incomplete-banner--urgent' : ''}">
       <span class="profile-incomplete-banner-text">${escapeHtml(text)}</span>
-      <a href="#/me/profile" class="profile-incomplete-banner-cta">프로필 완성하기 →</a>
+      <a href="#/me/saved-searches" class="profile-incomplete-banner-cta">프로필 완성하기 →</a>
     </div>
   `;
 }
@@ -4192,7 +4193,7 @@ function showOnboardingBusinessRegResult(state, candidate) {
         businessType: c.businessType || [],
         region: c.region || null,
         industry: c.industry || [],
-        businessAgeYears: businessAge,
+        foundingDate: c.foundingDate || null,
       });
       currentProfile = data.companyProfile;
     } catch (err) {
@@ -4378,14 +4379,13 @@ function renderFoundingDateChatForm(container, onSaved) {
     e.preventDefault();
     errorBox.style.display = 'none';
     const val = new FormData(form).get('foundingDate');
-    const age = computeBusinessAgeYears(val);
-    if (age == null) {
+    if (computeBusinessAgeYears(val) == null) {
       errorBox.textContent = '올바른 개업일을 입력해주세요.';
       errorBox.style.display = 'block';
       return;
     }
     try {
-      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ businessAgeYears: age }));
+      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ foundingDate: val }));
       currentProfile = data.companyProfile;
       onSaved();
     } catch (err) {
@@ -4399,9 +4399,6 @@ const ONBOARDING_IDENTITY_FIELD_DEFS = [
   { fieldKey: 'companyName', prompt: '상호명이 어떻게 되나요?', render: renderCompanyNameChatForm, echo: (p) => p.companyName || '' },
   { fieldKey: 'businessRegistrationNumber', prompt: '사업자등록번호가 어떻게 되나요?<br><span style="color:var(--ink-soft);font-size:0.85em">000-00-00000 형식으로 자동 변환돼요</span>', render: renderBusinessRegNumberChatForm, echo: (p) => p.businessRegistrationNumber || '' },
   { fieldKey: 'businessType', prompt: '업태가 어떻게 되나요?', render: renderBusinessTypeChatForm, echo: (p) => (p.businessType || [])[0] || '' },
-  // foundingDate — company_profiles에 개업일 자체를 저장하는 컬럼은 없다
-  // (업력만 계산해 저장). "이미 채워졌는지" 판단은 그래서 businessAgeYears로
-  // 한다 — buildOnboardingIdentityQueue의 foundingDate 특수분기 참고.
   { fieldKey: 'foundingDate', prompt: '개업일이 언제인가요?<br><span style="color:var(--ink-soft);font-size:0.85em">업력을 자동으로 계산해드려요</span>', render: renderFoundingDateChatForm, echo: (p) => p.businessAgeYears != null ? `업력 약 ${p.businessAgeYears}년으로 계산했어요` : '' },
 ];
 
@@ -4418,9 +4415,10 @@ function buildOnboardingIdentityQueue(force) {
   const p = currentProfile || {};
   return ONBOARDING_IDENTITY_FIELD_DEFS.filter(def => {
     if (def.fieldKey === 'businessType') return !(p.businessType && p.businessType.length);
-    // foundingDate는 저장 컬럼이 없어(businessAgeYears로만 반영) p.foundingDate가
-    // 항상 undefined다 — 실제로 이미 답했는지는 businessAgeYears 존재 여부로 판단.
-    if (def.fieldKey === 'foundingDate') return p.businessAgeYears == null;
+    // foundingDate — 2026-08-06부터 company_profiles.founding_date로 실제
+    // 저장되므로(예전엔 businessAgeYears로만 간접 반영) 이제 그 값으로
+    // 바로 판단한다.
+    if (def.fieldKey === 'foundingDate') return p.foundingDate == null;
     return !p[def.fieldKey];
   });
 }
@@ -4636,7 +4634,7 @@ function onboardingCardPromptText(card) {
 // AI확인 경로에서 여전히 그대로 씀)을 재사용하지 않고, 핵심 2~3개
 // 필드만 받는 전용 미니폼(renderTrackRecordQuickForm/
 // renderLicenseQuickForm)을 새로 쓴다 — 나머지 세부항목은
-// #/me/profile·#/me/licenses의 정식 화면에서 나중에 채운다.
+// #/me/saved-searches·#/me/saved-searches의 정식 화면에서 나중에 채운다.
 const ONBOARDING_QUICK_FORM_RENDERERS = {
   region: renderRegionQuickForm,
   industry: renderIndustryQuickForm,
@@ -5003,7 +5001,7 @@ async function startOnboardingEmployeeVerificationUpload(actionEl, state, advanc
 
 // renderOnboardingRevenueAction — 2026-08-05 신설. 매출액도 직원수와 같은
 // 구조: 1순위 재무제표 첨부 AI 자동추출, 2순위 직접 숫자입력. 새 백엔드
-// 엔드포인트를 만들지 않고 이미 있는 재무정보 화면(#/me/profile "재무·
+// 엔드포인트를 만들지 않고 이미 있는 재무정보 화면(#/me/saved-searches "재무·
 // 실적정보" 탭, company_financials.go)의 업로드+추출 엔드포인트
 // (POST /api/me/financials/documents)를 그대로 재사용한다 — 그 응답의
 // candidate.revenue만 뽑아 쓰고, company_financials(연도별 재무제표
@@ -5159,6 +5157,11 @@ function companyProfileUpdatePayload(overrides) {
     businessType: p.businessType || [],
     region: p.region || null,
     industry: p.industry || [],
+    // foundingDate — 2026-08-06, source of truth 전환(company_profiles.founding_date
+    // 신규 컬럼). 서버가 이 값 기준으로 businessAgeYears를 매 조회마다
+    // 다시 계산해 내려주므로, 여기선 그냥 현재 값을 다시 실어 보내기만
+    // 하면 된다(다른 필드들과 동일한 "항상 전체 상태 재전송" 관례).
+    foundingDate: p.foundingDate || null,
     businessAgeYears: p.businessAgeYears != null ? p.businessAgeYears : null,
     revenueAmount: p.revenueAmount != null ? p.revenueAmount : null,
     employeeCount: p.employeeCount != null ? p.employeeCount : null,
@@ -5359,7 +5362,7 @@ function renderRevenueAmountQuickForm(container, onSaved) {
 // 계약금액/완료여부 3개만). renderTrackRecordForm(13개 필드 전체)은 문서
 // 업로드 AI확인 경로에서 그대로 쓰고, 이 미니폼은 "직접 입력" 경로
 // 전용이다 — 나머지 세부항목(발주기관/계약일/수행기간/사업유형/산업분야/
-// 수행지역/공동수급여부/지분율/수행범위/핵심기술)은 #/me/profile의 정식
+// 수행지역/공동수급여부/지분율/수행범위/핵심기술)은 #/me/saved-searches의 정식
 // 등록 화면에서 나중에 채운다.
 function renderTrackRecordQuickForm(container, onSaved) {
   container.innerHTML = '';
@@ -5401,7 +5404,7 @@ function renderTrackRecordQuickForm(container, onSaved) {
 // 경로에서 그대로 쓴다. target(license/certification)은 어느 카드에서
 // 왔는지로 이미 정해져 있어 대상 select를 아예 안 보여준다. category는
 // 백엔드가 필수로 요구해서(company_licenses.go) 대상 라벨을 그대로 채워
-// 보낸다 — 상세 구분은 나중에 #/me/licenses 화면에서 정식으로 수정 가능.
+// 보낸다 — 상세 구분은 나중에 #/me/saved-searches 화면에서 정식으로 수정 가능.
 function renderLicenseQuickForm(container, target, onSaved) {
   const label = target === 'certification' ? '인증' : '면허';
   container.innerHTML = '';
@@ -5640,7 +5643,7 @@ function renderGrowthSummaryHtml(g) {
         <div class="stat-highlight-value">${g.overallCompleteness}<span class="stat-highlight-unit">%</span></div>
         <div class="stat-highlight-label">AI가 귀사를 파악한 정도 — 높을수록 더 정확하게 판정할 수 있어요</div>
       </div>
-      <a href="#/me/profile" class="official-link">프로필 보완하기 &rarr;</a>
+      <a href="#/me/saved-searches" class="official-link">프로필 보완하기 &rarr;</a>
     </div>
   `;
 }
@@ -5704,7 +5707,7 @@ function renderEligibilitySummaryHtml(eg, overallCompleteness) {
       <p class="license-card-meta">현재 활성화된 공고 ${total}건 기준</p>
       ${eligibilitySummaryRowsHtml(eg, overallCompleteness)}
       ${!isLowConfidence && eg.insufficientData > 0 && missingLabels.length ? `
-        <p class="license-card-meta">${escapeHtml(missingLabels.join('·'))} 정보가 없어 ${eg.insufficientData}건을 정확하게 판정하지 못했습니다. <a href="#/me/profile">입력하기 &rarr;</a></p>
+        <p class="license-card-meta">${escapeHtml(missingLabels.join('·'))} 정보가 없어 ${eg.insufficientData}건을 정확하게 판정하지 못했습니다. <a href="#/me/saved-searches">입력하기 &rarr;</a></p>
       ` : ''}
     </div>
   `;
@@ -6571,7 +6574,7 @@ async function renderPipelineDetail(container, id) {
       if ((data.items || []).length === 0) {
         const hintEl = document.getElementById('pipeline-no-contact-hint');
         if (hintEl) {
-          hintEl.innerHTML = `<p class="auth-step-hint"><a href="#/me/profile">담당자 관리</a>에서 미리 등록해두면 다음부터 자동으로 채워집니다.</p>`;
+          hintEl.innerHTML = `<p class="auth-step-hint"><a href="#/me/saved-searches">담당자 관리</a>에서 미리 등록해두면 다음부터 자동으로 채워집니다.</p>`;
         }
       }
     }).catch(() => {});
@@ -6721,7 +6724,7 @@ function wireLoadContactButton(container) {
       return;
     }
     if (!items.length) {
-      picker.innerHTML = `<p class="auth-step-hint">등록된 담당자가 없습니다. <a href="#/me/profile">담당자 관리</a>에서 먼저 등록하세요.</p>`;
+      picker.innerHTML = `<p class="auth-step-hint">등록된 담당자가 없습니다. <a href="#/me/saved-searches">담당자 관리</a>에서 먼저 등록하세요.</p>`;
       return;
     }
     picker.innerHTML = `
@@ -7056,14 +7059,71 @@ const SAVED_SEARCH_NOTICE_TYPE_OPTIONS = [
   { value: 'support_program', label: '지원사업' },
 ];
 
-// renderSavedSearches — 2026-08-06, 기업프로필의 "담당자 관리"를 이
-// 화면으로 통합(경쟁서비스 격차정리 — 담당자 관리와 맞춤공고 알림설정이
-// 같은 화면에 있어야 "이 알림을 받을 담당자"를 바로 고를 수 있다).
-// 담당자 목록(/api/me/contacts)을 병렬로 불러와 (1) 상단 접이식 "담당자
-// 관리" 섹션(renderContactsTab을 그대로 재사용 — 컨테이너만 받으면
-// 동작하는 범용 함수라 탭이든 여기든 그대로 꽂힌다), (2) 각 카드/폼의
-// "이 알림을 받을 담당자" 체크박스 목록 두 곳에 같이 쓴다.
+// SAVED_SEARCHES_TABS — 2026-08-06, 기업프로필 메뉴 완전 삭제 + 그 안의
+// 모든 기능(기본정보/재무정보/수행실적/인력정보 + 별도 라우트였던
+// #/me/saved-searches의 면허·인증·지식재산권)을 맞춤공고 화면으로 통합. 각
+// 렌더 함수는 전부 "컨테이너 하나만 받으면 동작하는" 기존 범용 함수라
+// (renderProfileBasicTab/renderFinancialsTab/renderTrackRecordsTab/
+// renderPersonnelTab/renderLicenses/renderContactsTab) 새로 만들 필요 없이
+// 이 탭 디스패치에 그대로 꽂는다 — #/me/saved-searches이 쓰던 것과 동일한
+// .profile-tabs 패턴(renderProfile은 이제 사용하지 않음, route()가
+// #/me/saved-searches을 여기로 리다이렉트).
+const SAVED_SEARCHES_TABS = [
+  { key: 'searches', label: '맞춤공고', render: renderSavedSearchesListTab },
+  { key: 'contacts', label: '담당자 관리', render: renderContactsTab },
+  { key: 'basic', label: '기업정보', render: renderProfileBasicTab },
+  { key: 'financials', label: '재무정보', render: renderFinancialsTab },
+  { key: 'trackRecords', label: '수행실적', render: renderTrackRecordsTab },
+  { key: 'personnel', label: '인력정보', render: renderPersonnelTab },
+  { key: 'licenses', label: '면허·인증', render: renderLicenses },
+];
+
 async function renderSavedSearches(container) {
+  // 기업정보 탭(renderProfileBasicTab)이 currentProfile 전역을 직접 읽으므로,
+  // 예전 renderProfile과 동일하게 진입 시 최신 상태로 한 번 갱신한다 —
+  // 다른 화면(예: 프로필 수정 모달)에서 바뀐 값이 여기 들어와도 항상
+  // 최신으로 보이게.
+  let me;
+  try {
+    me = await apiRequest('GET', '/api/me');
+  } catch (err) {
+    location.hash = '#/auth/login';
+    return;
+  }
+  currentUser = me.user;
+  currentProfile = me.companyProfile;
+  renderHeader();
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <h2>맞춤공고</h2>
+    <div id="profile-completeness-section"></div>
+    <div class="profile-tabs">
+      ${SAVED_SEARCHES_TABS.map((t, i) => `<button type="button" class="profile-tab-btn${i === 0 ? ' is-active' : ''}" data-tab="${t.key}">${escapeHtml(t.label)}</button>`).join('')}
+    </div>
+    <div id="saved-searches-tab-content"></div>
+  `));
+  renderProfileCompletenessCard(document.getElementById('profile-completeness-section'));
+
+  const tabContent = document.getElementById('saved-searches-tab-content');
+  const tabRenderers = {};
+  SAVED_SEARCHES_TABS.forEach(t => { tabRenderers[t.key] = () => t.render(tabContent); });
+  tabRenderers[SAVED_SEARCHES_TABS[0].key]();
+
+  container.querySelectorAll('.profile-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.profile-tab-btn').forEach(b => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      tabRenderers[btn.dataset.tab]();
+    });
+  });
+}
+
+// renderSavedSearchesListTab — 맞춤공고 조건 목록+생성/수정 폼(예전
+// renderSavedSearches의 본문). 담당자 목록은 "이 알림을 받을 담당자"
+// 체크박스/카드 요약에 계속 필요해 그대로 불러온다 — 관리 UI 자체는
+// "담당자 관리" 탭으로 옮겨갔다.
+async function renderSavedSearchesListTab(container) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
 
@@ -7083,21 +7143,13 @@ async function renderSavedSearches(container) {
 
   container.innerHTML = '';
   container.appendChild(h(`
-    <h2>맞춤공고</h2>
-    <p class="license-card-meta">검색조건을 저장해두면 새로 등록되는 공고가 매일 아침 이메일로 도착합니다.</p>
-    <details class="saved-search-contacts-section">
-      <summary>담당자 관리 (${contacts.length}명)</summary>
-      <p class="license-card-meta">여기 등록한 담당자를 아래 각 맞춤공고 조건의 "알림을 받을 담당자"로 선택할 수 있습니다.</p>
-      <div id="saved-search-contacts-slot"></div>
-    </details>
+    <p class="license-card-meta">검색조건을 저장해두면 새로 등록되는 공고가 매일 아침 이메일로 도착합니다. 알림을 받을 담당자는 "담당자 관리" 탭에서 등록해두면 아래에서 바로 선택할 수 있습니다.</p>
     <div class="license-toolbar">
       <button type="button" id="saved-search-add-btn" class="btn btn-primary btn-sm">새 조건 만들기</button>
     </div>
     <div id="saved-search-form-slot"></div>
     <div class="license-list" id="saved-search-list"></div>
   `));
-
-  renderContactsTab(document.getElementById('saved-search-contacts-slot'));
 
   const listEl = document.getElementById('saved-search-list');
   if (!items.length) {
@@ -7108,12 +7160,12 @@ async function renderSavedSearches(container) {
 
   const formSlot = document.getElementById('saved-search-form-slot');
   document.getElementById('saved-search-add-btn').addEventListener('click', () => {
-    renderSavedSearchForm(formSlot, null, contacts, () => renderSavedSearches(container));
+    renderSavedSearchForm(formSlot, null, contacts, () => renderSavedSearchesListTab(container));
   });
   listEl.querySelectorAll('.saved-search-edit-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const item = items.find(i => i.id === btn.dataset.id);
-      renderSavedSearchForm(formSlot, item, contacts, () => renderSavedSearches(container));
+      renderSavedSearchForm(formSlot, item, contacts, () => renderSavedSearchesListTab(container));
     });
   });
   listEl.querySelectorAll('.saved-search-delete-btn').forEach(btn => {
@@ -7121,7 +7173,7 @@ async function renderSavedSearches(container) {
       if (!confirm('이 맞춤공고 조건을 삭제하시겠습니까?')) return;
       try {
         await apiRequest('DELETE', '/api/me/saved-searches/' + encodeURIComponent(btn.dataset.id));
-        renderSavedSearches(container);
+        renderSavedSearchesListTab(container);
       } catch (err) {
         alert(err.message);
       }
@@ -7130,6 +7182,7 @@ async function renderSavedSearches(container) {
   listEl.querySelectorAll('.saved-search-results-link').forEach(a => {
     a.addEventListener('click', () => { noticeListState = null; }); // 새 조건 결과이므로 무한스크롤 캐시 폐기
   });
+  wireFoundingDateCardControls(listEl, items, contacts, () => renderSavedSearchesListTab(container));
 }
 
 function savedSearchResultsHash(item) {
@@ -7167,6 +7220,60 @@ function savedSearchNotificationSummary(item, contacts) {
   return parts.join(' · ');
 }
 
+// foundingDateSectionHtml — 2026-08-06, "내 기본 조건"(origin==='onboarding')
+// 카드 전용 개업일/업력 표시. founding_date는 카드 단위가 아니라
+// company_profiles(회사 전체) 필드라 currentProfile 전역을 그대로 읽는다
+// — 이 카드가 "우리 회사 기본 정보"를 대표하는 온보딩 자동생성 카드라는
+// 기존 배지 관례를 그대로 이어받아, 이미 등록돼 있으면 계산된 값만
+// 읽기전용으로 보여주고(개업일이 source of truth, 직접입력 아님), 아직
+// 없으면 등록할 수 있는 입력창을 연다.
+function foundingDateSectionHtml(item) {
+  if (item.origin !== 'onboarding') return '';
+  const p = currentProfile || {};
+  if (p.foundingDate) {
+    const ageLabel = p.businessAgeYears != null ? `약 ${p.businessAgeYears}년` : '계산 중';
+    return `<p class="license-card-meta">개업일 ${escapeHtml(p.foundingDate)} · 업력 ${escapeHtml(ageLabel)}</p>`;
+  }
+  return `
+    <div class="saved-search-founding-date-form">
+      <label class="license-card-meta">개업일을 등록하면 업력을 자동으로 계산해요
+        <input type="date" class="saved-search-founding-date-input" max="${new Date().toISOString().slice(0, 10)}">
+      </label>
+      <button type="button" class="btn btn-secondary btn-sm saved-search-founding-date-save-btn">저장</button>
+      <span class="saved-search-founding-date-error error" style="display:none"></span>
+    </div>
+  `;
+}
+
+// wireFoundingDateCardControls — foundingDateSectionHtml의 저장 버튼 클릭
+// 처리. companyProfileUpdatePayload(다른 필드는 현재 값 그대로 재전송,
+// foundingDate만 덮어씀)를 그대로 재사용 — 새 엔드포인트 없음.
+function wireFoundingDateCardControls(listEl, items, contacts, onSaved) {
+  listEl.querySelectorAll('.saved-search-founding-date-save-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const wrap = btn.closest('.saved-search-founding-date-form');
+      const input = wrap.querySelector('.saved-search-founding-date-input');
+      const errorEl = wrap.querySelector('.saved-search-founding-date-error');
+      errorEl.style.display = 'none';
+      if (!input.value || computeBusinessAgeYears(input.value) == null) {
+        errorEl.textContent = '올바른 개업일을 입력해주세요.';
+        errorEl.style.display = 'block';
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ foundingDate: input.value }));
+        currentProfile = data.companyProfile;
+        onSaved();
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
 function savedSearchCardHtml(item, contacts) {
   const conditionParts = [];
   const noticeTypeLabel = (SAVED_SEARCH_NOTICE_TYPE_OPTIONS.find(o => o.value === (item.noticeType || '')) || {}).label;
@@ -7190,6 +7297,7 @@ function savedSearchCardHtml(item, contacts) {
         <div class="license-card-name">${escapeHtml(item.name)} ${item.alertEnabled ? '<span class="badge badge--success">알림 켜짐</span>' : '<span class="badge badge--gray">알림 꺼짐</span>'} ${originBadge}</div>
         <div class="license-card-meta">${conditionParts.length ? conditionParts.join(' · ') : '조건 없음(전체 공고)'}</div>
         <div class="license-card-meta">${escapeHtml(savedSearchNotificationSummary(item, contacts))}</div>
+        ${foundingDateSectionHtml(item)}
       </div>
       <div class="license-card-side">
         <a class="btn btn-secondary btn-sm saved-search-results-link" href="${escapeAttr(savedSearchResultsHash(item))}">결과 보기</a>
@@ -7516,7 +7624,7 @@ function renderPipelineReviewButtons(container, noticeId) {
       btn.textContent = '참여 검토 시작';
       if (err.status === 401) { location.hash = '#/auth/login'; return; }
       if (err.status === 400 && err.code === 'company_profile_required') {
-        errEl.innerHTML = '회사 정보를 등록하면 참여 검토를 시작할 수 있습니다. <a href="#/me/profile">기업 프로필 등록하기 →</a>';
+        errEl.innerHTML = '회사 정보를 등록하면 참여 검토를 시작할 수 있습니다. <a href="#/me/saved-searches">기업 프로필 등록하기 →</a>';
       } else if (err.code === 'pipeline_quota_exceeded') {
         const limit = err.data && err.data.limit;
         const base = limit ? '현재 플랜의 파이프라인 등록 한도(' + limit + '건)에 도달했습니다.' : ERROR_MESSAGES.pipeline_quota_exceeded;
@@ -8107,7 +8215,7 @@ function renderParticipationSection(container, score, isMinimalProfile) {
     container.appendChild(h(`
       <div class="ai-participation-card ai-participation-card--cta">
         <p class="ai-participation-cta-text">회사 정보를 등록하면 AI가 이 공고의 참여 가능성을 분석해 드립니다.</p>
-        <a href="#/me/profile" class="home-cta-primary">회사 정보 등록하기</a>
+        <a href="#/me/saved-searches" class="home-cta-primary">회사 정보 등록하기</a>
       </div>
     `));
     return;
@@ -8126,7 +8234,7 @@ function renderParticipationSection(container, score, isMinimalProfile) {
         // 판정이 애매한 경우에만 "채우면 해결됨" 안내+링크를 붙인다 — 공고 쪽
         // 데이터 공백(notice)은 프로필을 채워도 해결되지 않으므로 보여주지 않는다.
         const hintHtml = c.result === 'insufficient_data' && c.dataGapSide === 'company'
-          ? '<p class="elig-hint">이 정보가 있으면 더 정확히 판정됩니다. <a href="#/me/profile">기업 프로필에서 채우기 &rarr;</a></p>'
+          ? '<p class="elig-hint">이 정보가 있으면 더 정확히 판정됩니다. <a href="#/me/saved-searches">기업 프로필에서 채우기 &rarr;</a></p>'
           : '';
         return `
         <li class="elig-item${isNoticeGap ? ' elig-item--notice-gap' : ''}">
@@ -8144,7 +8252,7 @@ function renderParticipationSection(container, score, isMinimalProfile) {
   // 보여준다 — 공고 쪽 데이터 공백(dataGapSide==='notice')은 프로필을 채워도
   // 해결되지 않으므로 이 링크를 보여주면 잘못된 안내가 된다.
   const nextAction = missing.some(c => c.dataGapSide === 'company')
-    ? '<a href="#/me/profile" class="ai-next-action">회사 정보 보완하기 &rarr;</a>'
+    ? '<a href="#/me/saved-searches" class="ai-next-action">회사 정보 보완하기 &rarr;</a>'
     : '';
 
   container.appendChild(h(`
@@ -8154,7 +8262,7 @@ function renderParticipationSection(container, score, isMinimalProfile) {
         <span class="ai-participation-score">${score.totalCount}개 중 ${score.metCount}개 충족</span>
       </div>
       ${score.gradeReason ? `<p class="ai-grade-reason">${escapeHtml(score.gradeReason)}</p>` : ''}
-      ${isMinimalProfile ? `<p class="ai-minimal-profile-notice">간이 판정입니다 — 정확도를 높이려면 <a href="#/me/profile">프로필을 더 채워주세요</a>.</p>` : ''}
+      ${isMinimalProfile ? `<p class="ai-minimal-profile-notice">간이 판정입니다 — 정확도를 높이려면 <a href="#/me/saved-searches">프로필을 더 채워주세요</a>.</p>` : ''}
       <p class="ai-participation-subtitle">부족한 조건</p>
       ${missingHtml}
       ${nextAction}
@@ -8300,7 +8408,7 @@ function oauthButtonsHtml() {
 // 1단계: 이메일/비번 -> 계정 생성. 2단계: 지역/업종/기업규모 3개만
 // 필수 입력 -> 저장 즉시 홈(추천 리스트)으로 이동. 나머지 상세 프로필
 // (면허/인증/재무/실적/인력)은 여기서 다루지 않고 "회사 정보" 화면의
-// 완성도 카드에서 나중에 채우도록 유도한다(#/me/profile은 그대로 유지).
+// 완성도 카드에서 나중에 채우도록 유도한다(#/me/saved-searches은 그대로 유지).
 // pendingInviteToken — 로그인/가입 전에 팀 초대 링크(#/invite?token=...)로
 // 들어온 경우 그 토큰을 잠깐 담아둔다. 가입/로그인 성공 직후 이 값이
 // 있으면 자동으로 초대를 수락한다("받은 사람이 가입/로그인하면 자동
@@ -9050,9 +9158,9 @@ function fillProfileForm(form, profile) {
   form.querySelectorAll('input[name="industry"]').forEach(cb => {
     cb.checked = selectedIndustry.has(cb.value);
   });
-  // foundingDate — 2026-08-05: 개업일 자체는 저장하지 않아(업력만 계산해
-  // 저장) 프리필할 원본 날짜가 없다. 폼은 항상 비워둔 채로 열리고, 현재
-  // 값은 openProfileEditModal이 별도로 붙이는 안내문(약 N년)으로만 보여준다.
+  // foundingDate — 2026-08-06부터 founding_date 컬럼에 실제로 저장되므로
+  // (예전엔 안 그랬음) 다른 필드들과 동일하게 프리필한다.
+  if (form.foundingDate) form.foundingDate.value = profile.foundingDate || '';
   form.revenueAmount.value = formatCurrency(profile.revenueAmount);
   form.employeeCount.value = profile.employeeCount ?? '';
   form.companySize.value = profile.companySize || '';
@@ -9431,59 +9539,6 @@ async function renderProfileCompletenessCard(container) {
   `));
 }
 
-async function renderProfile(container) {
-  container.innerHTML = '';
-  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
-
-  let me;
-  try {
-    me = await apiRequest('GET', '/api/me');
-  } catch (err) {
-    location.hash = '#/auth/login';
-    return;
-  }
-  currentUser = me.user;
-  currentProfile = me.companyProfile;
-  renderHeader();
-
-  container.innerHTML = '';
-  container.appendChild(h(`
-    <h2>기업 프로필</h2>
-    <div id="profile-completeness-section"></div>
-    <div class="profile-tabs">
-      <button type="button" class="profile-tab-btn is-active" data-tab="basic">기본 정보</button>
-      <button type="button" class="profile-tab-btn" data-tab="financials">재무정보</button>
-      <button type="button" class="profile-tab-btn" data-tab="track-records">수행실적</button>
-      <button type="button" class="profile-tab-btn" data-tab="personnel">인력정보</button>
-    </div>
-    <div id="profile-tab-content"></div>
-  `));
-  // 담당자 관리 — 2026-08-06, 맞춤공고 화면(#/me/saved-searches)으로
-  // 이동(그 화면에서 맞춤공고별 알림 수신자로 바로 고를 수 있어야 해서).
-  // 기업프로필에는 완전히 숨기지 않고 바로가기 링크만 남긴다.
-  container.querySelector('.profile-tabs').insertAdjacentHTML('afterend',
-    `<p class="license-card-meta" style="margin:-0.5rem 0 1rem;">담당자 관리는 <a href="#/me/saved-searches">맞춤공고</a> 화면으로 이동했습니다.</p>`);
-
-  renderProfileCompletenessCard(document.getElementById('profile-completeness-section'));
-
-  const tabContent = document.getElementById('profile-tab-content');
-  const tabRenderers = {
-    basic: () => renderProfileBasicTab(tabContent),
-    financials: () => renderFinancialsTab(tabContent),
-    'track-records': () => renderTrackRecordsTab(tabContent),
-    personnel: () => renderPersonnelTab(tabContent),
-  };
-  tabRenderers.basic();
-
-  container.querySelectorAll('.profile-tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      container.querySelectorAll('.profile-tab-btn').forEach(b => b.classList.remove('is-active'));
-      btn.classList.add('is-active');
-      tabRenderers[btn.dataset.tab]();
-    });
-  });
-}
-
 // OAUTH_PROVIDER_LABELS — user_oauth_identities.provider 값을 화면
 //표시용 한글 이름으로. oauthButtonsHtml(로그인/가입 화면의 소셜 버튼)과
 // 같은 3개 제공자.
@@ -9808,10 +9863,10 @@ function openProfileEditModal(summaryContainer) {
             `).join('')}
           </div>
         </div>
-        <label>개업일 <span style="font-weight:400;color:var(--ink-soft);font-size:0.85em">(업력 자동계산용 — 비워두면 기존 값 유지)</span>
+        <label>개업일 <span style="font-weight:400;color:var(--ink-soft);font-size:0.85em">(업력을 자동으로 계산해요)</span>
           <input type="date" name="foundingDate" max="${new Date().toISOString().slice(0, 10)}">
         </label>
-        ${currentProfile && currentProfile.businessAgeYears != null ? `<p style="color:var(--ink-soft);font-size:0.85em;margin:-0.5rem 0 0.75rem">현재 등록된 업력: 약 ${currentProfile.businessAgeYears}년</p>` : ''}
+        ${currentProfile && currentProfile.businessAgeYears != null ? `<p style="color:var(--ink-soft);font-size:0.85em;margin:-0.5rem 0 0.75rem">현재 업력: 약 ${currentProfile.businessAgeYears}년</p>` : ''}
         <label>기업 규모
           <select name="companySize" class="select-input">
             <option value="">선택 안 함</option>
@@ -9908,19 +9963,23 @@ function openProfileEditModal(summaryContainer) {
       return cleaned === null ? null : Number(cleaned);
     };
     const toList = (v) => (v || '').split(',').map(s => s.trim()).filter(Boolean);
-    // businessAgeYears — 2026-08-05: 폼엔 더 이상 이 필드가 직접 없다.
-    // 개업일을 입력했으면 그걸로 재계산하고, 비워뒀으면(수정할 생각이
-    // 없으면) 기존 저장값을 그대로 유지한다 — 이 폼은 항상 전체 UPDATE라
-    // 여기서 null을 보내면 기존 값이 지워진다.
-    const foundingDateVal = fd.get('foundingDate');
-    const businessAgeYears = foundingDateVal
-      ? computeBusinessAgeYears(foundingDateVal)
-      : (currentProfile && currentProfile.businessAgeYears != null ? currentProfile.businessAgeYears : null);
+    // foundingDate — 2026-08-06부터 founding_date 컬럼에 그대로 저장되고
+    // (더 이상 여기서 클라이언트가 businessAgeYears를 미리 계산해 보내지
+    // 않는다), 서버가 매 조회마다 이 값 기준으로 업력을 다시 계산한다
+    // (getCompanyProfile 참고). 폼이 이미 현재 값으로 프리필돼 있으므로
+    // (fillProfileForm) 사용자가 그대로 두면 그대로 재전송되고, 지우면
+    // null이 저장돼 다음부턴 예전 저장값으로 폴백한다.
+    const foundingDateVal = fd.get('foundingDate') || null;
+    if (foundingDateVal && computeBusinessAgeYears(foundingDateVal) == null) {
+      errorBox.textContent = '올바른 개업일을 입력해주세요.';
+      errorBox.style.display = 'block';
+      return;
+    }
     const payload = {
       businessType: toList(fd.get('businessType')),
       region: fd.get('region') || null,
       industry: fd.getAll('industry'),
-      businessAgeYears,
+      foundingDate: foundingDateVal,
       revenueAmount: toNum(fd.get('revenueAmount')),
       employeeCount: toNum(fd.get('employeeCount')),
       companySize: fd.get('companySize') || null,
@@ -10724,7 +10783,6 @@ async function renderLicenses(container) {
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="detail-card">
-      <h2>면허·인증</h2>
       <p class="license-card-meta">사업 참여에 필요한 면허·신고·등록, 인증 현황을 관리합니다.</p>
       ${uploadGuideHtml('중소기업확인서, 직접생산확인증명서, 각종 면허증·인증서, 법인등기사항증명서, 경쟁입찰참가자격등록증, 기업부설연구소 인정서 등을 올려주세요. (사업자등록증은 최초 회사 등록 시 자동으로 반영됩니다)')}
       <div class="license-toolbar">
@@ -11328,7 +11386,7 @@ async function renderMySubscription(container) {
     if (err.status === 401) { location.hash = '#/auth/login'; return; }
     container.innerHTML = '';
     if (err.status === 400) {
-      container.appendChild(h('<p class="empty">회사 프로필을 먼저 등록해주세요. <a href="#/me/profile">프로필 등록하기</a></p>'));
+      container.appendChild(h('<p class="empty">회사 프로필을 먼저 등록해주세요. <a href="#/me/saved-searches">프로필 등록하기</a></p>'));
       return;
     }
     container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
@@ -11603,7 +11661,7 @@ async function renderGrowthAnalytics(container) {
     if (err.status === 401) { location.hash = '#/auth/login'; return; }
     container.innerHTML = '';
     if (err.status === 400) {
-      container.appendChild(h('<p class="empty">기업 프로필을 먼저 등록해주세요. <a href="#/me/profile">프로필 등록하기</a></p>'));
+      container.appendChild(h('<p class="empty">기업 프로필을 먼저 등록해주세요. <a href="#/me/saved-searches">프로필 등록하기</a></p>'));
       return;
     }
     container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
@@ -13712,12 +13770,16 @@ function route() {
   if (path === '#/auth/verify-email') { renderVerifyEmail(app); return; }
   if (path === '#/auth/oauth-profile') { document.body.classList.add('is-auth'); renderOAuthProfileStep(app); return; }
   if (path === '#/onboarding/complete') { renderOnboardingChat(app); return; }
-  if (path === '#/me/profile') { renderProfile(app); return; }
+  // #/me/saved-searches, #/me/saved-searches — 2026-08-06, 기업프로필 메뉴 완전 삭제
+  // + 맞춤공고 화면으로 통합(SAVED_SEARCHES_TABS). 옛 북마크/링크가 안
+  // 깨지도록 라우트 자체는 남기고 리다이렉트만 한다(renderProfile/
+  // renderLicenses는 더 이상 라우트 진입점이 아니지만, 그 안의
+  // 렌더 함수들 — renderProfileBasicTab 등 — 은 탭 콘텐츠로 계속 쓰인다).
+  if (path === '#/me/profile' || path === '#/me/licenses') { location.hash = '#/me/saved-searches'; return; }
   if (path === '#/me/account') { renderAccountSettings(app); return; }
   if (path === '#/me/bookmarks') { renderBookmarks(app); return; }
   if (path === '#/me/saved-searches') { renderSavedSearches(app); return; }
   if (path === '#/notifications') { renderNotifications(app); return; }
-  if (path === '#/me/licenses') { renderLicenses(app); return; }
   if (path === '#/review') { renderReviewQueue(app); return; }
   if (path === '#/notices') { renderList(app); return; }
   if (path === '#/pipeline') { renderPipelineList(app); return; }

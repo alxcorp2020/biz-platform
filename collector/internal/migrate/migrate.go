@@ -259,6 +259,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureSavedSearchNotificationColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches notification columns: %w", err)
 	}
+	if err := ensureCompanyProfileFoundingDateColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_profiles.founding_date column: %w", err)
+	}
 	return nil
 }
 
@@ -1884,6 +1887,24 @@ func ensureBusinessRegistrationColumns(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS company_name TEXT;
 		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS representative_name TEXT;
 		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS address TEXT;
+	`)
+	return err
+}
+
+// ensureCompanyProfileFoundingDateColumn adds company_profiles.founding_date —
+// 2026-08-06, 기업프로필-맞춤공고 통합 작업 중 발견한 근본 문제 수정.
+// 이전까지는 개업일 원본을 저장하는 컬럼이 아예 없어(business_registration.go/
+// 온보딩 채팅/프로필 수정모달 3곳이 전부 그 순간 computeBusinessAgeYears로
+// business_age_years만 계산해 저장하고 원본 날짜는 버림), 이후 재입력하지
+// 않으면 업력이 그 시점에 멈춘 채 굳어버리는 구조였다. 이제 founding_date를
+// source of truth로 저장하고, business_age_years는 매 조회 시 서버에서
+// 재계산해 응답한다(auth.go getCompanyProfile 참고) — "값이 아니라 원본
+// 날짜를 저장해서 항상 최신으로 계산"하는 원칙으로 전환. 신규 컬럼이라
+// 백필 대상 없음(과거엔 원본 자체가 없었으므로 NULL로 시작, 사용자가
+// 다음에 개업일을 입력하는 순간부터 정확해짐).
+func ensureCompanyProfileFoundingDateColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS founding_date DATE;
 	`)
 	return err
 }

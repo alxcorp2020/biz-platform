@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/mail"
 	"strconv"
@@ -333,15 +334,22 @@ type companyProfileDTO struct {
 	BusinessType               []string `json:"businessType"`
 	Region                     *string  `json:"region"`
 	Industry                   []string `json:"industry"`
-	BusinessAgeYears           *float64 `json:"businessAgeYears"`
-	RevenueAmount              *int64   `json:"revenueAmount"`
-	EmployeeCount              *int64   `json:"employeeCount"`
-	CompanySize                *string  `json:"companySize"`
-	Licenses                   []string `json:"licenses"`
-	Certifications             []string `json:"certifications"`
-	DirectProductionCert       bool     `json:"directProductionCert"`
-	MaxPerformanceAmount       *int64   `json:"maxPerformanceAmount"`
-	CreditRating               *string  `json:"creditRating"`
+	// FoundingDate/BusinessAgeYears — 2026-08-06, 업력 계산의 source of
+	// truth를 개업일 원본으로 전환(migrate.go ensureCompanyProfileFoundingDateColumn
+	// 주석 참고). FoundingDate가 있으면 BusinessAgeYears는 매 조회마다
+	// computeBusinessAgeYears로 다시 계산한 값이다(저장된 옛 값을 그대로
+	// 안 돌려줌 — 그래야 재입력 안 해도 업력이 계속 정확하다). FoundingDate가
+	// 없는 옛 계정만 컬럼에 저장된 옛 값을 그대로 돌려준다(하위호환).
+	FoundingDate         *string  `json:"foundingDate"`
+	BusinessAgeYears     *float64 `json:"businessAgeYears"`
+	RevenueAmount        *int64   `json:"revenueAmount"`
+	EmployeeCount        *int64   `json:"employeeCount"`
+	CompanySize          *string  `json:"companySize"`
+	Licenses             []string `json:"licenses"`
+	Certifications       []string `json:"certifications"`
+	DirectProductionCert bool     `json:"directProductionCert"`
+	MaxPerformanceAmount *int64   `json:"maxPerformanceAmount"`
+	CreditRating         *string  `json:"creditRating"`
 	// EmployeeCountConfidence/VerifiedAt은 4대보험 사업장 가입자명부로
 	// employee_count를 확인했을 때만 채워진다(company_employee_verification.go).
 	EmployeeCountConfidence *string    `json:"employeeCountConfidence"`
@@ -372,11 +380,26 @@ type companyProfileDTO struct {
 // company_profiles) instead of the old direct company_profiles.user_id
 // lookup is what makes every one of those ~15 call sites work correctly for
 // both owners and members without individually touching them.
+// computeBusinessAgeYears mirrors the frontend's computeBusinessAgeYears
+// (index.html) exactly — (오늘 - 개업일) / 365.25, 소수점 첫째 자리까지.
+// 서버에서도 필요한 이유: getCompanyProfile이 매 조회마다 founding_date
+// 기준으로 다시 계산해 응답해야 재입력 없이도 업력이 항상 최신이다(프론트
+// 계산에만 의존하면 응답이 캐시되거나 다른 화면에서 그대로 표시될 때
+// 시점이 어긋날 수 있음).
+func computeBusinessAgeYears(founding time.Time) float64 {
+	days := time.Since(founding).Hours() / 24
+	if days < 0 {
+		days = 0
+	}
+	return math.Round((days/365.25)*10) / 10
+}
+
 func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProfileDTO, error) {
 	var p companyProfileDTO
 	var region, companySize, creditRating, employeeCountConfidence, phoneNumber sql.NullString
 	var bizRegNumber, companyName, repName, address sql.NullString
 	var businessAgeYears sql.NullFloat64
+	var foundingDate sql.NullTime
 	var revenueAmount, employeeCount, maxPerformanceAmount sql.NullInt64
 	var employeeCountVerifiedAt, onboardingCompletedAt sql.NullTime
 	var businessType, industry, licenses, certs pq.StringArray
@@ -384,7 +407,7 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT cp.id, cm.role, cp.business_registration_number, cp.company_name, cp.representative_name, cp.address,
-		       cp.business_type, cp.region, cp.industry, cp.business_age_years, cp.revenue_amount,
+		       cp.business_type, cp.region, cp.industry, cp.business_age_years, cp.founding_date, cp.revenue_amount,
 		       cp.employee_count, cp.company_size, cp.licenses, cp.certifications,
 		       cp.direct_production_cert, cp.max_performance_amount, cp.credit_rating,
 		       cp.employee_count_confidence, cp.employee_count_verified_at,
@@ -394,7 +417,7 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 		JOIN company_profiles cp ON cp.id = cm.company_profile_id
 		WHERE cm.user_id = $1`, userID,
 	).Scan(&p.ID, &p.Role, &bizRegNumber, &companyName, &repName, &address,
-		&businessType, &region, &industry, &businessAgeYears, &revenueAmount,
+		&businessType, &region, &industry, &businessAgeYears, &foundingDate, &revenueAmount,
 		&employeeCount, &companySize, &licenses, &certs,
 		&p.DirectProductionCert, &maxPerformanceAmount, &creditRating,
 		&employeeCountConfidence, &employeeCountVerifiedAt,
@@ -419,7 +442,12 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 	p.RevenueAmount = nullInt64Ptr(revenueAmount)
 	p.EmployeeCount = nullInt64Ptr(employeeCount)
 	p.MaxPerformanceAmount = nullInt64Ptr(maxPerformanceAmount)
-	if businessAgeYears.Valid {
+	if foundingDate.Valid {
+		dateStr := foundingDate.Time.Format("2006-01-02")
+		p.FoundingDate = &dateStr
+		age := computeBusinessAgeYears(foundingDate.Time)
+		p.BusinessAgeYears = &age
+	} else if businessAgeYears.Valid {
 		p.BusinessAgeYears = &businessAgeYears.Float64
 	}
 	p.Licenses = []string(licenses)
@@ -516,15 +544,23 @@ type companyProfileRequest struct {
 	BusinessType               []string `json:"businessType"`
 	Region                     *string  `json:"region"`
 	Industry                   []string `json:"industry"`
-	BusinessAgeYears           *float64 `json:"businessAgeYears"`
-	RevenueAmount              *int64   `json:"revenueAmount"`
-	EmployeeCount              *int64   `json:"employeeCount"`
-	CompanySize                *string  `json:"companySize"`
-	Licenses                   []string `json:"licenses"`
-	Certifications             []string `json:"certifications"`
-	DirectProductionCert       bool     `json:"directProductionCert"`
-	MaxPerformanceAmount       *int64   `json:"maxPerformanceAmount"`
-	CreditRating               *string  `json:"creditRating"`
+	// FoundingDate — 2026-08-06. company_profiles.founding_date(YYYY-MM-DD)로
+	// 그대로 저장되고, 서버가 이 값 기준으로 BusinessAgeYears를 계산해
+	// 함께 저장한다. 다른 필드와 달리 "생략하면 기존 값을 그대로 둔다"
+	// (COALESCE, handleUpsertCompanyProfile 참고) — 이 값은 매번 재전송을
+	// 강제하지 않는다(개업일을 실수로 안 보내서 지워지는 사고를 막기
+	// 위함, 프론트는 그래도 항상 현재 값을 프리필해서 재전송하지만
+	// 안전장치로 서버도 이렇게 동작). BusinessAgeYears는 더 이상 요청
+	// 필드로 안 받는다 — 항상 FoundingDate에서 파생.
+	FoundingDate         *string  `json:"foundingDate"`
+	RevenueAmount        *int64   `json:"revenueAmount"`
+	EmployeeCount        *int64   `json:"employeeCount"`
+	CompanySize          *string  `json:"companySize"`
+	Licenses             []string `json:"licenses"`
+	Certifications       []string `json:"certifications"`
+	DirectProductionCert bool     `json:"directProductionCert"`
+	MaxPerformanceAmount *int64   `json:"maxPerformanceAmount"`
+	CreditRating         *string  `json:"creditRating"`
 	// PhoneNumber — 사업자 대표전화번호(회사 단위, 개인 휴대폰번호인
 	// users.phone_number와 별개). 회원가입 2단계(업체정보)에서 필수로
 	// 받기 시작했고, 이후 "회사정보 수정" 화면에서도 같은 필드를 공유한다.
@@ -553,6 +589,23 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_industry_group"})
 			return
 		}
+	}
+
+	// foundingDate — 제공되면 파싱해서 businessAgeYears를 서버에서 다시
+	// 계산한다(계산식을 클라이언트에 의존하지 않음). nil이면 두 컬럼 다
+	// 건드리지 않고(COALESCE) 기존 값을 그대로 둔다 — INSERT/UPDATE 각각
+	// 아래에서 이 두 변수를 그대로 파라미터로 쓴다.
+	var foundingDate *time.Time
+	var businessAgeYears *float64
+	if req.FoundingDate != nil && *req.FoundingDate != "" {
+		parsed, err := time.Parse("2006-01-02", *req.FoundingDate)
+		if err != nil || parsed.After(time.Now()) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_founding_date"})
+			return
+		}
+		foundingDate = &parsed
+		age := computeBusinessAgeYears(parsed)
+		businessAgeYears = &age
 	}
 
 	businessType := pq.Array(req.BusinessType)
@@ -610,13 +663,13 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 		var newID string
 		if err := tx.QueryRowContext(r.Context(), `
 			INSERT INTO company_profiles (
-				user_id, business_type, region, industry, business_age_years,
+				user_id, business_type, region, industry, business_age_years, founding_date,
 				revenue_amount, employee_count, company_size, licenses, certifications,
 				direct_production_cert, max_performance_amount, credit_rating, phone_number,
 				business_registration_number, company_name, representative_name, address
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 			RETURNING id`,
-			userID, businessType, req.Region, industry, req.BusinessAgeYears,
+			userID, businessType, req.Region, industry, businessAgeYears, foundingDate,
 			req.RevenueAmount, req.EmployeeCount, req.CompanySize, licenses, certifications,
 			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating, req.PhoneNumber,
 			req.BusinessRegistrationNumber, req.CompanyName, req.RepresentativeName, req.Address,
@@ -643,15 +696,22 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_only"})
 			return
 		}
+		// business_age_years/founding_date만 COALESCE로 "안 보내면 기존 값
+		// 유지" — 이 endpoint의 다른 필드는 전부 항상 전체 재전송을
+		// 기대하지만(프론트 companyProfileUpdatePayload 관례), 개업일은
+		// 실수로 안 보내는 것만으로 업력이 지워지는 사고를 막기 위한
+		// 예외(companyProfileRequest.FoundingDate 주석 참고).
 		_, err = s.db.ExecContext(r.Context(), `
 			UPDATE company_profiles SET
-				business_type = $2, region = $3, industry = $4, business_age_years = $5,
-				revenue_amount = $6, employee_count = $7, company_size = $8, licenses = $9,
-				certifications = $10, direct_production_cert = $11,
-				max_performance_amount = $12, credit_rating = $13, phone_number = $14,
-				business_registration_number = $15, company_name = $16, representative_name = $17, address = $18
+				business_type = $2, region = $3, industry = $4,
+				business_age_years = COALESCE($5, business_age_years), founding_date = COALESCE($6, founding_date),
+				revenue_amount = $7, employee_count = $8, company_size = $9, licenses = $10,
+				certifications = $11, direct_production_cert = $12,
+				max_performance_amount = $13, credit_rating = $14, phone_number = $15,
+				business_registration_number = $16, company_name = $17, representative_name = $18, address = $19
 			WHERE id = $1`,
-			existing.ID, businessType, req.Region, industry, req.BusinessAgeYears,
+			existing.ID, businessType, req.Region, industry,
+			businessAgeYears, foundingDate,
 			req.RevenueAmount, req.EmployeeCount, req.CompanySize, licenses, certifications,
 			req.DirectProductionCert, req.MaxPerformanceAmount, req.CreditRating, req.PhoneNumber,
 			req.BusinessRegistrationNumber, req.CompanyName, req.RepresentativeName, req.Address)
