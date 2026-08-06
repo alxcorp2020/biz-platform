@@ -123,6 +123,8 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .row-card-subtitle { font-size: var(--text-caption); color: var(--ink-soft); }
+  .row-card-match-reasons { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
+  .row-card-match-reasons .badge { font-size: 0.72rem; }
   .row-card-side { display: flex; align-items: center; gap: 0.85rem; flex-shrink: 0; }
   .row-card-arrow { color: var(--border); font-size: 1.2rem; line-height: 1; }
   .row-card:hover .row-card-arrow { color: var(--accent-blue); }
@@ -6711,7 +6713,7 @@ function renderList(container) {
   // 새로 fetch하지 않고 이미 불러온 항목을 그대로 다시 그린 뒤 저장해둔
   // 스크롤 위치로 복원한다.
   if (noticeListState && noticeListState.key === key) {
-    renderNoticeListItems(listBody, noticeListState.items, noticeListState.total);
+    renderNoticeListItems(listBody, noticeListState.items, noticeListState.total, !!params.get('savedSearchName'));
     wireNoticeListLoadMore(listBody, key);
     const savedScrollY = noticeListState.scrollY || 0;
     requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, savedScrollY)));
@@ -6742,7 +6744,7 @@ async function loadMoreNotices(listBody, key, filterParams, isFirstPage) {
     noticeListState.total = data.total || 0;
     noticeListState.hasMore = !!data.hasMore;
     noticeListState.loading = false;
-    renderNoticeListItems(listBody, noticeListState.items, noticeListState.total);
+    renderNoticeListItems(listBody, noticeListState.items, noticeListState.total, !!filterParams.get('savedSearchName'));
     wireNoticeListLoadMore(listBody, key);
   } catch (err) {
     if (noticeListState) noticeListState.loading = false;
@@ -6758,8 +6760,14 @@ async function loadMoreNotices(listBody, key, filterParams, isFirstPage) {
 }
 
 // noticeRowHtml — 검색 결과 전체 화면과 관심공고(#/me/bookmarks)가 같은
-// 행 카드 마크업을 쓰므로 공유한다.
-function noticeRowHtml(n) {
+// 행 카드 마크업을 쓰므로 공유한다. showMatchReasons는 맞춤공고 "결과
+// 보기" 화면에서만 true — 평소 검색 화면은 원칙대로 단순하게 유지하고
+// (보이는 필터값과 중복이라 배지가 굳이 필요 없음), 맞춤공고 결과에서만
+// "왜 이 공고가 뽑혔는지"(2026-08-06, 비드큐 P1 9번)를 보여준다.
+function noticeRowHtml(n, showMatchReasons) {
+  const matchReasonsHtml = showMatchReasons && n.matchReasons && n.matchReasons.length
+    ? `<div class="row-card-match-reasons">${n.matchReasons.map(r => `<span class="badge badge--blue">${escapeHtml(r)}</span>`).join('')}</div>`
+    : '';
   return `
     <div class="row-card notice-row" data-id="${escapeAttr(n.id)}">
       <div class="row-card-main">
@@ -6770,6 +6778,7 @@ function noticeRowHtml(n) {
           ${n.recentlyChanged ? '<span class="status-badge status-badge--warn" title="최근 7일 내 공고 내용이 변경되었습니다">정정</span>' : ''}
           ${n.regionRestricted === true ? '<span class="row-card-region-restricted" title="지역제한 있음">📍제한</span>' : ''}
         </div>
+        ${matchReasonsHtml}
       </div>
       <div class="row-card-side">
         ${bookmarkButtonHtml(n.id, n.isBookmarked)}
@@ -6797,7 +6806,7 @@ function noticeListCounterText(count, total) {
     : `${count.toLocaleString()}건 표시 중`;
 }
 
-function renderNoticeListItems(listBody, items, total) {
+function renderNoticeListItems(listBody, items, total, showMatchReasons) {
   if (!items.length) {
     listBody.className = 'empty';
     listBody.innerHTML = '';
@@ -6809,7 +6818,7 @@ function renderNoticeListItems(listBody, items, total) {
   // "지금까지 몇 건 봤는지"를 계속 확인할 수 있게.
   const rows = items.map((item, idx) => {
     const shown = idx + 1;
-    const row = noticeRowHtml(item);
+    const row = noticeRowHtml(item, showMatchReasons);
     if (shown % NOTICE_LIST_BATCH_SIZE === 0) {
       return row + `<p class="notice-list-batch-divider">${escapeHtml(noticeListCounterText(shown, total))}</p>`;
     }

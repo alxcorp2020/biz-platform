@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -262,6 +263,13 @@ type noticeListItem struct {
 	// notice_changes 존재 여부).
 	RegionRestricted *bool `json:"regionRestricted,omitempty"`
 	RecentlyChanged  bool  `json:"recentlyChanged,omitempty"`
+	// MatchReasons — 2026-08-06, 맞춤공고 "결과 보기"에서 "왜 이 공고가
+	// 뽑혔는지"를 보여주기 위한 필드. handleListNotices가 이 요청에 실제로
+	// 걸려 있던 필터(지역/업종/발주기관/예산범위/포함키워드)를 근거로
+	// 계산해서 채운다 — 일반 검색(#/notices 수동 검색)에서도 값은 채워지지만
+	// 프론트는 맞춤공고 결과 화면(savedSearchName 파라미터가 있을 때)에서만
+	// 배지로 그린다(평소 검색 화면은 원칙대로 단순하게 유지).
+	MatchReasons []string `json:"matchReasons,omitempty"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -290,6 +298,73 @@ func parseListingIntParam(raw string, def int) int {
 		return def
 	}
 	return n
+}
+
+// splitNonEmpty splits a comma-separated string and trims/drops empty
+// pieces — shared by the keywordsInclude WHERE절 빌더와 matchReasons의
+// 키워드 하이라이트 로직이 "무엇을 하나의 키워드로 칠지"에 대해 항상
+// 같은 정의를 쓰게 한다.
+func splitNonEmpty(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// computeBaseMatchReasons — 2026-08-06, 맞춤공고 "결과 보기"에서 "왜 이
+// 공고가 뽑혔는지" 표시용(비드큐 P1 9번). 지역/업종/발주기관/예산범위는
+// handleListNotices의 WHERE절에서 전부 AND 조건으로 걸리므로, 이 함수가
+// 반환하는 목록에 포함된 이상 그 쿼리 결과 안의 모든 행이 이미 만족한
+// 상태다 — 그래서 row별 값을 다시 비교할 필요 없이 "이 필터가 걸려
+// 있었는지"만 보면 된다(포함 키워드는 OR 조건이라 다르다 —
+// computeKeywordMatchReason 참고).
+func computeBaseMatchReasons(region, industry, organizationName, budgetMinRaw, budgetMaxRaw string) []string {
+	var reasons []string
+	var locFields []string
+	if region != "" {
+		locFields = append(locFields, "지역")
+	}
+	if industry != "" {
+		locFields = append(locFields, "업종")
+	}
+	if len(locFields) > 0 {
+		reasons = append(reasons, strings.Join(locFields, "·")+" 조건 일치")
+	}
+	if organizationName != "" {
+		reasons = append(reasons, "발주기관 조건 일치")
+	}
+	if budgetMinRaw != "" || budgetMaxRaw != "" {
+		reasons = append(reasons, "예산범위 조건 일치")
+	}
+	return reasons
+}
+
+// computeKeywordMatchReason returns which of matchKeywords actually appear
+// in title(대소문자 무시 부분일치 — SQL ILIKE와 같은 기준) — 포함 키워드는
+// OR 조건이라 다른 필터들과 달리 설정된 키워드 전부가 이 특정 행에
+// 걸렸다고 보장되지 않는다.
+func computeKeywordMatchReason(matchKeywords []string, title string) string {
+	if len(matchKeywords) == 0 {
+		return ""
+	}
+	lowerTitle := strings.ToLower(title)
+	var matched []string
+	for _, kw := range matchKeywords {
+		if strings.Contains(lowerTitle, strings.ToLower(kw)) {
+			matched = append(matched, kw)
+		}
+	}
+	if len(matched) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("키워드 '%s' 포함", strings.Join(matched, ", "))
 }
 
 // noticeListSortOrderBy — sort 쿼리파라미터 화이트리스트. 사용자 입력을
@@ -375,18 +450,12 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 			query += " AND n.budget_amount <= " + addArg(v)
 		}
 	}
-	if includeRaw := q.Get("keywordsInclude"); includeRaw != "" {
+	if includeKeywords := splitNonEmpty(q.Get("keywordsInclude")); len(includeKeywords) > 0 {
 		var orParts []string
-		for _, kw := range strings.Split(includeRaw, ",") {
-			kw = strings.TrimSpace(kw)
-			if kw == "" {
-				continue
-			}
+		for _, kw := range includeKeywords {
 			orParts = append(orParts, "n.title ILIKE "+addArg("%"+kw+"%"))
 		}
-		if len(orParts) > 0 {
-			query += " AND (" + strings.Join(orParts, " OR ") + ")"
-		}
+		query += " AND (" + strings.Join(orParts, " OR ") + ")"
 	}
 	if excludeRaw := q.Get("keywordsExclude"); excludeRaw != "" {
 		for _, kw := range strings.Split(excludeRaw, ",") {
@@ -398,6 +467,17 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	query += " ORDER BY " + orderBy + " LIMIT " + addArg(limit) + " OFFSET " + addArg(offset)
+
+	// matchReasons 계산용 필터 목록 — 위 WHERE절에 쓴 것과 정확히 같은
+	// 값이어야 한다(같은 q.Get 호출). region/industry/keyword는 변수명이
+	// row 스캔 루프 안에서 스캔 결과로 가려지므로 여기서 별도 이름으로
+	// 미리 떼어둔다. 지역/업종/발주기관/예산범위는 전부 WHERE절의 AND
+	// 조건이라 이 쿼리로 나온 행은 이미 전부 만족한 상태 — 그래서 "이
+	// 필터가 걸려 있었는지"만 보면 되고, row별 값을 다시 확인할 필요는
+	// 없다. 포함 키워드만 OR 조건이라 어떤 키워드가 실제로 이 제목에
+	// 걸렸는지 row마다 다시 확인해야 한다(computeKeywordMatchReason).
+	baseMatchReasons := computeBaseMatchReasons(region, industry, q.Get("organizationName"), q.Get("budgetMin"), q.Get("budgetMax"))
+	matchKeywords := splitNonEmpty(q.Get("keywordsInclude"))
 
 	rows, err := s.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
@@ -435,6 +515,13 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		}
 		if deadline.Valid {
 			it.ApplicationEndAt = &deadline.Time
+		}
+		if len(baseMatchReasons) > 0 || len(matchKeywords) > 0 {
+			reasons := append([]string{}, baseMatchReasons...)
+			if kwReason := computeKeywordMatchReason(matchKeywords, it.Title); kwReason != "" {
+				reasons = append(reasons, kwReason)
+			}
+			it.MatchReasons = reasons
 		}
 		items = append(items, it)
 	}
