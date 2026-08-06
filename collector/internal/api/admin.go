@@ -538,16 +538,28 @@ func (s *Server) handleAdminNotificationFailures(w http.ResponseWriter, r *http.
 	if _, ok := s.requireSystemAdmin(w, r); !ok {
 		return
 	}
-	limit := parseListingIntParam(r.URL.Query().Get("limit"), 50)
-	if limit <= 0 || limit > 200 {
-		limit = 50
+	// 2026-08-06: 관리자 화면 가독성 긴급수정 — 실패 건이 쌓일수록 한
+	// 화면에 전부(최대 200건) 쏟아내던 걸 페이지네이션으로 전환. limit
+	// 기본값도 요청 범위(20~30건)에 맞춰 20으로 낮춤.
+	limit := parseListingIntParam(r.URL.Query().Get("limit"), 20)
+	if limit <= 0 || limit > 100 {
+		limit = 20
 	}
+	offset := parseListingIntParam(r.URL.Query().Get("offset"), 0)
+
+	var total int
+	if err := s.db.QueryRowContext(r.Context(), `SELECT count(*) FROM notification_log WHERE status = 'failed'`).Scan(&total); err != nil {
+		s.logger.Error("admin-notification-failures: count query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+
 	rows, err := s.db.QueryContext(r.Context(), `
 		SELECT id, event_type, channel, recipient_email, recipient_phone, subject, error_message, created_at
 		FROM notification_log
 		WHERE status = 'failed'
 		ORDER BY created_at DESC
-		LIMIT $1`, limit)
+		LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		s.logger.Error("admin-notification-failures: query failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
@@ -577,5 +589,5 @@ func (s *Server) handleAdminNotificationFailures(w http.ResponseWriter, r *http.
 	if err := rows.Err(); err != nil {
 		s.logger.Error("admin-notification-failures: rows iteration failed", "error", err)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "limit": limit, "offset": offset})
 }
