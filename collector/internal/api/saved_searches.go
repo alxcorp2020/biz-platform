@@ -469,33 +469,22 @@ func (s *Server) handleDeleteSavedSearch(w http.ResponseWriter, r *http.Request)
 }
 
 // findActiveSavedSearchIndustryConflict — 2026-08-07, 활성화 시도 시 업종
-// 중복 검사. 같은 회사(company_members로 묶인 전체 팀원 — saved_searches
-// 자체는 user_id 단위지만, 중복 추천 방지는 "이 회사"가 실제로 이메일을
-// 몇 번 받는지의 문제라 팀원 전체를 봐야 한다) 소유의 다른 "활성" 조건
-// 중 업종이 정확히 같은 게 있으면 그 이름을 반환한다(없으면 빈 문자열).
+// 중복 검사. 같은 사용자(user_id) 소유의 다른 "활성" 조건 중 업종이
+// 정확히 같은 게 있으면 그 이름을 반환한다(없으면 빈 문자열) — 이
+// 기능 전체의 기존 원칙("개인 단위, 팀 공유 아님", saved_searches.go
+// 맨 위 주석 참고)을 그대로 따라 비교 범위도 이 사용자 자신의 조건으로
+// 한정한다(팀원 전체로 넓혔다가 사용자 재지시로 되돌림, 2026-08-07).
 // industry가 비어있으면(업종 제한 없음) 검사를 건너뛴다 — "업종이
 // 겹친다"는 표현은 구체적인 업종값이 같을 때를 뜻한다고 해석했다.
 func (s *Server) findActiveSavedSearchIndustryConflict(ctx context.Context, userID, excludeID, industry string) (string, error) {
 	if industry == "" {
 		return "", nil
 	}
-	profileID, err := s.companyProfileIDForUser(ctx, userID)
-	if err != nil {
-		return "", err
-	}
-	if profileID == "" {
-		return "", nil
-	}
 	var name string
-	err = s.db.QueryRowContext(ctx, `
-		SELECT ss.name
-		FROM saved_searches ss
-		JOIN company_members cm ON cm.user_id = ss.user_id
-		WHERE cm.company_profile_id = $1
-		  AND ss.is_active = true
-		  AND ss.industry = $2
-		  AND ss.id != $3
-		LIMIT 1`, profileID, industry, excludeID).Scan(&name)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT name FROM saved_searches
+		WHERE user_id = $1 AND is_active = true AND industry = $2 AND id != $3
+		LIMIT 1`, userID, industry, excludeID).Scan(&name)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -514,9 +503,9 @@ func (s *Server) findActiveSavedSearchIndustryConflict(ctx context.Context, user
 //     끄려는 시도(isActive=false) 자체를 거부한다. 프론트도 이 카드의
 //     토글 UI를 아예 렌더링하지 않지만, 직접 API 호출을 막기 위해
 //     서버에서도 재검증한다.
-//  2. 그 외 조건을 켜려는 시도(isActive=true)는 같은 회사의 다른 활성
-//     조건과 업종이 겹치면 거부한다(중복 추천/중복 알림 방지) — 끄는
-//     시도는 검사하지 않는다.
+//  2. 그 외 조건을 켜려는 시도(isActive=true)는 이 사용자 자신의 다른
+//     활성 조건과 업종이 겹치면 거부한다(중복 추천/중복 알림 방지) —
+//     끄는 시도는 검사하지 않는다.
 func (s *Server) handleSetSavedSearchActive(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {

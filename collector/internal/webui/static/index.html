@@ -7791,13 +7791,13 @@ function savedSearchCardHtml(item, contacts) {
 
   // 활성/비활성 토글 — "복제" 직후엔 항상 꺼진 상태로 시작(2026-08-07).
   // 꺼지면 검색 매칭·다이제스트·리마인더·"결과 보기"까지 전부 중단되고
-  // 카드도 흐리게 표시된다. 켜려고 할 때는 서버가 같은 회사의 다른 활성
-  // 조건과 업종이 겹치는지 검사한다(handleSetSavedSearchActive) — 중복
-  // 추천/중복 알림 방지.
+  // 카드도 흐리게 표시된다. 켜려고 할 때는 서버가 이 사용자 자신의 다른
+  // 활성 조건과 업종이 겹치는지 검사한다(handleSetSavedSearchActive) —
+  // 중복 추천/중복 알림 방지.
   const activeToggleHtml = isOnboardingDefault
     ? ''
     : `
-    <label class="toggle-switch" title="꺼두면 이 조건은 검색 매칭과 알림이 모두 중단됩니다(결과 보기 포함). 켜려면 같은 회사의 다른 활성 조건과 업종이 겹치지 않아야 합니다.">
+    <label class="toggle-switch" title="꺼두면 이 조건은 검색 매칭과 알림이 모두 중단됩니다(결과 보기 포함). 켜려면 내 다른 활성 조건과 업종이 겹치지 않아야 합니다.">
       <input type="checkbox" class="saved-search-active-toggle" data-id="${escapeAttr(item.id)}" ${item.isActive ? 'checked' : ''}>
       <span class="toggle-switch-track"><span class="toggle-switch-thumb"></span></span>
       <span class="toggle-switch-label">${item.isActive ? '활성' : '비활성'}</span>
