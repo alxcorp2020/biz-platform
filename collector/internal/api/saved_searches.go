@@ -263,12 +263,18 @@ func (f savedSearchConditionFields) equal(o savedSearchConditionFields) bool {
 }
 
 // findDuplicateSavedSearch — 저장(생성/수정) 직전에 같은 사용자가 가진
-// 다른 맞춤공고 중 조건 필드가 완전히 같은 게 있는지 찾는다. excludeID는
-// 수정 시 자기 자신을 비교 대상에서 빼기 위함(생성 시엔 빈 문자열 —
-// saved_searches.id는 항상 uuid라 빈 문자열과 절대 같을 수 없어 안전).
-// 동시 저장 경합(두 탭에서 동시에 같은 조건을 저장하는 등)에 대비해
-// DB 유니크 제약이 아니라 매 저장 요청마다 서버에서 재검증한다(스펙
-// 요구사항 — 폼 입력 중에는 막지 않고 실제 저장 시도 시점에만 검증).
+// 다른 "활성" 맞춤공고 중 조건 필드가 완전히 같은 게 있는지 찾는다.
+// excludeID는 수정 시 자기 자신을 비교 대상에서 빼기 위함(생성 시엔
+// 빈 문자열 — saved_searches.id는 항상 uuid라 빈 문자열과 절대 같을 수
+// 없어 안전). 동시 저장 경합(두 탭에서 동시에 같은 조건을 저장하는 등)에
+// 대비해 DB 유니크 제약이 아니라 매 저장 요청마다 서버에서 재검증한다
+// (스펙 요구사항 — 폼 입력 중에는 막지 않고 실제 저장 시도 시점에만
+// 검증). 비교 대상을 "활성" 조건으로 한정하는 이유(2026-08-07 버그
+// 수정) — 원래는 활성/비활성 구분 없이 전부 비교했는데, 그러면 "복제"
+// 직후 원본과 조건이 100% 같은 비활성 사본을 수정하려는 모든 시도가
+// (아직 필드를 원본과 다르게 안 바꿨다는 이유로) 이 검사에 걸려 막다른
+// 상황이 됐다 — 비활성 조건은 실제로 매칭/알림에 아무 영향이 없으니
+// 애초에 "중복"으로 취급할 이유가 없다.
 func (s *Server) findDuplicateSavedSearch(ctx context.Context, userID, excludeID string, candidate savedSearchConditionFields) (*savedSearchItem, error) {
 	// excludeID가 빈 문자열(생성 시)이면 그대로 uuid 파라미터에 바인딩하지
 	// 않는다 — id 컬럼이 uuid 타입이라 ""를 캐스팅하려다 "invalid input
@@ -278,7 +284,7 @@ func (s *Server) findDuplicateSavedSearch(ctx context.Context, userID, excludeID
 	if excludeID != "" {
 		excludeArg = excludeID
 	}
-	rows, err := s.db.QueryContext(ctx, savedSearchSelect+` WHERE user_id = $1 AND ($2::uuid IS NULL OR id != $2::uuid)`, userID, excludeArg)
+	rows, err := s.db.QueryContext(ctx, savedSearchSelect+` WHERE user_id = $1 AND is_active = true AND ($2::uuid IS NULL OR id != $2::uuid)`, userID, excludeArg)
 	if err != nil {
 		return nil, err
 	}
@@ -385,21 +391,44 @@ func (s *Server) handleUpdateSavedSearch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	includeKeywords := cleanKeywords(req.KeywordsInclude)
-	excludeKeywords := cleanKeywords(req.KeywordsExclude)
-	dup, err := s.findDuplicateSavedSearch(ctx, userID, id, savedSearchConditionFields{
-		Region: req.Region, Industry: req.Industry, OrganizationName: req.OrganizationName,
-		BudgetMin: req.BudgetMin, BudgetMax: req.BudgetMax,
-		KeywordsInclude: includeKeywords, KeywordsExclude: excludeKeywords,
-	})
-	if err != nil {
-		s.logger.Error("update-saved-search: duplicate check failed", "error", err)
+	// 🚨2026-08-07 버그 수정: 수정(저장) 자체는 활성/비활성 상태와 무관하게
+	// 항상 가능해야 한다 — 조건이 겹치는지 검사하는 건 "활성화 시도" 시점의
+	// 몫(handleSetSavedSearchActive의 업종 검사)이지 수정 시점의 몫이
+	// 아니다. 이 항목이 지금 비활성이면 findDuplicateSavedSearch(조건 필드
+	// 완전 일치 검사)를 아예 건너뛴다 — 안 그러면 "복제" 직후 원본과 조건이
+	// 100% 같은 비활성 사본을 고치려는 모든 시도가, 아직 필드를 바꾸기 전
+	// 순간에는 여전히 원본과 똑같다는 이유로 막혀버려 영원히 못 벗어나는
+	// 막다른 상황이 된다. 이미 활성 상태인 항목을 수정할 때는 계속 검사한다
+	// (그 필드값이 지금 실제로 매칭/알림에 쓰이고 있으므로 다른 활성
+	// 조건과 겹치게 만드는 걸 막을 필요가 여전히 있다).
+	var currentlyActive bool
+	if err := s.db.QueryRowContext(ctx, `SELECT is_active FROM saved_searches WHERE id = $1 AND user_id = $2`, id, userID).Scan(&currentlyActive); err != nil {
+		if err == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "saved_search_not_found"})
+			return
+		}
+		s.logger.Error("update-saved-search: lookup failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
-	if dup != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "duplicate_saved_search", "existingName": dup.Name})
-		return
+
+	includeKeywords := cleanKeywords(req.KeywordsInclude)
+	excludeKeywords := cleanKeywords(req.KeywordsExclude)
+	if currentlyActive {
+		dup, err := s.findDuplicateSavedSearch(ctx, userID, id, savedSearchConditionFields{
+			Region: req.Region, Industry: req.Industry, OrganizationName: req.OrganizationName,
+			BudgetMin: req.BudgetMin, BudgetMax: req.BudgetMax,
+			KeywordsInclude: includeKeywords, KeywordsExclude: excludeKeywords,
+		})
+		if err != nil {
+			s.logger.Error("update-saved-search: duplicate check failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		if dup != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "duplicate_saved_search", "existingName": dup.Name})
+			return
+		}
 	}
 
 	res, err := s.db.ExecContext(ctx, `
