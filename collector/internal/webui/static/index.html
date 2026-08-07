@@ -246,6 +246,11 @@
   .dropdown-menu-item:hover { background: var(--bg-soft); }
   .dropdown-menu-item--danger { color: var(--danger); }
   .dropdown-divider { height: 1px; background: var(--border); margin: 0.3rem 0; border: none; }
+  /* openListPickerModal 전용 — 모달 안에서는 드롭다운보다 줄 사이 여백을
+     조금 더 준다(항목 텍스트가 이메일 등으로 길어질 수 있어 촘촘하면
+     읽기 어려움). */
+  .list-picker { display: flex; flex-direction: column; gap: 0.3rem; }
+  .list-picker .list-picker-item { font-size: 0.92rem; padding: 0.7rem 0.9rem; }
 
   /* main의 기본(모바일) 레이아웃 — 아래 "PC 좌측 고정 사이드바" 미디어
      쿼리의 main { margin-left: ... } 규칙보다 반드시 먼저 와야 한다.
@@ -2635,6 +2640,24 @@ function openConfirmModal(opts) {
       errBox.style.display = 'block';
       okBtn.disabled = false;
     }
+  });
+}
+
+// openListPickerModal — 트리거 버튼 옆에 작은 <select>를 펼치던 기존
+// 방식("선택 UI가 불명확하다"는 피드백, 2026-08-07)을 모달 목록으로
+// 바꾼다. items는 이미 조회해둔 배열, labelFn(item)이 각 줄 표시
+// 텍스트를, onSelect(item)이 선택 시 동작을 맡는다(모달은 선택 즉시
+// 스스로 닫는다 — 호출부가 따로 closeModal()을 부르지 않아도 됨).
+function openListPickerModal(title, items, labelFn, onSelect) {
+  const listHtml = items.map((it, i) => `
+    <button type="button" class="dropdown-menu-item list-picker-item" data-index="${i}">${escapeHtml(labelFn(it))}</button>
+  `).join('');
+  const body = openModal(title, `<div class="list-picker">${listHtml}</div>`);
+  body.querySelectorAll('.list-picker-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      onSelect(items[Number(btn.dataset.index)]);
+      closeModal();
+    });
   });
 }
 
@@ -6939,7 +6962,7 @@ function wireAssigneeSection(container, entry) {
   const memberPicker = section.querySelector('#load-member-picker');
   if (memberBtn) {
     memberBtn.addEventListener('click', async () => {
-      if (memberPicker.querySelector('select')) { memberPicker.innerHTML = ''; return; }
+      memberPicker.innerHTML = '';
       let items = [];
       try {
         const data = await apiRequest('GET', '/api/me/company/members');
@@ -6952,31 +6975,28 @@ function wireAssigneeSection(container, entry) {
         memberPicker.innerHTML = `<p class="auth-step-hint">등록된 회원계정이 없습니다.</p>`;
         return;
       }
-      memberPicker.innerHTML = `
-        <select id="load-member-select" class="select-input" style="margin-top:0.5rem">
-          <option value="">회원 선택...</option>
-          ${items.map(m => `<option value="${escapeAttr(m.userId)}">${escapeHtml(m.email)}${m.role === 'owner' ? ' (대표)' : ''}</option>`).join('')}
-        </select>
-      `;
-      memberPicker.querySelector('#load-member-select').addEventListener('change', (e) => {
-        const m = items.find(i => i.userId === e.target.value);
-        if (!m) return;
-        rerender({ ...entry, assigneeUserId: m.userId, assigneeName: m.email, assigneeEmail: m.email, assigneePhone: '' });
-      });
+      openListPickerModal(
+        '회원 선택',
+        items,
+        (m) => `${m.email}${m.role === 'owner' ? ' (대표)' : ''}`,
+        (m) => { rerender({ ...entry, assigneeUserId: m.userId, assigneeName: m.email, assigneeEmail: m.email, assigneePhone: '' }); },
+      );
     });
   }
 }
 
 // wireLoadContactButton — "담당자 목록에서 불러오기" 버튼. 클릭 시
-// company_contacts 목록을 select로 펼치고, 고르면 그 담당자의 이름/이메일/
-// 전화번호로 입력란 3개를 바로 채운다(폼 제출은 별도 — "저장" 버튼을
-// 눌러야 실제 반영된다, 실수로 덮어써도 저장 전이면 취소 가능).
+// company_contacts 목록을 모달 목록으로 보여주고(2026-08-07, 기존
+// 인라인 <select>가 "선택 UI가 불명확하다"는 피드백으로 모달로 교체),
+// 고르면 그 담당자의 이름/이메일/전화번호로 입력란 3개를 바로 채운다
+// (폼 제출은 별도 — "저장" 버튼을 눌러야 실제 반영된다, 실수로
+// 덮어써도 저장 전이면 취소 가능).
 function wireLoadContactButton(container) {
   const btn = container.querySelector('#load-contact-btn');
   const picker = container.querySelector('#load-contact-picker');
   if (!btn) return;
   btn.addEventListener('click', async () => {
-    if (picker.querySelector('select')) { picker.innerHTML = ''; return; }
+    picker.innerHTML = '';
     let items = [];
     try {
       const data = await apiRequest('GET', '/api/me/contacts');
@@ -6989,21 +7009,17 @@ function wireLoadContactButton(container) {
       picker.innerHTML = `<p class="auth-step-hint">등록된 담당자가 없습니다. <a href="#/me/saved-searches">담당자 관리</a>에서 먼저 등록하세요.</p>`;
       return;
     }
-    picker.innerHTML = `
-      <select id="load-contact-select" class="select-input" style="margin-top:0.5rem">
-        <option value="">담당자 선택...</option>
-        ${items.map(c => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.name)}${c.isDefault ? ' (기본)' : ''}</option>`).join('')}
-      </select>
-    `;
-    picker.querySelector('#load-contact-select').addEventListener('change', (e) => {
-      const c = items.find(i => i.id === e.target.value);
-      if (!c) return;
-      const form = container.querySelector('#pipeline-entry-form');
-      form.elements['assigneeName'].value = c.name || '';
-      form.elements['assigneeEmail'].value = c.email || '';
-      form.elements['assigneePhone'].value = c.phone || '';
-      picker.innerHTML = '';
-    });
+    openListPickerModal(
+      '담당자 선택',
+      items,
+      (c) => `${c.name}${c.isDefault ? ' (기본)' : ''}`,
+      (c) => {
+        const form = container.querySelector('#pipeline-entry-form');
+        form.elements['assigneeName'].value = c.name || '';
+        form.elements['assigneeEmail'].value = c.email || '';
+        form.elements['assigneePhone'].value = c.phone || '';
+      },
+    );
   });
 }
 
@@ -7412,6 +7428,13 @@ async function renderSavedSearches(container) {
 // 클릭 → 생성 즉시 그 새 조건의 수정 화면으로 이동"을 이 화면은 별도
 // URL 라우트 없이 인라인 폼으로 구현하므로, "이동"은 목록 재조회 후
 // 해당 카드의 수정 폼을 여는 것으로 표현한다.
+function nextDuplicateNameClientSide(existingNames, base) {
+  if (!existingNames.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const candidate = `${base} ${n}`;
+    if (!existingNames.has(candidate)) return candidate;
+  }
+}
 async function renderSavedSearchesListTab(container, autoEditId) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
@@ -7458,26 +7481,59 @@ async function renderSavedSearchesListTab(container, autoEditId) {
     });
   });
   listEl.querySelectorAll('.saved-search-duplicate-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      try {
-        const res = await apiRequest('POST', '/api/me/saved-searches/' + encodeURIComponent(btn.dataset.id) + '/duplicate');
-        renderSavedSearchesListTab(container, res.id);
-      } catch (err) {
-        alert(err.message);
-        btn.disabled = false;
-      }
+    btn.addEventListener('click', () => {
+      const source = items.find(i => i.id === btn.dataset.id);
+      if (!source) return;
+      // nextDuplicateNameClientSide — saved_searches.go의 nextDuplicateName과
+      // 같은 규칙("OO 복제" → 이미 있으면 "복제 2"/"복제 3"...)을 모달
+      // 기본값 미리보기용으로만 재계산한다. 실제 저장 시엔 사용자가
+      // 확인/수정한 값을 서버에 그대로 보내고, 서버는 그 값을 그대로 쓴다
+      // (2026-08-07, "복제 시 이름 확인 모달" 적용).
+      const existingNames = new Set(items.map(i => i.name));
+      const suggestedName = nextDuplicateNameClientSide(existingNames, source.name + ' 복제');
+      const body = openModal('맞춤공고 복제', `
+        <p class="modal-message">복제한 조건의 이름을 확인하거나 수정해주세요.</p>
+        <form id="duplicate-name-form" class="profile-form">
+          <label>조건 이름<input type="text" name="name" required value="${escapeAttr(suggestedName)}"></label>
+          <div id="duplicate-name-error" class="error" style="display:none"></div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" id="duplicate-name-cancel-btn">취소</button>
+            <button type="submit" class="btn btn-primary">복제</button>
+          </div>
+        </form>
+      `);
+      body.querySelector('#duplicate-name-cancel-btn').addEventListener('click', closeModal);
+      const form = body.querySelector('#duplicate-name-form');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errorBox = body.querySelector('#duplicate-name-error');
+        errorBox.style.display = 'none';
+        const submitBtn = form.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        try {
+          const res = await apiRequest('POST', '/api/me/saved-searches/' + encodeURIComponent(btn.dataset.id) + '/duplicate', { name: form.elements['name'].value });
+          closeModal();
+          renderSavedSearchesListTab(container, res.id);
+        } catch (err) {
+          errorBox.textContent = err.message;
+          errorBox.style.display = 'block';
+          submitBtn.disabled = false;
+        }
+      });
     });
   });
   listEl.querySelectorAll('.saved-search-delete-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('이 맞춤공고 조건을 삭제하시겠습니까?')) return;
-      try {
-        await apiRequest('DELETE', '/api/me/saved-searches/' + encodeURIComponent(btn.dataset.id));
-        renderSavedSearchesListTab(container);
-      } catch (err) {
-        alert(err.message);
-      }
+    btn.addEventListener('click', () => {
+      openConfirmModal({
+        title: '조건 삭제',
+        message: '이 맞춤공고 조건을 삭제하시겠습니까?',
+        confirmLabel: '삭제',
+        tone: 'danger',
+        onConfirm: async () => {
+          await apiRequest('DELETE', '/api/me/saved-searches/' + encodeURIComponent(btn.dataset.id));
+          renderSavedSearchesListTab(container);
+        },
+      });
     });
   });
   listEl.querySelectorAll('.saved-search-results-link').forEach(a => {
@@ -10247,19 +10303,19 @@ async function renderAccountSettings(container) {
         `).join('')}</ul>`
       : '<p style="color:var(--ink-soft);font-size:0.9rem">연결된 소셜 계정이 없습니다.</p>';
     slot.querySelectorAll('.account-provider-disconnect-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => {
         const provider = btn.dataset.provider;
-        const providerError = document.getElementById('account-providers-error');
-        providerError.style.display = 'none';
-        if (!confirm(`${OAUTH_PROVIDER_LABELS[provider] || provider} 연결을 해제하시겠습니까?`)) return;
-        try {
-          await apiRequest('DELETE', `/api/me/account/oauth/${encodeURIComponent(provider)}`);
-          data.connectedProviders = data.connectedProviders.filter(p => p !== provider);
-          renderProvidersSection();
-        } catch (err) {
-          providerError.textContent = err.message;
-          providerError.style.display = 'block';
-        }
+        openConfirmModal({
+          title: '소셜 계정 연결 해제',
+          message: `${OAUTH_PROVIDER_LABELS[provider] || provider} 연결을 해제하시겠습니까?`,
+          confirmLabel: '연결 해제',
+          tone: 'danger',
+          onConfirm: async () => {
+            await apiRequest('DELETE', `/api/me/account/oauth/${encodeURIComponent(provider)}`);
+            data.connectedProviders = data.connectedProviders.filter(p => p !== provider);
+            renderProvidersSection();
+          },
+        });
       });
     });
   }
@@ -10303,13 +10359,11 @@ async function renderAccountSettings(container) {
     <div class="detail-card">
       <h3>연결된 소셜 계정</h3>
       <div id="account-providers-slot"></div>
-      <div id="account-providers-error" class="error" style="display:none;margin-top:0.5rem"></div>
     </div>
 
     <div class="detail-card">
       <h3>회원 탈퇴</h3>
       <p style="color:var(--ink-soft);font-size:0.9rem">탈퇴 시 계정을 다시 사용할 수 없습니다.</p>
-      <div id="account-deactivate-error" class="error" style="display:none"></div>
       <button type="button" id="account-deactivate-btn" class="btn btn-danger">회원 탈퇴</button>
     </div>
   `));
@@ -10362,24 +10416,29 @@ async function renderAccountSettings(container) {
     });
   }
 
-  const deactivateError = document.getElementById('account-deactivate-error');
-  document.getElementById('account-deactivate-btn').addEventListener('click', async () => {
-    deactivateError.style.display = 'none';
-    if (!confirm('탈퇴 시 계정을 다시 사용할 수 없습니다. 정말 탈퇴하시겠습니까?')) return;
-    try {
-      await apiRequest('POST', '/api/me/account/deactivate', {});
-      currentUser = null;
-      currentProfile = null;
-      renderHeader();
-      location.hash = '#/';
-    } catch (err) {
-      // owner_has_other_members는 관리자 화면 문구("이 회원은...")가
-      // 본인 시점과 안 맞아 여기서만 직접 문구를 바꾼다.
-      deactivateError.textContent = err.code === 'owner_has_other_members'
-        ? '회원님은 조직의 소유자이고 다른 팀원이 남아있어 탈퇴할 수 없습니다. 먼저 팀원을 내보내거나 소유권을 이전해주세요.'
-        : err.message;
-      deactivateError.style.display = 'block';
-    }
+  document.getElementById('account-deactivate-btn').addEventListener('click', () => {
+    openConfirmModal({
+      title: '회원 탈퇴',
+      message: '탈퇴 시 계정을 다시 사용할 수 없습니다. 정말 탈퇴하시겠습니까?',
+      confirmLabel: '탈퇴',
+      tone: 'danger',
+      onConfirm: async () => {
+        try {
+          await apiRequest('POST', '/api/me/account/deactivate', {});
+        } catch (err) {
+          // owner_has_other_members는 관리자 화면 문구("이 회원은...")가
+          // 본인 시점과 안 맞아 여기서만 직접 문구를 바꾼다.
+          if (err.code === 'owner_has_other_members') {
+            throw new Error('회원님은 조직의 소유자이고 다른 팀원이 남아있어 탈퇴할 수 없습니다. 먼저 팀원을 내보내거나 소유권을 이전해주세요.');
+          }
+          throw err;
+        }
+        currentUser = null;
+        currentProfile = null;
+        renderHeader();
+        location.hash = '#/';
+      },
+    });
   });
 }
 
@@ -11288,14 +11347,17 @@ async function renderContactsTab(container) {
     });
   });
   listEl.querySelectorAll('.contact-delete-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('이 담당자를 삭제하시겠습니까?')) return;
-      try {
-        await apiRequest('DELETE', '/api/me/contacts/' + encodeURIComponent(btn.dataset.id));
-        renderContactsTab(container);
-      } catch (err) {
-        alert(err.message);
-      }
+    btn.addEventListener('click', () => {
+      openConfirmModal({
+        title: '담당자 삭제',
+        message: '이 담당자를 삭제하시겠습니까?',
+        confirmLabel: '삭제',
+        tone: 'danger',
+        onConfirm: async () => {
+          await apiRequest('DELETE', '/api/me/contacts/' + encodeURIComponent(btn.dataset.id));
+          renderContactsTab(container);
+        },
+      });
     });
   });
   listEl.querySelectorAll('.contact-set-default-btn').forEach(btn => {
@@ -12138,69 +12200,79 @@ async function renderMySubscription(container) {
 
   const cancelDowngradeBtn = document.getElementById('cancel-downgrade-btn');
   if (cancelDowngradeBtn) {
-    cancelDowngradeBtn.addEventListener('click', async () => {
-      if (!confirm('예약된 플랜 전환을 취소하시겠습니까?')) return;
-      try {
-        await apiRequest('POST', '/api/billing/cancel-downgrade', {});
-        renderMySubscription(container);
-      } catch (err) {
-        alert(err.message);
-      }
+    cancelDowngradeBtn.addEventListener('click', () => {
+      openConfirmModal({
+        title: '플랜 전환 취소',
+        message: '예약된 플랜 전환을 취소하시겠습니까?',
+        confirmLabel: '취소하기',
+        onConfirm: async () => {
+          await apiRequest('POST', '/api/billing/cancel-downgrade', {});
+          renderMySubscription(container);
+        },
+      });
     });
   }
 
   const refundBtn = document.getElementById('refund-request-btn');
   if (refundBtn) {
-    refundBtn.addEventListener('click', async () => {
-      if (!confirm('결제 후 서비스를 이용하지 않으셨습니다. 전액 환불 처리됩니다. 진행하시겠습니까?')) return;
-      refundBtn.disabled = true;
-      try {
-        const res = await apiRequest('POST', '/api/billing/refund-request', {});
-        // 2026-08-06: 이 결제 밑에 아직 유효한 이전 플랜 결제가 남아있으면
-        // Free가 아니라 그 플랜으로 자동 복귀한다 — 사용자가 헷갈리지 않게
-        // 어디로 복귀됐는지 명시한다.
-        const restoredName = PLAN_DISPLAY_NAMES[res.restoredPlan] || res.restoredPlan;
-        alert(res.restoredPlan && res.restoredPlan !== 'free'
-          ? `환불이 완료되었습니다. 이전에 결제하신 ${restoredName} 플랜으로 복귀합니다.`
-          : '환불이 완료되었습니다.');
-        renderMySubscription(container);
-      } catch (err) {
-        // already_used는 서버가 사용 이력 요약(usage)도 같이 내려준다 —
-        // "왜 안 되는지" 숫자로 납득할 수 있게 메시지에 그대로 붙인다.
-        let msg = err.message;
-        if (err.code === 'already_used' && err.data && err.data.usage) {
-          const u = err.data.usage;
-          msg += `\n(이번 결제 주기 중 AI 분석 ${u.aiAnalysisCount}건, 신규 파이프라인 ${u.pipelineCreatedCount}건 이용)`;
-        }
-        alert(msg);
-        refundBtn.disabled = false;
-      }
+    refundBtn.addEventListener('click', () => {
+      openConfirmModal({
+        title: '환불 신청',
+        message: '결제 후 서비스를 이용하지 않으셨습니다. 전액 환불 처리됩니다. 진행하시겠습니까?',
+        confirmLabel: '환불 신청',
+        tone: 'danger',
+        onConfirm: async () => {
+          let res;
+          try {
+            res = await apiRequest('POST', '/api/billing/refund-request', {});
+          } catch (err) {
+            // already_used는 서버가 사용 이력 요약(usage)도 같이 내려준다 —
+            // "왜 안 되는지" 숫자로 납득할 수 있게 메시지에 그대로 붙인다.
+            if (err.code === 'already_used' && err.data && err.data.usage) {
+              const u = err.data.usage;
+              throw new Error(err.message + `\n(이번 결제 주기 중 AI 분석 ${u.aiAnalysisCount}건, 신규 파이프라인 ${u.pipelineCreatedCount}건 이용)`);
+            }
+            throw err;
+          }
+          // 2026-08-06: 이 결제 밑에 아직 유효한 이전 플랜 결제가 남아있으면
+          // Free가 아니라 그 플랜으로 자동 복귀한다 — 사용자가 헷갈리지 않게
+          // 어디로 복귀됐는지 명시한다.
+          const restoredName = PLAN_DISPLAY_NAMES[res.restoredPlan] || res.restoredPlan;
+          alert(res.restoredPlan && res.restoredPlan !== 'free'
+            ? `환불이 완료되었습니다. 이전에 결제하신 ${restoredName} 플랜으로 복귀합니다.`
+            : '환불이 완료되었습니다.');
+          renderMySubscription(container);
+        },
+      });
     });
   }
   const cancelRenewalBtn = document.getElementById('cancel-renewal-btn');
   if (cancelRenewalBtn) {
-    cancelRenewalBtn.addEventListener('click', async () => {
-      if (!confirm('해지를 신청하시겠습니까?')) return;
-      cancelRenewalBtn.disabled = true;
-      try {
-        await apiRequest('POST', '/api/billing/cancel-renewal', {});
-        renderMySubscription(container);
-      } catch (err) {
-        alert(err.message);
-        cancelRenewalBtn.disabled = false;
-      }
+    cancelRenewalBtn.addEventListener('click', () => {
+      openConfirmModal({
+        title: '구독 해지 신청',
+        message: '해지를 신청하시겠습니까?',
+        confirmLabel: '해지 신청',
+        tone: 'danger',
+        onConfirm: async () => {
+          await apiRequest('POST', '/api/billing/cancel-renewal', {});
+          renderMySubscription(container);
+        },
+      });
     });
   }
   const resumeRenewalBtn = document.getElementById('resume-renewal-btn');
   if (resumeRenewalBtn) {
-    resumeRenewalBtn.addEventListener('click', async () => {
-      if (!confirm('해지 신청을 취소하시겠습니까?')) return;
-      try {
-        await apiRequest('POST', '/api/billing/resume-renewal', {});
-        renderMySubscription(container);
-      } catch (err) {
-        alert(err.message);
-      }
+    resumeRenewalBtn.addEventListener('click', () => {
+      openConfirmModal({
+        title: '해지 신청 취소',
+        message: '해지 신청을 취소하시겠습니까?',
+        confirmLabel: '취소하기',
+        onConfirm: async () => {
+          await apiRequest('POST', '/api/billing/resume-renewal', {});
+          renderMySubscription(container);
+        },
+      });
     });
   }
 
@@ -13565,10 +13637,11 @@ function renderBannerListInto(listEl, items, container) {
     row.querySelector('.banner-edit-btn').addEventListener('click', () => {
       renderBannerForm(document.getElementById('banner-form-slot'), banner, () => renderAdminBanners(container));
     });
-    row.querySelector('.banner-delete-btn').addEventListener('click', async () => {
-      if (!confirm('이 배너를 삭제할까요?')) return;
-      try { await apiRequest('DELETE', `/api/admin/banners/${encodeURIComponent(id)}`); renderAdminBanners(container); }
-      catch (err) { alert(err.message); }
+    row.querySelector('.banner-delete-btn').addEventListener('click', () => {
+      openConfirmModal({
+        title: '배너 삭제', message: '이 배너를 삭제할까요?', confirmLabel: '삭제', tone: 'danger',
+        onConfirm: async () => { await apiRequest('DELETE', `/api/admin/banners/${encodeURIComponent(id)}`); renderAdminBanners(container); },
+      });
     });
   });
 }
@@ -13693,10 +13766,11 @@ function renderPopupListInto(listEl, items, container) {
     row.querySelector('.popup-edit-btn').addEventListener('click', () => {
       renderPopupForm(document.getElementById('popup-form-slot'), popup, () => renderAdminPopups(container));
     });
-    row.querySelector('.popup-delete-btn').addEventListener('click', async () => {
-      if (!confirm('이 팝업을 삭제할까요?')) return;
-      try { await apiRequest('DELETE', `/api/admin/popups/${encodeURIComponent(id)}`); renderAdminPopups(container); }
-      catch (err) { alert(err.message); }
+    row.querySelector('.popup-delete-btn').addEventListener('click', () => {
+      openConfirmModal({
+        title: '팝업 삭제', message: '이 팝업을 삭제할까요?', confirmLabel: '삭제', tone: 'danger',
+        onConfirm: async () => { await apiRequest('DELETE', `/api/admin/popups/${encodeURIComponent(id)}`); renderAdminPopups(container); },
+      });
     });
   });
 }
@@ -13875,10 +13949,11 @@ function renderAnnouncementAdminListInto(listEl, items, container) {
         renderAnnouncementForm(document.getElementById('announcement-form-slot'), detail, () => renderAdminAnnouncements(container));
       } catch (err) { alert(err.message); }
     });
-    row.querySelector('.announcement-delete-btn').addEventListener('click', async () => {
-      if (!confirm('이 공지사항을 삭제할까요?')) return;
-      try { await apiRequest('DELETE', `/api/announcements/${encodeURIComponent(id)}`); renderAdminAnnouncements(container); }
-      catch (err) { alert(err.message); }
+    row.querySelector('.announcement-delete-btn').addEventListener('click', () => {
+      openConfirmModal({
+        title: '공지사항 삭제', message: '이 공지사항을 삭제할까요?', confirmLabel: '삭제', tone: 'danger',
+        onConfirm: async () => { await apiRequest('DELETE', `/api/announcements/${encodeURIComponent(id)}`); renderAdminAnnouncements(container); },
+      });
     });
   });
 }
@@ -14160,14 +14235,17 @@ async function renderTeamSection(container, maxMembers) {
   `;
 
   container.querySelectorAll('.team-remove-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('이 구성원을 팀에서 제거하시겠습니까?')) return;
-      try {
-        await apiRequest('DELETE', '/api/me/company/members/' + encodeURIComponent(btn.dataset.id));
-        renderTeamSection(container, maxMembers);
-      } catch (err) {
-        alert(err.message);
-      }
+    btn.addEventListener('click', () => {
+      openConfirmModal({
+        title: '팀 구성원 제거',
+        message: '이 구성원을 팀에서 제거하시겠습니까?',
+        confirmLabel: '제거',
+        tone: 'danger',
+        onConfirm: async () => {
+          await apiRequest('DELETE', '/api/me/company/members/' + encodeURIComponent(btn.dataset.id));
+          renderTeamSection(container, maxMembers);
+        },
+      });
     });
   });
 

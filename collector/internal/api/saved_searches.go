@@ -489,6 +489,14 @@ func (s *Server) handleDuplicateSavedSearch(w http.ResponseWriter, r *http.Reque
 	id := r.PathValue("id")
 	ctx := r.Context()
 
+	// 이름 확인 모달(2026-08-07)에서 사용자가 직접 확정한 이름을 보낼 수
+	// 있다 — 요청 본문이 아예 없거나(구버전 프론트) 비어 있으면 기존처럼
+	// 서버가 자동으로 "OO 복제/복제 2..." 이름을 계산한다.
+	var req struct {
+		Name string `json:"name"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req) // 본문 없음/파싱 실패는 무시하고 자동 이름으로 폴백
+
 	row := s.db.QueryRowContext(ctx, savedSearchSelect+` WHERE id = $1 AND user_id = $2`, id, userID)
 	source, err := scanSavedSearch(row)
 	if err == sql.ErrNoRows {
@@ -501,13 +509,16 @@ func (s *Server) handleDuplicateSavedSearch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	existingNames, err := s.savedSearchNamesForUser(ctx, userID)
-	if err != nil {
-		s.logger.Error("duplicate-saved-search: name lookup failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-		return
+	newName := strings.TrimSpace(req.Name)
+	if newName == "" {
+		existingNames, err := s.savedSearchNamesForUser(ctx, userID)
+		if err != nil {
+			s.logger.Error("duplicate-saved-search: name lookup failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		newName = nextDuplicateName(existingNames, source.Name+" 복제")
 	}
-	newName := nextDuplicateName(existingNames, source.Name+" 복제")
 
 	var newID string
 	err = s.db.QueryRowContext(ctx, `
