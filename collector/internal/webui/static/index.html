@@ -1453,6 +1453,7 @@
     font-size: 0.9rem;
   }
   .official-link:hover { text-decoration: underline; }
+  .new-tab-icon { width: 0.85em; height: 0.85em; margin-left: 0.3em; vertical-align: -0.05em; flex-shrink: 0; }
 
   /* margin-left/right 생략 이유는 .dash-section-title 주석 참고(같은
      버그 — main > *의 auto 가운데정렬을 좌우 margin:0이 덮어씀). 이
@@ -3120,6 +3121,16 @@ const GLOSSARY = {
   '업종 판정': '업종은 대분류 그룹 단위로 비교합니다. 기업이 선택한 그룹 중 하나라도 공고 업종과 일치하면 충족으로 판정합니다.',
   'AI 분석': 'AI 분석은 업로드하신 문서를 읽어 상호명, 사업자번호, 발급일 등 항목을 자동으로 구조화하는 기능입니다. 실제로 AI 모델을 호출하는 작업이라 월 한도가 있으며, 결과는 저장 전 반드시 확인 후 승인해야 반영됩니다.',
 };
+
+// newTabIconHtml — 텍스트형 링크(버튼 스타일 제외)가 새 탭/새 창으로
+// 열린다는 걸 시각적으로 표시하는 작은 아이콘(feather-icons류
+// external-link, stroke=currentColor라 링크 글자색을 그대로 따라감).
+// target="_blank"인 텍스트 링크에서 기존 "&rarr;"(화면 전환 의미) 대신
+// 붙여 "새 창으로 열린다"는 의미를 더 정확히 전달한다. 내부 라우트
+// 이동(#/...) 링크나 버튼 스타일(.btn) 링크에는 붙이지 않는다.
+function newTabIconHtml() {
+  return '<svg class="new-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+}
 
 let tooltipCounter = 0;
 function tooltipIconHtml(icon, text, ariaLabel, extraClass) {
@@ -8480,7 +8491,7 @@ function renderDetail(container, id) {
             ${bookmarkButtonHtml(n.id, n.isBookmarked)}
           </div>
           <div id="pipeline-review-action"></div>
-          ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 &rarr;</a>` : ''}
+          ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 ${newTabIconHtml()}</a>` : ''}
           <a class="official-link" href="#/notices/${escapeAttr(n.id)}/report">참여판단 보고서 보기 &rarr;</a>
           <p class="detail-sub notice-data-trust">${trustLine}</p>
         </div>
@@ -8961,7 +8972,7 @@ function renderAttachments(container, items) {
       ? `<span class="status-badge status-badge--muted">${escapeHtml(it.downloadStatus)}</span>`
       : '';
     const nameHtml = it.downloadUrl
-      ? `<a href="${escapeAttr(it.downloadUrl)}" target="_blank" rel="noopener">${escapeHtml(it.originalFilename)}</a>`
+      ? `<a href="${escapeAttr(it.downloadUrl)}" target="_blank" rel="noopener">${escapeHtml(it.originalFilename)} ${newTabIconHtml()}</a>`
       : escapeHtml(it.originalFilename);
     return `
       <li class="attachment-item">
@@ -9008,7 +9019,7 @@ function documentAnalysisEmptyHtml(status, officialUrl, objectPhrase) {
   };
   const text = messages[status] || '아직 분석되지 않았습니다.';
   const linkHtml = officialUrl
-    ? `<a href="${escapeAttr(officialUrl)}" target="_blank" rel="noopener" class="official-link">지금 확인하기 &rarr;</a>`
+    ? `<a href="${escapeAttr(officialUrl)}" target="_blank" rel="noopener" class="official-link">지금 확인하기 ${newTabIconHtml()}</a>`
     : '';
   return `<p class="section-empty">${escapeHtml(text)}</p>${linkHtml}`;
 }
@@ -9253,7 +9264,7 @@ function renderAISummary(container, summary, officialUrl) {
   container.innerHTML = '';
   if (!summary || !summary.lines || !summary.lines.length) {
     const linkHtml = officialUrl
-      ? `<a href="${escapeAttr(officialUrl)}" target="_blank" rel="noopener" class="official-link">지금 확인하기 &rarr;</a>`
+      ? `<a href="${escapeAttr(officialUrl)}" target="_blank" rel="noopener" class="official-link">지금 확인하기 ${newTabIconHtml()}</a>`
       : '';
     container.appendChild(h(`
       <p class="section-empty">이 공고는 아직 AI 요약이 준비되지 않았습니다. 서비스 운영진이 주기적으로 생성하고 있어 정확한 시점을 약속드리기 어렵습니다 — 그동안 원문을 직접 확인해보세요.</p>
