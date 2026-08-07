@@ -468,10 +468,55 @@ func (s *Server) handleDeleteSavedSearch(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+// findActiveSavedSearchIndustryConflict — 2026-08-07, 활성화 시도 시 업종
+// 중복 검사. 같은 회사(company_members로 묶인 전체 팀원 — saved_searches
+// 자체는 user_id 단위지만, 중복 추천 방지는 "이 회사"가 실제로 이메일을
+// 몇 번 받는지의 문제라 팀원 전체를 봐야 한다) 소유의 다른 "활성" 조건
+// 중 업종이 정확히 같은 게 있으면 그 이름을 반환한다(없으면 빈 문자열).
+// industry가 비어있으면(업종 제한 없음) 검사를 건너뛴다 — "업종이
+// 겹친다"는 표현은 구체적인 업종값이 같을 때를 뜻한다고 해석했다.
+func (s *Server) findActiveSavedSearchIndustryConflict(ctx context.Context, userID, excludeID, industry string) (string, error) {
+	if industry == "" {
+		return "", nil
+	}
+	profileID, err := s.companyProfileIDForUser(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if profileID == "" {
+		return "", nil
+	}
+	var name string
+	err = s.db.QueryRowContext(ctx, `
+		SELECT ss.name
+		FROM saved_searches ss
+		JOIN company_members cm ON cm.user_id = ss.user_id
+		WHERE cm.company_profile_id = $1
+		  AND ss.is_active = true
+		  AND ss.industry = $2
+		  AND ss.id != $3
+		LIMIT 1`, profileID, industry, excludeID).Scan(&name)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
 // handleSetSavedSearchActive — 2026-08-07, 카드의 활성/비활성 토글 스위치
 // 전용 경량 엔드포인트(이름/조건 등 다른 필드는 건드리지 않는다 — 그건
 // handleUpdateSavedSearch의 몫). "복제" 직후 자동으로 꺼진 상태로 시작하는
-// 조건을 사용자가 확인 후 직접 켜는 용도.
+// 조건을 사용자가 확인 후 직접 켜는 용도. 검증 규칙 2가지(2026-08-07
+// 최종 확정):
+//  1. origin='onboarding'("내 기본 조건")은 항상 활성 상태로 고정 —
+//     끄려는 시도(isActive=false) 자체를 거부한다. 프론트도 이 카드의
+//     토글 UI를 아예 렌더링하지 않지만, 직접 API 호출을 막기 위해
+//     서버에서도 재검증한다.
+//  2. 그 외 조건을 켜려는 시도(isActive=true)는 같은 회사의 다른 활성
+//     조건과 업종이 겹치면 거부한다(중복 추천/중복 알림 방지) — 끄는
+//     시도는 검사하지 않는다.
 func (s *Server) handleSetSavedSearchActive(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {
@@ -486,7 +531,39 @@ func (s *Server) handleSetSavedSearchActive(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request_body"})
 		return
 	}
-	res, err := s.db.ExecContext(r.Context(),
+
+	ctx := r.Context()
+	var origin, industry sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT origin, industry FROM saved_searches WHERE id = $1 AND user_id = $2`, id, userID).Scan(&origin, &industry)
+	if err == sql.ErrNoRows {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "saved_search_not_found"})
+		return
+	}
+	if err != nil {
+		s.logger.Error("set-saved-search-active: lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+
+	if origin.Valid && origin.String == "onboarding" {
+		if !req.IsActive {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "onboarding_default_always_active"})
+			return
+		}
+	} else if req.IsActive {
+		conflictName, err := s.findActiveSavedSearchIndustryConflict(ctx, userID, id, industry.String)
+		if err != nil {
+			s.logger.Error("set-saved-search-active: conflict check failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		if conflictName != "" {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "industry_overlap", "conflictName": conflictName})
+			return
+		}
+	}
+
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE saved_searches SET is_active = $1, updated_at = now() WHERE id = $2 AND user_id = $3`,
 		req.IsActive, id, userID)
 	if err != nil {
