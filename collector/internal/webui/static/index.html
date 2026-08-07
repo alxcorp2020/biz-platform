@@ -196,6 +196,56 @@
     .modal-overlay { align-items: flex-end; padding: 0; }
     .modal-panel { max-width: 100%; border-radius: 18px 18px 0 0; max-height: 90vh; }
   }
+  /* openConfirmModal 전용 — 제목/본문(message)/액션버튼 슬롯. 일반
+     openModal() 호출부는 각자 폼 안에 버튼을 직접 두므로 이 클래스를
+     안 쓴다(강제 마이그레이션 없음, 신규 확인모달에서만 사용). */
+  .modal-message { color: var(--ink); font-size: var(--text-body); line-height: 1.6; margin: 0 0 var(--space-md); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-sm); margin-top: var(--space-md); }
+
+  /* ---------- 토스트 (공용) ----------
+     데스크톱: 우측 하단 고정. 모바일: 하단 중앙 고정, 폭 100%. showToast()
+     JS 헬퍼가 #toast-container를 필요할 때 만들어 붙인다(정적 셸에
+     자리를 미리 안 둠 — 배너/오버레이류와 달리 페이지 이동과 무관하게
+     항상 body 최상위에 붙어있으면 되고 대부분 화면에서 비어있어서). */
+  #toast-container {
+    position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 300;
+    display: flex; flex-direction: column-reverse; gap: 0.6rem; align-items: flex-end;
+    pointer-events: none;
+  }
+  .toast {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.8rem 1.1rem; border-radius: 10px; color: #fff;
+    font-size: 0.88rem; font-weight: 600; box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    max-width: 320px; opacity: 0; transform: translateY(8px);
+    transition: opacity .2s ease, transform .2s ease; pointer-events: auto;
+  }
+  .toast.is-visible { opacity: 1; transform: translateY(0); }
+  .toast--success { background: var(--success); }
+  .toast--error { background: var(--danger); }
+  .toast--info { background: var(--accent-blue-deep); }
+  @media (max-width: 640px) {
+    #toast-container { right: 0; left: 0; bottom: 1rem; align-items: center; padding: 0 1rem; }
+    .toast { max-width: 100%; width: 100%; justify-content: center; text-align: center; }
+  }
+
+  /* ---------- 드롭다운 (공용) ----------
+     트리거 버튼의 getBoundingClientRect() 기준으로 body 바로 아래에
+     fixed 포지셔닝한다(트리거가 스크롤 컨테이너/사이드바 등 어디에
+     있어도 overflow:hidden에 안 잘림). openDropdown() JS 헬퍼 참고. */
+  .dropdown-menu {
+    position: fixed; background: #fff; border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+    padding: 0.4rem; min-width: 180px; z-index: 150;
+  }
+  .dropdown-menu-item {
+    display: flex; align-items: center; gap: 0.5rem; width: 100%; box-sizing: border-box;
+    padding: 0.55rem 0.7rem; border: none; background: none; text-align: left;
+    border-radius: 8px; font-size: 0.88rem; color: var(--ink); cursor: pointer;
+    text-decoration: none;
+  }
+  .dropdown-menu-item:hover { background: var(--bg-soft); }
+  .dropdown-menu-item--danger { color: var(--danger); }
+  .dropdown-divider { height: 1px; background: var(--border); margin: 0.3rem 0; border: none; }
 
   /* main의 기본(모바일) 레이아웃 — 아래 "PC 좌측 고정 사이드바" 미디어
      쿼리의 main { margin-left: ... } 규칙보다 반드시 먼저 와야 한다.
@@ -2548,6 +2598,127 @@ function closeModal() {
   window.__modalOnClose = null;
   if (onClose) onClose();
 }
+
+// openConfirmModal — 브라우저 기본 confirm()을 대체하는 공용 확인 모달.
+// title/message/액션버튼(취소·확인) 슬롯 구조로 openModal()을 감싼다.
+// onConfirm은 async 함수를 지원한다 — 실패하면(reject) 모달을 닫지 않고
+// 에러 메시지를 모달 안에 보여준 뒤 다시 시도할 수 있게 버튼을 살린다
+// (저장/삭제 API 호출을 onConfirm에 그대로 넣는 용도를 염두에 둔 설계).
+function openConfirmModal(opts) {
+  const {
+    title = '확인',
+    message = '',
+    confirmLabel = '확인',
+    cancelLabel = '취소',
+    tone = 'primary', // 'primary' | 'danger'
+    onConfirm,
+  } = opts || {};
+  const body = openModal(title, `
+    <p class="modal-message">${escapeHtml(message)}</p>
+    <div id="modal-confirm-error" class="error" style="display:none"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" id="modal-confirm-cancel-btn">${escapeHtml(cancelLabel)}</button>
+      <button type="button" class="btn ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}" id="modal-confirm-ok-btn">${escapeHtml(confirmLabel)}</button>
+    </div>
+  `);
+  body.querySelector('#modal-confirm-cancel-btn').addEventListener('click', closeModal);
+  const okBtn = body.querySelector('#modal-confirm-ok-btn');
+  okBtn.addEventListener('click', async () => {
+    if (!onConfirm) { closeModal(); return; }
+    okBtn.disabled = true;
+    try {
+      await onConfirm();
+      closeModal();
+    } catch (err) {
+      const errBox = body.querySelector('#modal-confirm-error');
+      errBox.textContent = err.message;
+      errBox.style.display = 'block';
+      okBtn.disabled = false;
+    }
+  });
+}
+
+// ---------- 토스트(공용) ----------
+// showToast(message, type) — type: 'success' | 'error' | 'info'(기본).
+// 3초 후 자동으로 사라진다. 여러 개 동시 호출 시 쌓인다(컨테이너가
+// column-reverse라 새 토스트가 항상 맨 아래/화면과 가장 가까운 자리에
+// 붙는다). 페이지 이동으로 컨테이너가 통째로 없어질 일이 없도록
+// #app 밖(body 직속)에 붙인다.
+const TOAST_DURATION_MS = 3000;
+function getToastContainer() {
+  let el = document.getElementById('toast-container');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast-container';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+function showToast(message, type) {
+  const container = getToastContainer();
+  const toast = document.createElement('div');
+  toast.className = `toast toast--${type === 'success' || type === 'error' ? type : 'info'}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('is-visible'));
+  setTimeout(() => {
+    toast.classList.remove('is-visible');
+    toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+  }, TOAST_DURATION_MS);
+}
+
+// ---------- 드롭다운(공용) ----------
+// openDropdown(triggerEl, menuHtml, opts) — 트리거 버튼 바로 아래에 뜨는
+// 메뉴. 바깥 클릭이나 Escape로 닫히고, 한 번에 하나만 열려있다(다른 걸
+// 열면 이전 게 자동으로 닫힘). opts.align: 'left'(기본, 트리거 왼쪽
+// 기준 정렬) | 'right'(트리거 오른쪽 기준 정렬 — 화면 오른쪽 끝에
+// 가까운 트리거용). 반환값(메뉴 엘리먼트)에 호출한 쪽이 클릭 핸들러를
+// 붙인다(renderXxx가 h()로 만든 리스트에 이벤트를 붙이는 기존 패턴과 동일).
+let activeDropdown = null;
+function closeActiveDropdown() {
+  if (!activeDropdown) return;
+  activeDropdown.menuEl.remove();
+  document.removeEventListener('click', activeDropdown.outsideHandler, true);
+  activeDropdown = null;
+}
+function openDropdown(triggerEl, menuHtml, opts) {
+  const reopening = activeDropdown && activeDropdown.triggerEl === triggerEl;
+  closeActiveDropdown();
+  if (reopening) return null; // 같은 트리거를 다시 클릭하면 토글(닫기)로만 동작
+
+  const menu = document.createElement('div');
+  menu.className = 'dropdown-menu';
+  menu.appendChild(h(menuHtml));
+  document.body.appendChild(menu);
+
+  const rect = triggerEl.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const align = (opts && opts.align) || 'left';
+  menu.style.top = (rect.bottom + 6) + 'px';
+  if (align === 'right') {
+    menu.style.left = Math.max(8, rect.right - menuRect.width) + 'px';
+  } else {
+    menu.style.left = Math.min(rect.left, window.innerWidth - menuRect.width - 8) + 'px';
+  }
+
+  // 트리거를 누른 바로 그 클릭이 곧바로 "바깥 클릭"으로 잡혀 즉시 닫히는
+  // 걸 막기 위해 다음 이벤트 루프에서 리스너를 등록한다.
+  const outsideHandler = (e) => {
+    if (!menu.contains(e.target) && e.target !== triggerEl && !triggerEl.contains(e.target)) {
+      closeActiveDropdown();
+    }
+  };
+  setTimeout(() => document.addEventListener('click', outsideHandler, true), 0);
+  activeDropdown = { menuEl: menu, outsideHandler, triggerEl };
+  return menu;
+}
+
+// ---------- 모달/드롭다운 공용 Escape 처리 ----------
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('active-modal-overlay')) { closeModal(); return; }
+  if (activeDropdown) closeActiveDropdown();
+});
 
 // ---------- PC 사이드바 ----------
 // 단순한 선 아이콘(feather-icons류) — currentColor라 .sidebar-menu-item의
