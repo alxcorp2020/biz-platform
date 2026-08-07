@@ -7761,14 +7761,22 @@ function savedSearchCardHtml(item, contacts) {
     : `<button type="button" class="btn btn-secondary btn-sm saved-search-delete-btn" data-id="${escapeAttr(item.id)}">삭제</button>`;
 
   // 활성/비활성 토글 — "복제" 직후엔 항상 꺼진 상태로 시작(2026-08-07).
-  // 꺼지면 검색 매칭·다이제스트·리마인더가 전부 중단되고(카드도 흐리게
-  // 표시), "결과 보기"만은 확인용으로 계속 동작한다.
+  // 꺼지면 검색 매칭·다이제스트·리마인더·"결과 보기"까지 전부 중단되고
+  // 카드도 흐리게 표시된다(최초 구현 때는 "결과 보기"만 확인용으로
+  // 열어뒀었으나, 사용자 요청으로 이것도 막도록 변경).
   const activeToggleHtml = `
-    <label class="toggle-switch" title="꺼두면 이 조건은 검색 매칭과 알림이 모두 중단됩니다(결과 보기 미리보기는 계속 가능)">
+    <label class="toggle-switch" title="꺼두면 이 조건은 검색 매칭과 알림이 모두 중단됩니다(결과 보기 포함)">
       <input type="checkbox" class="saved-search-active-toggle" data-id="${escapeAttr(item.id)}" ${item.isActive ? 'checked' : ''}>
       <span class="toggle-switch-track"><span class="toggle-switch-thumb"></span></span>
       <span class="toggle-switch-label">${item.isActive ? '활성' : '비활성'}</span>
     </label>`;
+
+  // 결과 보기 — 비활성 상태면 막는다(2026-08-07 수정). <a>는 disabled
+  // 속성이 없어 클릭을 막을 수 없으므로, 비활성일 땐 아예 disabled
+  // <button>으로 바꿔 렌더링한다.
+  const resultsButtonHtml = item.isActive
+    ? `<a class="btn btn-secondary btn-sm saved-search-results-link" href="${escapeAttr(savedSearchResultsHash(item))}">결과 보기</a>`
+    : `<button type="button" class="btn btn-secondary btn-sm" disabled title="이 조건은 비활성 상태라 결과 보기를 사용할 수 없습니다. 토글을 켜면 확인할 수 있습니다.">결과 보기</button>`;
 
   return `
     <div class="license-card${item.isActive ? '' : ' license-card--inactive'}">
@@ -7779,7 +7787,7 @@ function savedSearchCardHtml(item, contacts) {
       </div>
       <div class="license-card-side">
         ${activeToggleHtml}
-        <a class="btn btn-secondary btn-sm saved-search-results-link" href="${escapeAttr(savedSearchResultsHash(item))}">결과 보기</a>
+        ${resultsButtonHtml}
         <button type="button" class="btn btn-secondary btn-sm saved-search-edit-btn" data-id="${escapeAttr(item.id)}">수정</button>
         <button type="button" class="btn btn-secondary btn-sm saved-search-duplicate-btn" data-id="${escapeAttr(item.id)}">복제</button>
         ${deleteButtonHtml}
