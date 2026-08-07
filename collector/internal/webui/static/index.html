@@ -302,6 +302,15 @@
     text-decoration: none;
   }
   .sidebar-user-email:hover { color: var(--accent-blue); text-decoration: underline; }
+  /* .sidebar-account-trigger — <button>에 .sidebar-user-email과 함께
+     붙여 브라우저 기본 버튼 스타일만 지운다(2026-08-07, 사이드바 계정
+     메뉴를 openDropdown() 기반으로 전환). display:flex가 뒤에 와서
+     .sidebar-user-email의 display:block을 덮는다. */
+  .sidebar-account-trigger {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.3rem;
+    width: 100%; background: none; border: none; font: inherit; cursor: pointer;
+  }
+  .sidebar-account-trigger:hover { text-decoration: none; }
 
   /* ---------- 모바일 하단 고정 탭바 (899px 이하) ----------
      사이드바가 900px부터 나타나므로 그 아래는 항상 이쪽. */
@@ -467,6 +476,15 @@
     font-size: 0.9rem;
   }
   .filters button:hover { background: var(--accent-blue-deep); border-color: var(--accent-blue-deep); }
+  /* .filters button(위)이 모든 <button>을 파란 "검색" 버튼처럼 칠해버려서,
+     같은 폼 안의 정렬 드롭다운 트리거(.dropdown-select-trigger, 실제로는
+     button)가 파랗게 덮이는 걸 막는다 — .profile-form input 특이도 문제와
+     동일한 패턴(이 프로젝트에서 반복 발견된 함정, feedback 메모리 참고). */
+  .filters button.dropdown-select-trigger,
+  .filters button.dropdown-select-trigger:hover {
+    background-color: var(--bg-soft); color: var(--ink); border-color: var(--border); font-weight: 400;
+  }
+  .filters button.dropdown-select-trigger:hover { background-color: #fff; }
 
   .back-link {
     display: inline-block;
@@ -1880,6 +1898,12 @@
     border-color: var(--accent-blue);
     background-color: #fff;
   }
+  /* .dropdown-select-trigger — openDropdown()으로 여는 <button>이 기존
+     <select class="select-input">와 똑같이 보이도록 .select-input의
+     시각 스타일(테두리/화살표 배경이미지/패딩)을 그대로 물려받되,
+     <button>의 기본 가운데정렬/고유폭 문제만 덮어쓴다(2026-08-07, 공고
+     검색 정렬 드롭다운). */
+  .dropdown-select-trigger { text-align: left; width: 100%; font: inherit; color: var(--ink); }
   /* :not(.btn) — .btn류 클래스가 붙은 버튼(.btn-secondary 등)은 이 기본
      스타일에 덮이지 않고 자기 클래스 스타일을 그대로 유지해야 한다.
      예전엔 이 규칙이 모든 button을 잡아서, 폼 안의 보조/취소 버튼도
@@ -2180,7 +2204,7 @@
     .filters { padding: 0.85rem; }
     .filters input[name="q"] { flex-basis: 100%; min-width: 0; }
     .filters select[name="region"], .filters input[name="industry"] { flex: 1; min-width: 0; }
-    .filters select[name="sort"] { flex-basis: 100%; }
+    .filters .dropdown-select-trigger { flex-basis: 100%; }
     .filters button { flex: 1; }
 
     .review-actions { flex-wrap: wrap; }
@@ -2811,23 +2835,34 @@ function renderSidebar() {
   const footer = document.getElementById('sidebar-footer');
   footer.innerHTML = '';
   if (currentUser) {
-    // 관리자 화면은 SIDEBAR_MENU(고정 6개)에 넣지 않고 system_admin
-    // 계정에게만 여기(sidebar-footer)에 조건부로 노출한다 — 일반 사용자
-    // 눈에는 아예 안 보이는 게 맞는 기능이라 항상 보이는 메뉴 자리를
-    // 차지할 이유가 없음.
-    const adminLinkHtml = currentUser.role === 'system_admin'
-      ? '<a href="#/admin" class="sidebar-menu-item" style="margin-bottom:0.5rem">관리자</a>' : '';
+    // 2026-08-07(UX 경량화 4단계): "관리자 링크 + 이메일 + 로그아웃"을
+    // 전부 항상 펼쳐두던 것에서, 이메일 하나만 트리거로 남기고 나머지를
+    // openDropdown() 메뉴로 접었다 — 사이드바 하단 공간을 덜 차지한다.
     footer.appendChild(h(`
-      ${adminLinkHtml}
-      <a href="#/me/account" class="sidebar-user-email">${escapeHtml(currentUser.email)}</a>
-      <button type="button" id="sidebar-logout-btn" class="btn btn-ghost btn-block">로그아웃</button>
+      <button type="button" id="sidebar-account-trigger" class="sidebar-user-email sidebar-account-trigger">${escapeHtml(currentUser.email)} <span aria-hidden="true">▾</span></button>
     `));
-    document.getElementById('sidebar-logout-btn').addEventListener('click', async () => {
-      try { await apiRequest('POST', '/api/auth/logout'); } catch (err) { /* ignore */ }
-      currentUser = null;
-      currentProfile = null;
-      renderHeader();
-      location.hash = '#/';
+    document.getElementById('sidebar-account-trigger').addEventListener('click', (e) => {
+      // 관리자 화면은 SIDEBAR_MENU(고정 6개)에 넣지 않고 system_admin
+      // 계정에게만 이 메뉴 안에 조건부로 노출한다 — 일반 사용자 눈에는
+      // 아예 안 보이는 게 맞는 기능이라 항상 보이는 메뉴 자리를 차지할
+      // 이유가 없음(기존 결정 그대로 유지).
+      const adminItemHtml = currentUser.role === 'system_admin'
+        ? '<a href="#/admin" class="dropdown-menu-item">관리자</a>' : '';
+      const menu = openDropdown(e.currentTarget, `
+        ${adminItemHtml}
+        <a href="#/me/account" class="dropdown-menu-item">계정정보</a>
+        <hr class="dropdown-divider">
+        <button type="button" class="dropdown-menu-item dropdown-menu-item--danger" id="sidebar-logout-item">로그아웃</button>
+      `, { align: 'left' });
+      if (!menu) return;
+      menu.querySelector('#sidebar-logout-item').addEventListener('click', async () => {
+        closeActiveDropdown();
+        try { await apiRequest('POST', '/api/auth/logout'); } catch (err) { /* ignore */ }
+        currentUser = null;
+        currentProfile = null;
+        renderHeader();
+        location.hash = '#/';
+      });
     });
   } else {
     footer.appendChild(h(`
@@ -7149,9 +7184,8 @@ function renderList(container) {
         ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === currentRegion ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
       </select>
       <input type="text" name="industry" placeholder="업종" value="${params.get('industry') || ''}">
-      <select name="sort" class="select-input">
-        ${NOTICE_SORT_OPTIONS.map(o => `<option value="${o.value}" ${o.value === currentSort ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}
-      </select>
+      <input type="hidden" name="sort" value="${escapeAttr(currentSort)}">
+      <button type="button" id="notice-sort-trigger" class="select-input dropdown-select-trigger">${escapeHtml((NOTICE_SORT_OPTIONS.find(o => o.value === currentSort) || {}).label || '정렬')}</button>
       <label class="checkbox-label"><input type="checkbox" name="includeClosed" value="1" ${params.get('includeClosed') === '1' ? 'checked' : ''}> 지난 공고 포함</label>
       <button type="submit">검색</button>
     </form>
@@ -7175,7 +7209,23 @@ function renderList(container) {
   filterForm.addEventListener('submit', (e) => { e.preventDefault(); submitFilterForm(); });
   // 정렬은 검색 버튼을 따로 안 눌러도 바로 반영 — 목록 순서를 바꾸는
   // 것뿐이라 "검색 조건 확정" 성격의 다른 입력들과 달리 즉시 적용이 자연스럽다.
-  filterForm.querySelector('select[name="sort"]').addEventListener('change', submitFilterForm);
+  // 2026-08-07: <select>를 openDropdown() 기반 버튼으로 교체(UX 경량화
+  // 4단계) — 선택값은 hidden input(name="sort")에 담아 기존 FormData
+  // 수집 로직을 그대로 재사용한다. 클릭 즉시 submitFilterForm()이
+  // location.hash를 바꿔 renderList() 전체가 다시 그려지므로, 트리거
+  // 버튼 라벨을 따로 갱신할 필요는 없다.
+  document.getElementById('notice-sort-trigger').addEventListener('click', (e) => {
+    const menu = openDropdown(e.currentTarget, NOTICE_SORT_OPTIONS.map(o => `
+      <button type="button" class="dropdown-menu-item" data-value="${escapeAttr(o.value)}">${escapeHtml(o.label)}</button>
+    `).join(''));
+    if (!menu) return; // 같은 트리거를 다시 클릭 — 토글로 닫기만 하고 끝
+    menu.querySelectorAll('.dropdown-menu-item').forEach(item => {
+      item.addEventListener('click', () => {
+        filterForm.sort.value = item.dataset.value;
+        submitFilterForm();
+      });
+    });
+  });
 
   const listBody = document.getElementById('list-body');
 
