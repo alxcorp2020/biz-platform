@@ -909,3 +909,93 @@ func (s *Server) handleRunDocumentExtraction(w http.ResponseWriter, r *http.Requ
 	summary := s.RunDocumentExtraction(r.Context())
 	writeJSON(w, http.StatusOK, summary)
 }
+
+// ---------- 빈 상태 문구 개선(2026-08-07) ----------
+// "참가자격 요건"/"제출서류"/파이프라인 체크리스트가 비어 보일 때 그
+// 이유를 attachments 테이블의 실제 진행 단계로 구분한다 — 이 파일 위쪽
+// 주석의 3단계 파이프라인(1. run_extraction.py 텍스트추출(사람이 수동
+// cron) → 2. 이 파일의 RunDocumentExtraction(apiserver 자체 1시간
+// 주기 자동배치) → 3. review.go 사람 검수)과 정확히 대응한다.
+const (
+	// docAnalysisNoAttachments — 이 공고 버전에 첨부파일 자체가 없다.
+	// 원문에 정보가 없는 것과 같은 뜻이라 "대기"가 아니라 "정보없음"으로
+	// 안내해야 한다 — 기다린다고 채워지지 않는다.
+	docAnalysisNoAttachments = "no_attachments"
+	// docAnalysisExtractingText — 첨부파일은 있지만 전부 아직
+	// extraction_status != 'completed'(pending/processing/failed/
+	// unsupported 포함). 이 단계는 사람이 수동으로 돌리는 run_extraction.py
+	// 몫이라 정확한 완료 시점을 약속할 근거가 없다.
+	docAnalysisExtractingText = "extracting_text"
+	// docAnalysisAwaitingStructured — 텍스트 추출이 끝난(completed) 첨부가
+	// 최소 하나 있는데 아직 section_extraction_processed_at이 안 찍혔다.
+	// 이 다음 단계(RunDocumentExtraction)는 apiserver 자체 1시간 주기
+	// 배치라 "보통 1시간 이내"라고 정직하게 약속할 수 있다.
+	docAnalysisAwaitingStructured = "awaiting_structured_extraction"
+	// docAnalysisAnalyzedEmpty — 첨부가 있고 전부 텍스트추출+구조화추출까지
+	// 끝났는데도(section_extraction_processed_at 전부 non-null) 실제
+	// eligibility_conditions/required_documents가 비어있다 — "대기 중"이
+	// 아니라 "분석은 끝났지만 원문에 해당 정보가 없다"는 뜻.
+	docAnalysisAnalyzedEmpty = "analyzed_empty"
+)
+
+// computeNoticeDocumentAnalysisStatus classifies why a notice version's
+// eligibility_conditions/required_documents might still be empty. Callers
+// should only invoke this when they've already confirmed both are empty —
+// it always re-derives the 4-way state from attachments, so calling it
+// otherwise would just waste a query.
+func (s *Server) computeNoticeDocumentAnalysisStatus(ctx context.Context, versionID string) (string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT extraction_status = 'completed', section_extraction_processed_at IS NOT NULL
+		FROM attachments WHERE notice_version_id = $1`, versionID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	count := 0
+	hasCompletedUnprocessed := false
+	hasIncompleteExtraction := false
+	for rows.Next() {
+		count++
+		var textCompleted, structuredProcessed bool
+		if err := rows.Scan(&textCompleted, &structuredProcessed); err != nil {
+			continue
+		}
+		if textCompleted {
+			if !structuredProcessed {
+				hasCompletedUnprocessed = true
+			}
+		} else {
+			hasIncompleteExtraction = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+
+	switch {
+	case count == 0:
+		return docAnalysisNoAttachments, nil
+	case hasCompletedUnprocessed:
+		return docAnalysisAwaitingStructured, nil
+	case hasIncompleteExtraction:
+		return docAnalysisExtractingText, nil
+	default:
+		return docAnalysisAnalyzedEmpty, nil
+	}
+}
+
+// computeNoticeDocumentAnalysisStatusByNoticeID — handleGetPipelineEntry
+// only has notice_id handy(파이프라인 엔트리는 버전이 아니라 공고 단위로
+// 연결됨), so it looks up the current version itself rather than making
+// every caller do that.
+func (s *Server) computeNoticeDocumentAnalysisStatusByNoticeID(ctx context.Context, noticeID string) (string, error) {
+	var versionID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM notice_versions WHERE notice_id = $1 AND is_current = true`, noticeID,
+	).Scan(&versionID)
+	if err != nil {
+		return "", err
+	}
+	return s.computeNoticeDocumentAnalysisStatus(ctx, versionID)
+}

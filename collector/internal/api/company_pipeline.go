@@ -757,5 +757,15 @@ func (s *Server) handleGetPipelineEntry(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"entry": entry, "checklist": checklist})
+	// documentAnalysisStatus — 2026-08-07, 빈 상태 문구 개선. 체크리스트가
+	// 비어있을 때만 계산한다(항목이 있으면 이미 채워진 것이니 불필요).
+	documentAnalysisStatus := ""
+	if len(checklist) == 0 {
+		documentAnalysisStatus, err = s.computeNoticeDocumentAnalysisStatusByNoticeID(ctx, entry.NoticeID)
+		if err != nil {
+			s.logger.Error("get-pipeline: compute document analysis status failed", "error", err)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"entry": entry, "checklist": checklist, "documentAnalysisStatus": documentAnalysisStatus})
 }

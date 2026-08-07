@@ -729,6 +729,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	requiredDocuments := []requiredDocumentItem{}
 	licenseMatches := []licenseRequirementMatch{}
 	attachments := []attachmentItem{}
+	documentAnalysisStatus := ""
 	var rawDetail *noticeRawDetail
 	var aiSummary *noticeAISummary
 	versionID, err := s.currentVersionID(r.Context(), id, it.CurrentVersion)
@@ -742,6 +743,15 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		requiredDocuments, err = s.listRequiredDocuments(r.Context(), versionID, profileID)
 		if err != nil {
 			s.logger.Error("list required documents failed", "error", err)
+		}
+		// documentAnalysisStatus — 2026-08-07, 빈 상태 문구 개선. 참가자격
+		// 요건/제출서류 둘 다 비어있을 때만 계산한다(있으면 애초에 빈
+		// 상태 문구 자체가 안 뜨니 불필요한 쿼리).
+		if len(eligibilityConditions) == 0 && len(requiredDocuments) == 0 {
+			documentAnalysisStatus, err = s.computeNoticeDocumentAnalysisStatus(r.Context(), versionID)
+			if err != nil {
+				s.logger.Error("compute document analysis status failed", "error", err)
+			}
 		}
 		if profileID != "" {
 			licenseMatches, err = s.matchNoticeLicenseRequirements(r.Context(), versionID, profileID)
@@ -819,6 +829,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"eligibilityConditions":    eligibilityConditions,
 		"requiredDocuments":        requiredDocuments,
 		"licenseMatches":           licenseMatches,
+		"documentAnalysisStatus":   documentAnalysisStatus,
 		"documentReadiness":        map[string]int{"total": len(requiredDocuments), "checked": checkedCount},
 		"attachments":              attachments,
 		"detail":                   rawDetail,
