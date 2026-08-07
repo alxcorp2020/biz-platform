@@ -236,6 +236,7 @@
     position: fixed; background: #fff; border: 1px solid var(--border);
     border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.14);
     padding: 0.4rem; min-width: 180px; z-index: 150;
+    max-height: calc(100vh - 16px); overflow-y: auto;
   }
   .dropdown-menu-item {
     display: flex; align-items: center; gap: 0.5rem; width: 100%; box-sizing: border-box;
@@ -618,7 +619,7 @@
   .skeleton-row:hover { background-color: transparent; }
   .skeleton-meta-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 1rem;
     margin-top: 1.25rem;
     padding-top: 1.25rem;
@@ -907,7 +908,7 @@
   .stat-highlight-label { font-size: var(--text-caption); color: var(--ink-soft); margin-top: 0.4rem; }
   .dash-tiles {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: var(--space-md);
     margin-bottom: var(--space-xl);
   }
@@ -1121,7 +1122,7 @@
   .calendar-add-link:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
   .detail-meta {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: var(--space-lg) var(--space-md);
     margin: 1.25rem 0 0;
     padding-top: 1.25rem;
@@ -1737,13 +1738,17 @@
     outline: none;
   }
   .glossary-tooltip {
-    display: none;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
     position: absolute;
     bottom: calc(100% + 8px);
     left: 50%;
-    transform: translateX(-50%);
+    /* --tip-shift: JS(positionGlossaryTooltip)가 화면 좌우 경계를 벗어날
+       때만 채우는 보정값(px) — 평소엔 비어 있어 기존과 동일하게 중앙정렬. */
+    transform: translateX(calc(-50% + var(--tip-shift, 0px)));
     width: max-content;
-    max-width: 260px;
+    max-width: min(260px, calc(100vw - 32px));
     background: var(--navy-deep);
     color: #fff;
     font-size: 0.78rem;
@@ -1760,14 +1765,18 @@
     position: absolute;
     top: 100%;
     left: 50%;
-    transform: translateX(-50%);
+    /* 툴팁 박스 자체가 --tip-shift만큼 옮겨가도, 화살표는 그 반대 방향으로
+       같은 만큼 옮겨 원래 트리거 버튼 위치를 계속 가리키도록 한다. */
+    transform: translateX(calc(-50% - var(--tip-shift, 0px)));
     border: 6px solid transparent;
     border-top-color: var(--navy-deep);
   }
   .glossary-btn:hover + .glossary-tooltip,
   .glossary-btn:focus-visible + .glossary-tooltip,
   .glossary.is-open .glossary-tooltip {
-    display: block;
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
   }
 
   /* ---------- Eligibility check (per-category, still used inside AI 참여 분석) ---------- */
@@ -1845,7 +1854,7 @@
   .otp-phone-row button, .otp-code-row button { flex-shrink: 0; white-space: nowrap; }
   .checkbox-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 0.5rem 1rem;
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -2053,7 +2062,7 @@
   .growth-chart-axis-label { font-size: 9px; fill: var(--ink-soft); }
   .growth-chart-legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem; font-size: var(--text-caption); color: var(--ink-soft); }
   .growth-chart-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; }
-  .growth-roi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-md); margin: 0.75rem 0; }
+  .growth-roi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-md); margin: 0.75rem 0; }
   .growth-roi-tile { padding: var(--space-md); background: #fff; border: none; border-radius: var(--radius-card); box-shadow: var(--shadow-soft); }
   .growth-roi-tile-value { font-size: 1.7rem; font-weight: 800; color: var(--ink); letter-spacing: -0.01em; }
   @media (max-width: 640px) {
@@ -2741,7 +2750,18 @@ function openDropdown(triggerEl, menuHtml, opts) {
   const rect = triggerEl.getBoundingClientRect();
   const menuRect = menu.getBoundingClientRect();
   const align = (opts && opts.align) || 'left';
-  menu.style.top = (rect.bottom + 6) + 'px';
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const spaceAbove = rect.top;
+  // 아래쪽에 메뉴 높이만큼 공간이 없고, 위쪽에 공간이 더 넉넉하면 위로
+  // 펼친다(화면 하단 근처 트리거에서 메뉴가 화면 밖으로 나가 클릭 불가능해지는 문제 방지).
+  const openUpward = spaceBelow < menuRect.height + 6 && spaceAbove > spaceBelow;
+  if (openUpward) {
+    menu.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+    menu.style.top = 'auto';
+  } else {
+    menu.style.top = (rect.bottom + 6) + 'px';
+    menu.style.bottom = 'auto';
+  }
   if (align === 'right') {
     menu.style.left = Math.max(8, rect.right - menuRect.width) + 'px';
   } else {
@@ -3090,6 +3110,33 @@ function closeAllGlossary() {
   });
 }
 
+// 모바일 좁은 화면에서 중앙정렬 툴팁이 좌/우 경계를 벗어나 잘리는 문제 방지.
+// .glossary-tooltip은 항상 레이아웃에 존재(visibility만 토글)해 열리기 전에도
+// getBoundingClientRect()로 실제 위치를 측정할 수 있다.
+function positionGlossaryTooltip(wrap) {
+  if (!wrap) return;
+  const tooltip = wrap.querySelector('.glossary-tooltip');
+  if (!tooltip) return;
+  tooltip.style.removeProperty('--tip-shift');
+  const rect = tooltip.getBoundingClientRect();
+  const margin = 8;
+  let shift = 0;
+  if (rect.left < margin) {
+    shift = margin - rect.left;
+  } else if (rect.right > window.innerWidth - margin) {
+    shift = (window.innerWidth - margin) - rect.right;
+  }
+  if (shift !== 0) tooltip.style.setProperty('--tip-shift', shift + 'px');
+}
+document.addEventListener('mouseover', (e) => {
+  const btn = e.target.closest('.glossary-btn');
+  if (btn) positionGlossaryTooltip(btn.closest('.glossary'));
+});
+document.addEventListener('focusin', (e) => {
+  const btn = e.target.closest('.glossary-btn');
+  if (btn) positionGlossaryTooltip(btn.closest('.glossary'));
+});
+
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('.glossary-btn');
   if (btn) {
@@ -3098,6 +3145,7 @@ document.addEventListener('click', (e) => {
     const willOpen = !wrap.classList.contains('is-open');
     closeAllGlossary();
     if (willOpen) {
+      positionGlossaryTooltip(wrap);
       wrap.classList.add('is-open');
       btn.setAttribute('aria-expanded', 'true');
     }
