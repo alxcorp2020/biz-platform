@@ -946,6 +946,37 @@
      1280px에서는 1080px cap이 아직 안 걸려 안 보이다가 넓은 화면에서만
      드러남) — 위아래 margin만 지정해 좌우는 main > * 규칙에 맡긴다. */
   .dash-section-title { font-size: 1.05rem; font-weight: 700; color: var(--ink); margin-top: 0; margin-bottom: 1rem; }
+
+  /* ---------- 대시보드 "유용한 사이트 바로가기"(2026-08-07) ----------
+     2열 카드 그리드(기업신용평가/입찰인증서) + 외부 링크 모음 드롭다운
+     5개. 카드는 .license-card/.dash-tile과 같은 흰 배경+옅은 그림자
+     톤을 따른다. */
+  .useful-links-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-md);
+    margin-bottom: var(--space-md);
+  }
+  @media (max-width: 480px) {
+    .useful-links-grid { grid-template-columns: 1fr; }
+  }
+  .useful-link-card {
+    display: flex; flex-direction: column; gap: 0.3rem; padding: var(--space-md);
+    background: #fff; border: 1px solid var(--border); border-radius: var(--radius-card);
+    box-shadow: var(--shadow-soft); text-decoration: none; color: inherit;
+    transition: box-shadow 0.15s, transform 0.15s;
+  }
+  .useful-link-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-1px); }
+  .useful-link-card-icon { color: var(--accent-blue); }
+  .useful-link-card-icon svg { width: 22px; height: 22px; }
+  .useful-link-card-title { font-weight: 700; color: var(--ink); }
+  .useful-link-card-desc { font-size: var(--text-caption); color: var(--ink-soft); }
+  .useful-links-dropdown-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+  @media (max-width: 640px) {
+    /* 5개를 한 줄에 욱여넣지 않고 각자 한 줄씩 세로로 쌓는다(탭 영역을
+       넓게 확보 — 항목이 최대 23개까지 있는 드롭다운도 있어 트리거
+       자체가 좁으면 실수로 옆 버튼을 누르기 쉽다). */
+    .useful-links-dropdown-trigger { flex: 1 1 100%; }
+  }
+
   .fit-score-badge {
     display: inline-block;
     padding: 0.2rem 0.7rem;
@@ -5934,6 +5965,145 @@ function pipelineStepIndicatorHtml(status) {
   return stepIndicatorHtml(idx, PIPELINE_MAIN_STEPS.length, status);
 }
 
+// ---------- 대시보드 "유용한 사이트 바로가기"(2026-08-07) ----------
+// DASHBOARD_USEFUL_LINK_CARDS — 아이콘+제목+한줄설명 카드 2개(기업신용평가/
+// 입찰인증서). 아이콘은 SIDEBAR_ICONS와 같은 톤(stroke=currentColor,
+// feather-icons류 선 아이콘) — 이모지 대신 기존 앱 아이콘 스타일을 그대로
+// 따른다.
+const DASHBOARD_USEFUL_LINK_CARDS = [
+  {
+    icon: SIDEBAR_ICONS.chart,
+    title: '기업신용평가',
+    desc: 'NICE평가정보',
+    url: 'https://www.ecredit.co.kr/',
+  },
+  {
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>',
+    title: '입찰인증서',
+    desc: '한국전자인증(크로스서트)',
+    url: 'https://www.crosscert.com/',
+  },
+];
+
+// DASHBOARD_EXTERNAL_LINK_GROUPS — 드롭다운 5개. 순서/항목/URL은 전부
+// 사용자 스펙 그대로(임의로 추가/생략하지 않음).
+const DASHBOARD_EXTERNAL_LINK_GROUPS = [
+  {
+    label: '나라장터 공고관련',
+    links: [
+      { name: '발주계획', url: 'https://www.g2b.go.kr/link/PRCA001_04/single/' },
+      { name: '계약요청', url: 'https://www.g2b.go.kr/link/FIUA003_01/' },
+    ],
+  },
+  {
+    label: '중소기업 지원관련',
+    links: [
+      { name: '기업마당', url: 'https://www.bizinfo.go.kr/web/index.do' },
+      { name: '중소벤처기업부', url: 'http://www.smba.go.kr' },
+      { name: '중소기업중앙회', url: 'http://www.kbiz.or.kr/' },
+      { name: '공공구매 종합정보', url: 'http://www.smpp.go.kr' },
+      { name: '산업통상자원부', url: 'http://www.motie.go.kr' },
+      { name: 'e-나라지표', url: 'http://www.index.go.kr/' },
+      { name: '중소벤처24', url: 'https://www.smes.go.kr/' },
+    ],
+  },
+  {
+    label: '다운로드 센터',
+    links: [
+      { name: 'MS Edge', url: 'https://www.microsoft.com/ko-kr/edge?form=MA13FJ' },
+      { name: '크롬 브라우저', url: 'https://www.google.com/intl/ko/chrome/' },
+      { name: '한컴오피스 뷰어', url: 'https://www.hancom.com/cs_center/csDownload.do' },
+      { name: 'PDF뷰어', url: 'https://get.adobe.com/kr/reader/otherversions' },
+    ],
+  },
+  {
+    label: '입찰관련 사이트',
+    links: [
+      { name: '조달청', url: 'http://www.pps.go.kr' },
+      { name: '나라장터(G2B)', url: 'https://www.g2b.go.kr' },
+      { name: '국방부조달본부(D2B)', url: 'http://www.d2b.go.kr' },
+      { name: '한국토지주택공사(LH)', url: 'http://ebid.lh.or.kr' },
+      { name: '한국전력공사', url: 'http://srm.kepco.net' },
+      { name: '한전KDN', url: 'https://www.power-ec.com/bid/Common/Menu/newBizMainFrm.jsp' },
+      { name: '한국도로공사', url: 'https://ebid.ex.co.kr/' },
+      { name: '한국철도공사', url: 'http://ebid.korail.com' },
+      { name: '국가철도공단', url: 'http://ebid.kr.or.kr/' },
+      { name: '한국가스공사', url: 'http://bid.kogas.or.kr/supplier/index.jsp' },
+      { name: '한국수력원자력', url: 'http://ebiz.khnp.co.kr' },
+      { name: '한국수자원공사', url: 'https://ebid.kwater.or.kr' },
+      { name: '한국석유공사', url: 'http://ebid.knoc.co.kr/supplier/index.jsp' },
+      { name: '한국마사회', url: 'http://ebid.kra.co.kr' },
+      { name: '인천국제공항', url: 'http://ebid.airport.kr/UserMain.dc' },
+      { name: '한국국토정보공사', url: 'http://ebid.lx.or.kr' },
+      { name: '한국전자통신연구원', url: 'https://ebid.etri.re.kr/ebid/index.do' },
+      { name: '이비즈포유', url: 'http://www.ebiz4u.co.kr/home.do' },
+      { name: '한국자산관리공사(온비드)', url: 'http://www.onbid.co.kr/' },
+      { name: '씨마켓플레이스', url: 'https://www.c-market.net/' },
+    ],
+  },
+  {
+    label: '건설관련 사이트',
+    links: [
+      { name: '대한건설협회', url: 'http://www.cak.or.kr' },
+      { name: '대한전문건설협회', url: 'http://www.kosca.or.kr/' },
+      { name: '전기공사협회', url: 'http://www.keca.or.kr' },
+      { name: '대한기계설비건설협회', url: 'http://www.kmcca.or.kr' },
+      { name: '정보통신공사협회', url: 'http://www.kica.or.kr' },
+      { name: '건축사협회', url: 'http://www.kira.or.kr' },
+      { name: '건설공제조합', url: 'http://www.cgbest.co.kr/cgbest/index.jsp' },
+      { name: '전문건설공제조합', url: 'http://www.kscfc.co.kr' },
+      { name: '전기공사공제조합', url: 'http://www.ecfc.co.kr' },
+      { name: '기계설비건설공제조합', url: 'http://www.seolbi.com/index.jsp' },
+      { name: '엔지니어링공제조합', url: 'http://www.efc.co.kr' },
+      { name: '엔지니어링협회', url: 'http://www.kenca.or.kr' },
+      { name: '건설교통신기술협회', url: 'http://www.kcnet.or.kr/' },
+      { name: '건설기술인협회', url: 'http://www.kocea.or.kr' },
+      { name: '한국전기기술인협회', url: 'http://www.keea.or.kr' },
+      { name: '한국열관리시공협회', url: 'http://www.boiler.or.kr' },
+      { name: '대한시설물유지관리협회', url: 'http://www.fma.or.kr/' },
+      { name: '한국소방시설협회', url: 'http://www.ekffa.or.kr/index.do' },
+      { name: 'SGI 서울보증보험', url: 'http://www.sgic.co.kr' },
+      { name: '대한전기협회', url: 'http://www.kea.kr/front/' },
+      { name: '한국전기안전공사', url: 'http://www.kesco.or.kr/index.do' },
+      { name: '전력산업기술기준', url: 'http://www.kepic.org/' },
+      { name: '한전전력연구원', url: 'https://www.kepri.re.kr:20808/index' },
+    ],
+  },
+];
+
+function usefulLinksSectionHtml() {
+  const cardsHtml = DASHBOARD_USEFUL_LINK_CARDS.map(c => `
+    <a class="useful-link-card" href="${escapeAttr(c.url)}" target="_blank" rel="noopener noreferrer">
+      <div class="useful-link-card-icon">${c.icon}</div>
+      <div class="useful-link-card-title">${escapeHtml(c.title)}</div>
+      <div class="useful-link-card-desc">${escapeHtml(c.desc)}</div>
+    </a>
+  `).join('');
+  const dropdownTriggersHtml = DASHBOARD_EXTERNAL_LINK_GROUPS.map((g, i) => `
+    <button type="button" class="btn btn-secondary btn-sm useful-links-dropdown-trigger" data-group-index="${i}">${escapeHtml(g.label)} <span aria-hidden="true">▾</span></button>
+  `).join('');
+  return `
+    <h3 class="dash-section-title">유용한 사이트 바로가기</h3>
+    <div class="useful-links-grid">${cardsHtml}</div>
+    <div class="useful-links-dropdown-row">${dropdownTriggersHtml}</div>
+  `;
+}
+
+function wireUsefulLinksSection(container) {
+  container.querySelectorAll('.useful-links-dropdown-trigger').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const group = DASHBOARD_EXTERNAL_LINK_GROUPS[Number(btn.dataset.groupIndex)];
+      const menu = openDropdown(e.currentTarget, group.links.map(l => `
+        <a class="dropdown-menu-item" href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(l.name)}</a>
+      `).join(''));
+      if (!menu) return; // 같은 트리거를 다시 클릭 — 토글로 닫기만 하고 끝
+      menu.querySelectorAll('a').forEach(a => {
+        a.addEventListener('click', () => closeActiveDropdown());
+      });
+    });
+  });
+}
+
 // renderDashboard — "오늘 할 일" 홈 화면. data는 handleDashboard(신규 응답
 // 모양: summary + priorityItems)의 결과를 그대로 받는다. 예전 3버킷
 // 집계(readyCount 등)는 더 이상 없다 — 이 응답을 쓰는 화면은 여기뿐이라
@@ -6003,6 +6173,7 @@ function renderDashboard(container, data) {
     ${eligibilityHtml}
     ${requirementGapsHtml}
     ${automationHtml}
+    ${usefulLinksSectionHtml()}
   `));
   renderDashboardProfileBanner(document.getElementById('dashboard-profile-banner'));
 
@@ -6010,6 +6181,7 @@ function renderDashboard(container, data) {
     tile.addEventListener('click', () => { location.hash = tile.dataset.href; });
   });
   wireHomeListNav(container);
+  wireUsefulLinksSection(container);
 }
 
 // renderAutomationSummaryHtml — "이번 달 자동화 성과". 절감시간은 실측이
