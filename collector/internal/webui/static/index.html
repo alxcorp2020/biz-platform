@@ -2010,6 +2010,33 @@
   .license-card-name { font-weight: 600; color: var(--ink); }
   .license-card-meta { font-size: 0.82rem; color: var(--ink-soft); display: flex; gap: 0.5rem; flex-wrap: wrap; }
   .ai-usage-failure-reason { color: var(--danger); }
+  /* 비활성 맞춤공고 카드(2026-08-07) — 검색 매칭/알림이 전부 중단된
+     상태임을 "지금 작동 안 함"으로 한눈에 알 수 있게 흐리게 표시.
+     opacity만 쓰고 pointer-events는 그대로 둬서 토글/수정/삭제는 계속
+     클릭 가능하다(꺼진 걸 다시 켜는 액션 자체를 막으면 안 되므로). */
+  .license-card--inactive { opacity: 0.55; }
+
+  /* ---------- 토글 스위치(공용) ----------
+     체크박스를 시각적으로 숨기고 트랙+손잡이로 대체하는 관례적 방법
+     (checked 상태는 인접 형제 선택자로 트랙/손잡이에 전파). */
+  .toggle-switch { display: inline-flex; align-items: center; gap: 0.45rem; cursor: pointer; user-select: none; }
+  .toggle-switch input {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+  .toggle-switch-track {
+    position: relative; width: 38px; height: 22px; border-radius: 999px; flex-shrink: 0;
+    background: var(--border); transition: background-color 0.15s;
+  }
+  .toggle-switch-thumb {
+    position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: transform 0.15s;
+  }
+  .toggle-switch input:checked + .toggle-switch-track { background: var(--accent-blue); }
+  .toggle-switch input:checked + .toggle-switch-track .toggle-switch-thumb { transform: translateX(16px); }
+  .toggle-switch input:focus-visible + .toggle-switch-track { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+  .toggle-switch input:disabled + .toggle-switch-track { opacity: 0.6; }
+  .toggle-switch-label { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); }
 
   /* 약관/개인정보처리방침 전문(#/terms, #/privacy, 관리자 미리보기 공용) */
   .legal-doc-page { max-width: 760px; margin: 0 auto; }
@@ -7558,7 +7585,7 @@ async function renderSavedSearchesListTab(container, autoEditId) {
   container.appendChild(h(`
     <p class="license-card-meta">검색조건을 저장해두면 새로 등록되는 공고가 매일 아침 이메일로 도착합니다. 알림을 받을 담당자는 "담당자 관리" 탭에서 등록해두면 아래에서 바로 선택할 수 있습니다.</p>
     <div class="license-toolbar">
-      <button type="button" id="saved-search-add-btn" class="btn btn-primary btn-sm">새 조건 만들기</button>
+      <button type="button" id="saved-search-add-btn" class="btn btn-primary btn-sm">맞춤공고 만들기</button>
     </div>
     <div id="saved-search-form-slot"></div>
     <div class="license-list" id="saved-search-list"></div>
@@ -7566,7 +7593,7 @@ async function renderSavedSearchesListTab(container, autoEditId) {
 
   const listEl = document.getElementById('saved-search-list');
   if (!items.length) {
-    listEl.appendChild(h('<p class="empty">아직 저장된 맞춤공고 조건이 없습니다. "새 조건 만들기"로 시작해보세요.</p>'));
+    listEl.appendChild(h('<p class="empty">아직 저장된 맞춤공고 조건이 없습니다. "맞춤공고 만들기"로 시작해보세요.</p>'));
   } else {
     items.forEach(item => listEl.appendChild(h(savedSearchCardHtml(item, contacts))));
   }
@@ -7640,6 +7667,20 @@ async function renderSavedSearchesListTab(container, autoEditId) {
   listEl.querySelectorAll('.saved-search-results-link').forEach(a => {
     a.addEventListener('click', () => { noticeListState = null; }); // 새 조건 결과이므로 무한스크롤 캐시 폐기
   });
+  listEl.querySelectorAll('.saved-search-active-toggle').forEach(toggle => {
+    toggle.addEventListener('change', async () => {
+      const nextValue = toggle.checked;
+      toggle.disabled = true;
+      try {
+        await apiRequest('PUT', '/api/me/saved-searches/' + encodeURIComponent(toggle.dataset.id) + '/active', { isActive: nextValue });
+        renderSavedSearchesListTab(container);
+      } catch (err) {
+        toggle.checked = !nextValue; // 실패 시 원상복구(북마크 토글과 동일하게 조용히 되돌림)
+        toggle.disabled = false;
+        if (err.status === 401) location.hash = '#/auth/login';
+      }
+    });
+  });
 
   if (autoEditId) {
     const newItem = items.find(i => i.id === autoEditId);
@@ -7712,18 +7753,36 @@ function savedSearchCardHtml(item, contacts) {
     ? '<span class="badge badge--gray" title="가입 시 입력한 지역·업종·기업규모로 자동 생성되었습니다. 지역·업종·기업규모는 기업정보와 값을 공유합니다 — 어느 쪽에서 수정해도 같이 반영됩니다.">온보딩 시 자동 생성됨</span>'
     : '';
 
+  // 삭제 버튼 — "내 기본 조건"(origin='onboarding')은 삭제하면 기업정보와의
+  // 양방향 동기화 전제가 깨져서 삭제 자체를 막는다(2026-08-07). 수정은
+  // 계속 가능(지역/업종/기업규모는 기업정보와 동기화되어 그대로 반영됨).
+  const deleteButtonHtml = item.origin === 'onboarding'
+    ? `<button type="button" class="btn btn-secondary btn-sm" disabled title="이 조건은 회원가입 시 자동 생성된 기본 조건이라 삭제할 수 없습니다. 필요 없으시면 알림을 꺼두세요.">삭제</button>`
+    : `<button type="button" class="btn btn-secondary btn-sm saved-search-delete-btn" data-id="${escapeAttr(item.id)}">삭제</button>`;
+
+  // 활성/비활성 토글 — "복제" 직후엔 항상 꺼진 상태로 시작(2026-08-07).
+  // 꺼지면 검색 매칭·다이제스트·리마인더가 전부 중단되고(카드도 흐리게
+  // 표시), "결과 보기"만은 확인용으로 계속 동작한다.
+  const activeToggleHtml = `
+    <label class="toggle-switch" title="꺼두면 이 조건은 검색 매칭과 알림이 모두 중단됩니다(결과 보기 미리보기는 계속 가능)">
+      <input type="checkbox" class="saved-search-active-toggle" data-id="${escapeAttr(item.id)}" ${item.isActive ? 'checked' : ''}>
+      <span class="toggle-switch-track"><span class="toggle-switch-thumb"></span></span>
+      <span class="toggle-switch-label">${item.isActive ? '활성' : '비활성'}</span>
+    </label>`;
+
   return `
-    <div class="license-card">
+    <div class="license-card${item.isActive ? '' : ' license-card--inactive'}">
       <div class="license-card-main">
         <div class="license-card-name">${escapeHtml(item.name)} ${item.alertEnabled ? '<span class="badge badge--success">알림 켜짐</span>' : '<span class="badge badge--gray">알림 꺼짐</span>'} ${originBadge}</div>
         <div class="license-card-meta">${conditionParts.length ? conditionParts.join(' · ') : '조건 없음(전체 공고)'}</div>
         <div class="license-card-meta">${escapeHtml(savedSearchNotificationSummary(item, contacts))}</div>
       </div>
       <div class="license-card-side">
+        ${activeToggleHtml}
         <a class="btn btn-secondary btn-sm saved-search-results-link" href="${escapeAttr(savedSearchResultsHash(item))}">결과 보기</a>
         <button type="button" class="btn btn-secondary btn-sm saved-search-edit-btn" data-id="${escapeAttr(item.id)}">수정</button>
         <button type="button" class="btn btn-secondary btn-sm saved-search-duplicate-btn" data-id="${escapeAttr(item.id)}">복제</button>
-        <button type="button" class="btn btn-secondary btn-sm saved-search-delete-btn" data-id="${escapeAttr(item.id)}">삭제</button>
+        ${deleteButtonHtml}
       </div>
     </div>
   `;

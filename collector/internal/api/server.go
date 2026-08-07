@@ -171,6 +171,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/me/saved-searches/{id}", s.handleUpdateSavedSearch)
 	mux.HandleFunc("DELETE /api/me/saved-searches/{id}", s.handleDeleteSavedSearch)
 	mux.HandleFunc("POST /api/me/saved-searches/{id}/duplicate", s.handleDuplicateSavedSearch)
+	mux.HandleFunc("PUT /api/me/saved-searches/{id}/active", s.handleSetSavedSearchActive)
 	mux.HandleFunc("POST /api/me/company-profile/employee-verification/documents", s.handleUploadEmployeeVerificationDocument)
 	mux.HandleFunc("POST /api/me/company-profile/employee-verification", s.handleConfirmEmployeeVerification)
 	mux.HandleFunc("POST /api/notices/{id}/pipeline", s.handleCreatePipelineEntry)

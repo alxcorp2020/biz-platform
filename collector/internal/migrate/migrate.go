@@ -262,6 +262,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureCompanyProfileFoundingDateColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_profiles.founding_date column: %w", err)
 	}
+	if err := ensureSavedSearchIsActiveColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate saved_searches.is_active column: %w", err)
+	}
 	return nil
 }
 
@@ -1905,6 +1908,20 @@ func ensureBusinessRegistrationColumns(ctx context.Context, db *sql.DB) error {
 func ensureCompanyProfileFoundingDateColumn(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS founding_date DATE;
+	`)
+	return err
+}
+
+// ensureSavedSearchIsActiveColumn adds saved_searches.is_active — 2026-08-07,
+// "복제본 기본 비활성화" + "활성/비활성 토글" 기능. 기존 컬럼은 전부
+// 새로 만든 게 아니라 켜져 있으면 도는 값이라, "복제 직후엔 아예 아무
+// 것도 하지 않는" 상태를 표현하려면 alert_enabled/reminder_enabled와
+// 별개인 마스터 스위치가 필요했다. 기본값 true라 기존 조건은 전부
+// 지금처럼 그대로 작동하고, 새로 복제되는 조건만 saved_searches.go가
+// 명시적으로 false를 넣는다.
+func ensureSavedSearchIsActiveColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 	`)
 	return err
 }

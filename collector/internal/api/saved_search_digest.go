@@ -1,7 +1,9 @@
 // saved_search_digest.go — "맞춤공고"(saved_searches) 알림 배치. 매일
 // 09:00 KST(startBackgroundNotifications, sendRecommendationDigest와 같은
-// 시각)에 실행되어, alert_enabled=true인 저장 조건마다 새로 매칭되는
-// 공고를 찾아 사용자별로 이메일 한 통(+인앱+웹푸시)으로 묶어 보낸다.
+// 시각)에 실행되어, alert_enabled=true AND is_active=true인 저장 조건마다
+// 새로 매칭되는 공고를 찾아 사용자별로 이메일 한 통(+인앱+웹푸시)으로
+// 묶어 보낸다. is_active=false(복제 직후 기본값, 사용자가 확인 전까지)인
+// 조건은 alert_enabled/reminder_enabled 설정과 무관하게 완전히 제외된다.
 // 조건별 매칭 로직은 server.go의 handleListNotices WHERE절 확장과 같은
 // 모양이지만, 여긴 HTTP 왕복 없이 직접 쿼리한다(페이지네이션/북마크/
 // 변경감지 배지처럼 이 배치에 필요 없는 것들을 안 실어도 되므로).
@@ -259,7 +261,7 @@ func (s *Server) sendSavedSearchDigest(ctx context.Context) error {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, user_id, name, notice_type, region, industry, organization_name, budget_min, budget_max,
 		       keywords_include, keywords_exclude, recipient_contact_ids
-		FROM saved_searches WHERE alert_enabled = true`)
+		FROM saved_searches WHERE alert_enabled = true AND is_active = true`)
 	if err != nil {
 		return err
 	}
@@ -472,7 +474,7 @@ func (s *Server) sendSavedSearchDeadlineReminders(ctx context.Context, offsetDay
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, user_id, name, notice_type, region, industry, organization_name, budget_min, budget_max,
 		       keywords_include, keywords_exclude, recipient_contact_ids
-		FROM saved_searches WHERE reminder_enabled = true AND $1 = ANY(reminder_days_before)`, offsetDays)
+		FROM saved_searches WHERE reminder_enabled = true AND is_active = true AND $1 = ANY(reminder_days_before)`, offsetDays)
 	if err != nil {
 		return err
 	}

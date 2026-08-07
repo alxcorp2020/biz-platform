@@ -40,6 +40,15 @@ type savedSearchItem struct {
 	// "내 기본 조건"(프론트가 이 값으로 "온보딩 시 자동 생성됨" 배지를
 	// 붙인다). nil이면 사용자가 직접 만든 일반 조건.
 	Origin *string `json:"origin"`
+	// IsActive — 2026-08-07, 카드의 활성/비활성 토글. false면 alert_enabled/
+	// reminder_enabled 설정과 무관하게 다이제스트·리마인더 발송 대상에서
+	// 완전히 제외된다(sendSavedSearchDigest/sendSavedSearchDeadlineReminders의
+	// WHERE절 참고). "복제" 직후엔 항상 false로 시작 — 원본과 조건이 100%
+	// 같은 상태라 확인 없이 그대로 두면 중복 매칭/중복 알림이 발생하기
+	// 때문(handleDuplicateSavedSearch). 일반 생성은 DB 기본값(true)을 그대로
+	// 쓴다. "결과 보기"(수동 미리보기)는 비활성 상태에서도 계속 동작한다 —
+	// 사용자가 켜기 전에 내용을 확인하는 용도라 의도적으로 막지 않는다.
+	IsActive bool `json:"isActive"`
 	// RecipientContactIDs/ReminderEnabled/ReminderDaysBefore — 2026-08-06,
 	// 기업프로필의 "담당자 관리"/"알림 설정"을 맞춤공고 화면으로 통합.
 	// RecipientContactIDs가 비어 있으면 발송 시점에 검색 소유자 로그인
@@ -57,7 +66,7 @@ type savedSearchItem struct {
 const savedSearchSelect = `
 	SELECT id, name, notice_type, region, industry, organization_name, budget_min, budget_max,
 	       keywords_include, keywords_exclude, alert_enabled, origin,
-	       recipient_contact_ids, reminder_enabled, reminder_days_before, created_at, updated_at
+	       recipient_contact_ids, reminder_enabled, reminder_days_before, is_active, created_at, updated_at
 	FROM saved_searches`
 
 func scanSavedSearch(row interface{ Scan(dest ...any) error }) (*savedSearchItem, error) {
@@ -68,7 +77,7 @@ func scanSavedSearch(row interface{ Scan(dest ...any) error }) (*savedSearchItem
 	var reminderDaysBefore pq.Int64Array
 	if err := row.Scan(&it.ID, &it.Name, &noticeType, &region, &industry, &orgName, &budgetMin, &budgetMax,
 		&include, &exclude, &it.AlertEnabled, &origin,
-		&recipientContactIDs, &it.ReminderEnabled, &reminderDaysBefore, &it.CreatedAt, &it.UpdatedAt); err != nil {
+		&recipientContactIDs, &it.ReminderEnabled, &reminderDaysBefore, &it.IsActive, &it.CreatedAt, &it.UpdatedAt); err != nil {
 		return nil, err
 	}
 	it.NoticeType = nullStringPtr(noticeType)
@@ -417,6 +426,11 @@ func (s *Server) handleUpdateSavedSearch(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
+// handleDeleteSavedSearch — origin='onboarding'인 "내 기본 조건"은 삭제를
+// 거부한다(2026-08-07). 프론트도 삭제 버튼을 비활성화해두지만, 직접 API
+// 호출로 우회하는 경우를 막기 위해 서버에서도 반드시 재검증한다 — 이
+// 항목이 삭제되면 기업정보(지역/업종/기업규모)와의 양방향 동기화 코드가
+// "온보딩 기본 조건은 정확히 1개"라고 가정하는 전제가 깨진다.
 func (s *Server) handleDeleteSavedSearch(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {
@@ -424,6 +438,23 @@ func (s *Server) handleDeleteSavedSearch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	id := r.PathValue("id")
+
+	var origin sql.NullString
+	err := s.db.QueryRowContext(r.Context(), `SELECT origin FROM saved_searches WHERE id = $1 AND user_id = $2`, id, userID).Scan(&origin)
+	if err == sql.ErrNoRows {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "saved_search_not_found"})
+		return
+	}
+	if err != nil {
+		s.logger.Error("delete-saved-search: lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if origin.Valid && origin.String == "onboarding" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "onboarding_default_not_deletable"})
+		return
+	}
+
 	res, err := s.db.ExecContext(r.Context(), `DELETE FROM saved_searches WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		s.logger.Error("delete-saved-search: delete failed", "error", err)
@@ -435,6 +466,39 @@ func (s *Server) handleDeleteSavedSearch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// handleSetSavedSearchActive — 2026-08-07, 카드의 활성/비활성 토글 스위치
+// 전용 경량 엔드포인트(이름/조건 등 다른 필드는 건드리지 않는다 — 그건
+// handleUpdateSavedSearch의 몫). "복제" 직후 자동으로 꺼진 상태로 시작하는
+// 조건을 사용자가 확인 후 직접 켜는 용도.
+func (s *Server) handleSetSavedSearchActive(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	id := r.PathValue("id")
+	var req struct {
+		IsActive bool `json:"isActive"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request_body"})
+		return
+	}
+	res, err := s.db.ExecContext(r.Context(),
+		`UPDATE saved_searches SET is_active = $1, updated_at = now() WHERE id = $2 AND user_id = $3`,
+		req.IsActive, id, userID)
+	if err != nil {
+		s.logger.Error("set-saved-search-active: update failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "saved_search_not_found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
 // savedSearchNamesForUser — handleDuplicateSavedSearch가 "OO 복제/복제 2/
@@ -479,7 +543,10 @@ func nextDuplicateName(existing map[string]bool, base string) string {
 // 복사하지 않는다 — 'onboarding'은 "내 기본 조건" 카드 정확히 1개를
 // 가리키는 특수 값(기업정보와 지역/업종/기업규모를 양방향 동기화하는
 // 코드가 origin='onboarding' 항목이 하나뿐이라고 가정한다) — 복제본은
-// 항상 독립된 일반 조건(origin=NULL)으로 만든다.
+// 항상 독립된 일반 조건(origin=NULL)으로 만든다. is_active도 원본 상태와
+// 무관하게 항상 false로 시작한다(2026-08-07) — 원본과 조건이 100% 같은
+// 상태에서 확인 없이 바로 활성화되면 중복 매칭/중복 알림이 발생하기
+// 때문, 사용자가 내용을 확인·수정한 뒤 카드의 토글을 직접 켜야 한다.
 func (s *Server) handleDuplicateSavedSearch(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {
@@ -524,8 +591,8 @@ func (s *Server) handleDuplicateSavedSearch(w http.ResponseWriter, r *http.Reque
 	err = s.db.QueryRowContext(ctx, `
 		INSERT INTO saved_searches
 			(user_id, name, notice_type, region, industry, organization_name, budget_min, budget_max,
-			 keywords_include, keywords_exclude, alert_enabled, recipient_contact_ids, reminder_enabled, reminder_days_before)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			 keywords_include, keywords_exclude, alert_enabled, recipient_contact_ids, reminder_enabled, reminder_days_before, is_active)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,false)
 		RETURNING id`,
 		userID, newName, source.NoticeType, source.Region, source.Industry, source.OrganizationName,
 		source.BudgetMin, source.BudgetMax, pq.Array(source.KeywordsInclude), pq.Array(source.KeywordsExclude),
