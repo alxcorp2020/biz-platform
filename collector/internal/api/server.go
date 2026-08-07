@@ -685,7 +685,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	var profileID string
 	var score *participationScore
 	var company companyScoringInput
-	var isMinimalProfile bool
+	confidenceTier := "basic"
 	if loggedIn {
 		companyProfile, err := s.getCompanyProfile(r, userID)
 		if err != nil {
@@ -715,15 +715,19 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 			)
 			score = &computed
 
-			isMinimalProfile, err = s.profileHasNoOptionalData(r.Context(), profileID)
+			hasPreciseData, err := s.profileHasPreciseJudgementData(r.Context(), profileID)
 			if err != nil {
-				s.logger.Error("get notice: minimal-profile check failed", "error", err)
+				s.logger.Error("get notice: confidence tier check failed", "error", err)
+			}
+			if hasPreciseData {
+				confidenceTier = "precise"
 			}
 		}
 	}
 
 	eligibilityConditions := []eligibilityConditionItem{}
 	requiredDocuments := []requiredDocumentItem{}
+	licenseMatches := []licenseRequirementMatch{}
 	attachments := []attachmentItem{}
 	var rawDetail *noticeRawDetail
 	var aiSummary *noticeAISummary
@@ -738,6 +742,12 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		requiredDocuments, err = s.listRequiredDocuments(r.Context(), versionID, profileID)
 		if err != nil {
 			s.logger.Error("list required documents failed", "error", err)
+		}
+		if profileID != "" {
+			licenseMatches, err = s.matchNoticeLicenseRequirements(r.Context(), versionID, profileID)
+			if err != nil {
+				s.logger.Error("match notice license requirements failed", "error", err)
+			}
 		}
 		attachments, err = s.listAttachments(r.Context(), versionID)
 		if err != nil {
@@ -808,11 +818,12 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"changes":                  changes,
 		"eligibilityConditions":    eligibilityConditions,
 		"requiredDocuments":        requiredDocuments,
+		"licenseMatches":           licenseMatches,
 		"documentReadiness":        map[string]int{"total": len(requiredDocuments), "checked": checkedCount},
 		"attachments":              attachments,
 		"detail":                   rawDetail,
 		"participationScore":       score,
-		"isMinimalProfile":         isMinimalProfile,
+		"confidenceTier":           confidenceTier,
 		"aiSummary":                aiSummary,
 		"changeImpact":             impact,
 		"organizationAwardHistory": awardHistory,

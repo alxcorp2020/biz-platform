@@ -7905,6 +7905,8 @@ function renderDetail(container, id) {
           ${extractionBannerHtml}
           <h3>참가자격 요건</h3>
           <div id="eligibility-conditions-section"></div>
+          <h3>면허·인증 요건 확인</h3>
+          <div id="license-requirement-match-section"></div>
         </div>
         <div class="detail-tab-panel" role="tabpanel" data-tab-panel="documents" hidden>
           ${extractionBannerHtml}
@@ -7927,12 +7929,13 @@ function renderDetail(container, id) {
         </div>
       `));
       renderAISummary(document.getElementById('ai-summary-section'), data.aiSummary);
-      renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.isMinimalProfile);
+      renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.confidenceTier);
       renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
       renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail);
       renderBidCalculator(document.getElementById('bid-calculator-section'), data.detail);
       renderAttachments(document.getElementById('attachments-section'), data.attachments || []);
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || []);
+      renderLicenseRequirementMatches(document.getElementById('license-requirement-match-section'), data.licenseMatches || []);
       renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || [], id, data.documentReadiness);
       renderAwardHistory(document.getElementById('award-history-section'), data.organizationAwardHistory, data.hasCompetitiveOverlap);
       renderPipelineReviewAction(document.getElementById('pipeline-review-action'), id, data.existingPipelineEntryId);
@@ -8394,6 +8397,31 @@ function renderEligibilityConditions(container, items) {
   container.appendChild(h(`<ul class="condition-list">${rows}</ul>`));
 }
 
+// renderLicenseRequirementMatches — 판정엔진 확장 3단계(2026-08-07). 이
+// 공고가 요구하는 면허·인증(required_documents에서 면허/인증 키워드로
+// 걸러낸 문서명)과 회사가 실제 보유한 면허·인증을 서버가 이미 대조해서
+// 보내준 결과를 그대로 나열한다(프론트는 판정하지 않음). 항목이 없으면
+// "아직 분석되지 않았습니다"로 다른 문서 기반 섹션들과 동일하게 표시한다
+// (첨부문서 AI 분석이 아직 안 된 경우와 이 공고에 애초에 면허/인증
+// 요건이 없는 경우를 프론트에서 구분할 방법이 없어, 기존 관례를 그대로 따름).
+function renderLicenseRequirementMatches(container, items) {
+  container.innerHTML = '';
+  if (!items.length) {
+    container.appendChild(h('<p class="section-empty">아직 분석되지 않았습니다.</p>'));
+    return;
+  }
+  const rows = items.map(it => `
+    <li class="condition-item">
+      <div class="condition-head">
+        <span class="elig-result elig-result--${it.held ? 'met' : 'not_met'}">${it.held ? '보유' : '확인 필요'}</span>
+      </div>
+      <p class="condition-name">${escapeHtml(it.documentName)}</p>
+      <p class="elig-reason">${escapeHtml(it.message)}</p>
+    </li>
+  `).join('');
+  container.appendChild(h(`<ul class="condition-list">${rows}</ul>`));
+}
+
 // readiness는 handleGetNotice가 함께 내려주는 {total, checked} 집계 — 로그인/
 // 프로필 여부와 무관하게 항상 값이 온다(비로그인이면 checked는 전부 false).
 // 체크박스 토글은 PUT /api/notices/{id}/documents/{id}/checklist를 호출하고,
@@ -8597,7 +8625,7 @@ function renderAISummary(container, summary) {
 // 그대로 렌더링한다. 별도 버튼/클릭 없음 — 예전 "우리 회사 적합성 확인" 버튼은
 // 이 섹션으로 통합되어 제거되었다. AI는 "가능/불가능"을 단정하지 않고
 // "추천/확인 필요/비추천"으로만 표현한다(최종 결정은 사용자 몫).
-function renderParticipationSection(container, score, isMinimalProfile) {
+function renderParticipationSection(container, score, confidenceTier) {
   container.innerHTML = '';
 
   if (!currentUser) {
@@ -8660,16 +8688,25 @@ function renderParticipationSection(container, score, isMinimalProfile) {
     ? '<span class="ai-bucket-badge badge--warn">공동수급 검토 권장</span>'
     : '';
 
+  // 신뢰도 표시(2026-08-07, 판정엔진 확장 2단계) — "간이 판정" 문구를
+  // 대체한다. 기본 판정(지역/업종/기업규모만)과 정밀 판정(실적/면허/인증
+  // 데이터까지 반영)을 구분해 사용자가 정보를 더 채울 동기를 준다.
+  const isPreciseJudgement = confidenceTier === 'precise';
+  const confidenceLabel = isPreciseJudgement ? '정밀 판정' : '기본 판정';
+  const confidenceNoticeHtml = isPreciseJudgement
+    ? ''
+    : '<p class="ai-minimal-profile-notice">실적·면허·인증 정보를 등록하면 정밀 판정을 받을 수 있습니다. <a href="#/me/saved-searches">지금 등록하기 &rarr;</a></p>';
+
   container.appendChild(h(`
     <div class="ai-participation-card ai-participation-card--${escapeHtml(score.grade)}">
       <div class="ai-participation-head">
         ${gradeBadgeHtml(score.grade, gradeLabel)}
         ${jointVentureBadgeHtml}
-        <span class="ai-participation-score">${score.totalCount}개 중 ${score.metCount}개 충족</span>
+        <span class="ai-participation-score">${escapeHtml(confidenceLabel)} · ${score.totalCount}개 중 ${score.metCount}개 충족</span>
       </div>
       ${score.gradeReason ? `<p class="ai-grade-reason">${escapeHtml(score.gradeReason)}</p>` : ''}
       ${score.jointVentureReason ? `<p class="ai-grade-reason">${escapeHtml(score.jointVentureReason)}</p>` : ''}
-      ${isMinimalProfile ? `<p class="ai-minimal-profile-notice">간이 판정입니다 — 정확도를 높이려면 <a href="#/me/saved-searches">프로필을 더 채워주세요</a>.</p>` : ''}
+      ${confidenceNoticeHtml}
       <p class="ai-participation-subtitle">부족한 조건</p>
       ${missingHtml}
       ${nextAction}

@@ -306,21 +306,28 @@ func capCompleteness(count, target int) int {
 	return count * 100 / target
 }
 
-// profileHasNoOptionalData reports whether a profile has zero rows across
-// every optional category (면허/인증/재무/실적/인력) — used by
-// handleGetNotice to flag a 3분 온보딩 minimal profile's participation
-// judgement as "간이 판정" (region/industry/budget only, same as any other
-// judgement — see scoring.go — but the user hasn't gone past the signup
-// minimum yet, so the UI nudges them to fill in more).
-func (s *Server) profileHasNoOptionalData(ctx context.Context, profileID string) (bool, error) {
-	query := "SELECT NOT EXISTS (" + "SELECT 1 FROM " + completenessConfidenceTables[0] + " WHERE company_profile_id = $1"
-	for _, table := range completenessConfidenceTables[1:] {
+// confidenceTierTables — 2026-08-07, 판정엔진 확장 2단계 "신뢰도 표시".
+// completenessConfidenceTables(5개, "AI 분석 커버리지" %용)와 다르게 딱
+// 3개만 본다 — scoring.go(실적, computeJointVentureSignal)와
+// notice_license_match.go(면허/인증, matchNoticeLicenseRequirements)가
+// 실제로 반영하는 테이블만 정확히 골랐다. 재무/인력은 판정에 전혀
+// 안 쓰이므로 여기 포함하면 "정밀 판정"이라는 라벨이 거짓이 된다.
+var confidenceTierTables = []string{"company_track_records", "company_licenses", "company_certifications"}
+
+// profileHasPreciseJudgementData reports whether a profile has at least one
+// row across 실적/면허/인증(confidenceTierTables) — handleGetNotice uses
+// this to label the participation judgement "기본 판정"(지역/업종/기업규모
+// 뿐) vs "정밀 판정"(실적/면허/인증 데이터까지 반영), replacing the older
+// "간이 판정" nudge that checked a broader, less accurate 5-table set.
+func (s *Server) profileHasPreciseJudgementData(ctx context.Context, profileID string) (bool, error) {
+	query := "SELECT EXISTS (" + "SELECT 1 FROM " + confidenceTierTables[0] + " WHERE company_profile_id = $1"
+	for _, table := range confidenceTierTables[1:] {
 		query += " UNION ALL SELECT 1 FROM " + table + " WHERE company_profile_id = $1"
 	}
 	query += ")"
-	var noData bool
-	err := s.db.QueryRowContext(ctx, query, profileID).Scan(&noData)
-	return noData, err
+	var hasData bool
+	err := s.db.QueryRowContext(ctx, query, profileID).Scan(&hasData)
+	return hasData, err
 }
 
 // countConfidenceBucket returns (total row count, count with confidence
