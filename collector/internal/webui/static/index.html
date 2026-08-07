@@ -6843,13 +6843,19 @@ async function renderPipelineDetail(container, id) {
         <label>메모<textarea name="memo" rows="3">${escapeHtml(entry.memo || '')}</textarea></label>
         <p class="license-card-meta">제출 마감: ${entry.submissionDeadline ? escapeHtml(entry.submissionDeadline) : '확인 안 됨'}</p>
         <div id="pipeline-entry-error" class="error" style="display:none"></div>
-        <div id="pipeline-entry-success" class="success" style="display:none"></div>
         <button type="submit" class="btn btn-primary btn-block">저장</button>
       </form>
     </div>
     <h3>제출서류 체크리스트</h3>
     <div id="pipeline-checklist-section"></div>
   `));
+
+  // ics 다운로드는 일반 <a download> 링크라 완료 이벤트를 JS로 알 방법이
+  // 없다(브라우저가 네이티브로 처리) — 클릭 시점에 "다운로드를
+  // 시작합니다"로 즉시 안내한다(2026-08-07, UX 경량화 3단계).
+  document.querySelector('.calendar-add-link').addEventListener('click', () => {
+    showToast('캘린더 파일을 다운로드합니다.', 'info');
+  });
 
   // 담당자가 아직 비어 있고, 등록된 담당자도 하나도 없으면 "미리
   // 등록해두면 편리합니다" 안내 — 매번 두 번째 API 호출을 하긴 하지만
@@ -6871,11 +6877,9 @@ async function renderPipelineDetail(container, id) {
   attachCurrencyAutoFormat(form.awardedAmount);
   if (form.assigneePhone && form.assigneePhone.type === 'tel') attachPhoneAutoFormat(form.assigneePhone);
   const errorBox = document.getElementById('pipeline-entry-error');
-  const successBox = document.getElementById('pipeline-entry-success');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errorBox.style.display = 'none';
-    successBox.style.display = 'none';
     const fd = new FormData(form);
     const awardedAmountCleaned = parseCurrencyInput(fd.get('awardedAmount'));
     const payload = {
@@ -6889,8 +6893,7 @@ async function renderPipelineDetail(container, id) {
     };
     try {
       await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(id), payload);
-      successBox.textContent = '저장되었습니다.';
-      successBox.style.display = 'block';
+      showToast('저장되었습니다.', 'success');
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -8350,7 +8353,7 @@ function wireShareNoticeButton(container, noticeId) {
         await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/share', {
           email: new FormData(form).get('email'),
         });
-        resultEl.innerHTML = '<p class="success">전달했습니다.</p>';
+        showToast('전달했습니다.', 'success');
         form.reset();
       } catch (err) {
         resultEl.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
@@ -9796,20 +9799,16 @@ function renderEmailVerifyPending(container) {
       <h2>이메일 인증 대기</h2>
       <p class="auth-step-hint">${escapeHtml(currentUser && currentUser.email || '')}로 인증 메일을 보내드렸습니다. 메일함(스팸함 포함)에서 링크를 클릭해 인증을 완료해주세요.</p>
       <div id="resend-verification-error" class="error" style="display:none"></div>
-      <p id="resend-verification-success" class="success" style="display:none"></p>
       <button type="button" class="btn btn-primary btn-block" id="resend-verification-btn">인증 메일 재발송</button>
       <p class="auth-switch"><a href="#" id="verify-pending-logout-link">다른 계정으로 로그인</a></p>
     </div>
   `));
   const errorBox = document.getElementById('resend-verification-error');
-  const successBox = document.getElementById('resend-verification-success');
   document.getElementById('resend-verification-btn').addEventListener('click', async () => {
     errorBox.style.display = 'none';
-    successBox.style.display = 'none';
     try {
       await apiRequest('POST', '/api/me/resend-verification-email');
-      successBox.textContent = '인증 메일을 다시 보냈습니다.';
-      successBox.style.display = 'block';
+      showToast('인증 메일을 다시 보냈습니다.', 'success');
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -10326,7 +10325,6 @@ async function renderAccountSettings(container) {
       <label>새 비밀번호 (최소 8자)<input type="password" name="newPassword" minlength="8" required></label>
       <label>새 비밀번호 확인<input type="password" name="newPasswordConfirm" minlength="8" required></label>
       <div id="account-password-error" class="error" style="display:none"></div>
-      <div id="account-password-success" class="success" style="display:none"></div>
       <button type="submit" class="btn btn-primary">비밀번호 변경</button>
     </form>
   ` : '<p style="color:var(--ink-soft);font-size:0.9rem">소셜 로그인 계정은 비밀번호가 없습니다.</p>';
@@ -10346,7 +10344,6 @@ async function renderAccountSettings(container) {
       <form id="account-phone-form" class="profile-form">
         <label>휴대폰번호<input type="tel" name="phoneNumber" value="${escapeAttr(data.phoneNumber || '')}" placeholder="010-1234-5678"></label>
         <div id="account-phone-error" class="error" style="display:none"></div>
-        <div id="account-phone-success" class="success" style="display:none"></div>
         <button type="submit" class="btn btn-primary">저장</button>
       </form>
     </div>
@@ -10372,15 +10369,12 @@ async function renderAccountSettings(container) {
   const phoneForm = document.getElementById('account-phone-form');
   attachPhoneAutoFormat(phoneForm.phoneNumber);
   const phoneError = document.getElementById('account-phone-error');
-  const phoneSuccess = document.getElementById('account-phone-success');
   phoneForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     phoneError.style.display = 'none';
-    phoneSuccess.style.display = 'none';
     try {
       await apiRequest('PATCH', '/api/me/account', { phoneNumber: phoneForm.phoneNumber.value });
-      phoneSuccess.textContent = '저장되었습니다.';
-      phoneSuccess.style.display = 'block';
+      showToast('저장되었습니다.', 'success');
     } catch (err) {
       phoneError.textContent = err.message;
       phoneError.style.display = 'block';
@@ -10390,11 +10384,9 @@ async function renderAccountSettings(container) {
   const passwordForm = document.getElementById('account-password-form');
   if (passwordForm) {
     const pwError = document.getElementById('account-password-error');
-    const pwSuccess = document.getElementById('account-password-success');
     passwordForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       pwError.style.display = 'none';
-      pwSuccess.style.display = 'none';
       const fd = new FormData(passwordForm);
       if (fd.get('newPassword') !== fd.get('newPasswordConfirm')) {
         pwError.textContent = '새 비밀번호가 일치하지 않습니다.';
@@ -10406,8 +10398,7 @@ async function renderAccountSettings(container) {
           currentPassword: fd.get('currentPassword'),
           newPassword: fd.get('newPassword'),
         });
-        pwSuccess.textContent = '비밀번호가 변경되었습니다.';
-        pwSuccess.style.display = 'block';
+        showToast('비밀번호가 변경되었습니다.', 'success');
         passwordForm.reset();
       } catch (err) {
         pwError.textContent = err.message;
@@ -10617,7 +10608,6 @@ function openProfileEditModal(summaryContainer) {
         <label>보유 인증 (쉼표로 구분)<input type="text" name="certifications"></label>
         <label class="checkbox-label"><input type="checkbox" name="directProductionCert"> ${glossaryHtml('직접생산확인', '직접생산확인증명 보유')}</label>
         <div id="profile-error" class="error" style="display:none"></div>
-        <div id="profile-success" class="success" style="display:none"></div>
       </div>
       <div class="wizard-nav">
         <button type="button" class="btn btn-secondary" id="wizard-prev">이전</button>
@@ -10674,11 +10664,9 @@ function openProfileEditModal(summaryContainer) {
   });
 
   const errorBox = document.getElementById('profile-error');
-  const successBox = document.getElementById('profile-success');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errorBox.style.display = 'none';
-    successBox.style.display = 'none';
     const fd = new FormData(form);
     // parseCurrencyInput으로 쉼표를 먼저 걷어낸 뒤 숫자로 변환한다 —
     // employeeCount처럼 쉼표가 안 붙는 필드도 그냥 통과되니(쉼표 없으면
@@ -10720,6 +10708,7 @@ function openProfileEditModal(summaryContainer) {
       currentProfile = data.companyProfile;
       closeModal();
       renderProfileSummaryCard(summaryContainer);
+      showToast('저장되었습니다.', 'success');
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -12738,7 +12727,8 @@ async function renderAdminSettingsSection(container) {
     }
     try {
       await apiRequest('PUT', '/api/admin/settings/free-plan-email-limit', { value });
-      resultBox.innerHTML = `<p class="success">저장했습니다 — Free 플랜 월간 이메일 한도가 ${value}건으로 적용됩니다.</p>`;
+      resultBox.innerHTML = '';
+      showToast(`저장했습니다 — Free 플랜 월간 이메일 한도가 ${value}건으로 적용됩니다.`, 'success');
     } catch (err) {
       resultBox.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
     }
@@ -12749,7 +12739,8 @@ async function renderAdminSettingsSection(container) {
     const value = document.getElementById('phone-verification-required-input').checked;
     try {
       await apiRequest('PUT', '/api/admin/settings/phone-verification-required', { value });
-      phoneResultBox.innerHTML = `<p class="success">저장했습니다 — 휴대폰 SMS 인증이 ${value ? '필수로 켜졌습니다' : '꺼져 선택 입력이 됩니다'}.</p>`;
+      phoneResultBox.innerHTML = '';
+      showToast(`저장했습니다 — 휴대폰 SMS 인증이 ${value ? '필수로 켜졌습니다' : '꺼져 선택 입력이 됩니다'}.`, 'success');
     } catch (err) {
       phoneResultBox.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
     }
@@ -12814,7 +12805,6 @@ async function renderAdminPlanSettings(container) {
       </div>
     `).join('')}
     <div id="plan-settings-error" class="error" style="display:none"></div>
-    <div id="plan-settings-success" class="success" style="display:none"></div>
     <div class="license-toolbar">
       <button type="button" class="btn btn-primary" id="plan-settings-save-btn">저장</button>
     </div>
@@ -12822,9 +12812,7 @@ async function renderAdminPlanSettings(container) {
 
   document.getElementById('plan-settings-save-btn').addEventListener('click', async () => {
     const errorBox = document.getElementById('plan-settings-error');
-    const successBox = document.getElementById('plan-settings-success');
     errorBox.style.display = 'none';
-    successBox.style.display = 'none';
     const payload = {};
     for (const group of PLAN_SETTINGS_FIELDS) {
       for (const f of group.fields) {
@@ -12840,8 +12828,7 @@ async function renderAdminPlanSettings(container) {
     }
     try {
       await apiRequest('PUT', '/api/admin/plan-settings', payload);
-      successBox.textContent = '저장했습니다. 재배포 없이 바로 반영됩니다.';
-      successBox.style.display = 'block';
+      showToast('저장했습니다. 재배포 없이 바로 반영됩니다.', 'success');
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -12899,7 +12886,6 @@ function renderLegalDocumentTypeSection(sectionEl, docType, label, historyItems,
         <textarea id="legal-${docType}-content" rows="16" style="font-family:monospace;font-size:0.85rem">${escapeHtml(active ? active.content : '')}</textarea>
       </label>
       <div id="legal-${docType}-error" class="error" style="display:none"></div>
-      <div id="legal-${docType}-success" class="success" style="display:none"></div>
       <div class="license-toolbar">
         <button type="button" class="btn btn-primary btn-sm" id="legal-${docType}-publish-btn">새 버전 발행</button>
         <a href="#/${docType}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">현재 버전 미리보기</a>
@@ -12924,9 +12910,7 @@ function renderLegalDocumentTypeSection(sectionEl, docType, label, historyItems,
 
   document.getElementById(`legal-${docType}-publish-btn`).addEventListener('click', async () => {
     const errorBox = document.getElementById(`legal-${docType}-error`);
-    const successBox = document.getElementById(`legal-${docType}-success`);
     errorBox.style.display = 'none';
-    successBox.style.display = 'none';
     const version = document.getElementById(`legal-${docType}-version`).value.trim();
     const effectiveDate = document.getElementById(`legal-${docType}-effective-date`).value;
     const content = document.getElementById(`legal-${docType}-content`).value;
@@ -12938,6 +12922,7 @@ function renderLegalDocumentTypeSection(sectionEl, docType, label, historyItems,
     if (!confirm(`"${label}" 새 버전(${version})을 발행하시겠습니까? 발행 즉시 사용자 화면(#/${docType})에 반영됩니다.`)) return;
     try {
       await apiRequest('POST', '/api/admin/legal-documents', { type: docType, version, content, effectiveDate });
+      showToast('발행했습니다.', 'success');
       renderAdminLegalDocuments(container);
     } catch (err) {
       errorBox.textContent = err.message;
@@ -13341,7 +13326,6 @@ async function renderAdminMemberDetail(container, id) {
           <label>이번달 한도(건, -1=무제한)<input type="number" step="1" min="-1" id="ai-limit-input" value="${data.customAIAnalysisLimitActive ? escapeAttr(String(data.customAIAnalysisLimit)) : ''}" placeholder="비워두면 플랜 기본값(${data.aiAnalysisLimit < 0 ? '무제한' : data.aiAnalysisLimit}건) 사용"></label>
           <label>조정 사유<input type="text" id="ai-limit-reason" value="${escapeAttr(data.customAIAnalysisLimitReason || '')}" placeholder="예: 실적 증빙 자료 재작업으로 임시 상향"></label>
           <div id="ai-limit-error" class="error" style="display:none"></div>
-          <div id="ai-limit-success" class="success" style="display:none"></div>
           <div class="license-toolbar">
             <button type="button" class="btn btn-primary btn-sm" id="ai-limit-save-btn">적용</button>
             ${data.customAIAnalysisLimitActive ? '<button type="button" class="btn btn-secondary btn-sm" id="ai-limit-clear-btn">해제</button>' : ''}
@@ -13365,9 +13349,7 @@ async function renderAdminMemberDetail(container, id) {
   if (data.companyProfileId) {
     document.getElementById('ai-limit-save-btn').addEventListener('click', async () => {
       const errorBox = document.getElementById('ai-limit-error');
-      const successBox = document.getElementById('ai-limit-success');
       errorBox.style.display = 'none';
-      successBox.style.display = 'none';
       const rawLimit = document.getElementById('ai-limit-input').value.trim();
       const reason = document.getElementById('ai-limit-reason').value.trim();
       if (rawLimit === '') {
@@ -13388,8 +13370,7 @@ async function renderAdminMemberDetail(container, id) {
       }
       try {
         await apiRequest('PUT', '/api/admin/members/' + encodeURIComponent(id) + '/ai-limit', { limit, reason });
-        successBox.textContent = '적용했습니다.';
-        successBox.style.display = 'block';
+        showToast('적용했습니다.', 'success');
         renderAdminMemberDetail(container, id);
       } catch (err) {
         errorBox.textContent = err.message;
@@ -13401,6 +13382,7 @@ async function renderAdminMemberDetail(container, id) {
       clearBtn.addEventListener('click', async () => {
         try {
           await apiRequest('PUT', '/api/admin/members/' + encodeURIComponent(id) + '/ai-limit', { limit: null, reason: '' });
+          showToast('해제했습니다.', 'success');
           renderAdminMemberDetail(container, id);
         } catch (err) {
           const errorBox = document.getElementById('ai-limit-error');
@@ -14048,7 +14030,6 @@ async function renderAdminCompanyInfo(container) {
           <label>${escapeHtml(f.label)}<input type="text" id="ci-input-${f.key}" value="${escapeAttr(data[f.key] || '')}"></label>
         `).join('')}
         <div id="ci-form-error" class="error" style="display:none"></div>
-        <div id="ci-form-success" class="success" style="display:none"></div>
         <div class="license-toolbar">
           <button type="button" class="btn btn-primary" id="ci-save-btn">저장</button>
         </div>
@@ -14058,9 +14039,7 @@ async function renderAdminCompanyInfo(container) {
 
   document.getElementById('ci-save-btn').addEventListener('click', async () => {
     const errorBox = document.getElementById('ci-form-error');
-    const successBox = document.getElementById('ci-form-success');
     errorBox.style.display = 'none';
-    successBox.style.display = 'none';
     const brandName = document.getElementById('ci-input-brandName').value.trim();
     if (!brandName) {
       errorBox.textContent = '브랜드명은 비워둘 수 없습니다.';
@@ -14074,8 +14053,7 @@ async function renderAdminCompanyInfo(container) {
     try {
       await apiRequest('PUT', '/api/admin/company-info', payload);
       applyBrandName(brandName);
-      successBox.textContent = '저장했습니다. 랜딩페이지에 바로 반영됩니다.';
-      successBox.style.display = 'block';
+      showToast('저장했습니다. 랜딩페이지에 바로 반영됩니다.', 'success');
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -14126,7 +14104,6 @@ async function renderAdminBroadcast(container) {
           <label class="checkbox-label"><input type="checkbox" class="broadcast-channel-input" value="push"> 웹 푸시</label>
         </div>
         <div id="broadcast-form-error" class="error" style="display:none"></div>
-        <div id="broadcast-form-success" class="success" style="display:none"></div>
         <div class="license-toolbar">
           <button type="button" class="btn btn-primary" id="broadcast-send-btn">지금 발송</button>
         </div>
@@ -14142,9 +14119,7 @@ async function renderAdminBroadcast(container) {
 
   document.getElementById('broadcast-send-btn').addEventListener('click', async () => {
     const errorBox = document.getElementById('broadcast-form-error');
-    const successBox = document.getElementById('broadcast-form-success');
     errorBox.style.display = 'none';
-    successBox.style.display = 'none';
     const title = document.getElementById('broadcast-title-input').value.trim();
     const content = document.getElementById('broadcast-content-input').value.trim();
     const channels = Array.from(document.querySelectorAll('.broadcast-channel-input:checked')).map(el => el.value);
@@ -14161,8 +14136,7 @@ async function renderAdminBroadcast(container) {
         targetPlan: document.getElementById('broadcast-target-input').value,
         channels,
       });
-      successBox.textContent = `${result.recipientCount}명에게 발송했습니다.`;
-      successBox.style.display = 'block';
+      showToast(`${result.recipientCount}명에게 발송했습니다.`, 'success');
       document.getElementById('broadcast-title-input').value = '';
       document.getElementById('broadcast-content-input').value = '';
       const refreshed = await apiRequest('GET', '/api/admin/broadcasts');
@@ -14228,7 +14202,6 @@ async function renderTeamSection(container, maxMembers) {
       <form id="invite-form" class="profile-form" style="margin-top:1rem">
         <label>초대할 이메일<input type="email" name="email" required placeholder="team@example.com"></label>
         <div id="invite-error" class="error" style="display:none"></div>
-        <div id="invite-success" class="success" style="display:none"></div>
         <button type="submit" class="btn btn-primary">초대 링크 보내기</button>
       </form>
     ` : ''}
@@ -14252,16 +14225,13 @@ async function renderTeamSection(container, maxMembers) {
   const inviteForm = document.getElementById('invite-form');
   if (inviteForm) {
     const errorBox = document.getElementById('invite-error');
-    const successBox = document.getElementById('invite-success');
     inviteForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       errorBox.style.display = 'none';
-      successBox.style.display = 'none';
       const fd = new FormData(inviteForm);
       try {
         await apiRequest('POST', '/api/me/company/invitations', { email: fd.get('email') });
-        successBox.textContent = '초대 이메일을 보냈습니다.';
-        successBox.style.display = 'block';
+        showToast('초대 이메일을 보냈습니다.', 'success');
         inviteForm.reset();
       } catch (err) {
         errorBox.textContent = err.message;
