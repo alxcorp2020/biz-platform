@@ -244,6 +244,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureIndustryTaxonomyTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate industry_taxonomy table: %w", err)
 	}
+	if err := migrateCompanyIndustryGroupsToMids(ctx, db); err != nil {
+		return fmt.Errorf("migrate company industry groups to mids: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -405,6 +408,46 @@ func ensureIndustryTaxonomyTable(ctx context.Context, db *sql.DB) error {
 			GROUP BY trim(industry), trim(procurement_class_large)
 		) t WHERE rn = 1
 		ON CONFLICT (mid_name) DO NOTHING;
+	`)
+	return err
+}
+
+// migrateCompanyIndustryGroupsToMids — 2026-08-08 Phase 2c. 기존 회사의
+// company_profiles.industry에 저장된 레거시 10그룹명을 조달청 중분류명들로
+// 전개한다(그룹 하나 → 그 그룹에 속한 중분류 여러 개). 전개 결과는 기존
+// 그룹 매칭과 동치라(expandCompanyIndustries와 동일 매핑) 판정 결과는 변하지
+// 않고, 저장 값만 신규 체계로 통일된다. industry가 레거시 그룹을 포함하는
+// 행만 건드리므로(&&) 재실행 시 no-op(멱등). group→mid 매핑은 api 패키지의
+// industryRawToGroup(35종)의 역인덱스와 동일하다.
+func migrateCompanyIndustryGroupsToMids(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		WITH gm(grp, mid) AS (VALUES
+			('ICT/SW','SW 및 시스템 개발'),('ICT/SW','시스템 운영환경 구축'),('ICT/SW','DB구축 및 자료입력'),
+			('ICT/SW','디지털콘텐츠 개발'),('ICT/SW','ICT사업 컨설팅'),('ICT/SW','통신서비스'),
+			('연구/조사/컨설팅','학술연구서비스'),('연구/조사/컨설팅','시장 및 여론조사'),
+			('연구/조사/컨설팅','문화재 조사/발굴 및 수리'),('연구/조사/컨설팅','기술시험,검사 및 분석'),
+			('설계/감리/CM','설계'),('설계/감리/CM','감리'),('설계/감리/CM','CM'),('설계/감리/CM','측량'),
+			('행사/홍보/미디어','행사 기획 및 대행'),('행사/홍보/미디어','매체제작'),('행사/홍보/미디어','홍보 및 마케팅'),
+			('행사/홍보/미디어','전시관 및 홍보관 설치'),('행사/홍보/미디어','디자인'),
+			('시설관리/유지보수','시설물관리, 청소 등'),('시설관리/유지보수','운영 및 유지관리'),
+			('시설관리/유지보수','수리'),('시설관리/유지보수','임대'),
+			('환경/폐기물','폐기물 처리'),('환경/폐기물','폐기물 재활용'),
+			('생활서비스','운송서비스'),('생활서비스','여행서비스'),('생활서비스','숙박서비스'),
+			('생활서비스','음식서비스'),('생활서비스','보건서비스'),
+			('전문서비스','보험서비스'),('전문서비스','회계서비스'),('전문서비스','사업장 위탁'),
+			('교육','교육서비스'),
+			('기타','기타')
+		),
+		expanded AS (
+			SELECT cp.id, array_agg(DISTINCT COALESCE(gm.mid, trim(elem))) AS new_industry
+			FROM company_profiles cp
+			CROSS JOIN LATERAL unnest(cp.industry) AS elem
+			LEFT JOIN gm ON gm.grp = trim(elem)
+			WHERE cp.industry && (SELECT array_agg(DISTINCT grp) FROM gm)
+			GROUP BY cp.id
+		)
+		UPDATE company_profiles cp SET industry = e.new_industry
+		FROM expanded e WHERE e.id = cp.id;
 	`)
 	return err
 }

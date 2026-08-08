@@ -584,8 +584,16 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_body"})
 		return
 	}
+	// 유효 업종 = 조달청 중분류(신규 picker 값, industry_taxonomy) 또는 레거시
+	// 10그룹(마이그레이션 전 기존 회사 값). Phase 2b picker가 중분류를 보내므로
+	// 중분류를 허용하지 않으면 저장이 400으로 막힌다(2026-08-08 수정).
+	industryMidSet := map[string]bool{}
+	for _, m := range s.activeIndustryMids(r.Context()) {
+		industryMidSet[m] = true
+	}
 	for _, g := range req.Industry {
-		if !isKnownIndustryGroup(g) {
+		g = strings.TrimSpace(g)
+		if g == "" || (!isKnownIndustryGroup(g) && !industryMidSet[g]) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_industry_group"})
 			return
 		}
