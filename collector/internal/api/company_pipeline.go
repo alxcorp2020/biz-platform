@@ -619,6 +619,78 @@ func (s *Server) handleUpdateChecklistItem(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]string{"id": itemID, "status": req.Status})
 }
 
+// handleDeletePipelineEntry — 파이프라인 항목을 완전 삭제한다(2026-08-08).
+// "참여 취소"의 동작: 예전엔 status='제외'로 두어 진행 중 사업 목록에 계속
+// 남아 혼란스러웠다(실수로 참여검토를 눌러도 안 사라짐) — 사용자 요청으로
+// 아예 삭제한다. 자식 행(체크리스트/알림로그/인앱알림)을 먼저 정리한 뒤
+// 항목을 지운다(FK가 ON DELETE CASCADE가 아니라 수동 정리 필요). "제외"
+// 버튼(의도적 검토 후 반려)은 이 삭제와 별개로 그대로 status='제외'를 쓴다.
+func (s *Server) handleDeletePipelineEntry(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	entryID := r.PathValue("id")
+	ctx := r.Context()
+
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("delete-pipeline: profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if profile == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
+		return
+	}
+
+	// 소유권 확인(IDOR 방지) — 남의 회사 항목은 not_found로 숨긴다.
+	var ownerProfileID string
+	err = s.db.QueryRowContext(ctx,
+		`SELECT company_profile_id FROM notice_pipeline_entries WHERE id = $1`, entryID,
+	).Scan(&ownerProfileID)
+	if err == sql.ErrNoRows {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "pipeline_entry_not_found"})
+		return
+	}
+	if err != nil {
+		s.logger.Error("delete-pipeline: entry lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if ownerProfileID != profile.ID {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "pipeline_entry_not_found"})
+		return
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		s.logger.Error("delete-pipeline: begin tx failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`DELETE FROM pipeline_checklist_items WHERE pipeline_entry_id = $1`,
+		`DELETE FROM notification_log WHERE pipeline_entry_id = $1`,
+		`DELETE FROM in_app_notifications WHERE pipeline_entry_id = $1`,
+		`DELETE FROM notice_pipeline_entries WHERE id = $1`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, entryID); err != nil {
+			s.logger.Error("delete-pipeline: delete failed", "error", err, "query", q)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		s.logger.Error("delete-pipeline: commit failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
 func (s *Server) handleListPipeline(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {

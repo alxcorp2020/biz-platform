@@ -7468,20 +7468,20 @@ async function renderPipelineDetail(container, id) {
     showToast('캘린더 파일을 다운로드합니다.', 'info');
   });
 
-  // 참여 취소 — 상태를 "제외"로 바꿔 진행 중 사업에서 종결 처리(기록은 남음).
-  // 상태 select로도 가능하지만 "취소" 의도가 화면에서 잘 안 보인다는 피드백으로
-  // 별도 버튼 + 확인모달을 둔다(2026-08-08).
+  // 참여 취소 — 진행 중 사업에서 완전 삭제한다(예전엔 "제외"로 남겨 목록에 계속
+  // 보였으나, 실수 클릭이 남아 불편하다는 피드백으로 삭제로 전환, 2026-08-08).
+  // 삭제 후엔 항목이 사라지므로 진행 중 사업 목록으로 이동한다.
   const cancelBtn = document.getElementById('pipeline-cancel-btn');
   if (cancelBtn) cancelBtn.addEventListener('click', () => {
     openConfirmModal({
       title: '참여 취소',
-      message: '이 공고의 참여 검토를 취소하시겠습니까? 상태가 "제외"로 바뀌어 진행 중 사업 목록에서 종결 처리됩니다(기록은 남습니다).',
+      message: '이 공고의 참여 검토를 취소하시겠습니까? 진행 중 사업 목록에서 완전히 삭제됩니다.',
       confirmLabel: '참여 취소',
       tone: 'danger',
       onConfirm: async () => {
-        await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(id), { status: '제외' });
-        showToast('참여를 취소했습니다(제외).', 'success');
-        renderPipelineDetail(container, id);
+        await apiRequest('DELETE', '/api/pipeline/' + encodeURIComponent(id));
+        showToast('참여 검토를 취소했습니다.', 'success');
+        location.hash = '#/pipeline';
       },
     });
   });
@@ -8102,8 +8102,9 @@ function renderNoticeListItems(listBody, items, total, showMatchReasons) {
       btn.disabled = true;
       try {
         if (btn.dataset.inPipeline === 'true') {
-          await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(btn.dataset.entryId), { status: '제외' });
-          setNoticeRowPipelineBtn(btn, false, btn.dataset.entryId);
+          // 참여 취소 = 진행 중 사업에서 완전 삭제(제외 상태로 남기지 않는다).
+          await apiRequest('DELETE', '/api/pipeline/' + encodeURIComponent(btn.dataset.entryId));
+          setNoticeRowPipelineBtn(btn, false);
           showToast('참여 검토를 취소했습니다.', 'success');
         } else {
           const entry = await apiRequest('POST', '/api/notices/' + encodeURIComponent(btn.dataset.id) + '/pipeline', {});
@@ -9095,31 +9096,20 @@ function renderAlreadyInPipeline(container, noticeId, entryId) {
   `));
   wireShareNoticeButton(container, noticeId);
 
-  // 참여 취소 — 공고 상세에서도 바로 취소할 수 있게(예전엔 파이프라인 상세로
-  // 이동해야만 취소 버튼이 보였다). 파이프라인 상세의 pipeline-cancel-btn과
-  // 동일하게 상태를 "제외"로 바꾸고, 실수 대비 되돌리기(검토전 복귀)를 제공.
+  // 참여 취소 — 공고 상세에서도 바로 취소. 진행 중 사업에서 "제외"로 남기지 않고
+  // 완전 삭제한다(실수 클릭이 목록에 계속 남는 불편 제거). 삭제 후엔 다시
+  // "참여 검토 시작"을 눌러 언제든 재검토할 수 있게 검토 버튼으로 되돌린다.
   const cancelBtn = document.getElementById('notice-cancel-review-btn');
-  const resultEl = document.getElementById('cancel-review-result');
   cancelBtn.addEventListener('click', () => {
     openConfirmModal({
       title: '참여 취소',
-      message: '이 공고의 참여 검토를 취소하시겠습니까? 상태가 "제외"로 바뀌어 진행 중 사업 목록에서 종결 처리됩니다(기록은 남습니다).',
+      message: '이 공고의 참여 검토를 취소하시겠습니까? 진행 중 사업 목록에서 완전히 삭제됩니다.',
       confirmLabel: '참여 취소',
       tone: 'danger',
       onConfirm: async () => {
-        await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(entryId), { status: '제외' });
-        showToast('참여를 취소했습니다(제외).', 'success');
-        const bar = container.querySelector('.notice-action-bar');
-        if (bar) bar.style.display = 'none';
-        resultEl.innerHTML = `<p class="auth-step-hint">참여를 취소했습니다(제외). <button type="button" id="undo-cancel-review-btn" class="link-btn">되돌리기</button></p>`;
-        resultEl.querySelector('#undo-cancel-review-btn').addEventListener('click', async () => {
-          try {
-            await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(entryId), { status: '검토전' });
-            renderAlreadyInPipeline(container, noticeId, entryId);
-          } catch (err) {
-            resultEl.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
-          }
-        });
+        await apiRequest('DELETE', '/api/pipeline/' + encodeURIComponent(entryId));
+        showToast('참여 검토를 취소했습니다.', 'success');
+        renderPipelineReviewButtons(container, noticeId);
       },
     });
   });

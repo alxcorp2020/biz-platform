@@ -180,6 +180,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/notices/{id}/exclude", s.handleExcludeNotice)
 	mux.HandleFunc("POST /api/notices/{id}/share", s.handleShareNotice)
 	mux.HandleFunc("PATCH /api/pipeline/{id}", s.handleUpdatePipelineEntry)
+	mux.HandleFunc("DELETE /api/pipeline/{id}", s.handleDeletePipelineEntry)
 	mux.HandleFunc("PATCH /api/pipeline/{id}/checklist/{itemId}", s.handleUpdateChecklistItem)
 	mux.HandleFunc("GET /api/pipeline", s.handleListPipeline)
 	mux.HandleFunc("GET /api/pipeline/{id}", s.handleGetPipelineEntry)
