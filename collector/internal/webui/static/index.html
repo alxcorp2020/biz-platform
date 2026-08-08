@@ -1433,8 +1433,10 @@
     font-size: var(--text-caption); font-weight: 600; color: var(--accent-blue-deep); padding: 0.1rem 0.3rem;
   }
   .kanban-col-toggle:hover { color: var(--accent-blue); }
-  .kanban-column-body { display: flex; flex-direction: column; gap: 0.6rem; min-height: 60px; border-radius: var(--radius-card); transition: background 0.1s; }
-  .kanban-column-body.is-drop-target { background: rgba(49,130,246,0.08); }
+  .kanban-column { display: flex; flex-direction: column; transition: background 0.1s, box-shadow 0.1s; }
+  /* 드롭 대상 = 회색 박스 전체. 빈 아래 영역에 놓아도 이동되도록 컬럼을 하이라이트한다. */
+  .kanban-column.is-drop-target { background: rgba(49,130,246,0.12); box-shadow: inset 0 0 0 2px var(--accent-blue); }
+  .kanban-column-body { display: flex; flex-direction: column; gap: 0.6rem; flex: 1; min-height: 60px; border-radius: var(--radius-card); }
   .kanban-card {
     background: var(--surface); border-radius: var(--radius-card); box-shadow: var(--shadow-soft);
     padding: 0.75rem 0.85rem; cursor: grab;
@@ -6981,9 +6983,9 @@ function renderPipelineKanban(container, items) {
       ? `<button type="button" class="kanban-col-toggle" data-status="${escapeAttr(status)}">${expanded ? '접기 ▲' : `펼치기 ▾`}</button>`
       : '';
     return `
-      <div class="kanban-column">
+      <div class="kanban-column" data-status="${escapeAttr(status)}">
         <div class="kanban-column-header">${escapeHtml(status)} <span class="kanban-column-count">${group.length}</span>${toggleHtml}</div>
-        <div class="kanban-column-body" data-status="${escapeAttr(status)}">
+        <div class="kanban-column-body">
           ${cardsHtml}
         </div>
       </div>
@@ -7029,9 +7031,13 @@ function renderPipelineKanban(container, items) {
     card.addEventListener('dragend', () => { card.classList.remove('is-dragging'); });
   });
 
-  container.querySelectorAll('.kanban-column-body').forEach(col => {
+  // 드롭 대상은 회색 박스 전체(.kanban-column) — 컬럼이 stretch로 늘어난 아래쪽
+  // 빈 영역에 놓아도 이동되도록(예전엔 카드가 놓인 .kanban-column-body에만 걸려
+  // 빈 회색 공간엔 드롭이 안 됐다). dragleave는 자식으로 이동할 때도 발생하므로
+  // relatedTarget이 컬럼 안이면 하이라이트를 유지한다.
+  container.querySelectorAll('.kanban-column').forEach(col => {
     col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('is-drop-target'); });
-    col.addEventListener('dragleave', () => { col.classList.remove('is-drop-target'); });
+    col.addEventListener('dragleave', (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove('is-drop-target'); });
     col.addEventListener('drop', async (e) => {
       e.preventDefault();
       col.classList.remove('is-drop-target');
