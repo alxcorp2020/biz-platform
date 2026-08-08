@@ -17,9 +17,12 @@ import (
 	"github.com/lib/pq"
 )
 
+// 파이프라인 상태 6단계(2026-08-09 9→6 축소): 검토중 → 준비중 → 제출완료,
+// 결과 낙찰/탈락, 정리 제외. (구 검토전·참여검토·보류→검토중, 승인대기→준비중은
+// migratePipelineStatusesToSixStage에서 일괄 이전됨)
 var validPipelineStatuses = map[string]bool{
-	"검토전": true, "참여검토": true, "승인대기": true, "준비중": true,
-	"제출완료": true, "낙찰": true, "탈락": true, "보류": true, "제외": true,
+	"검토중": true, "준비중": true, "제출완료": true,
+	"낙찰": true, "탈락": true, "제외": true,
 }
 
 var validChecklistStatuses = map[string]bool{
@@ -163,7 +166,7 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 	if err == nil {
 		if existingStatus == "제외" {
 			if _, err := s.db.ExecContext(ctx,
-				`UPDATE notice_pipeline_entries SET status = '검토전', decided_at = now() WHERE id = $1`, existingID); err != nil {
+				`UPDATE notice_pipeline_entries SET status = '검토중', decided_at = now() WHERE id = $1`, existingID); err != nil {
 				s.logger.Error("create-pipeline: reactivate excluded entry failed", "error", err)
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 				return
@@ -221,16 +224,12 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 		assigneeName, assigneeEmail, assigneePhone = &defaultContact.Name, defaultContact.Email, defaultContact.Phone
 	}
 
-	// 원클릭 참여검토(Phase 1): "참여 검토 시작" 클릭 자체가 이미 검토에
-	// 착수했다는 뜻이라, 아직 손대지 않은 '검토전'이 아니라 '참여검토'
-	// (검토 중)로 바로 시작한다. '검토전'은 값 자체를 지우지 않았으니
-	// 기존 데이터/전이 로직에는 영향이 없다(dashboard.go의
-	// pipelineActiveStatuses/pipelineUndecidedStatuses 둘 다 이미 두
-	// 상태를 동일하게 취급).
+	// "참여 검토 시작" 클릭 자체가 이미 검토에 착수했다는 뜻이라 첫 상태를
+	// '검토중'으로 시작한다(9→6단계 축소, 2026-08-09).
 	var entryID string
 	err = s.db.QueryRowContext(ctx, `
 		INSERT INTO notice_pipeline_entries (company_profile_id, notice_id, status, decided_at, submission_deadline, assignee_name, assignee_email, assignee_phone, company_profile_snapshot)
-		VALUES ($1, $2, '참여검토', now(), $3, $4, $5, $6, (SELECT to_jsonb(cp) FROM company_profiles cp WHERE cp.id = $1)) RETURNING id`,
+		VALUES ($1, $2, '검토중', now(), $3, $4, $5, $6, (SELECT to_jsonb(cp) FROM company_profiles cp WHERE cp.id = $1)) RETURNING id`,
 		profile.ID, noticeID, deadline, assigneeName, assigneeEmail, assigneePhone,
 	).Scan(&entryID)
 	if err != nil {
@@ -247,7 +246,7 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 	}
 
 	s.recordAuditLog(ctx, userID, "pipeline_entry_created", "notice_pipeline_entry", entryID, map[string]any{
-		"noticeId": noticeID, "status": "참여검토",
+		"noticeId": noticeID, "status": "검토중",
 	})
 
 	entry, err := s.fetchPipelineEntry(ctx, entryID)

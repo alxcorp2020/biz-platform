@@ -28,13 +28,13 @@ const dashboardPriorityCloseSoonDays = 7
 // pipelineActivePipelineStatuses: "종결"되지 않아 여전히 챙겨야 하는
 // 파이프라인 상태 — 우선 업무 리스트/서류 카운트는 이 상태들만 대상으로 한다.
 var pipelineActiveStatuses = map[string]bool{
-	"검토전": true, "참여검토": true, "승인대기": true, "준비중": true,
+	"검토중": true, "준비중": true,
 }
 
 // pipelineUndecidedStatuses: "상태가 아직 정해지지 않은" 단계 — 우선
 // 업무 리스트 포함 조건의 절반(나머지 절반은 서류 미비 여부).
 var pipelineUndecidedStatuses = map[string]bool{
-	"검토전": true, "참여검토": true, "승인대기": true,
+	"검토중": true,
 }
 
 type dashboardPriorityItem struct {

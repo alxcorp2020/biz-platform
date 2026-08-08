@@ -219,7 +219,7 @@ func (s *Server) computeReportSummary(
 		SELECT
 			count(*) FILTER (WHERE created_at >= $2 AND created_at < $3),
 			count(*) FILTER (WHERE status = '제출완료' AND decided_at >= $2 AND decided_at < $3),
-			count(*) FILTER (WHERE status IN ('낙찰','탈락','보류','제외') AND decided_at >= $2 AND decided_at < $3)
+			count(*) FILTER (WHERE status IN ('낙찰','탈락','제외') AND decided_at >= $2 AND decided_at < $3)
 		FROM notice_pipeline_entries WHERE company_profile_id = $1`,
 		profileID, periodStart, periodEndExclusive,
 	).Scan(&summary.PipelineStartedCount, &summary.PipelineCompletedCount, &summary.PipelineClosedCount); err != nil {
@@ -230,9 +230,9 @@ func (s *Server) computeReportSummary(
 	closeSoonCutoff := dateOnly(now).AddDate(0, 0, dashboardPriorityCloseSoonDays)
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT
-			count(*) FILTER (WHERE status IN ('검토전','참여검토','승인대기','준비중')
+			count(*) FILTER (WHERE status IN ('검토중','준비중')
 				AND submission_deadline IS NOT NULL AND submission_deadline >= $2 AND submission_deadline < $3),
-			count(*) FILTER (WHERE status IN ('검토전','참여검토','승인대기','준비중')
+			count(*) FILTER (WHERE status IN ('검토중','준비중')
 				AND submission_deadline IS NOT NULL AND submission_deadline < $2)
 		FROM notice_pipeline_entries WHERE company_profile_id = $1`,
 		profileID, dateOnly(now), closeSoonCutoff,

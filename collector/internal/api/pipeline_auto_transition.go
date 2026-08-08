@@ -54,7 +54,7 @@ func (s *Server) autoExcludeDeadlinePassed(ctx context.Context) (int, error) {
 		    updated_at = now(),
 		    memo = COALESCE(memo || E'\n', '') ||
 		           '(자동) 제출마감(' || submission_deadline || ') 경과로 자동 제외 처리됨 — ' || to_char(now(), 'YYYY-MM-DD')
-		WHERE status IN ('검토전','참여검토','승인대기','준비중')
+		WHERE status IN ('검토중','준비중')
 		  AND submission_deadline IS NOT NULL
 		  AND submission_deadline < CURRENT_DATE
 		RETURNING id`, autoExcludeStatus)
@@ -82,7 +82,7 @@ func (s *Server) autoExcludeNoticeClosed(ctx context.Context) (int, error) {
 		           '(자동) 공고가 마감/취소되어 자동 제외 처리됨 — ' || to_char(now(), 'YYYY-MM-DD')
 		FROM notices n
 		WHERE pe.notice_id = n.id
-		  AND pe.status IN ('검토전','참여검토','승인대기','준비중')
+		  AND pe.status IN ('검토중','준비중')
 		  AND n.status IN ('closed','cancelled')
 		RETURNING pe.id`, autoExcludeStatus)
 	if err != nil {

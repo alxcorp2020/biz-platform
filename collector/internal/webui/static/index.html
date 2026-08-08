@@ -6258,32 +6258,29 @@ function renderDirectProductionQuickForm(container, onSaved) {
 }
 // ==================== /Phase UX-03/UX-06 ====================
 
-// PIPELINE_STATUS_LIST — notice_pipeline_entries.status의 9단계, DB
-// CHECK 제약과 정확히 같은 값·순서(company_pipeline.go validPipelineStatuses).
-const PIPELINE_STATUS_LIST = ['검토전', '참여검토', '승인대기', '준비중', '제출완료', '낙찰', '탈락', '보류', '제외'];
-const PIPELINE_ACTIVE_STATUSES = ['검토전', '참여검토', '승인대기', '준비중'];
+// PIPELINE_STATUS_LIST — notice_pipeline_entries.status의 6단계(2026-08-09 9→6
+// 축소), DB CHECK 제약·company_pipeline.go validPipelineStatuses와 동일.
+const PIPELINE_STATUS_LIST = ['검토중', '준비중', '제출완료', '낙찰', '탈락', '제외'];
+// 칸반 컬럼 = 진행 흐름 3단계. 결과(낙찰/탈락)와 제외는 "종결됨" 섹션으로.
+const PIPELINE_KANBAN_COLUMNS = ['검토중', '준비중', '제출완료'];
+// 자동전환/우선업무 대상 = 아직 제출 전(검토중/준비중). 제출완료는 결과 대기라 제외.
+const PIPELINE_ACTIVE_STATUSES = ['검토중', '준비중'];
 const CHECKLIST_STATUS_LIST = ['보유', '갱신필요', '신규작성', '발급필요', '확인필요'];
 
-// 진행 순서가 있는 5단계(happy path)만 스텝 인디케이터로 표시하고,
-// 낙찰/탈락/보류/제외처럼 흐름을 벗어난 종결 상태는 "N단계 중 M번째"가
-// 의미 없으므로 톤 배지로 대체 표시한다.
-const PIPELINE_MAIN_STEPS = ['검토전', '참여검토', '승인대기', '준비중', '제출완료'];
-const PIPELINE_TERMINAL_BADGE_TONE = { '낙찰': 'badge--success', '탈락': 'badge--danger', '보류': 'badge--warn', '제외': 'badge--gray' };
+// 진행 순서가 있는 3단계(happy path)만 스텝 인디케이터로 표시하고,
+// 낙찰/탈락/제외처럼 흐름을 벗어난 종결 상태는 톤 배지로 대체 표시한다.
+const PIPELINE_MAIN_STEPS = ['검토중', '준비중', '제출완료'];
+const PIPELINE_TERMINAL_BADGE_TONE = { '낙찰': 'badge--success', '탈락': 'badge--danger', '제외': 'badge--gray' };
 
-// 상태 단순화: select에 9개를 평평하게 늘어놓으면 매번 어디를 눌러야
-// 할지 고민해야 한다 — 현재 상태에서 실제로 갈 만한 "다음 단계"만 먼저
-// 보여주고, 나머지는 <optgroup>으로 접어 뒤에 둔다(값 자체는 그대로
-// 9개 다 선택 가능 — 잘못 바꾼 상태를 되돌리는 것까지 막지는 않는다).
+// 현재 상태에서 실제로 갈 만한 "다음 단계"만 먼저 보여주고, 나머지는
+// <optgroup>으로 접어 뒤에 둔다(값 자체는 6개 다 선택 가능 — 되돌리기 허용).
 const PIPELINE_NEXT_STATUS_MAP = {
-  '검토전': ['참여검토', '보류', '제외'],
-  '참여검토': ['승인대기', '준비중', '보류', '제외'],
-  '승인대기': ['준비중', '보류', '제외'],
-  '준비중': ['제출완료', '보류', '제외'],
+  '검토중': ['준비중', '제출완료', '제외'],
+  '준비중': ['제출완료', '검토중', '제외'],
   '제출완료': ['낙찰', '탈락'],
-  '보류': ['검토전', '참여검토', '준비중', '제외'],
   '낙찰': [],
   '탈락': [],
-  '제외': [],
+  '제외': ['검토중'],
 };
 
 function pipelineStatusSelectHtml(currentStatus) {
@@ -6734,7 +6731,7 @@ function wireHomeListNav(container) {
 const PIPELINE_LIST_FILTERS = {
   reviewPending: {
     label: '참여검토 대기',
-    test: it => ['검토전', '참여검토', '승인대기'].includes(it.status),
+    test: it => ['검토중'].includes(it.status),
   },
   deadlineSoon: {
     label: '마감임박',
@@ -6895,7 +6892,7 @@ function renderPipelineListView(container, items) {
 // 진행중 4개 상태만 컬럼으로 쓰고, 종결 5개는 칸반 아래 접이식 섹션에
 // 모아둔다(제출완료~제외까지 컬럼으로 늘어놓으면 폭이 9개라 실사용성이
 // 떨어진다고 판단 — 요구사항 확정 시 사용자와 합의된 내용).
-const PIPELINE_TERMINAL_STATUSES = PIPELINE_STATUS_LIST.filter(s => !PIPELINE_ACTIVE_STATUSES.includes(s));
+const PIPELINE_TERMINAL_STATUSES = PIPELINE_STATUS_LIST.filter(s => !PIPELINE_KANBAN_COLUMNS.includes(s));
 
 // 2026-08-06: 리스트 뷰(pipelineListRowHtml)에 이어 칸반 카드에도 예산/
 // 공고상태/공고유형배지를 추가 — noticeRowHtml/pipelineListRowHtml과
@@ -6973,7 +6970,7 @@ function renderPipelineKanban(container, items) {
   items.forEach(it => { (grouped[it.status] = grouped[it.status] || []).push(it); });
   const terminalItems = PIPELINE_TERMINAL_STATUSES.flatMap(s => grouped[s] || []);
 
-  const columnsHtml = PIPELINE_ACTIVE_STATUSES.map(status => {
+  const columnsHtml = PIPELINE_KANBAN_COLUMNS.map(status => {
     const group = grouped[status] || [];
     // 카드가 많으면(5개 이상) 기본 슬림형 + "펼치기" 버튼. 펼쳐둔 컬럼은 전체 카드.
     const collapsible = group.length >= KANBAN_SLIM_THRESHOLD;
@@ -9375,8 +9372,8 @@ function renderPipelineReviewButtons(container, noticeId) {
 
 // wireExcludeNoticeButton — "제외" 클릭 시 바로 실행(확인창 없음 — 원복
 // 가능하니 별도 확인 절차로 흐름을 끊지 않는다). 실행 후 되돌리기 버튼을
-// 보여주고, 되돌리기는 기존 PATCH /api/pipeline/{id}(status='검토전')를
-// 그대로 재사용한다(오류 시 원복 가능 요건).
+// 보여주고, 되돌리기는 PATCH /api/pipeline/{id}(status='검토중')로 되살린다
+// (오류 시 원복 가능 요건).
 function wireExcludeNoticeButton(container, noticeId) {
   const btn = container.querySelector('#exclude-notice-btn');
   const resultEl = container.querySelector('#exclude-notice-result');
@@ -9392,7 +9389,7 @@ function wireExcludeNoticeButton(container, noticeId) {
       resultEl.innerHTML = `<p class="auth-step-hint">이 공고를 제외했습니다. <button type="button" id="undo-exclude-btn" class="link-btn">되돌리기</button></p>`;
       resultEl.querySelector('#undo-exclude-btn').addEventListener('click', async () => {
         try {
-          await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(res.id), { status: '검토전' });
+          await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(res.id), { status: '검토중' });
           renderPipelineReviewButtons(container, noticeId);
         } catch (err) {
           resultEl.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;

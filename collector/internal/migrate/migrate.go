@@ -247,6 +247,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := migrateCompanyIndustryGroupsToMids(ctx, db); err != nil {
 		return fmt.Errorf("migrate company industry groups to mids: %w", err)
 	}
+	if err := migratePipelineStatusesToSixStage(ctx, db); err != nil {
+		return fmt.Errorf("migrate pipeline statuses to 6-stage: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -372,6 +375,28 @@ func ensureNoticeProcurementClassColumns(ctx context.Context, db *sql.DB) error 
 		  AND r.raw_content LIKE '%pubPrcrmntClsfcNo%';
 	`)
 	return err
+}
+
+// migratePipelineStatusesToSixStage — 2026-08-09. 파이프라인 상태를 9단계에서
+// 6단계로 축소한다(소상공인 사용성). 검토전·참여검토·보류 → 검토중, 승인대기 →
+// 준비중으로 합치고, 제출완료/낙찰/탈락/제외는 그대로. CHECK 제약도 새 6개로 교체.
+// 순서 중요: 값을 먼저 remap한 뒤(그래야 좁힌 CHECK가 안 깨짐) 제약을 교체한다.
+// 멱등: remap UPDATE는 이미 옮긴 뒤엔 대상이 없어 no-op, DROP IF EXISTS + ADD로
+// 제약 재생성도 반복 안전.
+func migratePipelineStatusesToSixStage(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`UPDATE notice_pipeline_entries SET status = '검토중' WHERE status IN ('검토전','참여검토','보류')`,
+		`UPDATE notice_pipeline_entries SET status = '준비중' WHERE status = '승인대기'`,
+		`ALTER TABLE notice_pipeline_entries DROP CONSTRAINT IF EXISTS notice_pipeline_entries_status_check`,
+		`ALTER TABLE notice_pipeline_entries ADD CONSTRAINT notice_pipeline_entries_status_check ` +
+			`CHECK (status = ANY (ARRAY['검토중','준비중','제출완료','낙찰','탈락','제외']))`,
+	}
+	for _, q := range stmts {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("%s: %w", q, err)
+		}
+	}
+	return nil
 }
 
 // ensureIndustryTaxonomyTable — 2026-08-08 Phase 2a. 조달청 공공조달분류(대/중분류)를
@@ -1002,8 +1027,8 @@ func ensurePipelineTables(ctx context.Context, db *sql.DB) error {
 			id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			company_profile_id  UUID NOT NULL REFERENCES company_profiles(id),
 			notice_id           UUID NOT NULL REFERENCES notices(id),
-			status              TEXT NOT NULL DEFAULT '검토전'
-			                        CHECK (status IN ('검토전','참여검토','승인대기','준비중','제출완료','낙찰','탈락','보류','제외')),
+			status              TEXT NOT NULL DEFAULT '검토중'
+			                        CHECK (status IN ('검토중','준비중','제출완료','낙찰','탈락','제외')),
 			assignee_name       TEXT,
 			decided_at          TIMESTAMPTZ,
 			submission_deadline DATE,
