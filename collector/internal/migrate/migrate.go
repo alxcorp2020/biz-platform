@@ -241,6 +241,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureNoticeProcurementClassColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate notices procurement class columns: %w", err)
 	}
+	if err := ensureIndustryTaxonomyTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate industry_taxonomy table: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -364,6 +367,44 @@ func ensureNoticeProcurementClassColumns(ctx context.Context, db *sql.DB) error 
 		WHERE v.notice_id = n.id AND v.is_current
 		  AND n.procurement_class_code IS NULL
 		  AND r.raw_content LIKE '%pubPrcrmntClsfcNo%';
+	`)
+	return err
+}
+
+// ensureIndustryTaxonomyTable — 2026-08-08 Phase 2a. 조달청 공공조달분류(대/중분류)를
+// 담는 참조 테이블. 회사 업종 선택·공고 매칭을 임의 10그룹 대신 이 공식 분류로
+// 맞추기 위한 토대다(Phase 2b에서 매칭/UI가 이 테이블을 쓴다). Phase 3 관리자
+// CMS의 편집 대상이기도 하다.
+//
+// 매 기동마다 notices에서 관측된 (중분류, 대분류)를 동기화한다 — ON CONFLICT
+// DO NOTHING이라 기존 행은 건드리지 않고 새 중분류만 편입된다(수집기가 새 분류를
+// 저장하면 다음 배포/재기동 때 자동 반영). 한 중분류가 여러 대분류에 걸치는
+// 예외(예: "기타")는 가장 빈번한 대분류를 대표로 고른다. 앞뒤 공백은 정규화.
+func ensureIndustryTaxonomyTable(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS industry_taxonomy (
+			id          BIGSERIAL PRIMARY KEY,
+			mid_name    TEXT NOT NULL UNIQUE,   -- 중분류명(= notices.industry, 선택·매칭 단위)
+			large_name  TEXT NOT NULL,          -- 대분류명
+			active      BOOLEAN NOT NULL DEFAULT true,
+			sort_order  INTEGER NOT NULL DEFAULT 0,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+	`); err != nil {
+		return err
+	}
+	// 관측 데이터에서 동기화(멱등). 각 중분류의 대표 대분류는 최빈값으로 정한다.
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO industry_taxonomy (mid_name, large_name)
+		SELECT mid, large FROM (
+			SELECT trim(industry) AS mid, trim(procurement_class_large) AS large,
+			       ROW_NUMBER() OVER (PARTITION BY trim(industry) ORDER BY count(*) DESC) AS rn
+			FROM notices
+			WHERE procurement_class_large IS NOT NULL AND trim(procurement_class_large) <> ''
+			  AND industry IS NOT NULL AND trim(industry) <> ''
+			GROUP BY trim(industry), trim(procurement_class_large)
+		) t WHERE rn = 1
+		ON CONFLICT (mid_name) DO NOTHING;
 	`)
 	return err
 }
