@@ -7741,7 +7741,10 @@ let noticeListState = null;
 // 자체를 복잡하게 만들지 않으려 이 필드들의 입력 UI는 따로 안 만들고
 // (사용자 원칙: 화면 단순화 우선), URL 쿼리스트링으로만 실려 있으면 API
 // 요청/정렬 재제출 양쪽에서 그대로 유지되게만 한다.
-const SAVED_SEARCH_ONLY_PARAMS = ['noticeType', 'organizationName', 'budgetMin', 'budgetMax', 'keywordsInclude', 'keywordsExclude'];
+// 2026-08-08: noticeType은 공고 검색 폼에 정식 드롭다운으로 추가돼 더 이상
+// "맞춤공고 전용(폼 필드 없음)"이 아니다 — 이 목록에서 빼야 폼에서 '전체'로
+// 바꿔 해제할 수 있다(남겨두면 이전 hash 값이 강제 보존돼 해제 불가).
+const SAVED_SEARCH_ONLY_PARAMS = ['organizationName', 'budgetMin', 'budgetMax', 'keywordsInclude', 'keywordsExclude'];
 
 function noticeListKey(params) {
   return params.toString();
@@ -7756,6 +7759,8 @@ function noticeListApiParams(filterParams) {
   // 2026-08-06: 기본은 진행중 공고만(백엔드 기본값과 동일) — 체크박스를
   // 켰을 때만 마감된 공고까지 포함해서 보여준다.
   if (filterParams.get('includeClosed')) apiParams.set('includeClosed', filterParams.get('includeClosed'));
+  // noticeType은 이제 공고 검색 폼의 정식 필드다(입찰공고/지원사업 필터) — 명시 전달.
+  if (filterParams.get('noticeType')) apiParams.set('noticeType', filterParams.get('noticeType'));
   SAVED_SEARCH_ONLY_PARAMS.forEach(key => {
     if (filterParams.get(key)) apiParams.set(key, filterParams.get(key));
   });
@@ -7828,6 +7833,7 @@ function renderList(container) {
   const key = noticeListKey(params);
   const currentSort = params.get('sort') || 'new';
   const currentRegion = params.get('region') || '';
+  const currentNoticeType = params.get('noticeType') || '';
   const savedSearchName = params.get('savedSearchName') || '';
 
   container.innerHTML = '';
@@ -7840,6 +7846,9 @@ function renderList(container) {
         ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === currentRegion ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
       </select>
       <input type="text" name="industry" placeholder="업종" value="${params.get('industry') || ''}">
+      <select name="noticeType" class="select-input" aria-label="공고 종류">
+        ${SAVED_SEARCH_NOTICE_TYPE_OPTIONS.map(o => `<option value="${escapeAttr(o.value)}" ${o.value === currentNoticeType ? 'selected' : ''}>${o.value === '' ? '공고 종류 전체' : escapeHtml(o.label)}</option>`).join('')}
+      </select>
       <input type="hidden" name="sort" value="${escapeAttr(currentSort)}">
       <button type="button" id="notice-sort-trigger" class="select-input dropdown-select-trigger">${escapeHtml((NOTICE_SORT_OPTIONS.find(o => o.value === currentSort) || {}).label || '정렬')}</button>
       <label class="checkbox-label"><input type="checkbox" name="includeClosed" value="1" ${params.get('includeClosed') === '1' ? 'checked' : ''}> 지난 공고 포함</label>
