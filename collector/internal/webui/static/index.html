@@ -619,21 +619,7 @@
     background: var(--accent-blue); margin-right: 0.4rem; vertical-align: middle;
   }
 
-  /* ---------- 관심공고(북마크) ---------- */
-  .bookmark-btn {
-    background: none;
-    border: none;
-    padding: 0.1rem;
-    font-size: 1.35rem;
-    line-height: 1;
-    cursor: pointer;
-    color: var(--border);
-  }
-  .bookmark-btn:hover { color: var(--warn); }
-  .bookmark-btn.is-bookmarked { color: var(--warn); }
-  .bookmark-btn:disabled { cursor: default; opacity: 0.6; }
   .detail-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
-  .detail-card-head .bookmark-btn { font-size: 1.6rem; }
 
   /* ---------- Badges ---------- */
   .dday-badge {
@@ -2427,7 +2413,7 @@
     .plan-subscribe-btn, #checkout-pay-btn, #logout-btn {
       min-height: 44px;
     }
-    .bookmark-btn, .mobile-menu-toggle {
+    .mobile-menu-toggle {
       min-width: 44px; min-height: 44px;
       display: inline-flex; align-items: center; justify-content: center;
     }
@@ -3225,45 +3211,6 @@ function ddayBadgeHtml(iso, extraClass) {
   return `<span class="dday-badge mono ${info.cls} ${extraClass || ''}">${escapeHtml(info.label)}</span>`;
 }
 
-// ---------- 관심공고(북마크) ----------
-function bookmarkButtonHtml(noticeId, isBookmarked) {
-  return `<button type="button" class="bookmark-btn${isBookmarked ? ' is-bookmarked' : ''}" ` +
-    `data-notice-id="${escapeAttr(noticeId)}" data-bookmarked="${isBookmarked ? 'true' : 'false'}" ` +
-    `aria-pressed="${isBookmarked ? 'true' : 'false'}" aria-label="관심공고 등록/해제" title="관심공고 — 나중에 볼 공고를 별표로 저장(참여검토와 별개: 실제 참여 진행은 '참여 검토 시작')">` +
-    `${isBookmarked ? '★' : '☆'}</button>`;
-}
-
-// container 안의 모든 .bookmark-btn에 클릭 핸들러를 붙인다. 부모 .row-card의
-// "상세로 이동" 클릭을 막기 위해 stopPropagation을 쓰고, 비로그인이면 로그인
-// 페이지로 보낸다(기존 다른 버튼들과 동일한 패턴). opts.onUnbookmark(noticeId, btn)는
-// 해제 성공 시 호출 — 관심공고 목록 페이지에서 카드를 즉시 제거하는 데 쓴다.
-function wireBookmarkButtons(container, opts) {
-  container.querySelectorAll('.bookmark-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (!currentUser) {
-        location.hash = '#/auth/login';
-        return;
-      }
-      const noticeId = btn.dataset.noticeId;
-      const next = btn.dataset.bookmarked !== 'true';
-      btn.disabled = true;
-      try {
-        await apiRequest('PUT', '/api/notices/' + encodeURIComponent(noticeId) + '/bookmark', { bookmarked: next });
-        btn.dataset.bookmarked = next ? 'true' : 'false';
-        btn.setAttribute('aria-pressed', next ? 'true' : 'false');
-        btn.classList.toggle('is-bookmarked', next);
-        btn.textContent = next ? '★' : '☆';
-        if (!next && opts && opts.onUnbookmark) opts.onUnbookmark(noticeId, btn);
-      } catch (err) {
-        if (err.status === 401) location.hash = '#/auth/login';
-      } finally {
-        btn.disabled = false;
-      }
-    });
-  });
-}
-
 // ---------- 용어 설명(glossary) ----------
 const GLOSSARY = {
   '나라장터': '조달청이 운영하는 대한민국 공공기관 입찰 공고 통합 사이트입니다.',
@@ -3665,9 +3612,8 @@ const REVIEWER_ROLES = ['analyst', 'operator', 'system_admin'];
 // 빼고, 기업프로필 메뉴 삭제([[project_profile_menu_removal]]) 이후에도
 // 남아있던 죽은 링크 "내 프로필"/"면허·인증"(둘 다 #/me/saved-searches로
 // 가리켜 위 "맞춤공고"와 완전 중복)도 제거했다. "관심공고"(#/me/bookmarks)는
-// 겉보기엔 맞춤공고에 통합된 것처럼 보이지만 실제로는 route()에 여전히
-// 살아있는 독립 라우트(renderBookmarks)이고 TABBAR_MENU에도 없어 계속
-// 남겨둔다 — 라우트 유효성은 코드로 직접 확인.
+// 2026-08-08 폐지(참여검토와 기능이 겹쳐 제거) — 헤더 링크·전용 페이지·별표
+// 버튼 모두 삭제하고 옛 라우트는 #/notices로 리다이렉트한다.
 function renderHeader() {
   const nav = document.getElementById('auth-nav');
   if (currentUser) {
@@ -3678,7 +3624,6 @@ function renderHeader() {
       ${reviewLink}
       ${adminLink}
       <a href="#/calendar">캘린더</a>
-      <a href="#/me/bookmarks">관심공고</a>
       <a href="#/growth">성장분석</a>
       <a href="#/me/subscription">내 구독</a>
       <a href="#/billing/plans">요금제</a>
@@ -7666,7 +7611,7 @@ function wireLoadContactButton(container) {
 
 // renderPipelineChecklist — 항목별 select 하나로 바로 PATCH(저장 버튼 없음,
 // select 자체가 바뀌는 즉시 반영). 실패하면 select를 원래 값으로 되돌린다
-// (wireBookmarkButtons와 같은 "실패 시 조용히 원복" 관례).
+// ("실패 시 조용히 원복" 관례).
 //
 // 2026-08-07: analysisStatus(server.go computeNoticeDocumentAnalysisStatus)를
 // "대기중"(아직 처리 중이라 나중에 채워질 수 있음) vs "정보없음"(분석이
@@ -7977,8 +7922,7 @@ async function loadMoreNotices(listBody, key, filterParams, isFirstPage) {
   }
 }
 
-// noticeRowHtml — 검색 결과 전체 화면과 관심공고(#/me/bookmarks)가 같은
-// 행 카드 마크업을 쓰므로 공유한다. showMatchReasons는 맞춤공고 "결과
+// noticeRowHtml — 공고 검색 결과 목록의 행 카드 마크업. showMatchReasons는 맞춤공고 "결과
 // 보기" 화면에서만 true — 평소 검색 화면은 원칙대로 단순하게 유지하고
 // (보이는 필터값과 중복이라 배지가 굳이 필요 없음), 맞춤공고 결과에서만
 // "왜 이 공고가 뽑혔는지"(2026-08-06, 비드큐 P1 9번)를 보여준다.
@@ -8021,7 +7965,6 @@ function noticeRowHtml(n, showMatchReasons) {
         </div>
       </div>
       <div class="row-card-side">
-        ${bookmarkButtonHtml(n.id, n.isBookmarked)}
         ${ddayBadgeHtml(n.applicationEndAt)}
         ${pipelineBtnHtml}
         <span class="row-card-arrow">›</span>
@@ -8118,7 +8061,6 @@ function renderNoticeListItems(listBody, items, total, showMatchReasons) {
       }
     });
   });
-  wireBookmarkButtons(listBody);
 }
 
 // wireNoticeListLoadMore — IntersectionObserver로 목록 끝의 sentinel이
@@ -8964,7 +8906,6 @@ function renderDetail(container, id) {
               <p class="detail-eyebrow">${noticeTypeBadgeHtml(n.noticeType)} ${escapeHtml(n.organizationName || '-')}</p>
               <h2>${escapeHtml(n.title)}</h2>
             </div>
-            ${bookmarkButtonHtml(n.id, n.isBookmarked)}
           </div>
           <div id="pipeline-review-action"></div>
           ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 ${newTabIconHtml()}</a>` : ''}
@@ -9038,7 +8979,6 @@ function renderDetail(container, id) {
       renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || [], id, data.documentReadiness, data.documentAnalysisStatus, n.officialUrl);
       renderAwardHistory(document.getElementById('award-history-section'), data.organizationAwardHistory, data.hasCompetitiveOverlap);
       renderPipelineReviewAction(document.getElementById('pipeline-review-action'), id, data.existingPipelineEntryId);
-      wireBookmarkButtons(body);
       wireDetailTabs(body);
     })
     .catch(err => {
@@ -10763,71 +10703,6 @@ function fillProfileForm(form, profile) {
   form.directProductionCert.checked = !!profile.directProductionCert;
   form.maxPerformanceAmount.value = formatCurrency(profile.maxPerformanceAmount);
   form.creditRating.value = profile.creditRating || '';
-}
-
-// 관심공고(마이페이지). 해제 시 renderReviewList가 승인/반려 후
-// card.remove()하는 것과 같은 패턴으로 새로고침 없이 카드를 즉시 지운다.
-async function renderBookmarks(container) {
-  container.innerHTML = '';
-  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
-
-  let data;
-  try {
-    data = await apiRequest('GET', '/api/me/bookmarks');
-  } catch (err) {
-    if (err.status === 401) {
-      location.hash = '#/auth/login';
-      return;
-    }
-    container.innerHTML = '';
-    container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
-    return;
-  }
-
-  container.innerHTML = '';
-  const emptyHtml = '<p class="empty">아직 등록한 관심공고가 없습니다. 공고 목록에서 별표를 눌러 등록해보세요.</p>';
-  if (!data.items.length) {
-    container.appendChild(h(emptyHtml));
-    return;
-  }
-
-  const rows = data.items.map(n => {
-    return `
-    <div class="row-card notice-row" data-id="${escapeAttr(n.id)}">
-      <div class="row-card-main">
-        <div class="row-card-title">${escapeHtml(n.title)}</div>
-        <div class="row-card-subtitle">
-          ${noticeTypeBadgeHtml(n.noticeType)} ${escapeHtml(n.organizationName || '-')} · ${escapeHtml(n.region || '-')} · ${escapeHtml(n.industry || '-')} ·
-          <span class="mono">${formatBudget(n.budgetAmount)}</span> · ${statusBadgeHtml(n.status)}
-          ${n.recentlyChanged ? '<span class="status-badge status-badge--warn" title="최근 7일 내 공고 내용이 변경되었습니다">정정</span>' : ''}
-          ${n.regionRestricted === true ? '<span class="row-card-region-restricted" title="지역제한 있음">📍제한</span>' : ''}
-        </div>
-      </div>
-      <div class="row-card-side">
-        ${bookmarkButtonHtml(n.id, true)}
-        ${ddayBadgeHtml(n.applicationEndAt)}
-        <span class="row-card-arrow">›</span>
-      </div>
-    </div>
-  `;
-  }).join('');
-  container.appendChild(h(`<div class="notice-list">${rows}</div>`));
-
-  container.querySelectorAll('.notice-row').forEach(row => {
-    row.addEventListener('click', () => {
-      location.hash = '#/notices/' + row.dataset.id;
-    });
-  });
-  wireBookmarkButtons(container, {
-    onUnbookmark: (noticeId, btn) => {
-      const card = btn.closest('.notice-row');
-      if (card) card.remove();
-      if (!container.querySelector('.notice-row')) {
-        container.innerHTML = '';
-        container.appendChild(h(emptyHtml));
-      }
-    },
-  });
 }
 
 // ---------- 알림함(#/notifications, Phase 5) ----------
@@ -15488,7 +15363,9 @@ function route() {
   // 렌더 함수들 — renderProfileBasicTab 등 — 은 탭 콘텐츠로 계속 쓰인다).
   if (path === '#/me/profile' || path === '#/me/licenses') { location.hash = '#/me/saved-searches'; return; }
   if (path === '#/me/account') { renderAccountSettings(app); return; }
-  if (path === '#/me/bookmarks') { renderBookmarks(app); return; }
+  // 관심공고(#/me/bookmarks)는 폐지됨(2026-08-08, 참여검토와 기능이 겹쳐 제거) —
+  // 옛 링크/북마크는 공고 검색으로 보낸다.
+  if (path === '#/me/bookmarks') { location.hash = '#/notices'; return; }
   if (path === '#/me/saved-searches') { renderSavedSearches(app); return; }
   if (path === '#/notifications') { renderNotifications(app); return; }
   if (path === '#/review') { renderReviewQueue(app); return; }

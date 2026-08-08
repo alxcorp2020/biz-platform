@@ -139,8 +139,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/dashboard", s.handleDashboard)
 	mux.HandleFunc("POST /api/notices/{id}/evaluate", s.handleEvaluateNotice)
 	mux.HandleFunc("PUT /api/notices/{noticeId}/documents/{documentId}/checklist", s.handleToggleChecklistItem)
-	mux.HandleFunc("PUT /api/notices/{id}/bookmark", s.handleToggleBookmark)
-	mux.HandleFunc("GET /api/me/bookmarks", s.handleListBookmarks)
 	mux.HandleFunc("GET /api/review/queue", s.handleReviewQueue)
 	mux.HandleFunc("POST /api/review/eligibility-conditions/{id}", s.handleReviewEligibilityCondition)
 	mux.HandleFunc("POST /api/review/required-documents/{id}", s.handleReviewRequiredDocument)
