@@ -65,29 +65,60 @@ func TestParseReqErr(t *testing.T) {
 	}
 }
 
+// exampleResponseArrayJSON — 2026-08-08 실 엔드포인트가 내려주는 형태: jsonArray가
+// **배열**(문서 예시의 객체가 아니라)이고, 첫 원소가 채널 메타 + item을 담는다.
+// 운영 로그 "cannot unmarshal array into ... jsonArray of type struct{Item ...}"로
+// 확인된 실제 형태를 반영한다.
+const exampleResponseArrayJSON = `{"jsonArray":[{
+	"title":"기업마당 지원사업정보",
+	"link":"https://www.bizinfo.go.kr/web/lay1/bbs/S1T122C128/AS/74/list.do",
+	"item":[{
+		"totCnt":1435,
+		"pblancNm":"착한임대인 장관 표창 신청 연장 공고",
+		"pblancId":"PBLN_000000000080236",
+		"jrsdInsttNm":"중소벤처기업부",
+		"reqstBeginEndDe":"20220727 ~ 20220930"
+	}]
+}]}`
+
 func TestParseExampleResponse(t *testing.T) {
-	var envelope apiEnvelope
-	if err := json.Unmarshal([]byte(exampleResponseJSON), &envelope); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	// 객체 형태(문서 예시)와 배열 형태(실 엔드포인트) 둘 다 동일하게 파싱돼야 한다.
+	for name, body := range map[string]string{"object": exampleResponseJSON, "array": exampleResponseArrayJSON} {
+		var envelope apiEnvelope
+		if err := json.Unmarshal([]byte(body), &envelope); err != nil {
+			t.Fatalf("%s: unmarshal: %v", name, err)
+		}
+		items := extractBizinfoItems(envelope.JsonArray)
+		if len(items) != 1 {
+			t.Fatalf("%s: expected 1 item, got %d", name, len(items))
+		}
+		it := items[0]
+		if it.PblancId != "PBLN_000000000080236" {
+			t.Errorf("%s: PblancId = %q", name, it.PblancId)
+		}
+		if it.PblancNm != "착한임대인 장관 표창 신청 연장 공고" {
+			t.Errorf("%s: PblancNm = %q", name, it.PblancNm)
+		}
+		if it.JrsdInsttNm != "중소벤처기업부" {
+			t.Errorf("%s: JrsdInsttNm = %q", name, it.JrsdInsttNm)
+		}
+		if it.TotCnt != 1435 {
+			t.Errorf("%s: TotCnt = %d, want 1435", name, it.TotCnt)
+		}
+		if it.ReqstBeginEndDe != "20220727 ~ 20220930" {
+			t.Errorf("%s: ReqstBeginEndDe = %q", name, it.ReqstBeginEndDe)
+		}
 	}
-	if len(envelope.JsonArray.Item) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(envelope.JsonArray.Item))
+
+	// 방어: jsonArray 원소가 채널 래퍼 없이 공고 항목 자체인 배열도 흡수한다.
+	direct := `{"jsonArray":[{"pblancId":"PBLN_1","pblancNm":"직접배열","totCnt":7}]}`
+	var env2 apiEnvelope
+	if err := json.Unmarshal([]byte(direct), &env2); err != nil {
+		t.Fatalf("direct: unmarshal: %v", err)
 	}
-	it := envelope.JsonArray.Item[0]
-	if it.PblancId != "PBLN_000000000080236" {
-		t.Errorf("PblancId = %q", it.PblancId)
-	}
-	if it.PblancNm != "착한임대인 장관 표창 신청 연장 공고" {
-		t.Errorf("PblancNm = %q", it.PblancNm)
-	}
-	if it.JrsdInsttNm != "중소벤처기업부" {
-		t.Errorf("JrsdInsttNm = %q", it.JrsdInsttNm)
-	}
-	if it.TotCnt != 1435 {
-		t.Errorf("TotCnt = %d, want 1435", it.TotCnt)
-	}
-	if it.ReqstBeginEndDe != "20220727 ~ 20220930" {
-		t.Errorf("ReqstBeginEndDe = %q", it.ReqstBeginEndDe)
+	items := extractBizinfoItems(env2.JsonArray)
+	if len(items) != 1 || items[0].PblancId != "PBLN_1" {
+		t.Fatalf("direct-array form not parsed: %+v", items)
 	}
 }
 
@@ -149,7 +180,11 @@ func rawDocumentFromExample(t *testing.T) collector.RawDocument {
 	if err := json.Unmarshal([]byte(exampleResponseJSON), &envelope); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	raw, err := json.Marshal(envelope.JsonArray.Item[0])
+	items := extractBizinfoItems(envelope.JsonArray)
+	if len(items) == 0 {
+		t.Fatalf("no items extracted from example")
+	}
+	raw, err := json.Marshal(items[0])
 	if err != nil {
 		t.Fatalf("marshal item: %v", err)
 	}

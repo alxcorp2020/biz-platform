@@ -32,6 +32,7 @@
 package bizinfo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -122,11 +123,75 @@ type bizinfoItem struct {
 // {"reqErr":"존재하지 않는 인증키 입니다."} for auth failures, never a
 // 401/403 status. Without checking this field, a bad/expired key would
 // silently look like "0 items collected" forever instead of failing loud.
+// apiEnvelope — reqErr(인증 실패 등)는 항상 최상위. jsonArray는 형태가 소스마다
+// 다르다: 2026-08-08 실 엔드포인트는 **배열**로 내려주는데(운영 로그로 확인:
+// "cannot unmarshal array into ... jsonArray of type struct{Item ...}"), API 문서의
+// JSON 예시는 **객체**({item:[...]})였다. 그래서 RawMessage로 받고 extractBizinfoItems가
+// 배열/객체 양쪽과 item의 배열/단일까지 모두 흡수한다.
 type apiEnvelope struct {
-	ReqErr    string `json:"reqErr"`
-	JsonArray struct {
-		Item []bizinfoItem `json:"item"`
-	} `json:"jsonArray"`
+	ReqErr    string          `json:"reqErr"`
+	JsonArray json.RawMessage `json:"jsonArray"`
+}
+
+// extractBizinfoItems는 jsonArray의 형태 변형을 하나로 정규화한다:
+//   - 배열이고 원소가 채널 래퍼({..., "item": ...})면 각 원소의 item을 모아 펼친다
+//   - 배열이고 원소가 공고 항목 자체(pblancId 보유)면 그대로 담는다
+//   - 객체({item:[...]})면 그 item을 쓴다(문서 예시 형태)
+//   - item은 배열 또는 (단일 결과일 때) 객체 하나일 수 있다
+func extractBizinfoItems(raw json.RawMessage) []bizinfoItem {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	switch raw[0] {
+	case '[':
+		var arr []json.RawMessage
+		if json.Unmarshal(raw, &arr) != nil {
+			return nil
+		}
+		var out []bizinfoItem
+		for _, el := range arr {
+			var wrap struct {
+				Item json.RawMessage `json:"item"`
+			}
+			if json.Unmarshal(el, &wrap) == nil && len(bytes.TrimSpace(wrap.Item)) > 0 {
+				out = append(out, decodeBizinfoItemList(wrap.Item)...)
+				continue
+			}
+			var it bizinfoItem
+			if json.Unmarshal(el, &it) == nil && it.PblancId != "" {
+				out = append(out, it)
+			}
+		}
+		return out
+	case '{':
+		var wrap struct {
+			Item json.RawMessage `json:"item"`
+		}
+		if json.Unmarshal(raw, &wrap) == nil && len(bytes.TrimSpace(wrap.Item)) > 0 {
+			return decodeBizinfoItemList(wrap.Item)
+		}
+	}
+	return nil
+}
+
+func decodeBizinfoItemList(raw json.RawMessage) []bizinfoItem {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil
+	}
+	if raw[0] == '[' {
+		var arr []bizinfoItem
+		if json.Unmarshal(raw, &arr) == nil {
+			return arr
+		}
+		return nil
+	}
+	var single bizinfoItem
+	if json.Unmarshal(raw, &single) == nil && single.PblancId != "" {
+		return []bizinfoItem{single}
+	}
+	return nil
 }
 
 func (s *Source) FetchList(ctx context.Context, cursor collector.Cursor) ([]collector.RawItem, collector.Cursor, error) {
@@ -186,8 +251,9 @@ func (s *Source) FetchList(ctx context.Context, cursor collector.Cursor) ([]coll
 		return nil, cursor, err
 	}
 
-	items := make([]collector.RawItem, 0, len(envelope.JsonArray.Item))
-	for _, it := range envelope.JsonArray.Item {
+	itemList := extractBizinfoItems(envelope.JsonArray)
+	items := make([]collector.RawItem, 0, len(itemList))
+	for _, it := range itemList {
 		raw, err := json.Marshal(it)
 		if err != nil {
 			continue
@@ -201,8 +267,8 @@ func (s *Source) FetchList(ctx context.Context, cursor collector.Cursor) ([]coll
 	}
 
 	var totCnt int
-	if len(envelope.JsonArray.Item) > 0 {
-		totCnt = int(envelope.JsonArray.Item[0].TotCnt)
+	if len(itemList) > 0 {
+		totCnt = int(itemList[0].TotCnt)
 	}
 	fetchedSoFar := pageIndex * s.PageSize
 	nextCursor := collector.Cursor{
