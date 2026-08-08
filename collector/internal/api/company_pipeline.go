@@ -83,7 +83,18 @@ type pipelineEntry struct {
 	// 화면엔 상태로 노출하지 않고(항상 "제외" 하나), 복원 대상 판단/문구에만 쓴다.
 	ExcludeReason         *string    `json:"excludeReason,omitempty"`
 	SubmissionConfirmedAt *time.Time `json:"submissionConfirmedAt,omitempty"`
-	CreatedAt             time.Time  `json:"createdAt"`
+	// 개찰/결과조회 내부값 — 2026-08-09 우선순위5 후속. 상태(status)는 항상
+	// 제출완료를 유지하고, 파이프라인 상세의 "보조 배지"(개찰 예정/결과 확인 중/
+	// 결과 확인 필요/재입찰 확인 중) 계산에만 쓴다. result_type 같은 내부 enum은
+	// 프론트가 한글 문구로 변환해서 보여주고, 원문자열을 그대로 노출하지 않는다.
+	OpeningAt           *time.Time `json:"openingAt,omitempty"`
+	ResultType          *string    `json:"resultType,omitempty"`
+	LastResultCheckedAt *time.Time `json:"lastResultCheckedAt,omitempty"`
+	ResultFinalizedAt   *time.Time `json:"resultFinalizedAt,omitempty"`
+	ResultCheckAttempts int        `json:"resultCheckAttempts,omitempty"` // 조건판단용(>0)만. 횟수 자체는 UI 비노출.
+	WinnerName          *string    `json:"winnerName,omitempty"`          // 탈락 시 낙찰업체 표시용
+	AwardRate           *float64   `json:"awardRate,omitempty"`
+	CreatedAt           time.Time  `json:"createdAt"`
 	UpdatedAt               time.Time  `json:"updatedAt"`
 	IncompleteDocumentCount int        `json:"incompleteDocumentCount"` // handleListPipeline만 채움(대시보드 카드 클릭 → 서류확인필요 필터용) — handleGetPipelineEntry는 체크리스트 원본을 따로 내려주므로 항상 0
 	AIGrade                 string     `json:"aiGrade,omitempty"`       // handleListPipeline만 채움(Phase 3 칸반/표 뷰용). 영속 컬럼이 아니라 growth_analytics.go의 fetchGradeDistribution과 동일하게 요청 시점에 scoreNoticeForCompany로 계산한다.
@@ -104,15 +115,37 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 	var decidedAt, deadline, submissionConfirmedAt sql.NullTime
 	var awardedAmount sql.NullInt64
 	var excludeReason sql.NullString
+	var openingAt, lastResultCheckedAt, resultFinalizedAt sql.NullTime
+	var resultType, winnerName sql.NullString
+	var resultCheckAttempts sql.NullInt64
+	var awardRate sql.NullFloat64
 	err := row.Scan(&e.ID, &e.NoticeID, &e.NoticeTitle, &org, &e.Status, &assignee, &assigneeEmail, &assigneePhone, &assigneeUserID,
 		&decidedAt, &deadline, &memo, &awardedAmount, &excludeReason, &submissionConfirmedAt, &e.CreatedAt, &e.UpdatedAt,
-		&e.NoticeType, &region, &industry, &budgetAmount, &e.NoticeStatus)
+		&e.NoticeType, &region, &industry, &budgetAmount, &e.NoticeStatus,
+		&openingAt, &resultType, &lastResultCheckedAt, &resultFinalizedAt, &resultCheckAttempts, &winnerName, &awardRate)
 	if err != nil {
 		return nil, err
 	}
 	e.ExcludeReason = nullStringPtr(excludeReason)
 	if submissionConfirmedAt.Valid {
 		e.SubmissionConfirmedAt = &submissionConfirmedAt.Time
+	}
+	if openingAt.Valid {
+		e.OpeningAt = &openingAt.Time
+	}
+	e.ResultType = nullStringPtr(resultType)
+	if lastResultCheckedAt.Valid {
+		e.LastResultCheckedAt = &lastResultCheckedAt.Time
+	}
+	if resultFinalizedAt.Valid {
+		e.ResultFinalizedAt = &resultFinalizedAt.Time
+	}
+	if resultCheckAttempts.Valid {
+		e.ResultCheckAttempts = int(resultCheckAttempts.Int64)
+	}
+	e.WinnerName = nullStringPtr(winnerName)
+	if awardRate.Valid {
+		e.AwardRate = &awardRate.Float64
 	}
 	e.OrganizationName = nullStringPtr(org)
 	e.AssigneeName = nullStringPtr(assignee)
@@ -141,7 +174,8 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 const pipelineEntrySelect = `
 	SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status, pe.assignee_name, pe.assignee_email, pe.assignee_phone, pe.assignee_user_id,
 	       pe.decided_at, pe.submission_deadline, pe.memo, pe.awarded_amount, pe.exclude_reason, pe.submission_confirmed_at, pe.created_at, pe.updated_at,
-	       n.notice_type, n.region, n.industry, n.budget_amount, n.status
+	       n.notice_type, n.region, n.industry, n.budget_amount, n.status,
+	       n.opening_at, pe.result_type, pe.last_result_checked_at, pe.result_finalized_at, pe.result_check_attempts, pe.winner_name, pe.award_rate
 	FROM notice_pipeline_entries pe
 	JOIN notices n ON n.id = pe.notice_id`
 

@@ -1357,6 +1357,21 @@
     color: var(--ink);
   }
   .pipeline-step-summary { margin-top: 0.85rem; }
+  /* 개찰/결과 자동확인 보조 배지 — 상태(제출완료)보다 약하게, 작고 보조적으로. */
+  .pipeline-aux-badge {
+    display: inline-flex; flex-direction: column; gap: 0.1rem;
+    margin-left: 0.5rem; padding: 0.2rem 0.55rem; vertical-align: middle;
+    border: 1px solid var(--border, #e5e8eb); border-radius: 999px;
+    background: var(--surface-subtle, #f2f4f6); color: var(--text-secondary, #6b7684);
+    font-size: 0.72rem; font-weight: 600; line-height: 1.2;
+  }
+  .pipeline-aux-badge-desc { font-size: 0.66rem; font-weight: 400; opacity: 0.85; }
+  .pipeline-official-result {
+    margin: 0.75rem 0; padding: 0.7rem 0.9rem; border-radius: 10px;
+    font-size: 0.9rem; font-weight: 600;
+  }
+  .pipeline-official-result--win { background: rgba(21,115,71,0.1); color: #157347; }
+  .pipeline-official-result--lose { background: rgba(107,118,132,0.12); color: #4e5968; }
   .calendar-add-link {
     display: inline-block;
     margin-top: 0.85rem;
@@ -7599,6 +7614,52 @@ function pipelineActionBarHtml(entry) {
   return '';
 }
 
+// pipelineResultBadgeHtml — 우선순위5 후속(2026-08-09). 제출완료 이후 시스템이
+// 개찰/낙찰 결과를 자동 확인 중이라는 사실을 알리는 "보조 배지". 새 status가
+// 아니라 result_type/opening_at/결과조회 내부값으로 문구만 만든다 — 내부 enum
+// (NEEDS_REVIEW/REBID 등)은 절대 그대로 노출하지 않고 한글로 변환한다.
+// 낙찰/탈락으로 확정되면 배지를 달지 않는다(그땐 공식 결과 문구를 따로 보여줌).
+function pipelineResultBadgeHtml(entry) {
+  if (entry.status !== '제출완료') return '';
+  const now = new Date();
+  const opening = entry.openingAt ? new Date(entry.openingAt) : null;
+  let label = '', desc = '';
+  if (opening && !isNaN(opening) && opening > now) {
+    label = '개찰 예정';
+    desc = formatDateTime(entry.openingAt);
+  } else if (entry.resultType === 'NEEDS_REVIEW' || entry.resultType === 'NAME_MATCH') {
+    label = '결과 확인 필요';
+    desc = '자동 확정하기 어려운 결과 유형입니다. 최종 결과를 확인하고 있습니다.';
+  } else if (entry.resultType === 'REBID') {
+    label = '재입찰 확인 중';
+    desc = '재입찰 또는 후속 공고 여부를 확인하고 있습니다.';
+  } else if (!entry.resultFinalizedAt && entry.resultCheckAttempts > 0) {
+    label = '결과 확인 중';
+    desc = entry.lastResultCheckedAt ? '최근 확인 ' + formatDateTime(entry.lastResultCheckedAt) : '';
+  } else {
+    return ''; // 개찰 전 조회 이력 없음/결과없음 등은 배지 미표시
+  }
+  return `<span class="pipeline-aux-badge" title="${escapeAttr(desc)}">${escapeHtml(label)}${desc ? `<span class="pipeline-aux-badge-desc">${escapeHtml(desc)}</span>` : ''}</span>`;
+}
+
+// pipelineOfficialResultHtml — 낙찰/탈락이 "공식 개찰 결과로 자동 확인"된
+// 경우(result_type=WON/LOST)에만 공식 결과 문구를 보여준다. 사용자가 수동으로
+// 낙찰/탈락을 기록한 건(result_type 없음)엔 표시하지 않는다.
+function pipelineOfficialResultHtml(entry) {
+  if (entry.status === '낙찰' && entry.resultType === 'WON') {
+    let s = '공식 개찰 결과로 낙찰이 확인됐습니다.';
+    if (entry.awardRate != null) s += ` 낙찰률 ${entry.awardRate}%.`;
+    return `<div class="pipeline-official-result pipeline-official-result--win">🏆 ${escapeHtml(s)}</div>`;
+  }
+  if (entry.status === '탈락' && entry.resultType === 'LOST') {
+    let s = '공식 개찰 결과로 탈락이 확인됐습니다.';
+    if (entry.winnerName) s += ` 낙찰업체: ${entry.winnerName}.`;
+    if (entry.awardRate != null) s += ` 낙찰률 ${entry.awardRate}%.`;
+    return `<div class="pipeline-official-result pipeline-official-result--lose">${escapeHtml(s)}</div>`;
+  }
+  return '';
+}
+
 async function renderPipelineDetail(container, id) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
@@ -7622,7 +7683,8 @@ async function renderPipelineDetail(container, id) {
     <div class="detail-card">
       <p class="detail-eyebrow">${escapeHtml(entry.organizationName || '-')}</p>
       <h2><a href="#/notices/${escapeAttr(entry.noticeId)}">${escapeHtml(entry.noticeTitle)}</a></h2>
-      <div class="pipeline-step-summary">${pipelineStepIndicatorHtml(entry.status)}</div>
+      <div class="pipeline-step-summary">${pipelineStepIndicatorHtml(entry.status)}${pipelineResultBadgeHtml(entry)}</div>
+      ${pipelineOfficialResultHtml(entry)}
       ${pipelineActionBarHtml(entry)}
       ${entry.status === '제출완료' ? `
       <div class="pipeline-result-record">
