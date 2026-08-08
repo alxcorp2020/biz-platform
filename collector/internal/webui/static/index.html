@@ -1420,13 +1420,19 @@
   }
 
   /* ---------- 파이프라인 칸반 뷰 ---------- */
-  .kanban-board { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 0.5rem; margin-top: 1rem; }
+  .kanban-board { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 0.5rem; margin-top: 1rem; cursor: grab; }
+  .kanban-board.is-panning { cursor: grabbing; user-select: none; }
   .kanban-column { flex: 1 0 260px; min-width: 260px; background: var(--bg-soft); border-radius: var(--radius-card); padding: 0.75rem; }
   .kanban-column-header {
     font-size: var(--text-body); font-weight: 700; color: var(--ink);
     display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.6rem; padding: 0 0.25rem;
   }
   .kanban-column-count { font-size: var(--text-caption); font-weight: 500; color: var(--ink-soft); }
+  .kanban-col-toggle {
+    margin-left: auto; background: none; border: none; cursor: pointer;
+    font-size: var(--text-caption); font-weight: 600; color: var(--accent-blue-deep); padding: 0.1rem 0.3rem;
+  }
+  .kanban-col-toggle:hover { color: var(--accent-blue); }
   .kanban-column-body { display: flex; flex-direction: column; gap: 0.6rem; min-height: 60px; border-radius: var(--radius-card); transition: background 0.1s; }
   .kanban-column-body.is-drop-target { background: rgba(49,130,246,0.08); }
   .kanban-card {
@@ -1441,6 +1447,22 @@
   .kanban-card-org { font-size: var(--text-caption); color: var(--ink-soft); margin-bottom: 0.5rem; }
   .kanban-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: var(--text-caption); color: var(--ink-soft); }
   .kanban-card-grade { margin-top: 0.5rem; }
+  /* 칸반 판정등급 배지(조건부 참여 가능 등) — 다른 배지(.badge: 입찰공고/지원사업)와
+     정확히 같은 크기로(font/padding/weight 일치). ai-bucket-badge 기본값이 더 컸다. */
+  .kanban-card-grade .ai-bucket-badge {
+    font-size: var(--text-caption); font-weight: 700; padding: 0.3rem 0.75rem; line-height: 1.3;
+  }
+  /* 슬림형 카드 — 컬럼에 카드가 많을 때. 제목 1줄 + 담당자/상태/D-day 한 줄. */
+  .kanban-card--slim { padding: 0.5rem 0.7rem; }
+  .kanban-card--slim .kanban-card-title {
+    -webkit-line-clamp: 1; margin-bottom: 0.3rem; font-size: var(--text-caption);
+  }
+  .kanban-card-slim-meta {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;
+    font-size: var(--text-caption); color: var(--ink-soft);
+  }
+  .kanban-card-slim-meta .kanban-card-assignee { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kanban-card-slim-tags { display: inline-flex; align-items: center; gap: 0.3rem; flex-shrink: 0; }
   .kanban-terminal-section { margin-top: 1.25rem; }
   .kanban-terminal-section summary {
     cursor: pointer; font-size: var(--text-body); font-weight: 700; color: var(--ink-soft); padding: 0.4rem 0;
@@ -6894,6 +6916,49 @@ function pipelineKanbanCardHtml(entry) {
   `;
 }
 
+// 슬림형 카드 — 컬럼에 카드가 많을 때(KANBAN_SLIM_THRESHOLD 이상) 기본으로 쓴다.
+// 제목·담당자·D-day·상태만 압축해 보여준다(펼치기로 전체 카드 복귀).
+function pipelineKanbanSlimCardHtml(entry) {
+  const assignee = entry.assigneeName ? escapeHtml(entry.assigneeName) : '담당자 미지정';
+  return `
+    <div class="kanban-card kanban-card--slim" draggable="true" data-id="${escapeAttr(entry.id)}">
+      <div class="kanban-card-title">${escapeHtml(entry.noticeTitle)}</div>
+      <div class="kanban-card-slim-meta">
+        <span class="kanban-card-assignee">${assignee}</span>
+        <span class="kanban-card-slim-tags">${statusBadgeHtml(entry.noticeStatus)}${ddayBadgeHtml(entry.submissionDeadline)}</span>
+      </div>
+    </div>
+  `;
+}
+
+// 카드가 이 개수 이상이면 그 컬럼은 슬림형으로 접어서 보여준다(펼치기 버튼 제공).
+const KANBAN_SLIM_THRESHOLD = 5;
+// 사용자가 "펼치기"로 펼쳐 둔 컬럼(상태명) — 재렌더 사이에 유지한다.
+const kanbanExpandedColumns = new Set();
+
+// attachKanbanDragScroll — 칸반 보드 빈 영역을 마우스로 잡아 좌우로 스크롤한다
+// (트랙패드 없이도 컬럼 이동). 카드/펼치기버튼/종결섹션 위에서 시작한 드래그는
+// 각자의 동작(카드 이동 HTML5 DnD 등)에 양보하고 패닝하지 않는다. move/up 리스너는
+// 드래그 중에만 document에 붙였다 떼서 리스너가 누적되지 않게 한다.
+function attachKanbanDragScroll(board) {
+  board.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest('.kanban-card, .kanban-col-toggle, .kanban-terminal-section')) return;
+    const startX = e.pageX;
+    const startScroll = board.scrollLeft;
+    board.classList.add('is-panning');
+    const onMove = (ev) => { board.scrollLeft = startScroll - (ev.pageX - startX); };
+    const onUp = () => {
+      board.classList.remove('is-panning');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    e.preventDefault(); // 드래그 중 텍스트 선택 방지
+  });
+}
+
 // renderPipelineKanban — 자기 자신을 다시 호출해서 다시 그리는 방식으로
 // 드래그 낙관적 갱신/롤백을 처리한다(이 프로젝트에 가상 DOM이 없으므로
 // 항상 innerHTML 재작성 — 다른 화면들과 같은 패턴). 재호출 전에 열려
@@ -6908,11 +6973,18 @@ function renderPipelineKanban(container, items) {
 
   const columnsHtml = PIPELINE_ACTIVE_STATUSES.map(status => {
     const group = grouped[status] || [];
+    // 카드가 많으면(5개 이상) 기본 슬림형 + "펼치기" 버튼. 펼쳐둔 컬럼은 전체 카드.
+    const collapsible = group.length >= KANBAN_SLIM_THRESHOLD;
+    const expanded = !collapsible || kanbanExpandedColumns.has(status);
+    const cardsHtml = group.map(expanded ? pipelineKanbanCardHtml : pipelineKanbanSlimCardHtml).join('');
+    const toggleHtml = collapsible
+      ? `<button type="button" class="kanban-col-toggle" data-status="${escapeAttr(status)}">${expanded ? '접기 ▲' : `펼치기 ▾`}</button>`
+      : '';
     return `
       <div class="kanban-column">
-        <div class="kanban-column-header">${escapeHtml(status)} <span class="kanban-column-count">${group.length}</span></div>
+        <div class="kanban-column-header">${escapeHtml(status)} <span class="kanban-column-count">${group.length}</span>${toggleHtml}</div>
         <div class="kanban-column-body" data-status="${escapeAttr(status)}">
-          ${group.map(pipelineKanbanCardHtml).join('')}
+          ${cardsHtml}
         </div>
       </div>
     `;
@@ -6926,6 +6998,21 @@ function renderPipelineKanban(container, items) {
   ` : '';
 
   container.innerHTML = `<div class="kanban-board">${columnsHtml}</div>${terminalHtml}`;
+
+  // 보드 빈 영역 마우스 드래그로 좌우 스크롤.
+  const board = container.querySelector('.kanban-board');
+  if (board) attachKanbanDragScroll(board);
+
+  // "펼치기/접기" — 슬림형 컬럼을 전체 카드로 토글.
+  container.querySelectorAll('.kanban-col-toggle').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const st = btn.dataset.status;
+      if (kanbanExpandedColumns.has(st)) kanbanExpandedColumns.delete(st);
+      else kanbanExpandedColumns.add(st);
+      renderPipelineKanban(container, items);
+    });
+  });
 
   let suppressClick = false;
   container.querySelectorAll('.kanban-card').forEach(card => {
