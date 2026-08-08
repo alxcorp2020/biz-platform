@@ -6352,6 +6352,12 @@ function renderDashboard(container, data) {
     ? `<div class="home-list">${items.map(homeListRowHtml).join('')}</div>`
     : '<p class="empty">오늘 처리할 업무가 없습니다. 잘하고 계세요.</p>';
 
+  // 추천 공고는 "해야 할 일"(내가 담은 검토건·마감 등 실제 작업)과 분리된 별도 섹션.
+  const recommendations = data.recommendations || [];
+  const recommendationsHtml = recommendations.length
+    ? `<div class="home-list">${recommendations.map(homeListRowHtml).join('')}</div>`
+    : '<p class="empty">지금 조건에 맞는 새 추천 공고가 없습니다. 맞춤공고 조건을 넓혀보세요.</p>';
+
   const automationHtml = renderAutomationSummaryHtml(data.automationSummary);
   const growthHtml = renderGrowthSummaryHtml(data.growthSummary);
   const eligibilityHtml = renderEligibilitySummaryHtml(data.eligibilitySummary, data.growthSummary && data.growthSummary.overallCompleteness);
@@ -6370,6 +6376,8 @@ function renderDashboard(container, data) {
     <p class="license-card-meta">${glossaryHtml('AI 분석')} 카드는 이번달 AI 자동분석 사용 현황입니다.</p>
     <h3 class="dash-section-title">오늘 해야 할 일 (${items.length}건)</h3>
     ${itemsHtml}
+    <h3 class="dash-section-title">오늘의 추천 공고 (${recommendations.length}건)</h3>
+    ${recommendationsHtml}
     ${growthHtml}
     ${eligibilityHtml}
     ${requirementGapsHtml}

@@ -138,6 +138,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	reviewPendingCount, unassignedCount, needsDocumentCount, deadlineSoonCount := 0, 0, 0, 0
 	priorityItems := []dashboardPriorityItem{}
+	recommendationItems := []dashboardPriorityItem{}
 	closeSoonCutoff := time.Now().AddDate(0, 0, dashboardPriorityCloseSoonDays)
 
 	for _, pr := range pipelineEntries {
@@ -229,7 +230,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		if deadline.Valid {
 			item.ApplicationEndAt = &deadline.Time
 		}
-		priorityItems = append(priorityItems, item)
+		// 추천공고는 "오늘 해야 할 일"(내가 담은 검토건·마감·인증만료 등 실제 작업)과
+		// 분리해 별도 "오늘의 추천 공고" 섹션으로 내려준다(2026-08-08) — 신규 계정에서
+		// 추천이 "해야 할 일"을 가득 채워 "탈퇴했는데 데이터가 남았다"처럼 보이던 혼란 해소.
+		recommendationItems = append(recommendationItems, item)
 	}
 	if err := noticeRows.Err(); err != nil {
 		s.logger.Error("dashboard: notices scan failed", "error", err)
@@ -239,9 +243,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// 일" 전체(인증만료/공고변경 포함)가 아니라 "참여 여부를 결정해야
 	// 하는" 항목만 센다 — 브리핑 문장이 "검토할 사업이 N건"이라고 말하는데
 	// 실제로는 인증 갱신 건이었다면 신뢰가 깎인다.
-	reviewNeededCount := 0
+	reviewNeededCount := len(recommendationItems)
 	for _, it := range priorityItems {
-		if it.Kind == "pipeline" || it.Kind == "recommendation" {
+		if it.Kind == "pipeline" {
 			reviewNeededCount++
 		}
 	}
@@ -260,6 +264,17 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	sort.Slice(priorityItems, func(i, j int) bool {
 		a, b := priorityItems[i].ApplicationEndAt, priorityItems[j].ApplicationEndAt
+		if a == nil {
+			return false
+		}
+		if b == nil {
+			return true
+		}
+		return a.Before(*b)
+	})
+
+	sort.Slice(recommendationItems, func(i, j int) bool {
+		a, b := recommendationItems[i].ApplicationEndAt, recommendationItems[j].ApplicationEndAt
 		if a == nil {
 			return false
 		}
@@ -320,6 +335,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			"aiAnalysisLimit":     aiLimit, // -1 = 무제한, 0 = 이 플랜에서 이용 불가(Free)
 		},
 		"priorityItems":     priorityItems,
+		"recommendations":   recommendationItems,
 		"automationSummary": automation,
 		"growthSummary": map[string]int{
 			"overallCompleteness": completeness.OverallCompleteness,
