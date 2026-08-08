@@ -994,6 +994,9 @@
   }
   .public-bid-fit-link:hover { border-color: var(--accent-blue); }
   .public-bid-fit-link .new-tab-icon { width: 0.8em; height: 0.8em; opacity: 0.7; }
+  /* 인앱 지원사업 CTA — 외부 링크(테두리형)보다 앞서는 채움형 강조 */
+  .public-bid-fit-link--primary { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+  .public-bid-fit-link--primary:hover { background: var(--accent-blue-deep); border-color: var(--accent-blue-deep); }
 
   /* 온보딩 업종 "일반 소비자 대상" 탈출구 — 조용한 링크형(주 선택은 picker). */
   .quick-industry-b2c-link {
@@ -4086,8 +4089,10 @@ function publicBidFitBannerHtml(fit) {
   const strong = fit === 'none';
   const title = strong ? '이 업종은 공공입찰 공고가 매우 적을 수 있어요' : '이 업종은 공공입찰 공고가 적은 편이에요';
   const desc = strong
-    ? '음식점·카페·미용실 등 일반 소비자 대상 업종은 나라장터 입찰 대상이 거의 없습니다. 대신 아래 소상공인 지원사업을 활용해보세요.'
+    ? '음식점·카페·미용실 등 일반 소비자 대상 업종은 나라장터 입찰 대상이 거의 없습니다. 대신 우리 앱에 모인 소상공인 지원사업 공고를 확인해보세요.'
     : '입찰 공고가 많지 않은 업종입니다. 소상공인 지원사업도 함께 확인해보세요.';
+  // 인앱 지원사업(bizinfo 수집분) — 공고 검색의 지원사업 필터로 바로 이동(1순위 CTA).
+  const inAppCta = `<a href="#/notices?noticeType=support_program" class="public-bid-fit-link public-bid-fit-link--primary">앱에서 지원사업 공고 보기 →</a>`;
   const links = [
     { label: '기업마당(정부 지원사업)', url: 'https://www.bizinfo.go.kr' },
     { label: '소상공인마당', url: 'https://www.sbiz.or.kr' },
@@ -4105,7 +4110,7 @@ function publicBidFitBannerHtml(fit) {
           <p class="public-bid-fit-banner-desc">${escapeHtml(desc)}</p>
         </div>
       </div>
-      <div class="public-bid-fit-banner-links">${linksHtml}</div>
+      <div class="public-bid-fit-banner-links">${inAppCta}${linksHtml}</div>
     </div>`;
 }
 
@@ -9058,11 +9063,42 @@ function renderAlreadyInPipeline(container, noticeId, entryId) {
   container.appendChild(h(`
     <div class="notice-action-bar">
       <a href="#/pipeline/${escapeAttr(entryId)}" class="pipeline-review-btn" style="text-decoration:none;display:inline-block">진행 중 &middot; 워크스페이스로 이동 &rarr;</a>
+      <button type="button" id="notice-cancel-review-btn" class="btn btn-secondary btn-sm pipeline-cancel-btn">참여 취소</button>
       <button type="button" id="share-notice-btn" class="btn btn-secondary btn-sm">담당자에게 전달</button>
     </div>
+    <div id="cancel-review-result"></div>
     <div id="share-notice-form-slot"></div>
   `));
   wireShareNoticeButton(container, noticeId);
+
+  // 참여 취소 — 공고 상세에서도 바로 취소할 수 있게(예전엔 파이프라인 상세로
+  // 이동해야만 취소 버튼이 보였다). 파이프라인 상세의 pipeline-cancel-btn과
+  // 동일하게 상태를 "제외"로 바꾸고, 실수 대비 되돌리기(검토전 복귀)를 제공.
+  const cancelBtn = document.getElementById('notice-cancel-review-btn');
+  const resultEl = document.getElementById('cancel-review-result');
+  cancelBtn.addEventListener('click', () => {
+    openConfirmModal({
+      title: '참여 취소',
+      message: '이 공고의 참여 검토를 취소하시겠습니까? 상태가 "제외"로 바뀌어 진행 중 사업 목록에서 종결 처리됩니다(기록은 남습니다).',
+      confirmLabel: '참여 취소',
+      tone: 'danger',
+      onConfirm: async () => {
+        await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(entryId), { status: '제외' });
+        showToast('참여를 취소했습니다(제외).', 'success');
+        const bar = container.querySelector('.notice-action-bar');
+        if (bar) bar.style.display = 'none';
+        resultEl.innerHTML = `<p class="auth-step-hint">참여를 취소했습니다(제외). <button type="button" id="undo-cancel-review-btn" class="link-btn">되돌리기</button></p>`;
+        resultEl.querySelector('#undo-cancel-review-btn').addEventListener('click', async () => {
+          try {
+            await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(entryId), { status: '검토전' });
+            renderAlreadyInPipeline(container, noticeId, entryId);
+          } catch (err) {
+            resultEl.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+          }
+        });
+      },
+    });
+  });
 }
 
 function renderPipelineReviewButtons(container, noticeId) {
