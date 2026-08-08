@@ -185,15 +185,12 @@ func (s *Server) RunDailyNotifications(ctx context.Context) {
 	// 돈다 — 인앱 알림함(Phase 5)은 발송 채널과 무관하게 항상 채워야
 	// 하고, sendNotificationEmail/SMS는 클라이언트가 nil이면 각자 알아서
 	// 조용히 스킵한다(기존 관례).
-	if err := s.sendDeadlineReminders(ctx, 7, notifyEventDeadlineD7); err != nil {
-		s.logger.Error("notify: D-7 reminder batch failed", "error", err)
-	}
-	if err := s.sendDeadlineReminders(ctx, 3, notifyEventDeadlineD3); err != nil {
-		s.logger.Error("notify: D-3 reminder batch failed", "error", err)
-	}
-	if err := s.sendDeadlineReminders(ctx, 1, notifyEventDeadlineD1); err != nil {
-		s.logger.Error("notify: D-1 reminder batch failed", "error", err)
-	}
+	// 파이프라인 제출마감 리마인더(D-7/D-3/D-1)는 Phase B+에서 시간단위
+	// 스케줄러(RunDeadlineSchedule, 30분 주기)로 이관됐다 — 날짜가 아니라
+	// application_end_datetime(시각) 기준으로 D-7~H-2를 일관되게 처리하고,
+	// 참가자격등록 마감도 함께 본다. 여기(일일 배치)에선 더 이상 보내지 않는다
+	// (중복 발송 방지). sendDeadlineReminders는 saved-search 배치와 무관하게
+	// 이제 호출되지 않는다.
 	// 맞춤공고(saved_searches) 제출마감 리마인더 — 2026-08-06, 파이프라인
 	// 리마인더(위)와 완전히 별개 배치. 대상이 파이프라인에 추가한 건이
 	// 아니라 이 검색 조건에 매칭되는 공고 "전체"라 sendDeadlineReminders를

@@ -145,6 +145,7 @@ func main() {
 	startBackgroundCollection(dsn, logger, srv)
 	startBackgroundBizinfoCollection(dsn, logger, srv)
 	startBackgroundNotifications(srv, logger, scsbidSrc)
+	startBackgroundDeadlineSchedule(srv, logger)
 	startBackgroundDocumentExtraction(srv, logger)
 
 	logger.Info("api server starting", "port", port)
@@ -209,6 +210,28 @@ func startBackgroundNotifications(srv *api.Server, logger *slog.Logger, scsbidSr
 			} else if applied > 0 {
 				logger.Info("scheduled cancellation batch completed", "applied", applied)
 			}
+		}
+	}()
+}
+
+// startBackgroundDeadlineSchedule runs api.Server.RunDeadlineSchedule on a
+// 30-minute ticker (Phase B+, 2026-08-09) — 참가자격/제출 마감의 시간단위
+// 알림(H-6/H-2 포함)을 정확히 잡으려면 일일 배치로는 부족해서다. 30분 주기면
+// H-2도 최대 30분 오차 안에서 발송된다. dedup은 DB(pipeline_deadline_events)
+// 기준이라 서버 재시작·중복틱에도 같은 이벤트가 다시 나가지 않는다.
+func startBackgroundDeadlineSchedule(srv *api.Server, logger *slog.Logger) {
+	go func() {
+		ctx := context.Background()
+		runOnce := func() {
+			if err := srv.RunDeadlineSchedule(ctx); err != nil {
+				logger.Error("deadline schedule batch failed", "error", err)
+			}
+		}
+		runOnce()
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			runOnce()
 		}
 	}()
 }

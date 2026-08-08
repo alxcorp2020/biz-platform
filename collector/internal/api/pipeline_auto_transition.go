@@ -49,11 +49,24 @@ func (s *Server) RunPipelineAutoTransitions(ctx context.Context) (deadlinePassed
 func (s *Server) autoExcludeDeadlinePassed(ctx context.Context) (int, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		WITH sel AS (
-		  SELECT id, status AS old_status FROM notice_pipeline_entries
-		  WHERE status IN ('검토중','준비중')
-		    AND submission_deadline IS NOT NULL
-		    AND submission_deadline < CURRENT_DATE - 1   -- 제출마감 +24시간 이상 경과(날짜 단위 배치)
-		    AND submission_confirmed_at IS NULL          -- "제출했어요" 확인이 없을 때만
+		  SELECT pe.id, pe.status AS old_status
+		  FROM notice_pipeline_entries pe JOIN notices n ON n.id = pe.notice_id
+		  WHERE pe.status IN ('검토중','준비중')
+		    AND pe.submission_confirmed_at IS NULL          -- "제출했어요" 확인이 없을 때만
+		    -- Phase B+(2026-08-09): 제출마감 +24시간 경과를 시각 단위로 판정한다.
+		    -- application_end_datetime(시각) 우선, 없으면 사용자가 엔트리에 넣은
+		    -- submission_deadline(날짜) → notices.application_end_at(날짜) 순으로
+		    -- 폴백하고, 날짜는 KST 자정으로 해석한다.
+		    AND COALESCE(
+		          n.application_end_datetime,
+		          (pe.submission_deadline::timestamp AT TIME ZONE 'Asia/Seoul'),
+		          (n.application_end_at::timestamp AT TIME ZONE 'Asia/Seoul')
+		        ) IS NOT NULL
+		    AND now() > COALESCE(
+		          n.application_end_datetime,
+		          (pe.submission_deadline::timestamp AT TIME ZONE 'Asia/Seoul'),
+		          (n.application_end_at::timestamp AT TIME ZONE 'Asia/Seoul')
+		        ) + INTERVAL '24 hours'
 		), upd AS (
 		  UPDATE notice_pipeline_entries pe
 		  SET status = '제외', exclude_reason = 'DEADLINE_PASSED_UNCONFIRMED',

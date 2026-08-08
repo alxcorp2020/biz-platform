@@ -256,6 +256,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureNoticeDatetimeColumnsAndBackfill(ctx, db); err != nil {
 		return fmt.Errorf("migrate notice datetime columns/backfill: %w", err)
 	}
+	if err := ensureDeadlineSchedulerSchema(ctx, db); err != nil {
+		return fmt.Errorf("migrate deadline scheduler schema: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -455,6 +458,42 @@ func ensureNoticeDatetimeColumnsAndBackfill(ctx context.Context, db *sql.DB) err
 		       OR n.application_start_datetime IS NULL OR n.success_bid_method_name IS NULL)`
 	if _, err := db.ExecContext(ctx, backfill); err != nil {
 		return fmt.Errorf("backfill notice datetimes: %w", err)
+	}
+	return nil
+}
+
+// ensureDeadlineSchedulerSchema — 2026-08-09 Phase B+. 시간단위 마감 자동화의
+// 스키마. 두 부분이다:
+//  1. pipeline_deadline_events — 이벤트 발송 dedup 원장(메모리 아닌 DB 기준).
+//     UNIQUE(pipeline_entry_id, event_type, deadline_at)이 "동일 이벤트 1회"를
+//     보장한다. deadline_at을 키에 포함하는 게 핵심 — 공고 정정으로 마감시각이
+//     바뀌면 같은 event_type이라도 새 행이 되어(새 날짜 기준) 재발송되고, 과거
+//     마감 기준으로 이미 보낸 건은 그대로 남아 재발송되지 않는다.
+//  2. notice_pipeline_entries에 마감 스냅샷 4컬럼 — "이 엔트리에 대해 마지막으로
+//     인지한 마감시각"과 "그 값을 언제부터 알았는지". 스냅샷과 현재 공고 마감이
+//     다르면 정정으로 보고 "마감일 변경" 알림 + 소급방지 기준시각(seen_at) 갱신.
+func ensureDeadlineSchedulerSchema(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS pipeline_deadline_events (
+			id                 BIGSERIAL PRIMARY KEY,
+			pipeline_entry_id  UUID NOT NULL REFERENCES notice_pipeline_entries(id) ON DELETE CASCADE,
+			notice_id          UUID NOT NULL,
+			company_profile_id UUID NOT NULL,
+			event_type         TEXT NOT NULL,
+			deadline_at        TIMESTAMPTZ NOT NULL,
+			sent_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_pipeline_deadline_events
+			ON pipeline_deadline_events (pipeline_entry_id, event_type, deadline_at)`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS submission_deadline_snapshot    TIMESTAMPTZ`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS submission_deadline_seen_at     TIMESTAMPTZ`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS qualification_deadline_snapshot TIMESTAMPTZ`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS qualification_deadline_seen_at  TIMESTAMPTZ`,
+	}
+	for _, q := range stmts {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("%.60s...: %w", q, err)
+		}
 	}
 	return nil
 }
