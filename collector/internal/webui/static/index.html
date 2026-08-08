@@ -106,6 +106,10 @@
   .switch input:checked + .switch-slider { background: var(--accent-blue); }
   .switch input:checked + .switch-slider::before { transform: translateX(20px); }
   .switch input:focus-visible + .switch-slider { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+
+  /* 공고 검색 자동완성/최근검색 드롭다운 — 긴 제목은 줄바꿈, 일치 부분 강조 */
+  .search-suggest-menu .dropdown-menu-item { white-space: normal; line-height: 1.4; }
+  .search-suggest-menu .dropdown-menu-item strong { color: var(--accent-blue); font-weight: 700; }
   * { box-sizing: border-box; }
   body {
     margin: 0;
@@ -7550,6 +7554,50 @@ function addRecentSearch(q) {
   try { localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(list.slice(0, 5))); } catch { /* 저장 실패해도 검색 자체엔 영향 없음 */ }
 }
 
+// 검색 자동완성/최근검색 공용 드롭다운 — openDropdown은 같은 트리거 재클릭 시
+// 토글로 닫혀 "타이핑 중 실시간 갱신"엔 부적합하므로, 자유롭게 다시 그릴 수 있는
+// 전용 메뉴를 직접 관리한다. .dropdown-menu 스타일(position:fixed, 다크 대응)을 재사용.
+let searchSuggestEl = null;
+let searchSuggestInput = null;
+function searchSuggestOutside(e) {
+  if (searchSuggestEl && !searchSuggestEl.contains(e.target) && e.target !== searchSuggestInput) hideSearchSuggest();
+}
+function hideSearchSuggest() {
+  if (searchSuggestEl) { searchSuggestEl.remove(); searchSuggestEl = null; }
+  searchSuggestInput = null;
+  document.removeEventListener('click', searchSuggestOutside, true);
+}
+function showSearchSuggest(inputEl, items, onPick) {
+  hideSearchSuggest();
+  if (!items || !items.length) return;
+  const menu = document.createElement('div');
+  menu.className = 'dropdown-menu search-suggest-menu';
+  menu.innerHTML = items.map(it =>
+    `<button type="button" class="dropdown-menu-item" data-v="${escapeAttr(it.value)}">${it.html}</button>`
+  ).join('');
+  document.body.appendChild(menu);
+  const rect = inputEl.getBoundingClientRect();
+  menu.style.top = (rect.bottom + 4) + 'px';
+  menu.style.left = rect.left + 'px';
+  menu.style.minWidth = rect.width + 'px';
+  menu.style.maxWidth = Math.min(560, window.innerWidth - 16) + 'px';
+  menu.querySelectorAll('.dropdown-menu-item').forEach(b => {
+    // mousedown + preventDefault: 입력창 blur보다 먼저 실행돼 포커스를 잃지 않고 선택된다.
+    b.addEventListener('mousedown', (e) => { e.preventDefault(); onPick(b.dataset.v); });
+  });
+  searchSuggestEl = menu;
+  searchSuggestInput = inputEl;
+  setTimeout(() => document.addEventListener('click', searchSuggestOutside, true), 0);
+}
+// highlightMatch — 후보 제목에서 입력어와 일치하는 부분을 굵게(escape 후 처리).
+function highlightMatch(text, q) {
+  const esc = escapeHtml(text);
+  const escQ = escapeHtml(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!escQ) return esc;
+  try { return esc.replace(new RegExp('(' + escQ + ')', 'gi'), '<strong>$1</strong>'); }
+  catch { return esc; }
+}
+
 function renderList(container) {
   const params = new URLSearchParams(location.hash.split('?')[1] || '');
   const key = noticeListKey(params);
@@ -7592,23 +7640,29 @@ function renderList(container) {
   };
   filterForm.addEventListener('submit', (e) => { e.preventDefault(); submitFilterForm(); });
 
-  // 검색창 포커스 시 최근 검색어 드롭다운(있을 때만). 항목 클릭 → 그 키워드로 즉시 검색.
+  // 검색창 드롭다운: 빈 입력(포커스) → 최근 검색어 / 타이핑(2글자+) → 공고명 자동완성.
   const searchInput = filterForm.querySelector('input[name="q"]');
-  searchInput.addEventListener('focus', () => {
-    const recents = getRecentSearches();
-    if (!recents.length) return;
-    const menu = openDropdown(searchInput, recents.map(q =>
-      `<button type="button" class="dropdown-menu-item" data-q="${escapeAttr(q)}">🕘 ${escapeHtml(q)}</button>`
-    ).join(''));
-    if (!menu) return;
-    menu.querySelectorAll('.dropdown-menu-item').forEach(item => {
-      item.addEventListener('click', () => {
-        searchInput.value = item.dataset.q;
-        closeActiveDropdown();
-        submitFilterForm();
-      });
-    });
+  const pickSearch = (v) => { searchInput.value = v; hideSearchSuggest(); submitFilterForm(); };
+  const showRecents = () => {
+    showSearchSuggest(searchInput, getRecentSearches().map(q => ({ value: q, html: '🕘 ' + escapeHtml(q) })), pickSearch);
+  };
+  let suggestTimer = null, suggestSeq = 0;
+  searchInput.addEventListener('focus', () => { if (!searchInput.value.trim()) showRecents(); });
+  searchInput.addEventListener('input', () => {
+    const qv = searchInput.value.trim();
+    clearTimeout(suggestTimer);
+    if (!qv) { showRecents(); return; }
+    if ([...qv].length < 2) { hideSearchSuggest(); return; }
+    suggestTimer = setTimeout(async () => {
+      const seq = ++suggestSeq;
+      try {
+        const data = await fetchJSON('/api/notices/suggest?q=' + encodeURIComponent(qv));
+        if (seq !== suggestSeq || searchInput.value.trim() !== qv) return; // 낡은 응답/입력 변경 무시
+        showSearchSuggest(searchInput, (data.suggestions || []).map(t => ({ value: t, html: highlightMatch(t, qv) })), pickSearch);
+      } catch (e) { /* 자동완성 실패는 조용히 무시 — 검색 자체엔 영향 없음 */ }
+    }, 180);
   });
+  searchInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideSearchSuggest(); });
   // 정렬은 검색 버튼을 따로 안 눌러도 바로 반영 — 목록 순서를 바꾸는
   // 것뿐이라 "검색 조건 확정" 성격의 다른 입력들과 달리 즉시 적용이 자연스럽다.
   // 2026-08-07: <select>를 openDropdown() 기반 버튼으로 교체(UX 경량화
