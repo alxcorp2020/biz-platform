@@ -266,6 +266,15 @@ func (s *Server) handleAdminDeleteMember(w http.ResponseWriter, r *http.Request)
 	// 전체 목록을 다시 확인.
 	userScopedStmts := []string{
 		`DELETE FROM company_members WHERE user_id = $1`,
+		// saved_searches(user_id) — 온보딩 완료 계정은 "내 기본 조건"(origin=
+		// 'onboarding')이 자동 생성되어 사실상 모든 실사용 계정이 이 행을 가진다.
+		// 이 목록에 빠져 있어 완전삭제 시 DELETE FROM users에서 FK 위반 500이
+		// 났다(2026-08-08 관리자 회원삭제 오류 원인, 수정).
+		`DELETE FROM saved_searches WHERE user_id = $1`,
+		// notice_pipeline_entries.assignee_user_id — 다른 회사 파이프라인의
+		// 담당자로 이 계정이 연결된 경우(assignee FK), 엔트리는 그 회사 소유라
+		// 위 회사 cascade로는 안 지워진다. 삭제 대신 담당자 연결만 끊는다(NULL).
+		`UPDATE notice_pipeline_entries SET assignee_user_id = NULL WHERE assignee_user_id = $1`,
 		`DELETE FROM notification_log WHERE user_id = $1`,
 		`DELETE FROM in_app_notifications WHERE user_id = $1`,
 		`DELETE FROM notice_bookmarks WHERE user_id = $1`,

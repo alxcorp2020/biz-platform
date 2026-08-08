@@ -14092,31 +14092,22 @@ async function renderAdminMemberDetail(container, id) {
     }
   });
 
-  // 완전 삭제는 되돌릴 수 없고 회사 데이터까지 통째로 날아갈 수 있어
-  // confirm() 하나로는 부족하다고 판단 — 이메일을 그대로 입력해야만
-  // 진행되는 "타이핑 확인" 방식을 추가 안전장치로 둔다.
-  document.getElementById('delete-member-btn').addEventListener('click', async () => {
-    const typed = prompt(
-      `정말로 ${data.email} 회원을 완전히 삭제하시겠습니까?\n\n` +
-      `이 작업은 되돌릴 수 없습니다. owner인 회사라면 그 회사의 모든 데이터` +
-      `(문서/파이프라인/구독/결제기록 등)까지 함께 삭제됩니다.\n\n` +
-      `계속하려면 이메일 주소를 정확히 입력하세요:\n${data.email}`
-    );
-    if (typed === null) return;
-    if (typed !== data.email) {
-      alert('입력한 이메일이 일치하지 않아 삭제가 취소되었습니다.');
-      return;
-    }
-    const errorBox = document.getElementById('delete-member-error');
-    errorBox.style.display = 'none';
-    try {
-      await apiRequest('DELETE', '/api/admin/members/' + encodeURIComponent(id));
-      alert('삭제되었습니다.');
-      location.hash = '#/admin/members';
-    } catch (err) {
-      errorBox.textContent = err.message;
-      errorBox.style.display = 'block';
-    }
+  // 완전 삭제는 되돌릴 수 없지만, 이메일을 그대로 입력하는 "타이핑 확인"은
+  // 번거로워 제거하고(사용자 요청) 공용 확인 모달의 클릭 1번으로 단순화했다.
+  // 파괴적 작업이라 확인 단계 자체는 남긴다(openConfirmModal이 onConfirm의
+  // 서버 에러도 모달 안에 표시해준다).
+  document.getElementById('delete-member-btn').addEventListener('click', () => {
+    openConfirmModal({
+      title: '회원 완전 삭제',
+      message: `${data.email} 회원을 완전히 삭제하시겠습니까? 되돌릴 수 없으며, owner인 회사라면 그 회사의 문서·파이프라인·구독·결제기록까지 함께 삭제됩니다.`,
+      confirmLabel: '삭제',
+      tone: 'danger',
+      onConfirm: async () => {
+        await apiRequest('DELETE', '/api/admin/members/' + encodeURIComponent(id));
+        showToast('삭제되었습니다.', 'success');
+        location.hash = '#/admin/members';
+      },
+    });
   });
 }
 
