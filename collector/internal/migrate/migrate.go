@@ -380,14 +380,15 @@ func ensureNoticeProcurementClassColumns(ctx context.Context, db *sql.DB) error 
 // migratePipelineStatusesToSixStage — 2026-08-09. 파이프라인 상태를 9단계에서
 // 6단계로 축소한다(소상공인 사용성). 검토전·참여검토·보류 → 검토중, 승인대기 →
 // 준비중으로 합치고, 제출완료/낙찰/탈락/제외는 그대로. CHECK 제약도 새 6개로 교체.
-// 순서 중요: 값을 먼저 remap한 뒤(그래야 좁힌 CHECK가 안 깨짐) 제약을 교체한다.
-// 멱등: remap UPDATE는 이미 옮긴 뒤엔 대상이 없어 no-op, DROP IF EXISTS + ADD로
-// 제약 재생성도 반복 안전.
+// 🚨순서 중요: 새 값('검토중')이 옛 CHECK(9개, '검토중' 없음)에 걸리므로 반드시
+// (1) 옛 제약 DROP → (2) 값 remap(무제약 상태) → (3) 새 제약 ADD 순서여야 한다.
+// (처음엔 UPDATE를 DROP보다 먼저 둬서 운영 마이그레이션이 실패했다.) 멱등:
+// DROP IF EXISTS, remap UPDATE는 옮긴 뒤 no-op, ADD도 앞의 DROP과 짝이라 반복 안전.
 func migratePipelineStatusesToSixStage(ctx context.Context, db *sql.DB) error {
 	stmts := []string{
+		`ALTER TABLE notice_pipeline_entries DROP CONSTRAINT IF EXISTS notice_pipeline_entries_status_check`,
 		`UPDATE notice_pipeline_entries SET status = '검토중' WHERE status IN ('검토전','참여검토','보류')`,
 		`UPDATE notice_pipeline_entries SET status = '준비중' WHERE status = '승인대기'`,
-		`ALTER TABLE notice_pipeline_entries DROP CONSTRAINT IF EXISTS notice_pipeline_entries_status_check`,
 		`ALTER TABLE notice_pipeline_entries ADD CONSTRAINT notice_pipeline_entries_status_check ` +
 			`CHECK (status = ANY (ARRAY['검토중','준비중','제출완료','낙찰','탈락','제외']))`,
 	}
