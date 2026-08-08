@@ -90,8 +90,30 @@ func (s *Server) deactivateUserAccount(ctx context.Context, targetID string) (de
 	); err != nil {
 		return out, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM company_members WHERE user_id = $1`, targetID); err != nil {
-		return out, err
+	// 탈퇴(2026-08-08 개발 요청): owner 계정 탈퇴 시, 회사의 운영 데이터
+	// (파이프라인 = 대시보드 "오늘 해야 할 일" 포함, 문서/구독/결제 등)를 남기지
+	// 않고 회사를 통째로 정리한다(하드삭제와 동일 cascade — orphan 데이터 방지).
+	// owner가 아니면 팀에서만 이탈시킨다. 사용자 레코드는 익명화 상태로 남겨
+	// 원래 이메일 재사용 방지·감사 흔적을 유지한다(하드삭제와의 유일한 차이).
+	if teamRole.Valid && teamRole.String == "owner" {
+		if err := deleteCompanyData(ctx, tx, companyProfileID.String); err != nil {
+			return out, err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM company_members WHERE user_id = $1`, targetID); err != nil {
+			return out, err
+		}
+	}
+	// 회사 데이터와 별개로 이 회원 개인에게 딸린 운영 데이터(맞춤공고 "내 기본
+	// 조건"/관심공고 등)도 정리한다 — 익명화된 계정에 orphan으로 남아 재가입·
+	// 재테스트 시 혼란을 주지 않게. user_id 스코프라 owner 여부와 무관.
+	for _, q := range []string{
+		`DELETE FROM saved_searches WHERE user_id = $1`,
+		`DELETE FROM notice_bookmarks WHERE user_id = $1`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, targetID); err != nil {
+			return out, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return out, err
@@ -134,6 +156,53 @@ func (s *Server) handleAdminDeactivateMember(w http.ResponseWriter, r *http.Requ
 		"originalEmail": outcome.OriginalEmail,
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deactivated"})
+}
+
+// cascadeStmt — deleteCompanyData가 순서대로 실행할 한 문장.
+type cascadeStmt struct {
+	query string
+	args  []any
+}
+
+// companyDataCascadeStmts — company_profile을 통째로 지울 때 FK 순서에 맞춰
+// 실행할 목록(하드삭제·탈퇴 공용). 회사 종속 테이블이 새로 생기면 여기만
+// 갱신하면 두 경로가 함께 정리된다. company_profiles.employee_count_source_
+// document_id ↔ company_documents 순환 참조 때문에 그 컬럼을 먼저 NULL로 끊는다.
+func companyDataCascadeStmts(profileID string) []cascadeStmt {
+	return []cascadeStmt{
+		{`UPDATE company_profiles SET employee_count_source_document_id = NULL WHERE id = $1`, []any{profileID}},
+		{`DELETE FROM pipeline_checklist_items WHERE pipeline_entry_id IN (SELECT id FROM notice_pipeline_entries WHERE company_profile_id = $1)`, []any{profileID}},
+		{`DELETE FROM notification_log WHERE pipeline_entry_id IN (SELECT id FROM notice_pipeline_entries WHERE company_profile_id = $1)`, []any{profileID}},
+		{`DELETE FROM notification_log WHERE contact_id IN (SELECT id FROM company_contacts WHERE company_profile_id = $1)`, []any{profileID}},
+		{`DELETE FROM in_app_notifications WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM notice_pipeline_entries WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM company_contacts WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM eligibility_evaluations WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM document_checklist_items WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM company_licenses WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM company_certifications WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM company_financials WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM company_track_records WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM company_intellectual_property WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM company_personnel WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM company_documents WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM company_invitations WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM reports WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM payment_log WHERE subscription_id IN (SELECT id FROM subscriptions WHERE company_profile_id = $1)`, []any{profileID}},
+		{`DELETE FROM subscriptions WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM company_members WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM company_profiles WHERE id = $1`, []any{profileID}},
+	}
+}
+
+// deleteCompanyData — companyDataCascadeStmts를 트랜잭션에서 순서대로 실행.
+func deleteCompanyData(ctx context.Context, tx *sql.Tx, profileID string) error {
+	for _, stmt := range companyDataCascadeStmts(profileID) {
+		if _, err := tx.ExecContext(ctx, stmt.query, stmt.args...); err != nil {
+			return fmt.Errorf("company cascade failed (%s): %w", stmt.query, err)
+		}
+	}
+	return nil
 }
 
 // handleAdminDeleteMember — DELETE /api/admin/members/{id}. 개발 단계에서
@@ -209,40 +278,10 @@ func (s *Server) handleAdminDeleteMember(w http.ResponseWriter, r *http.Request)
 	// 가리키는 순환 참조가 있어 — company_documents를 지우려면 이 컬럼을
 	// 먼저 NULL로 끊어야 한다.
 	if deleteWholeCompany {
-		profileID := companyProfileID.String
-		cascadeStmts := []struct {
-			query string
-			args  []any
-		}{
-			{`UPDATE company_profiles SET employee_count_source_document_id = NULL WHERE id = $1`, []any{profileID}},
-			{`DELETE FROM pipeline_checklist_items WHERE pipeline_entry_id IN (SELECT id FROM notice_pipeline_entries WHERE company_profile_id = $1)`, []any{profileID}},
-			{`DELETE FROM notification_log WHERE pipeline_entry_id IN (SELECT id FROM notice_pipeline_entries WHERE company_profile_id = $1)`, []any{profileID}},
-			{`DELETE FROM notification_log WHERE contact_id IN (SELECT id FROM company_contacts WHERE company_profile_id = $1)`, []any{profileID}},
-			{`DELETE FROM in_app_notifications WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM notice_pipeline_entries WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM company_contacts WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM eligibility_evaluations WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM document_checklist_items WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM company_licenses WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM company_certifications WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM company_financials WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM company_track_records WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM company_intellectual_property WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM company_personnel WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM company_documents WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM company_invitations WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM reports WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM payment_log WHERE subscription_id IN (SELECT id FROM subscriptions WHERE company_profile_id = $1)`, []any{profileID}},
-			{`DELETE FROM subscriptions WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM company_members WHERE company_profile_id = $1`, []any{profileID}},
-			{`DELETE FROM company_profiles WHERE id = $1`, []any{profileID}},
-		}
-		for _, stmt := range cascadeStmts {
-			if _, err := tx.ExecContext(ctx, stmt.query, stmt.args...); err != nil {
-				s.logger.Error("admin-delete-member: company cascade delete failed", "query", stmt.query, "error", err)
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
-				return
-			}
+		if err := deleteCompanyData(ctx, tx, companyProfileID.String); err != nil {
+			s.logger.Error("admin-delete-member: company cascade delete failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
 		}
 	}
 

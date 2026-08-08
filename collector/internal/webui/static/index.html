@@ -14130,18 +14130,22 @@ async function renderAdminMemberDetail(container, id) {
   // 번거로워 제거하고(사용자 요청) 공용 확인 모달의 클릭 1번으로 단순화했다.
   // 파괴적 작업이라 확인 단계 자체는 남긴다(openConfirmModal이 onConfirm의
   // 서버 에러도 모달 안에 표시해준다).
-  document.getElementById('delete-member-btn').addEventListener('click', () => {
-    openConfirmModal({
-      title: '회원 완전 삭제',
-      message: `${data.email} 회원을 완전히 삭제하시겠습니까? 되돌릴 수 없으며, owner인 회사라면 그 회사의 문서·파이프라인·구독·결제기록까지 함께 삭제됩니다.`,
-      confirmLabel: '삭제',
-      tone: 'danger',
-      onConfirm: async () => {
-        await apiRequest('DELETE', '/api/admin/members/' + encodeURIComponent(id));
-        showToast('삭제되었습니다.', 'success');
-        location.hash = '#/admin/members';
-      },
-    });
+  // 개발 요청(2026-08-08): 확인 절차 없이 버튼 클릭 즉시 완전 삭제(개발/테스트
+  // 계정 정리용). 회사 owner면 회사 데이터까지 함께 삭제된다(백엔드 cascade).
+  document.getElementById('delete-member-btn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const errorBox = document.getElementById('delete-member-error');
+    errorBox.style.display = 'none';
+    try {
+      await apiRequest('DELETE', '/api/admin/members/' + encodeURIComponent(id));
+      showToast('삭제되었습니다.', 'success');
+      location.hash = '#/admin/members';
+    } catch (err) {
+      btn.disabled = false;
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
   });
 }
 
