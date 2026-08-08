@@ -571,6 +571,46 @@
   }
   .filters button.dropdown-select-trigger:hover { background-color: var(--surface); }
 
+  /* ---------- 공고 검색 폼(2026-08-08 재설계) ---------- */
+  .search-form { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 1rem 1.1rem; margin-bottom: 1.25rem; }
+  .search-bar { display: flex; gap: 0.6rem; align-items: stretch; }
+  .search-input-wrap { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
+  .search-input-icon { position: absolute; left: 0.85rem; width: 1.15rem; height: 1.15rem; color: var(--ink-soft); pointer-events: none; }
+  .search-input { width: 100%; padding: 0.75rem 0.9rem 0.75rem 2.6rem; border: 1px solid var(--border); border-radius: 10px; font-size: 1rem; background: var(--bg); color: var(--ink); }
+  .search-input:focus { outline: none; border-color: var(--accent-blue); box-shadow: 0 0 0 3px rgba(49,130,246,0.15); }
+  .search-submit { flex: 0 0 auto; padding: 0.75rem 1.5rem; background: var(--accent-blue); color: #fff; border: 1px solid var(--accent-blue); border-radius: 10px; font-weight: 700; font-size: 1rem; cursor: pointer; }
+  .search-submit:hover { background: var(--accent-blue-deep); border-color: var(--accent-blue-deep); }
+  .search-submit--sm { padding: 0.55rem 1.1rem; font-size: 0.9rem; }
+  .search-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; margin-top: 0.7rem; }
+  .search-adv-toggle, .search-sort-trigger { display: inline-flex; align-items: center; gap: 0.35rem; background: none; border: none; padding: 0.3rem 0.2rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+  .search-adv-toggle { color: var(--accent-blue-deep); }
+  .search-adv-toggle:hover { color: var(--accent-blue); }
+  .search-sort-trigger { color: var(--ink-soft); }
+  .search-sort-trigger:hover { color: var(--ink); }
+  .search-adv-chevron { width: 1rem; height: 1rem; transition: transform .2s ease; }
+  .search-adv-toggle[aria-expanded="true"] .search-adv-chevron { transform: rotate(180deg); }
+  .search-advanced { margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
+  .search-adv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem 0.9rem; }
+  .search-adv-field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); }
+  .search-adv-field--wide { grid-column: 1 / -1; }
+  .search-adv-field input, .search-adv-field select { padding: 0.55rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.92rem; font-weight: 400; background: var(--bg); color: var(--ink); }
+  .search-adv-field input:focus, .search-adv-field select:focus { outline: none; border-color: var(--accent-blue); }
+  .search-adv-footer { display: flex; align-items: center; justify-content: space-between; gap: 0.7rem; margin-top: 0.9rem; flex-wrap: wrap; }
+  .search-adv-actions { display: flex; gap: 0.5rem; align-items: center; }
+  .search-adv-reset { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.9rem; font-size: 0.85rem; color: var(--ink-soft); cursor: pointer; }
+  .search-adv-reset:hover { border-color: var(--danger); color: var(--danger); }
+  /* 자동완성 드롭다운 — .search-input-wrap 기준 앵커(항상 입력창 아래·같은 폭) */
+  .search-suggest-menu { position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; min-width: 0; max-height: 320px; }
+  @media (max-width: 640px) {
+    .search-bar { flex-wrap: wrap; }
+    .search-input-wrap { flex-basis: 100%; }
+    .search-submit { flex: 1; }
+    .search-adv-grid { grid-template-columns: 1fr; }
+    .search-adv-footer { flex-direction: column; align-items: stretch; }
+    .search-adv-actions { justify-content: space-between; }
+    .search-adv-actions .search-submit--sm { flex: 1; }
+  }
+
   .back-link {
     display: inline-block;
     margin-bottom: 1.25rem;
@@ -7753,17 +7793,17 @@ function hideSearchSuggest() {
 function showSearchSuggest(inputEl, items, onPick) {
   hideSearchSuggest();
   if (!items || !items.length) return;
+  // 2026-08-08: body에 append + getBoundingClientRect로 좌표를 잡던 방식은
+  // 재검색 후 위치가 틀어지는 버그가 있었다. 입력창을 감싼 .search-input-wrap
+  // (position:relative)의 자식으로 넣고 CSS로 top:100%/left:0/right:0 앵커해
+  // 항상 입력창 바로 아래에 폭까지 맞춰 정렬되게 한다.
+  const wrap = inputEl.closest('.search-input-wrap') || inputEl.parentElement;
   const menu = document.createElement('div');
   menu.className = 'dropdown-menu search-suggest-menu';
   menu.innerHTML = items.map(it =>
     `<button type="button" class="dropdown-menu-item" data-v="${escapeAttr(it.value)}">${it.html}</button>`
   ).join('');
-  document.body.appendChild(menu);
-  const rect = inputEl.getBoundingClientRect();
-  menu.style.top = (rect.bottom + 4) + 'px';
-  menu.style.left = rect.left + 'px';
-  menu.style.minWidth = rect.width + 'px';
-  menu.style.maxWidth = Math.min(560, window.innerWidth - 16) + 'px';
+  wrap.appendChild(menu);
   menu.querySelectorAll('.dropdown-menu-item').forEach(b => {
     // mousedown + preventDefault: 입력창 blur보다 먼저 실행돼 포커스를 잃지 않고 선택된다.
     b.addEventListener('mousedown', (e) => { e.preventDefault(); onPick(b.dataset.v); });
@@ -7788,44 +7828,126 @@ function renderList(container) {
   const currentRegion = params.get('region') || '';
   const currentNoticeType = params.get('noticeType') || '';
   const savedSearchName = params.get('savedSearchName') || '';
+  // 상세 검색 필드 프리필값(맞춤공고 "결과 보기"로 들어오면 이 값들이 채워진다).
+  const currentIndustry = params.get('industry') || '';
+  const currentOrg = params.get('organizationName') || '';
+  const currentBudgetMin = params.get('budgetMin') || '';
+  const currentBudgetMax = params.get('budgetMax') || '';
+  const currentKwInclude = params.get('keywordsInclude') || '';
+  const currentKwExclude = params.get('keywordsExclude') || '';
+  const currentIncludeClosed = params.get('includeClosed') === '1';
+  // 상세 조건이 하나라도 걸려 있으면 상세 검색 패널을 펼친 채로 시작한다.
+  const advancedActive = !!(currentRegion || currentIndustry || currentNoticeType || currentOrg ||
+    currentBudgetMin || currentBudgetMax || currentKwInclude || currentKwExclude || currentIncludeClosed);
+  const sortLabel = (NOTICE_SORT_OPTIONS.find(o => o.value === currentSort) || {}).label || '신규순';
 
   container.innerHTML = '';
   container.appendChild(h(`
     ${savedSearchName ? `<div class="extraction-banner"><span aria-hidden="true">🔖</span> 맞춤공고 "${escapeHtml(savedSearchName)}" 조건 결과입니다 — <a href="#/me/saved-searches">맞춤공고 관리로 돌아가기</a></div>` : ''}
-    <form class="filters" id="filter-form">
-      <input type="text" name="q" placeholder="공고명 검색" value="${params.get('q') || ''}">
-      <select name="region" class="select-input">
-        <option value="">지역 전체</option>
-        ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === currentRegion ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
-      </select>
-      <input type="text" name="industry" placeholder="업종" value="${params.get('industry') || ''}">
-      <select name="noticeType" class="select-input" aria-label="공고 종류">
-        ${SAVED_SEARCH_NOTICE_TYPE_OPTIONS.map(o => `<option value="${escapeAttr(o.value)}" ${o.value === currentNoticeType ? 'selected' : ''}>${o.value === '' ? '공고 종류 전체' : escapeHtml(o.label)}</option>`).join('')}
-      </select>
-      <input type="hidden" name="sort" value="${escapeAttr(currentSort)}">
-      <button type="button" id="notice-sort-trigger" class="select-input dropdown-select-trigger">${escapeHtml((NOTICE_SORT_OPTIONS.find(o => o.value === currentSort) || {}).label || '정렬')}</button>
-      <label class="checkbox-label"><input type="checkbox" name="includeClosed" value="1" ${params.get('includeClosed') === '1' ? 'checked' : ''}> 지난 공고 포함</label>
-      <button type="submit">검색</button>
+    <form class="search-form" id="filter-form">
+      <div class="search-bar">
+        <div class="search-input-wrap">
+          <svg class="search-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" name="q" class="search-input" placeholder="공고명으로 검색" value="${escapeAttr(params.get('q') || '')}" autocomplete="off">
+        </div>
+        <button type="submit" class="search-submit">검색</button>
+      </div>
+      <div class="search-toolbar">
+        <button type="button" id="search-adv-toggle" class="search-adv-toggle" aria-expanded="${advancedActive ? 'true' : 'false'}" aria-controls="search-advanced">
+          <svg class="search-adv-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          상세 검색
+        </button>
+        <input type="hidden" name="sort" value="${escapeAttr(currentSort)}">
+        <button type="button" id="notice-sort-trigger" class="search-sort-trigger">${escapeHtml(sortLabel)} ▾</button>
+      </div>
+      <div class="search-advanced" id="search-advanced" ${advancedActive ? '' : 'hidden'}>
+        <div class="search-adv-grid">
+          <label class="search-adv-field">지역
+            <select name="region" class="select-input">
+              <option value="">지역 전체</option>
+              ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === currentRegion ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="search-adv-field">공고 종류
+            <select name="noticeType" class="select-input">
+              ${SAVED_SEARCH_NOTICE_TYPE_OPTIONS.map(o => `<option value="${escapeAttr(o.value)}" ${o.value === currentNoticeType ? 'selected' : ''}>${o.value === '' ? '공고 종류 전체' : escapeHtml(o.label)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="search-adv-field">업종
+            <input type="text" name="industry" placeholder="예: 설계, 청소, 시스템" value="${escapeAttr(currentIndustry)}">
+          </label>
+          <label class="search-adv-field">발주기관
+            <input type="text" name="organizationName" placeholder="기관명 일부" value="${escapeAttr(currentOrg)}">
+          </label>
+          <label class="search-adv-field">예산 최소(원)
+            <input type="text" name="budgetMin" inputmode="numeric" placeholder="예: 10,000,000" value="${escapeAttr(currentBudgetMin ? formatCurrency(Number(currentBudgetMin)) : '')}">
+          </label>
+          <label class="search-adv-field">예산 최대(원)
+            <input type="text" name="budgetMax" inputmode="numeric" placeholder="예: 500,000,000" value="${escapeAttr(currentBudgetMax ? formatCurrency(Number(currentBudgetMax)) : '')}">
+          </label>
+          <label class="search-adv-field search-adv-field--wide">포함 키워드 (OR)
+            <input type="text" name="keywordsInclude" placeholder="쉼표로 여러 개 = 하나라도 포함 (예: 환경, 설계, 유지관리)" value="${escapeAttr(currentKwInclude)}">
+          </label>
+          <label class="search-adv-field search-adv-field--wide">제외 키워드
+            <input type="text" name="keywordsExclude" placeholder="쉼표로 여러 개 = 모두 제외 (예: 공사, 물품)" value="${escapeAttr(currentKwExclude)}">
+          </label>
+        </div>
+        <div class="search-adv-footer">
+          <label class="checkbox-label"><input type="checkbox" name="includeClosed" value="1" ${currentIncludeClosed ? 'checked' : ''}> 지난(마감) 공고도 포함</label>
+          <div class="search-adv-actions">
+            <button type="button" id="search-adv-reset" class="search-adv-reset">상세조건 초기화</button>
+            <button type="submit" class="search-submit search-submit--sm">이 조건으로 검색</button>
+          </div>
+        </div>
+      </div>
     </form>
     <div id="list-body">${skeletonListHtml(6)}</div>
   `));
 
   const filterForm = document.getElementById('filter-form');
+  // 예산 입력은 통화 자동포맷(쉼표) — 제출 시 숫자만 뽑아 URL에 넣는다.
+  attachCurrencyAutoFormat(filterForm.budgetMin);
+  attachCurrencyAutoFormat(filterForm.budgetMax);
   const submitFilterForm = () => {
     const fd = new FormData(filterForm);
     const p = new URLSearchParams();
-    for (const [k, v] of fd.entries()) if (v) p.set(k, v);
-    // 맞춤공고 결과보기 전용 파라미터는 이 폼에 입력 필드가 없으니
-    // FormData에 안 잡힌다 — 정렬 변경 등으로 재제출될 때 사라지지
-    // 않도록 이전 params에서 그대로 이어붙인다.
-    SAVED_SEARCH_ONLY_PARAMS.concat(['savedSearchName']).forEach(k => {
-      if (params.get(k)) p.set(k, params.get(k));
-    });
+    // 예산은 포맷된 문자열이라 숫자로 파싱해 담는다(빈 값은 생략).
+    const budgetKeys = { budgetMin: true, budgetMax: true };
+    for (const [k, v] of fd.entries()) {
+      if (!v) continue;
+      if (budgetKeys[k]) {
+        const num = parseCurrencyInput(v);
+        if (num != null && num !== '') p.set(k, String(num));
+        continue;
+      }
+      p.set(k, v);
+    }
+    // savedSearchName(표시용 배지)만 이전 params에서 이어붙인다 — 나머지 검색
+    // 조건은 이제 전부 폼 필드라 FormData로 정확히 수집된다.
+    if (params.get('savedSearchName')) p.set('savedSearchName', params.get('savedSearchName'));
     addRecentSearch(fd.get('q')); // 검색어가 있으면 최근 검색어로 저장(빈 값은 무시)
+    hideSearchSuggest();
     noticeListState = null; // 새 검색/정렬 — 이전 무한스크롤 캐시는 폐기
     location.hash = '#/notices?' + p.toString();
   };
   filterForm.addEventListener('submit', (e) => { e.preventDefault(); submitFilterForm(); });
+
+  // 상세 검색 펼치기/접기.
+  const advToggle = document.getElementById('search-adv-toggle');
+  const advPanel = document.getElementById('search-advanced');
+  advToggle.addEventListener('click', () => {
+    const open = advPanel.hasAttribute('hidden');
+    if (open) advPanel.removeAttribute('hidden'); else advPanel.setAttribute('hidden', '');
+    advToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  // 상세조건 초기화 — 검색어(q)·정렬은 두고 상세 필드만 비운 뒤 즉시 재검색.
+  document.getElementById('search-adv-reset').addEventListener('click', () => {
+    ['region', 'noticeType', 'industry', 'organizationName', 'budgetMin', 'budgetMax', 'keywordsInclude', 'keywordsExclude'].forEach(name => {
+      if (filterForm[name]) filterForm[name].value = '';
+    });
+    if (filterForm.includeClosed) filterForm.includeClosed.checked = false;
+    submitFilterForm();
+  });
 
   // 검색창 드롭다운: 빈 입력(포커스) → 최근 검색어 / 타이핑(2글자+) → 공고명 자동완성.
   const searchInput = filterForm.querySelector('input[name="q"]');
