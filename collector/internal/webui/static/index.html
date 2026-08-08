@@ -11772,6 +11772,14 @@ function contactCardHtml(item) {
 
 function renderContactForm(formSlot, item, onSaved) {
   const c = item || {};
+  // SMS 알림은 유료 플랜 전용(백엔드 smsAllowedForPlan이 발송 직전에 최종
+  // 차단한다). Free에서는 토글을 disabled로 두고 이유를 안내한다 — disabled
+  // 입력은 FormData에서 빠져 저장 시 자동으로 false가 되므로(발송 안 됨과
+  // 일치) 별도 처리가 필요 없다. currentUser.plan은 /api/me가 내려주는 값.
+  const isFreePlan = !currentUser || currentUser.plan === 'free';
+  const smsFieldHtml = isFreePlan
+    ? `<label class="checkbox-label" title="SMS 알림은 유료 플랜에서 이용할 수 있습니다"><input type="checkbox" name="smsNotificationsEnabled" disabled> SMS 알림 받기 (제출마감 리마인더, 상태변경) <span style="color: var(--ink-soft); font-size: 0.8rem; margin-left: 0.3rem;">· 유료 플랜에서 이용 가능</span></label>`
+    : `<label class="checkbox-label"><input type="checkbox" name="smsNotificationsEnabled" ${c.smsNotificationsEnabled ? 'checked' : ''}> SMS 알림 받기 (제출마감 리마인더, 상태변경)</label>`;
   formSlot.innerHTML = '';
   formSlot.appendChild(h(`
     <div class="license-confirm-form">
@@ -11782,7 +11790,7 @@ function renderContactForm(formSlot, item, onSaved) {
         <label>전화번호<input type="tel" name="phone" value="${escapeAttr(c.phone || '')}" placeholder="010-0000-0000"></label>
         <label><input type="checkbox" name="isDefault" ${c.isDefault ? 'checked' : ''}> 기본 담당자로 지정</label>
         <label class="checkbox-label"><input type="checkbox" name="emailNotificationsEnabled" ${c.id ? (c.emailNotificationsEnabled ? 'checked' : '') : 'checked'}> 이메일 알림 받기 (제출마감 리마인더, 상태변경)</label>
-        <label class="checkbox-label"><input type="checkbox" name="smsNotificationsEnabled" ${c.smsNotificationsEnabled ? 'checked' : ''}> SMS 알림 받기 (제출마감 리마인더, 상태변경)</label>
+        ${smsFieldHtml}
         <div id="contact-form-error" class="error" style="display:none"></div>
         <div class="license-toolbar">
           <button type="submit" class="btn btn-primary btn-sm">저장</button>
