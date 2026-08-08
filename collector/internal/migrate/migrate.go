@@ -250,6 +250,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := migratePipelineStatusesToSixStage(ctx, db); err != nil {
 		return fmt.Errorf("migrate pipeline statuses to 6-stage: %w", err)
 	}
+	if err := ensurePipelineAutomationSchema(ctx, db); err != nil {
+		return fmt.Errorf("migrate pipeline automation schema: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -391,6 +394,36 @@ func migratePipelineStatusesToSixStage(ctx context.Context, db *sql.DB) error {
 		`UPDATE notice_pipeline_entries SET status = '준비중' WHERE status = '승인대기'`,
 		`ALTER TABLE notice_pipeline_entries ADD CONSTRAINT notice_pipeline_entries_status_check ` +
 			`CHECK (status = ANY (ARRAY['검토중','준비중','제출완료','낙찰','탈락','제외']))`,
+	}
+	for _, q := range stmts {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("%s: %w", q, err)
+		}
+	}
+	return nil
+}
+
+// ensurePipelineAutomationSchema — 2026-08-09 Phase A. "사용자가 상태를 직접
+// 관리하지 않는" 자동화의 토대: (1) 제외 사유(exclude_reason)와 제출 확인시각
+// (submission_confirmed_at) 컬럼, (2) 모든 자동/수동 상태 변경 이력을 남기는
+// pipeline_status_history 테이블. 사용자 노출 상태는 6개 그대로 — reason은
+// 내부 필드로만 쓰고 화면에는 항상 "제외" 하나로 보여준다.
+func ensurePipelineAutomationSchema(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS exclude_reason TEXT`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS submission_confirmed_at TIMESTAMPTZ`,
+		`CREATE TABLE IF NOT EXISTS pipeline_status_history (
+			id                BIGSERIAL PRIMARY KEY,
+			pipeline_entry_id UUID NOT NULL REFERENCES notice_pipeline_entries(id) ON DELETE CASCADE,
+			from_status       TEXT,
+			to_status         TEXT NOT NULL,
+			changed_by        TEXT,           -- user_id 또는 'SYSTEM'
+			reason            TEXT,           -- USER_EXCLUDED/DEADLINE_PASSED_UNCONFIRMED 등(내부용)
+			trigger_type      TEXT NOT NULL,  -- 'USER' | 'SYSTEM'
+			trigger_at        TIMESTAMPTZ,
+			created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_pipeline_status_history_entry ON pipeline_status_history(pipeline_entry_id)`,
 	}
 	for _, q := range stmts {
 		if _, err := db.ExecContext(ctx, q); err != nil {

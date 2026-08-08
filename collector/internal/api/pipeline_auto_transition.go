@@ -48,23 +48,34 @@ func (s *Server) RunPipelineAutoTransitions(ctx context.Context) (deadlinePassed
 
 func (s *Server) autoExcludeDeadlinePassed(ctx context.Context) (int, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		UPDATE notice_pipeline_entries
-		SET status = $1,
-		    decided_at = now(),
-		    updated_at = now(),
-		    memo = COALESCE(memo || E'\n', '') ||
-		           '(자동) 제출마감(' || submission_deadline || ') 경과로 자동 제외 처리됨 — ' || to_char(now(), 'YYYY-MM-DD')
-		WHERE status IN ('검토중','준비중')
-		  AND submission_deadline IS NOT NULL
-		  AND submission_deadline < CURRENT_DATE
-		RETURNING id`, autoExcludeStatus)
+		WITH sel AS (
+		  SELECT id, status AS old_status FROM notice_pipeline_entries
+		  WHERE status IN ('검토중','준비중')
+		    AND submission_deadline IS NOT NULL
+		    AND submission_deadline < CURRENT_DATE - 1   -- 제출마감 +24시간 이상 경과(날짜 단위 배치)
+		    AND submission_confirmed_at IS NULL          -- "제출했어요" 확인이 없을 때만
+		), upd AS (
+		  UPDATE notice_pipeline_entries pe
+		  SET status = '제외', exclude_reason = 'DEADLINE_PASSED_UNCONFIRMED',
+		      decided_at = now(), updated_at = now(),
+		      memo = COALESCE(pe.memo || E'\n', '') ||
+		             '(자동) 제출마감 경과+제출확인 없음으로 자동 제외 — ' || to_char(now(), 'YYYY-MM-DD')
+		  FROM sel WHERE pe.id = sel.id
+		  RETURNING pe.id, sel.old_status
+		), hist AS (
+		  INSERT INTO pipeline_status_history (pipeline_entry_id, from_status, to_status, changed_by, reason, trigger_type, trigger_at)
+		  SELECT id, old_status, '제외', 'SYSTEM', 'DEADLINE_PASSED_UNCONFIRMED', 'SYSTEM', now() FROM upd
+		)
+		SELECT count(*) FROM upd`)
 	if err != nil {
 		return 0, err
 	}
 	defer rows.Close()
 	n := 0
-	for rows.Next() {
-		n++
+	if rows.Next() {
+		if err := rows.Scan(&n); err != nil {
+			return 0, err
+		}
 	}
 	return n, rows.Err()
 }
@@ -74,24 +85,33 @@ func (s *Server) autoExcludeDeadlinePassed(ctx context.Context) (int, error) {
 // 참고) — 이름은 과거 설계 흔적으로 그대로 남겨둔다(동작에는 영향 없음).
 func (s *Server) autoExcludeNoticeClosed(ctx context.Context) (int, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		UPDATE notice_pipeline_entries pe
-		SET status = $1,
-		    decided_at = now(),
-		    updated_at = now(),
-		    memo = COALESCE(pe.memo || E'\n', '') ||
-		           '(자동) 공고가 마감/취소되어 자동 제외 처리됨 — ' || to_char(now(), 'YYYY-MM-DD')
-		FROM notices n
-		WHERE pe.notice_id = n.id
-		  AND pe.status IN ('검토중','준비중')
-		  AND n.status IN ('closed','cancelled')
-		RETURNING pe.id`, autoExcludeStatus)
+		WITH sel AS (
+		  SELECT pe.id, pe.status AS old_status
+		  FROM notice_pipeline_entries pe JOIN notices n ON n.id = pe.notice_id
+		  WHERE pe.status IN ('검토중','준비중','제출완료')   -- 취소는 제출완료 건도 무효화(입찰 자체 무효)
+		    AND n.status IN ('closed','cancelled')
+		), upd AS (
+		  UPDATE notice_pipeline_entries pe
+		  SET status = '제외', exclude_reason = 'NOTICE_CANCELLED',
+		      decided_at = now(), updated_at = now(),
+		      memo = COALESCE(pe.memo || E'\n', '') ||
+		             '(자동) 공고 취소로 자동 제외 — ' || to_char(now(), 'YYYY-MM-DD')
+		  FROM sel WHERE pe.id = sel.id
+		  RETURNING pe.id, sel.old_status
+		), hist AS (
+		  INSERT INTO pipeline_status_history (pipeline_entry_id, from_status, to_status, changed_by, reason, trigger_type, trigger_at)
+		  SELECT id, old_status, '제외', 'SYSTEM', 'NOTICE_CANCELLED', 'SYSTEM', now() FROM upd
+		)
+		SELECT count(*) FROM upd`)
 	if err != nil {
 		return 0, err
 	}
 	defer rows.Close()
 	n := 0
-	for rows.Next() {
-		n++
+	if rows.Next() {
+		if err := rows.Scan(&n); err != nil {
+			return 0, err
+		}
 	}
 	return n, rows.Err()
 }

@@ -29,6 +29,25 @@ var validChecklistStatuses = map[string]bool{
 	"보유": true, "갱신필요": true, "신규작성": true, "발급필요": true, "확인필요": true,
 }
 
+// recordPipelineStatusChange — 모든 파이프라인 상태 변경을 pipeline_status_history에
+// 남긴다(2026-08-09 Phase A). 실패해도 본 흐름을 막지 않는다(로그만). changedBy는
+// user_id 또는 "SYSTEM", triggerType은 "USER" | "SYSTEM". fromStatus/reason은 비면 NULL.
+func (s *Server) recordPipelineStatusChange(ctx context.Context, entryID, fromStatus, toStatus, changedBy, reason, triggerType string) {
+	var from, rsn any
+	if fromStatus != "" {
+		from = fromStatus
+	}
+	if reason != "" {
+		rsn = reason
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO pipeline_status_history (pipeline_entry_id, from_status, to_status, changed_by, reason, trigger_type, trigger_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, now())`,
+		entryID, from, toStatus, changedBy, rsn, triggerType); err != nil {
+		s.logger.Error("pipeline status history insert failed", "error", err, "entry", entryID)
+	}
+}
+
 type pipelineChecklistItem struct {
 	ID                 string  `json:"id"`
 	DocumentName       string  `json:"documentName"`
@@ -60,7 +79,11 @@ type pipelineEntry struct {
 	SubmissionDeadline      *string    `json:"submissionDeadline"`
 	Memo                    *string    `json:"memo"`
 	AwardedAmount           *int64     `json:"awardedAmount"` // 성장분석 ROI 근거 — status='낙찰'일 때 사용자가 직접 입력
-	CreatedAt               time.Time  `json:"createdAt"`
+	// ExcludeReason/SubmissionConfirmedAt — 2026-08-09 Phase A. 내부 자동화용.
+	// 화면엔 상태로 노출하지 않고(항상 "제외" 하나), 복원 대상 판단/문구에만 쓴다.
+	ExcludeReason         *string    `json:"excludeReason,omitempty"`
+	SubmissionConfirmedAt *time.Time `json:"submissionConfirmedAt,omitempty"`
+	CreatedAt             time.Time  `json:"createdAt"`
 	UpdatedAt               time.Time  `json:"updatedAt"`
 	IncompleteDocumentCount int        `json:"incompleteDocumentCount"` // handleListPipeline만 채움(대시보드 카드 클릭 → 서류확인필요 필터용) — handleGetPipelineEntry는 체크리스트 원본을 따로 내려주므로 항상 0
 	AIGrade                 string     `json:"aiGrade,omitempty"`       // handleListPipeline만 채움(Phase 3 칸반/표 뷰용). 영속 컬럼이 아니라 growth_analytics.go의 fetchGradeDistribution과 동일하게 요청 시점에 scoreNoticeForCompany로 계산한다.
@@ -78,13 +101,18 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 	var org, assignee, assigneeEmail, assigneePhone, assigneeUserID, memo sql.NullString
 	var region, industry sql.NullString
 	var budgetAmount sql.NullInt64
-	var decidedAt, deadline sql.NullTime
+	var decidedAt, deadline, submissionConfirmedAt sql.NullTime
 	var awardedAmount sql.NullInt64
+	var excludeReason sql.NullString
 	err := row.Scan(&e.ID, &e.NoticeID, &e.NoticeTitle, &org, &e.Status, &assignee, &assigneeEmail, &assigneePhone, &assigneeUserID,
-		&decidedAt, &deadline, &memo, &awardedAmount, &e.CreatedAt, &e.UpdatedAt,
+		&decidedAt, &deadline, &memo, &awardedAmount, &excludeReason, &submissionConfirmedAt, &e.CreatedAt, &e.UpdatedAt,
 		&e.NoticeType, &region, &industry, &budgetAmount, &e.NoticeStatus)
 	if err != nil {
 		return nil, err
+	}
+	e.ExcludeReason = nullStringPtr(excludeReason)
+	if submissionConfirmedAt.Valid {
+		e.SubmissionConfirmedAt = &submissionConfirmedAt.Time
 	}
 	e.OrganizationName = nullStringPtr(org)
 	e.AssigneeName = nullStringPtr(assignee)
@@ -112,7 +140,7 @@ func scanPipelineEntry(row pipelineEntryRowScanner) (*pipelineEntry, error) {
 
 const pipelineEntrySelect = `
 	SELECT pe.id, pe.notice_id, n.title, n.organization_name, pe.status, pe.assignee_name, pe.assignee_email, pe.assignee_phone, pe.assignee_user_id,
-	       pe.decided_at, pe.submission_deadline, pe.memo, pe.awarded_amount, pe.created_at, pe.updated_at,
+	       pe.decided_at, pe.submission_deadline, pe.memo, pe.awarded_amount, pe.exclude_reason, pe.submission_confirmed_at, pe.created_at, pe.updated_at,
 	       n.notice_type, n.region, n.industry, n.budget_amount, n.status
 	FROM notice_pipeline_entries pe
 	JOIN notices n ON n.id = pe.notice_id`
@@ -166,11 +194,12 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 	if err == nil {
 		if existingStatus == "제외" {
 			if _, err := s.db.ExecContext(ctx,
-				`UPDATE notice_pipeline_entries SET status = '검토중', decided_at = now() WHERE id = $1`, existingID); err != nil {
+				`UPDATE notice_pipeline_entries SET status = '검토중', decided_at = now(), exclude_reason = NULL WHERE id = $1`, existingID); err != nil {
 				s.logger.Error("create-pipeline: reactivate excluded entry failed", "error", err)
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 				return
 			}
+			s.recordPipelineStatusChange(ctx, existingID, "제외", "검토중", userID, "", "USER")
 		}
 		entry, err := s.fetchPipelineEntry(ctx, existingID)
 		if err != nil {
@@ -248,6 +277,7 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 	s.recordAuditLog(ctx, userID, "pipeline_entry_created", "notice_pipeline_entry", entryID, map[string]any{
 		"noticeId": noticeID, "status": "검토중",
 	})
+	s.recordPipelineStatusChange(ctx, entryID, "", "검토중", userID, "", "USER")
 
 	entry, err := s.fetchPipelineEntry(ctx, entryID)
 	if err != nil {
@@ -426,6 +456,13 @@ func (s *Server) handleUpdatePipelineEntry(w http.ResponseWriter, r *http.Reques
 	}
 
 	statusChanged := false
+	newStatus := currentStatus
+	statusReason := "" // 이력/exclude_reason용
+	if rawReason, present := raw["excludeReason"]; present {
+		var r string
+		json.Unmarshal(rawReason, &r)
+		statusReason = strings.TrimSpace(r)
+	}
 	if rawStatus, present := raw["status"]; present {
 		var status string
 		if err := json.Unmarshal(rawStatus, &status); err != nil || !validPipelineStatuses[status] {
@@ -433,9 +470,24 @@ func (s *Server) handleUpdatePipelineEntry(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		addSet("status", status)
+		newStatus = status
 		if status != currentStatus {
 			addSet("decided_at", time.Now())
 			statusChanged = true
+			// 제출완료로 전환 = 사용자가 "제출했어요" 확인 → 제출확인시각 기록.
+			if status == "제출완료" {
+				addSet("submission_confirmed_at", time.Now())
+			}
+			// 제외로 전환 시 사유(내부용) 기록. 액션이 안 보냈으면 수동제외로 본다.
+			// 제외가 아닌 상태로 벗어나면(복원 등) 제외사유는 비운다.
+			if status == "제외" {
+				if statusReason == "" {
+					statusReason = "USER_EXCLUDED"
+				}
+				addSet("exclude_reason", statusReason)
+			} else {
+				addSet("exclude_reason", nil)
+			}
 		}
 	}
 	if rawAssignee, present := raw["assigneeName"]; present {
@@ -532,6 +584,9 @@ func (s *Server) handleUpdatePipelineEntry(w http.ResponseWriter, r *http.Reques
 		s.logger.Error("update-pipeline: update failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
+	}
+	if statusChanged {
+		s.recordPipelineStatusChange(ctx, entryID, currentStatus, newStatus, userID, statusReason, "USER")
 	}
 
 	entry, err := s.fetchPipelineEntry(ctx, entryID)

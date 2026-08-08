@@ -226,6 +226,26 @@
   .pipeline-result-btn--win:hover { filter: brightness(0.95); }
   .pipeline-result-btn--lose:hover { border-color: var(--danger); color: var(--danger); }
   .pipeline-result-btn:disabled { opacity: 0.6; cursor: default; }
+  /* 행동버튼(Phase A) — 상태 대신 "행동"을 누르게 하는 큰 버튼 */
+  .pipeline-action-bar { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.9rem 0; }
+  .pipeline-action-btn {
+    flex: 1 1 auto; min-width: 120px; padding: 0.8rem 1.2rem; border-radius: 10px;
+    font-weight: 700; font-size: 1rem; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+  }
+  .pipeline-action-btn--primary { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+  .pipeline-action-btn--primary:hover { background: var(--accent-blue-deep); border-color: var(--accent-blue-deep); }
+  .pipeline-action-btn--ghost { flex: 0 0 auto; color: var(--ink-soft); }
+  .pipeline-action-btn--ghost:hover { border-color: var(--danger); color: var(--danger); }
+  .pipeline-action-btn:disabled { opacity: 0.6; cursor: default; }
+  .pipeline-action-prompt {
+    margin: 0.9rem 0; padding: 0.9rem 1rem; border-radius: var(--radius-card);
+    border: 1px solid var(--warning, #d68a00); background: var(--bg-soft);
+  }
+  .pipeline-action-prompt-q { margin: 0 0 0.6rem; font-weight: 700; color: var(--ink); }
+  .pipeline-action-prompt .pipeline-action-bar { margin: 0; }
+  .pipeline-status-manual { margin: 0.5rem 0; }
+  .pipeline-status-manual summary { cursor: pointer; font-size: 0.85rem; color: var(--ink-soft); }
   /* row-card-grade-reason — 목록 단계 AI 등급 사유(2026-08-06, "추천공고
      왜 목록단계 노출"). .ai-grade-reason(상세 페이지)과 같은 톤이지만
      목록 행 안에 들어가므로 여백/글자크기만 더 작게. 2026-08-07: 원래
@@ -7549,6 +7569,36 @@ async function renderAIUsage(container) {
   });
 }
 
+// pipelineActionBarHtml — Phase A(2026-08-09). 사용자가 상태를 직접 고르지 않고
+// "행동"을 누르면 상태가 바뀌게 한다. 상태별로 실제로 할 만한 행동만 큰 버튼으로.
+//   검토중  → [참여할게요](준비중) [제외]
+//   준비중  → [제출했어요](제출완료) [제외]  (제출마감 경과+미확인이면 "제출했나요?" 확인)
+//   제외    → [복원]  (마감/미제출 자동제외면 제출완료로, 그 외 검토중으로)
+//   제출완료/낙찰/탈락 → 여기선 없음(제출완료는 아래 결과 기록, 낙찰/탈락은 종결)
+function pipelineActionBarHtml(entry) {
+  const btn = (label, status, reason, cls) =>
+    `<button type="button" class="pipeline-action-btn ${cls || ''}" data-action-status="${escapeAttr(status)}"${reason ? ` data-action-reason="${escapeAttr(reason)}"` : ''}>${escapeHtml(label)}</button>`;
+  if (entry.status === '검토중') {
+    return `<div class="pipeline-action-bar">${btn('참여할게요', '준비중', '', 'pipeline-action-btn--primary')}${btn('제외', '제외', 'USER_EXCLUDED', 'pipeline-action-btn--ghost')}</div>`;
+  }
+  if (entry.status === '준비중') {
+    const today = new Date(new Date().toDateString());
+    const deadlinePassed = entry.submissionDeadline && new Date(entry.submissionDeadline) < today;
+    if (deadlinePassed && !entry.submissionConfirmedAt) {
+      return `<div class="pipeline-action-prompt">
+        <p class="pipeline-action-prompt-q">제출 마감이 지났습니다. 나라장터에서 실제로 제출하셨나요?</p>
+        <div class="pipeline-action-bar">${btn('제출했어요', '제출완료', '', 'pipeline-action-btn--primary')}${btn('제출하지 않았어요', '제외', 'DEADLINE_PASSED_NOT_SUBMITTED', 'pipeline-action-btn--ghost')}</div>
+      </div>`;
+    }
+    return `<div class="pipeline-action-bar">${btn('제출했어요', '제출완료', '', 'pipeline-action-btn--primary')}${btn('제외', '제외', 'USER_EXCLUDED', 'pipeline-action-btn--ghost')}</div>`;
+  }
+  if (entry.status === '제외') {
+    const restoreTo = (entry.excludeReason === 'DEADLINE_PASSED_UNCONFIRMED' || entry.excludeReason === 'DEADLINE_PASSED_NOT_SUBMITTED') ? '제출완료' : '검토중';
+    return `<div class="pipeline-action-bar">${btn('복원', restoreTo, '', 'pipeline-action-btn--primary')}</div>`;
+  }
+  return '';
+}
+
 async function renderPipelineDetail(container, id) {
   container.innerHTML = '';
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
@@ -7573,6 +7623,7 @@ async function renderPipelineDetail(container, id) {
       <p class="detail-eyebrow">${escapeHtml(entry.organizationName || '-')}</p>
       <h2><a href="#/notices/${escapeAttr(entry.noticeId)}">${escapeHtml(entry.noticeTitle)}</a></h2>
       <div class="pipeline-step-summary">${pipelineStepIndicatorHtml(entry.status)}</div>
+      ${pipelineActionBarHtml(entry)}
       ${entry.status === '제출완료' ? `
       <div class="pipeline-result-record">
         <span class="pipeline-result-record-q">개찰 결과가 나왔나요? 결과를 기록하세요.</span>
@@ -7583,7 +7634,9 @@ async function renderPipelineDetail(container, id) {
       </div>` : ''}
       <a class="calendar-add-link" href="/api/pipeline/${escapeAttr(entry.id)}/calendar.ics" download>&#128197; 캘린더에 추가 (.ics)</a>
       <form id="pipeline-entry-form" class="profile-form">
-        <label>상태${pipelineStatusSelectHtml(entry.status)}</label>
+        <details class="pipeline-status-manual"><summary>상태 직접 변경(고급)</summary>
+          <label>상태${pipelineStatusSelectHtml(entry.status)}</label>
+        </details>
         <label>낙찰 금액(원)<input type="text" inputmode="numeric" name="awardedAmount" value="${escapeAttr(formatCurrency(entry.awardedAmount))}" placeholder="낙찰된 경우 실제 계약금액을 입력해주세요 (성장분석 ROI에 반영됩니다)"></label>
         <div id="assignee-section">${assigneeSectionHtml(entry)}</div>
         <label>메모<textarea name="memo" rows="3">${escapeHtml(entry.memo || '')}</textarea></label>
@@ -7602,6 +7655,23 @@ async function renderPipelineDetail(container, id) {
   // 시작합니다"로 즉시 안내한다(2026-08-07, UX 경량화 3단계).
   document.querySelector('.calendar-add-link').addEventListener('click', () => {
     showToast('캘린더 파일을 다운로드합니다.', 'info');
+  });
+
+  // 행동버튼(Phase A) — 참여할게요/제출했어요/제외/복원. 상태 select 대신 이 버튼이
+  // 상태를 바꾼다(제출했어요→제출완료는 submission_confirmed_at 기록, 제외는 reason 동반).
+  container.querySelectorAll('.pipeline-action-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const body = { status: btn.dataset.actionStatus };
+        if (btn.dataset.actionReason) body.excludeReason = btn.dataset.actionReason;
+        await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(id), body);
+        renderPipelineDetail(container, id);
+      } catch (err) {
+        btn.disabled = false;
+        showToast(err.message || '처리에 실패했습니다.', 'error');
+      }
+    });
   });
 
   // 결과 기록(Phase 2) — 제출완료 건에서 낙찰/탈락을 원클릭으로 확정. 상태 select을
