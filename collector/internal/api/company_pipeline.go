@@ -152,12 +152,23 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 	}
 
 	// 멱등성: 이미 있으면 그대로 반환(재클릭해도 체크리스트 재생성 안 함).
-	var existingID string
+	// 단, 상태가 "제외"(참여 취소됨)면 "참여 검토 시작"은 재활성으로 보고 검토전으로
+	// 되살린다 — 목록 토글에서 담김→취소→다시 담기가 자연스럽게 동작하도록(2026-08-08).
+	// 그 외 진행 단계는 초기화하지 않는다(멱등 유지).
+	var existingID, existingStatus string
 	err = s.db.QueryRowContext(ctx,
-		`SELECT id FROM notice_pipeline_entries WHERE company_profile_id = $1 AND notice_id = $2`,
+		`SELECT id, status FROM notice_pipeline_entries WHERE company_profile_id = $1 AND notice_id = $2`,
 		profile.ID, noticeID,
-	).Scan(&existingID)
+	).Scan(&existingID, &existingStatus)
 	if err == nil {
+		if existingStatus == "제외" {
+			if _, err := s.db.ExecContext(ctx,
+				`UPDATE notice_pipeline_entries SET status = '검토전', decided_at = now() WHERE id = $1`, existingID); err != nil {
+				s.logger.Error("create-pipeline: reactivate excluded entry failed", "error", err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+				return
+			}
+		}
 		entry, err := s.fetchPipelineEntry(ctx, existingID)
 		if err != nil {
 			s.logger.Error("create-pipeline: fetch existing entry failed", "error", err)

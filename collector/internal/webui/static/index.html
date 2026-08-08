@@ -1329,6 +1329,9 @@
      전달) — 좁은 화면에서는 줄바꿈되어 세로로 쌓인다. */
   .notice-action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-top: 1rem; }
   .notice-action-bar .pipeline-review-btn { margin-top: 0; }
+  /* 목록 "담김 ✓" 상태 — 채움형으로 담긴 걸 명확히, hover 시 빨강으로 "누르면 취소" 암시 */
+  .notice-row-pipeline-btn--active { background: var(--success); border-color: var(--success); color: #fff; }
+  .notice-row-pipeline-btn--active:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
 
   /* ---------- 진행 중 사업(#/pipeline) ---------- */
   .pipeline-status-section { margin-bottom: 2rem; }
@@ -7999,10 +8002,12 @@ function noticeRowHtml(n, showMatchReasons) {
     ? '<span class="badge badge--warn" title="실적 규모가 이 공고 예산 대비 작아 보입니다 — 참고용 신호일 뿐 메인 등급은 그대로입니다">공동수급 검토 권장</span>'
     : '';
   const jointVentureReasonHtml = n.jointVentureReason ? `<p class="row-card-grade-reason">${escapeHtml(n.jointVentureReason)}</p>` : '';
-  // 목록에서 바로 "참여 검토"에 담기(상세 진입 없이 클릭 수 감소). 로그인 +
-  // 회사 프로필이 있을 때만 노출한다(비로그인/프로필 없으면 파이프라인 생성 불가).
+  // 목록에서 바로 "참여 검토"에 담기/취소(토글). 로그인 + 회사 프로필이 있을 때만
+  // 노출. n.pipelineStatus(서버가 내려줌)로 새로고침 후에도 담김 상태를 반영한다 —
+  // "제외"(취소됨)와 미담김은 참여검토로, 그 외 담긴 상태는 담김으로 본다.
+  const inPipeline = !!(n.pipelineStatus && n.pipelineStatus !== '제외');
   const pipelineBtnHtml = (currentUser && currentProfile)
-    ? `<button type="button" class="btn btn-secondary btn-sm notice-row-pipeline-btn" data-id="${escapeAttr(n.id)}" title="진행 중 사업(참여 검토)에 담기">참여검토</button>`
+    ? `<button type="button" class="btn btn-secondary btn-sm notice-row-pipeline-btn${inPipeline ? ' notice-row-pipeline-btn--active' : ''}" data-id="${escapeAttr(n.id)}" data-entry-id="${escapeAttr(n.pipelineEntryId || '')}" data-in-pipeline="${inPipeline ? 'true' : 'false'}" title="${inPipeline ? '담김 — 클릭하면 참여검토 취소' : '진행 중 사업(참여 검토)에 담기'}">${inPipeline ? '담김 ✓' : '참여검토'}</button>`
     : '';
   return `
     <div class="row-card notice-row" data-id="${escapeAttr(n.id)}">
@@ -8026,6 +8031,16 @@ function noticeRowHtml(n, showMatchReasons) {
       ${matchReasonsHtml}
     </div>
   `;
+}
+
+// setNoticeRowPipelineBtn — 목록 "참여검토/담김" 버튼의 표시·데이터 상태를
+// 토글 결과에 맞춰 갱신한다(라벨/툴팁/클래스/data-in-pipeline/data-entry-id).
+function setNoticeRowPipelineBtn(btn, inPipeline, entryId) {
+  btn.dataset.inPipeline = inPipeline ? 'true' : 'false';
+  if (entryId) btn.dataset.entryId = entryId;
+  btn.textContent = inPipeline ? '담김 ✓' : '참여검토';
+  btn.classList.toggle('notice-row-pipeline-btn--active', inPipeline);
+  btn.title = inPipeline ? '담김 — 클릭하면 참여검토 취소' : '진행 중 사업(참여 검토)에 담기';
 }
 
 // renderNoticeListItems — 상단에 "지금까지 몇 건 로드됐는지"를 보여주는
@@ -8077,19 +8092,28 @@ function renderNoticeListItems(listBody, items, total, showMatchReasons) {
       location.hash = '#/notices/' + row.dataset.id;
     });
   });
-  // 목록 카드의 "참여검토" 버튼 — 카드 클릭(상세 이동)과 겹치지 않게 전파를 막고,
-  // 파이프라인 항목을 바로 생성한다(POST는 멱등 — 이미 있으면 그대로 담긴다).
+  // 목록 카드의 "참여검토/담김" 버튼 — 카드 클릭(상세 이동)과 겹치지 않게 전파를
+  // 막고 토글한다: 미담김이면 담기(POST, 제외였으면 서버가 검토전으로 재활성),
+  // 담긴 상태면 참여검토 취소(PATCH status='제외'). 상태 전환은 백엔드가 값
+  // 유효성만 검사하고 전환 규칙을 강제하지 않아 오류 없이 안전하다.
   listBody.querySelectorAll('.notice-row-pipeline-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       btn.disabled = true;
       try {
-        await apiRequest('POST', '/api/notices/' + encodeURIComponent(btn.dataset.id) + '/pipeline', {});
-        btn.textContent = '담김 ✓';
-        showToast('진행 중 사업(참여 검토)에 담았습니다.', 'success');
+        if (btn.dataset.inPipeline === 'true') {
+          await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(btn.dataset.entryId), { status: '제외' });
+          setNoticeRowPipelineBtn(btn, false, btn.dataset.entryId);
+          showToast('참여 검토를 취소했습니다.', 'success');
+        } else {
+          const entry = await apiRequest('POST', '/api/notices/' + encodeURIComponent(btn.dataset.id) + '/pipeline', {});
+          setNoticeRowPipelineBtn(btn, true, entry && entry.id);
+          showToast('진행 중 사업(참여 검토)에 담았습니다.', 'success');
+        }
       } catch (err) {
+        showToast(err.message || '처리에 실패했습니다.', 'error');
+      } finally {
         btn.disabled = false;
-        showToast(err.message || '담기에 실패했습니다.', 'error');
       }
     });
   });

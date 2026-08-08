@@ -313,6 +313,12 @@ type noticeListItem struct {
 	// 참고). attachNoticeGrades가 Grade/GradeReason과 함께 채운다.
 	JointVentureRecommended bool   `json:"jointVentureRecommended,omitempty"`
 	JointVentureReason      string `json:"jointVentureReason,omitempty"`
+	// PipelineEntryId/PipelineStatus — 2026-08-08. 이 공고가 로그인 사용자 회사의
+	// 파이프라인(진행 중 사업)에 이미 담겨 있는지. 목록의 "참여검토" 버튼이
+	// 새로고침 후에도 상태를 반영하고(담김↔참여검토 토글) 취소까지 하게 하려는
+	// 것. 담긴 항목이 없으면 둘 다 빈 문자열(비로그인/프로필 없음 포함).
+	PipelineEntryId string `json:"pipelineEntryId,omitempty"`
+	PipelineStatus  string `json:"pipelineStatus,omitempty"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -546,8 +552,10 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	// 비워둔다 — company_pipeline.go attachPipelineGrades와 동일한
 	// best-effort 원칙, 검색 자체를 막지 않는다).
 	var scoringCompany *companyScoringInput
+	var pipelineCompanyID string // 목록의 파이프라인 담김 상태 조회용(로그인+프로필일 때만)
 	if loggedIn {
 		if profile, err := s.getCompanyProfile(r, userID); err == nil && profile != nil {
+			pipelineCompanyID = profile.ID
 			var profRegion, profSize sql.NullString
 			if profile.Region != nil {
 				profRegion = sql.NullString{String: *profile.Region, Valid: true}
@@ -629,6 +637,41 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, it)
 	}
+
+	// 파이프라인 담김 상태 매핑 — 이 페이지의 공고들 중 로그인 사용자 회사의
+	// 파이프라인에 이미 있는 것에 entryId/status를 채운다(한 번의 배치 조회).
+	// 목록 "참여검토" 버튼이 새로고침 후에도 담김 상태를 반영하고 토글/취소하게 한다.
+	if pipelineCompanyID != "" && len(items) > 0 {
+		ids := make([]string, len(items))
+		for i, it := range items {
+			ids[i] = it.ID
+		}
+		// notice_id는 uuid, $2는 text[](pq.Array) — uuid = ANY(text[])는 연산자가
+		// 없어 500이 나므로 notice_id::text로 캐스팅해 비교한다.
+		peRows, err := s.db.QueryContext(r.Context(),
+			`SELECT notice_id, id, status FROM notice_pipeline_entries WHERE company_profile_id = $1 AND notice_id::text = ANY($2)`,
+			pipelineCompanyID, pq.Array(ids))
+		if err != nil {
+			s.logger.Error("list notices: pipeline status lookup failed", "error", err)
+		} else {
+			type peInfo struct{ id, status string }
+			byNotice := map[string]peInfo{}
+			for peRows.Next() {
+				var noticeID, id, status string
+				if err := peRows.Scan(&noticeID, &id, &status); err == nil {
+					byNotice[noticeID] = peInfo{id: id, status: status}
+				}
+			}
+			peRows.Close()
+			for i := range items {
+				if pe, ok := byNotice[items[i].ID]; ok {
+					items[i].PipelineEntryId = pe.id
+					items[i].PipelineStatus = pe.status
+				}
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items": items, "count": len(items),
 		"offset": offset, "limit": limit, "total": total,
