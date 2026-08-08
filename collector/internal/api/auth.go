@@ -93,7 +93,25 @@ func (s *Server) currentUserID(r *http.Request) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return s.verifySession(c.Value)
+	userID, ok := s.verifySession(c.Value)
+	if !ok {
+		return "", false
+	}
+	// 탈퇴(비활성화)/하드삭제 계정은 유효한 세션 쿠키가 아직 남아 있어도 접근을
+	// 막는다 — handleLogin/OAuth 콜백은 이미 deactivated_at을 막지만, 그 전에
+	// 발급된 세션은 verifySession(HMAC+만료)만 통과하면 계속 살아있어 탈퇴 후에도
+	// 대시보드·데이터가 보이던 버그(2026-08-08). 여기서 매 요청 계정 상태를
+	// 재확인해 즉시 차단한다(PK 조회 1회). 계정이 없거나(하드삭제) 조회 실패면
+	// 안전하게 미인증 처리(fail-closed).
+	var deactivatedAt sql.NullTime
+	if err := s.db.QueryRowContext(r.Context(),
+		`SELECT deactivated_at FROM users WHERE id = $1`, userID).Scan(&deactivatedAt); err != nil {
+		return "", false
+	}
+	if deactivatedAt.Valid {
+		return "", false
+	}
+	return userID, true
 }
 
 func isValidEmail(email string) bool {
