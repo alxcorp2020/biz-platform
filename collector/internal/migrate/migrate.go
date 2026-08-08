@@ -238,6 +238,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureNoticeRegionRestrictedColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate notices.region_restricted column: %w", err)
 	}
+	if err := ensureNoticeProcurementClassColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate notices procurement class columns: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -328,6 +331,39 @@ func ensureSavedSearchMatchEventType(ctx context.Context, db *sql.DB) error {
 func ensureNoticeRegionRestrictedColumn(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE notices ADD COLUMN IF NOT EXISTS region_restricted BOOLEAN;
+	`)
+	return err
+}
+
+// ensureNoticeProcurementClassColumns — 2026-08-08 Phase 0. g2b 목록 응답이
+// 이미 주던 공공조달분류 코드/계층/업종제한 플래그를 그동안 industry(중분류명)
+// 하나만 쓰고 버리던 것을 살린다. region_restricted와 동일하게 ADD COLUMN IF
+// NOT EXISTS + 최초 1회 백필. 백필은 현재버전(notice_versions.is_current)의
+// raw_documents.raw_content(원본 JSON)에서 직접 재파싱한다 — g2b가 아닌 소스는
+// 이 키들이 없어 LIKE로 자연히 제외되고 NULL로 남는다. industry 컬럼 자체는
+// 손대지 않으므로 판정엔진/검색 매칭에는 영향 없다(순수 데이터 확보).
+func ensureNoticeProcurementClassColumns(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `
+		ALTER TABLE notices ADD COLUMN IF NOT EXISTS procurement_class_code   TEXT;
+		ALTER TABLE notices ADD COLUMN IF NOT EXISTS procurement_class_large  TEXT;
+		ALTER TABLE notices ADD COLUMN IF NOT EXISTS procurement_class_detail TEXT;
+		ALTER TABLE notices ADD COLUMN IF NOT EXISTS industry_restricted      BOOLEAN;
+	`); err != nil {
+		return err
+	}
+	// 최초 1회 백필 — 이미 채워진 행은 procurement_class_code IS NULL 가드로 건너뛴다(멱등).
+	_, err := db.ExecContext(ctx, `
+		UPDATE notices n SET
+			procurement_class_code   = NULLIF(r.raw_content::jsonb->>'pubPrcrmntClsfcNo',''),
+			procurement_class_large  = NULLIF(r.raw_content::jsonb->>'pubPrcrmntLrgClsfcNm',''),
+			procurement_class_detail = NULLIF(r.raw_content::jsonb->>'pubPrcrmntClsfcNm',''),
+			industry_restricted      = CASE r.raw_content::jsonb->>'indstrytyLmtYn'
+			                             WHEN 'Y' THEN true WHEN 'N' THEN false ELSE NULL END
+		FROM notice_versions v
+		JOIN raw_documents r ON r.id = v.raw_document_id
+		WHERE v.notice_id = n.id AND v.is_current
+		  AND n.procurement_class_code IS NULL
+		  AND r.raw_content LIKE '%pubPrcrmntClsfcNo%';
 	`)
 	return err
 }

@@ -94,7 +94,12 @@ type bidItem struct {
 
 	AsignBdgtAmt string `json:"asignBdgtAmt"` // 배정예산액
 
-	PubPrcrmntMidClsfcNm string `json:"pubPrcrmntMidClsfcNm"` // 공공조달분류 중분류명 (업종 근사치)
+	PubPrcrmntMidClsfcNm string `json:"pubPrcrmntMidClsfcNm"` // 공공조달분류 중분류명 (업종 근사치, notices.industry로 저장)
+	// 2026-08-08 Phase 0 — 그동안 안 읽고 버리던 분류 코드·계층·업종제한 플래그.
+	PubPrcrmntClsfcNo    string `json:"pubPrcrmntClsfcNo"`    // 공공조달분류 코드(8자리)
+	PubPrcrmntLrgClsfcNm string `json:"pubPrcrmntLrgClsfcNm"` // 공공조달분류 대분류명
+	PubPrcrmntClsfcNm    string `json:"pubPrcrmntClsfcNm"`    // 공공조달분류 세분류명
+	IndstrytyLmtYn       string `json:"indstrytyLmtYn"`       // 업종제한 여부 Y/N (실측 약 63%가 Y)
 
 	// BidPrtcptLmtYn/CmmnSpldmdCorpRgnLmtYn — 지역제한 여부(Y/N). 2026-08-05
 	// 추가 — Region을 아예 안 채우던 걸 발견(온보딩 화면의 "지역" 질문이
@@ -346,6 +351,17 @@ func (s *Source) Normalize(ctx context.Context, doc collector.RawDocument) (coll
 		region = regionNationwide
 	}
 
+	// 업종제한 여부(Phase 0) — Y/N만 신뢰하고 빈값/기타는 nil(미상)로 둔다.
+	var industryRestricted *bool
+	switch it.IndstrytyLmtYn {
+	case "Y":
+		v := true
+		industryRestricted = &v
+	case "N":
+		v := false
+		industryRestricted = &v
+	}
+
 	n := collector.NormalizedNotice{
 		SourceID:         s.SourceCode(),
 		ExternalNoticeID: it.BidNtceNo,
@@ -358,6 +374,11 @@ func (s *Source) Normalize(ctx context.Context, doc collector.RawDocument) (coll
 		Status:           status,
 		OfficialURL:      officialURL,
 		RegionRestricted: &regionRestricted,
+
+		ProcurementClassCode:   strings.TrimSpace(it.PubPrcrmntClsfcNo),
+		ProcurementClassLarge:  strings.TrimSpace(it.PubPrcrmntLrgClsfcNm),
+		ProcurementClassDetail: strings.TrimSpace(it.PubPrcrmntClsfcNm),
+		IndustryRestricted:     industryRestricted,
 	}
 	if t, err := parseG2BTime(it.BidNtceDt); err == nil {
 		n.PublishedAt = &t

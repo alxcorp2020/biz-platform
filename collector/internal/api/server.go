@@ -474,7 +474,14 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		query += " AND n.region = " + addArg(region)
 	}
 	if industry != "" {
-		query += " AND n.industry = " + addArg(industry)
+		// 업종이 대분류 그룹명이면 raw값 집합으로 확장 매칭(맞춤공고 "결과 보기"가
+		// 그룹명을 넘기는데 notices.industry엔 raw값만 있어 정확일치로는 0건이던
+		// 문제 해결). 그룹이 아니면(사용자가 raw값 직접 입력) 기존 정확일치 유지.
+		if raws, isGroup := industryGroupToRaws[industry]; isGroup {
+			query += " AND n.industry = ANY(" + addArg(pq.Array(raws)) + ")"
+		} else {
+			query += " AND n.industry = " + addArg(industry)
+		}
 	}
 	if keyword != "" {
 		query += " AND n.title ILIKE " + addArg("%"+keyword+"%")

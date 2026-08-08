@@ -66,6 +66,16 @@ type NormalizedNotice struct {
 	// 소스만 채운다 — nil이면 "정보 없음"(이 소스가 애초에 이 값을 안
 	// 주거나 판단 불가), 지어내지 않는다.
 	RegionRestricted *bool
+
+	// ProcurementClass* / IndustryRestricted — 공공조달분류(대/중/세 계층 +
+	// 코드)와 업종제한 여부(2026-08-08 추가, Phase 0). g2b가 목록 응답에
+	// 이미 주던 값인데 그동안 Industry(중분류명)만 쓰고 버리던 것을 살렸다.
+	// Industry는 그대로 중분류명을 유지하고(판정엔진 호환), 여기에 코드·
+	// 계층·제한플래그를 추가로 담는다. g2b 외 소스는 채우지 않으므로 빈값/nil.
+	ProcurementClassCode   string // 공공조달분류 코드(8자리, pubPrcrmntClsfcNo)
+	ProcurementClassLarge  string // 대분류명(pubPrcrmntLrgClsfcNm)
+	ProcurementClassDetail string // 세분류명(pubPrcrmntClsfcNm)
+	IndustryRestricted     *bool  // 업종제한 여부(indstrytyLmtYn Y/N). RegionRestricted와 동일하게 nil=미상
 }
 
 // Collector is the contract every source package (g2b, bizinfo, ...) implements.

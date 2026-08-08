@@ -91,6 +91,19 @@ var industryRawToGroup = map[string]string{
 	"기타": "기타",
 }
 
+// industryGroupToRaws — industryRawToGroup의 역인덱스(그룹 → raw값 목록).
+// 검색 필터(handleListNotices)가 그룹 업종으로 들어올 때 쓴다: notices.industry에는
+// raw값만 저장되고 그룹명은 결코 저장되지 않으므로 "n.industry = 그룹명" 정확일치는
+// 항상 0건이었다(맞춤공고 "결과 보기"의 업종 필터가 무력화되던 원인). 이 역맵으로
+// 그룹을 raw값 집합으로 확장해 ANY 매칭한다(2026-08-08 Phase 0).
+var industryGroupToRaws = func() map[string][]string {
+	m := map[string][]string{}
+	for raw, group := range industryRawToGroup {
+		m[group] = append(m[group], raw)
+	}
+	return m
+}()
+
 // industryGroups is the fixed, ordered list of selectable multi-select
 // options (order matters for a stable UI — map iteration order does not).
 var industryGroups = []string{

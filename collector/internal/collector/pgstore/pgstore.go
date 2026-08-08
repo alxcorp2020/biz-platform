@@ -101,12 +101,14 @@ func (p *PgStore) CreateNotice(ctx context.Context, notice collector.NormalizedN
 		INSERT INTO notices
 			(source_id, external_notice_id, notice_type, title, organization_name, department_name, region, industry,
 			 published_at, application_start_at, application_end_at, budget_amount, support_amount,
-			 status, official_url, region_restricted, current_version)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,1)
+			 status, official_url, region_restricted,
+			 procurement_class_code, procurement_class_large, procurement_class_detail, industry_restricted, current_version)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,1)
 		RETURNING id`,
 		p.sourceID, notice.ExternalNoticeID, notice.NoticeType, notice.Title, notice.OrganizationName, notice.DepartmentName,
 		notice.Region, notice.Industry, notice.PublishedAt, notice.ApplicationStartAt, notice.ApplicationEndAt,
 		notice.BudgetAmount, notice.SupportAmount, notice.Status, notice.OfficialURL, notice.RegionRestricted,
+		notice.ProcurementClassCode, notice.ProcurementClassLarge, notice.ProcurementClassDetail, notice.IndustryRestricted,
 	).Scan(&noticeID)
 	if err != nil {
 		return "", "", fmt.Errorf("insert notice: %w", err)
@@ -152,11 +154,14 @@ func (p *PgStore) AddNewVersion(ctx context.Context, noticeID string, notice col
 		UPDATE notices SET
 			title=$2, organization_name=$3, department_name=$4, region=$5, industry=$6, status=$7,
 			application_start_at=$8, application_end_at=$9, budget_amount=$10, support_amount=$11,
-			official_url=$12, current_version=$13, region_restricted=$14, last_verified_at=now()
+			official_url=$12, current_version=$13, region_restricted=$14,
+			procurement_class_code=$15, procurement_class_large=$16, procurement_class_detail=$17, industry_restricted=$18,
+			last_verified_at=now()
 		WHERE id=$1`,
 		noticeID, notice.Title, notice.OrganizationName, notice.DepartmentName, notice.Region, notice.Industry, notice.Status,
 		notice.ApplicationStartAt, notice.ApplicationEndAt, notice.BudgetAmount, notice.SupportAmount,
-		notice.OfficialURL, newVerNum, notice.RegionRestricted)
+		notice.OfficialURL, newVerNum, notice.RegionRestricted,
+		notice.ProcurementClassCode, notice.ProcurementClassLarge, notice.ProcurementClassDetail, notice.IndustryRestricted)
 	if err != nil {
 		return "", 0, err
 	}
