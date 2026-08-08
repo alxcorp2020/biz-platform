@@ -2182,6 +2182,12 @@
   .stack-item-detail p { margin: 0.4rem 0 0; font-size: 0.88rem; color: var(--ink-soft); line-height: 1.65; }
   .integration-env-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.15rem; }
   .integration-env-list code { font-size: 0.8rem; }
+  /* 관리자 업종 분류 CMS 테이블 */
+  .admin-taxonomy-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .admin-taxonomy-table th, .admin-taxonomy-table td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .admin-taxonomy-table th { font-size: 0.8rem; color: var(--ink-soft); font-weight: 700; }
+  .admin-taxonomy-table tr.is-inactive { opacity: 0.5; }
+  .admin-taxonomy-table .tax-large-input { min-width: 160px; font-size: 0.85rem; padding: 0.35rem 0.5rem; }
 
   /* ---------- 성장분석(#/growth) — 차트 라이브러리 없이 간단한 가로 막대 ---------- */
   .growth-bar-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
@@ -13344,6 +13350,7 @@ async function renderAdminDashboard(container) {
       <div class="license-toolbar" style="flex-wrap:wrap">
         <a href="#/admin/tech-spec" class="btn btn-secondary btn-sm">기술 스펙</a>
         <a href="#/admin/integrations" class="btn btn-secondary btn-sm">외부 연동/API 현황</a>
+        <a href="#/admin/industry-taxonomy" class="btn btn-secondary btn-sm">업종 분류 관리</a>
         <a href="#/admin/plan-settings" class="btn btn-secondary btn-sm">플랜 한도/가격 설정</a>
         <a href="#/admin/legal-documents" class="btn btn-secondary btn-sm">약관 관리</a>
       </div>
@@ -14254,6 +14261,91 @@ function cmsPeriodLabel(startsAt, endsAt) {
   if (!startsAt && !endsAt) return '노출기간 제한 없음';
   const fmt = (d) => d ? new Date(d).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '무제한';
   return `노출기간: ${fmt(startsAt)} ~ ${fmt(endsAt)}`;
+}
+
+// renderAdminIndustryTaxonomy — #/admin/industry-taxonomy. 조달청 업종 중분류
+// CMS(Phase 3). 중분류명은 매칭 키라 표시만 하고(수정 불가), 재분류(대분류 변경)·
+// 활성/비활성만 조작한다. 삭제는 없다(비활성으로 신규 노출만 차단, 기존 선택 보존).
+async function renderAdminIndustryTaxonomy(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/industry-taxonomy');
+  } catch (err) {
+    if (err.status === 401) { location.hash = '#/auth/login'; return; }
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${err.status === 403 ? '관리자 권한이 필요합니다.' : escapeHtml(err.message)}</p>`));
+    return;
+  }
+  const items = data.items || [];
+  const larges = [...new Set(items.map(i => i.largeName))];
+  const activeCount = items.filter(i => i.active).length;
+
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>업종 분류 관리</h2>
+    <p class="license-card-meta">조달청 공공조달분류(중분류)를 관리합니다. 중분류명은 회사 프로필·공고 매칭의 키라 변경할 수 없고, 재분류(대분류 변경)와 활성/비활성만 가능합니다. 비활성 항목은 새 업종 선택 자동완성에서만 빠지고, 이미 그 업종을 고른 회사의 판정에는 영향이 없습니다. 수집기가 새 분류를 저장하면 자동으로 목록에 추가됩니다.</p>
+    <div class="detail-card">
+      <h3>새 중분류 추가</h3>
+      <form id="taxonomy-add-form" class="profile-form">
+        <label>중분류명<input type="text" name="midName" required placeholder="예: 정보시스템 감리"></label>
+        <label>대분류명<input type="text" name="largeName" required list="taxonomy-large-list" placeholder="예: ICT 서비스"></label>
+        <datalist id="taxonomy-large-list">${larges.map(l => `<option value="${escapeAttr(l)}"></option>`).join('')}</datalist>
+        <div id="taxonomy-add-error" class="error" style="display:none"></div>
+        <button type="submit" class="btn btn-primary btn-sm">추가</button>
+      </form>
+    </div>
+    <div class="detail-card">
+      <h3>중분류 목록 (활성 ${activeCount} / 전체 ${items.length})</h3>
+      <div style="overflow-x:auto">
+        <table class="admin-taxonomy-table">
+          <thead><tr><th>대분류 (재분류 가능)</th><th>중분류</th><th>상태</th></tr></thead>
+          <tbody>${items.map(it => `
+            <tr data-id="${it.id}" class="${it.active ? '' : 'is-inactive'}">
+              <td><input type="text" class="tax-large-input select-input" value="${escapeAttr(it.largeName)}"></td>
+              <td class="mono">${escapeHtml(it.midName)}</td>
+              <td><button type="button" class="btn btn-sm ${it.active ? 'btn-secondary' : 'btn-primary'} tax-active-btn">${it.active ? '비활성화' : '활성화'}</button></td>
+            </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>
+  `));
+
+  const addForm = document.getElementById('taxonomy-add-form');
+  const addErr = document.getElementById('taxonomy-add-error');
+  addForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    addErr.style.display = 'none';
+    try {
+      await apiRequest('POST', '/api/admin/industry-taxonomy', { midName: addForm.midName.value, largeName: addForm.largeName.value });
+      showToast('중분류를 추가했습니다.', 'success');
+      renderAdminIndustryTaxonomy(container);
+    } catch (err) {
+      addErr.textContent = err.message;
+      addErr.style.display = 'block';
+    }
+  });
+  container.querySelectorAll('tr[data-id]').forEach(tr => {
+    const id = tr.dataset.id;
+    tr.querySelector('.tax-active-btn').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const activate = btn.textContent.trim() === '활성화';
+      btn.disabled = true;
+      try {
+        await apiRequest('PATCH', '/api/admin/industry-taxonomy/' + encodeURIComponent(id), { active: activate });
+        renderAdminIndustryTaxonomy(container);
+      } catch (err) { btn.disabled = false; showToast(err.message, 'error'); }
+    });
+    const largeInput = tr.querySelector('.tax-large-input');
+    largeInput.addEventListener('change', async () => {
+      try {
+        await apiRequest('PATCH', '/api/admin/industry-taxonomy/' + encodeURIComponent(id), { largeName: largeInput.value });
+        showToast('재분류했습니다.', 'success');
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+  });
 }
 
 async function renderAdminBanners(container) {
@@ -15210,6 +15302,7 @@ function route() {
   if (path === '#/admin/members') { renderAdminMembers(app); return; }
   if (path === '#/admin/tech-spec') { renderAdminTechSpec(app); return; }
   if (path === '#/admin/integrations') { renderAdminIntegrations(app); return; }
+  if (path === '#/admin/industry-taxonomy') { renderAdminIndustryTaxonomy(app); return; }
   if (path === '#/admin/banners') { renderAdminBanners(app); return; }
   if (path === '#/admin/popups') { renderAdminPopups(app); return; }
   if (path === '#/admin/announcements') { renderAdminAnnouncements(app); return; }
