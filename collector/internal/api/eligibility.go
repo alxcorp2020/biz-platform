@@ -342,22 +342,41 @@ func scoreIndustry(noticeIndustry sql.NullString, companyGroups []string, indust
 	case len(companyGroups) == 0:
 		return "insufficient_data", "기업 프로필에 업종 정보가 없어 판정할 수 없습니다.", "company"
 	default:
-		noticeGroup, known := industryRawToGroup[noticeRaw]
-		switch {
-		case !known:
-			return "needs_confirmation", fmt.Sprintf(
-				"%s공고 업종(%s)이 자동 분류 목록에 없는 새로운 값입니다. 기업이 선택한 업종(%s)과 "+
-					"일치하는지 원문에서 직접 확인하세요.",
-				restrictNote, noticeRaw, strings.Join(companyGroups, ", ")), ""
-		case containsString(companyGroups, noticeGroup):
-			return "met", fmt.Sprintf("공고 업종(%s, %s 분류)이 기업이 선택한 업종과 일치합니다.", noticeRaw, noticeGroup), ""
-		default:
-			return "needs_confirmation", fmt.Sprintf(
-				"%s공고 업종(%s, %s 분류)이 기업이 선택한 업종(%s)과 다릅니다. 업종 분류가 정확한 표준 "+
-					"산업분류가 아니므로 실제로는 겹칠 수 있으니 원문에서 직접 확인하세요.",
-				restrictNote, noticeRaw, noticeGroup, strings.Join(companyGroups, ", ")), ""
+		// Phase 2b — 회사가 선택한 업종을 "조달청 중분류 집합"으로 전개해 공고
+		// 중분류(noticeRaw)와 직접 비교한다. 신규 값(조달청 중분류명)은 그대로 쓰고,
+		// 레거시 10그룹명(마이그레이션 2c 이전 기존 회사)은 그 그룹의 중분류들로
+		// 전개한다 — 전개 결과가 기존 그룹 매칭과 동치라 하위호환이 유지된다.
+		effective := expandCompanyIndustries(companyGroups)
+		if effective[noticeRaw] {
+			return "met", fmt.Sprintf("공고 업종(%s)이 기업이 선택한 업종과 일치합니다.", noticeRaw), ""
+		}
+		return "needs_confirmation", fmt.Sprintf(
+			"%s공고 업종(%s)이 기업이 선택한 업종(%s)에 없습니다. 조달청 분류가 참가자격과 정확히 "+
+				"같진 않아 실제로는 겹칠 수 있으니 원문에서 직접 확인하세요.",
+			restrictNote, noticeRaw, strings.Join(companyGroups, ", ")), ""
+	}
+}
+
+// expandCompanyIndustries — 회사가 선택한 업종 값들을 조달청 "중분류 이름 집합"으로
+// 전개한다. 값이 레거시 10그룹명이면(industryGroupToRaws에 키로 존재) 그 그룹의
+// 중분류들로 펼치고, 아니면(조달청 중분류명 = 신규 선택) 그대로 넣는다. 이렇게
+// 하면 마이그레이션(2c) 전 기존 그룹 값과 신규 중분류 값을 한 로직으로 매칭한다.
+func expandCompanyIndustries(values []string) map[string]bool {
+	out := map[string]bool{}
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if raws, isLegacyGroup := industryGroupToRaws[v]; isLegacyGroup {
+			for _, r := range raws {
+				out[strings.TrimSpace(r)] = true
+			}
+		} else {
+			out[v] = true
 		}
 	}
+	return out
 }
 
 // nullBoolPtr — 스캔한 sql.NullBool을 *bool로(NULL이면 nil). 업종제한 등
