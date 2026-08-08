@@ -259,6 +259,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureDeadlineSchedulerSchema(ctx, db); err != nil {
 		return fmt.Errorf("migrate deadline scheduler schema: %w", err)
 	}
+	if err := ensureResultLookupSchema(ctx, db); err != nil {
+		return fmt.Errorf("migrate result lookup schema: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -458,6 +461,33 @@ func ensureNoticeDatetimeColumnsAndBackfill(ctx context.Context, db *sql.DB) err
 		       OR n.application_start_datetime IS NULL OR n.success_bid_method_name IS NULL)`
 	if _, err := db.ExecContext(ctx, backfill); err != nil {
 		return fmt.Errorf("backfill notice datetimes: %w", err)
+	}
+	return nil
+}
+
+// ensureResultLookupSchema — 2026-08-09 우선순위5. 개찰일시 기반 공식 결과
+// 자동조회. 사용자 노출 상태는 6개 유지 — 조회 진행/결과유형은 내부 컬럼으로만
+// 관리한다(개찰대기/결과조회중/유찰/재입찰 같은 상태를 만들지 않는다).
+//   - notice_pipeline_entries: backoff 조회 추적 + 결과 스냅샷.
+//     result_type(내부): WON/LOST/REBID/FAILED_BID/PENDING/NEEDS_REVIEW/NAME_MATCH.
+//   - notice_award_history: 낙찰업체 사업자번호 컬럼(자동 낙찰/탈락 판정·경쟁사
+//     분석 근거). raw_payload는 이제 진짜 원본 JSON을 담는다(ingest 수정과 짝).
+func ensureResultLookupSchema(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS result_check_started_at TIMESTAMPTZ`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS last_result_checked_at  TIMESTAMPTZ`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS result_check_attempts   INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS result_finalized_at     TIMESTAMPTZ`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS result_type             TEXT`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS winner_bizno            TEXT`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS winner_name             TEXT`,
+		`ALTER TABLE notice_pipeline_entries ADD COLUMN IF NOT EXISTS award_rate              NUMERIC`,
+		`ALTER TABLE notice_award_history ADD COLUMN IF NOT EXISTS winner_bizno TEXT`,
+	}
+	for _, q := range stmts {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("%.60s...: %w", q, err)
+		}
 	}
 	return nil
 }

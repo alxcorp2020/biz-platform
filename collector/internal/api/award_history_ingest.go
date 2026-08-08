@@ -65,22 +65,29 @@ func (s *Server) RunAwardHistoryIngestion(ctx context.Context, src *scsbid.Sourc
 			participantCount = &v
 		}
 
+		// raw_payload엔 진짜 원본 JSON을 저장한다(예전엔 공고명만 넣던 한계를
+		// 2026-08-09 수정 — AwardRecord.Raw 신설). API 필드 변경 대응/재분석 근거.
+		rawPayload := rec.BidNtceNm
+		if len(rec.Raw) > 0 {
+			rawPayload = string(rec.Raw)
+		}
 		res, err := s.db.ExecContext(ctx, `
 			INSERT INTO notice_award_history
-				(source_id, external_bid_id, organization_name, title, winner_name, award_amount, award_rate, opened_at, raw_payload, participant_count)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+				(source_id, external_bid_id, organization_name, title, winner_name, winner_bizno, award_amount, award_rate, opened_at, raw_payload, participant_count)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 			ON CONFLICT (source_id, external_bid_id) DO UPDATE SET
 				organization_name = EXCLUDED.organization_name,
 				title = EXCLUDED.title,
 				winner_name = EXCLUDED.winner_name,
+				winner_bizno = EXCLUDED.winner_bizno,
 				award_amount = EXCLUDED.award_amount,
 				award_rate = EXCLUDED.award_rate,
 				opened_at = EXCLUDED.opened_at,
 				raw_payload = EXCLUDED.raw_payload,
 				participant_count = EXCLUDED.participant_count,
 				collected_at = now()
-		`, sourceID, externalBidID, orgName, nullIfEmpty(&rec.BidNtceNm), nullIfEmpty(&rec.BidwinnrNm),
-			awardAmount, awardRate, openedAt, rec.BidNtceNm, participantCount)
+		`, sourceID, externalBidID, orgName, nullIfEmpty(&rec.BidNtceNm), nullIfEmpty(&rec.BidwinnrNm), nullIfEmpty(&rec.BidwinnrBizno),
+			awardAmount, awardRate, openedAt, rawPayload, participantCount)
 		if err != nil {
 			return written, err
 		}

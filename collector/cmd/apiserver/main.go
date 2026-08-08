@@ -146,6 +146,7 @@ func main() {
 	startBackgroundBizinfoCollection(dsn, logger, srv)
 	startBackgroundNotifications(srv, logger, scsbidSrc)
 	startBackgroundDeadlineSchedule(srv, logger)
+	startBackgroundResultLookup(srv, logger)
 	startBackgroundDocumentExtraction(srv, logger)
 
 	logger.Info("api server starting", "port", port)
@@ -225,6 +226,29 @@ func startBackgroundDeadlineSchedule(srv *api.Server, logger *slog.Logger) {
 		runOnce := func() {
 			if err := srv.RunDeadlineSchedule(ctx); err != nil {
 				logger.Error("deadline schedule batch failed", "error", err)
+			}
+		}
+		runOnce()
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			runOnce()
+		}
+	}()
+}
+
+// startBackgroundResultLookup runs api.Server.RunResultLookup on a 30-minute
+// ticker (우선순위5, 2026-08-09) — 개찰(opening_at) 이후 제출완료 건의 공식
+// 낙찰 결과를 backoff(+30분/+2시간/+6시간/+24시간/+3일)로 자동 조회해 낙찰/탈락
+// 자동전환하기 위함. G2B_SERVICE_KEY 미설정이면 RunResultLookup이 조용히 스킵
+// (s.scsbidSource==nil). 조회/전환 dedup은 DB(result_finalized_at·
+// result_check_attempts)로 관리해 재시작에도 안전하다.
+func startBackgroundResultLookup(srv *api.Server, logger *slog.Logger) {
+	go func() {
+		ctx := context.Background()
+		runOnce := func() {
+			if err := srv.RunResultLookup(ctx); err != nil {
+				logger.Error("result lookup batch failed", "error", err)
 			}
 		}
 		runOnce()

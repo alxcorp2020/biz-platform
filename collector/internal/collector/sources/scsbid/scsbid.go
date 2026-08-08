@@ -75,6 +75,18 @@ type AwardRecord struct {
 	SucsfbidRate string `json:"sucsfbidRate"` // 최종낙찰률(%, 예: "87.789")
 	RlOpengDt    string `json:"rlOpengDt"`    // 실개찰일시
 	PrtcptCnum   string `json:"prtcptCnum"`   // 참가업체수(2026-08-06 추가, 실측 응답에 이미 존재 확인됨)
+
+	// 2026-08-09 실측(용역/물품/공사 공통 20필드) 확인 후 추가 — 개찰 결과
+	// 자동조회(제출완료→낙찰/탈락 자동전환)용. 필드명은 전부 실제 응답 기준.
+	BidwinnrBizno string `json:"bidwinnrBizno"` // 낙찰업체 사업자등록번호(10자리, 실측 100% 존재) — 자동 낙찰 판정 핵심키
+	RbidNo        string `json:"rbidNo"`        // 재입찰번호("000"=최초, 그 외=재입찰)
+	FnlSucsfDate  string `json:"fnlSucsfDate"`  // 최종낙찰일자(채워지면 최종확정)
+	NtceDivCd     string `json:"ntceDivCd"`     // 공고구분코드
+
+	// Raw는 이 레코드의 원본 JSON 그대로다(json 태그로 채우는 게 아니라
+	// FetchAwards가 파싱 후 직접 주입) — 낙찰 결과 원본 보존/추후 재분석/
+	// 자동판정 근거용. notice_award_history.raw_payload에 이 값을 저장한다.
+	Raw json.RawMessage `json:"-"`
 }
 
 type apiEnvelope struct {
@@ -238,6 +250,7 @@ func (s *Source) FetchAwards(ctx context.Context, begin, end time.Time) ([]Award
 			if err := json.Unmarshal(raw, &rec); err != nil {
 				continue // skip a malformed row rather than failing the whole page
 			}
+			rec.Raw = append(json.RawMessage(nil), raw...) // 원본 JSON 보존(파싱 후 주입)
 			all = append(all, rec)
 		}
 
