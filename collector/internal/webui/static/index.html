@@ -200,6 +200,16 @@
   .row-card-subtitle { font-size: var(--text-caption); color: var(--ink-soft); }
   .row-card-match-reasons { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: var(--space-sm); }
   .row-card-match-reasons .badge { font-size: 0.72rem; }
+  /* 공고 목록 배지 크기 통일 — 유형(.badge)·판정등급(.ai-bucket-badge)·상태(.status-badge)가
+     폰트/패딩/굵기가 제각각이던 것을 한 규격으로(2026-08-08). */
+  .row-card-subtitle .badge,
+  .row-card-subtitle .ai-bucket-badge,
+  .row-card-subtitle .status-badge {
+    font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.6rem;
+    line-height: 1.35; vertical-align: middle; border-radius: 999px;
+  }
+  .pipeline-cancel-btn { margin-top: 0.6rem; color: var(--danger); }
+  .pipeline-cancel-btn:hover { border-color: var(--danger); }
   /* row-card-grade-reason — 목록 단계 AI 등급 사유(2026-08-06, "추천공고
      왜 목록단계 노출"). .ai-grade-reason(상세 페이지)과 같은 톤이지만
      목록 행 안에 들어가므로 여백/글자크기만 더 작게. 2026-08-07: 원래
@@ -3180,7 +3190,7 @@ function ddayBadgeHtml(iso, extraClass) {
 function bookmarkButtonHtml(noticeId, isBookmarked) {
   return `<button type="button" class="bookmark-btn${isBookmarked ? ' is-bookmarked' : ''}" ` +
     `data-notice-id="${escapeAttr(noticeId)}" data-bookmarked="${isBookmarked ? 'true' : 'false'}" ` +
-    `aria-pressed="${isBookmarked ? 'true' : 'false'}" aria-label="관심공고 등록/해제" title="관심공고">` +
+    `aria-pressed="${isBookmarked ? 'true' : 'false'}" aria-label="관심공고 등록/해제" title="관심공고 — 나중에 볼 공고를 별표로 저장(참여검토와 별개: 실제 참여 진행은 '참여 검토 시작')">` +
     `${isBookmarked ? '★' : '☆'}</button>`;
 }
 
@@ -7324,6 +7334,7 @@ async function renderPipelineDetail(container, id) {
         <div id="pipeline-entry-error" class="error" style="display:none"></div>
         <button type="submit" class="btn btn-primary btn-block">저장</button>
       </form>
+      ${entry.status !== '제외' ? `<button type="button" id="pipeline-cancel-btn" class="btn btn-secondary btn-sm pipeline-cancel-btn">참여 취소</button>` : ''}
     </div>
     <h3>제출서류 체크리스트</h3>
     <div id="pipeline-checklist-section"></div>
@@ -7334,6 +7345,24 @@ async function renderPipelineDetail(container, id) {
   // 시작합니다"로 즉시 안내한다(2026-08-07, UX 경량화 3단계).
   document.querySelector('.calendar-add-link').addEventListener('click', () => {
     showToast('캘린더 파일을 다운로드합니다.', 'info');
+  });
+
+  // 참여 취소 — 상태를 "제외"로 바꿔 진행 중 사업에서 종결 처리(기록은 남음).
+  // 상태 select로도 가능하지만 "취소" 의도가 화면에서 잘 안 보인다는 피드백으로
+  // 별도 버튼 + 확인모달을 둔다(2026-08-08).
+  const cancelBtn = document.getElementById('pipeline-cancel-btn');
+  if (cancelBtn) cancelBtn.addEventListener('click', () => {
+    openConfirmModal({
+      title: '참여 취소',
+      message: '이 공고의 참여 검토를 취소하시겠습니까? 상태가 "제외"로 바뀌어 진행 중 사업 목록에서 종결 처리됩니다(기록은 남습니다).',
+      confirmLabel: '참여 취소',
+      tone: 'danger',
+      onConfirm: async () => {
+        await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(id), { status: '제외' });
+        showToast('참여를 취소했습니다(제외).', 'success');
+        renderPipelineDetail(container, id);
+      },
+    });
   });
 
   // 담당자가 아직 비어 있고, 등록된 담당자도 하나도 없으면 "미리
