@@ -47,8 +47,12 @@ import (
 )
 
 const (
-	baseURL        = "https://www.bizinfo.go.kr/uss/rss/bizinfoApi.do"
-	maxItemsPerRun = 1000 // 서버 날짜 필터가 없어 안전장치로 매 주기 상한을 둔다
+	baseURL = "https://www.bizinfo.go.kr/uss/rss/bizinfoApi.do"
+	// 서버 날짜 필터가 없어 안전장치로 매 주기 상한을 둔다. 2026-08-08: 실 문서
+	// 확인 결과 전체 지원사업이 ~1,400여 건이라, 정렬 순서와 무관하게 전량을
+	// 확실히 담도록 1000→2000으로 상향(PageSize=100 기준 회당 최대 20호출, 여전히
+	// 하루 총 480호출 이하로 매우 낮음).
+	maxItemsPerRun = 2000
 )
 
 type Source struct {
