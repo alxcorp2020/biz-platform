@@ -4728,9 +4728,19 @@ async function startOnboardingFileUploadFlow(state) {
 // OCR 후보값을 먼저 반영해 각 질문 폼이 프리필된 상태로 열리게 한다.
 function showOnboardingBusinessRegResult(state, candidate) {
   const c = candidate || {};
+  // 업종 정제(2026-08-08): OCR/AI가 업종을 "기타"로 판정했거나 비웠으면 관련성
+  // 신호가 없는 값이라 저장하지 않고 비운다. 그러면 백엔드가 업종을 "missing"으로
+  // 보고(scoreIndustry: 회사 업종 없음 → insufficient_data/company) 온보딩 필드
+  // 큐가 업종 picker(직접 선택)를 띄운다 — 즉 "기타로 판정되면 직접 기재로 전환"이
+  // 자연스럽게 이뤄진다. (조달 분류에 안 맞는 소매·요식업 등이 "기타"로 뭉뚱그려져
+  // 무관 공고와 대량 매칭되던 문제 방지.)
+  const rawIndustry = (c.industry || []).map(x => (x || '').trim()).filter(Boolean);
+  const usableIndustry = rawIndustry.filter(x => x !== '기타');
+  c.industry = usableIndustry;
   const companyLabel = c.companyName || '상호 미확인';
   const regionLabel = c.region || '지역 미확인';
-  const industryLabel = (c.industry && c.industry.length) ? c.industry.join(', ') : '업종 미확인';
+  const industryLabel = usableIndustry.length ? usableIndustry.join(', ')
+    : (rawIndustry.length ? '업종은 직접 선택할게요' : '업종 미확인');
   // businessAgeYears — 2026-08-05. 개업일을 따로 묻지 않고 사업자등록증
   // 추출값(c.foundingDate)에서 바로 계산해 요약에 보여준다. OCR이 개업일을
   // 못 읽었으면(빈 문자열) 그냥 안 보여준다 — 직접 기재 경로에서만 별도
@@ -5889,35 +5899,43 @@ function renderIndustryQuickForm(container, onSaved) {
   });
 }
 
+// renderCompanySizeQuickForm — 2026-08-08: select box에서 버튼형(chat-chip)으로
+// 전환. 5단계(소상공인~대기업)를 버튼으로 나열하고, 클릭하면 즉시 저장 후
+// 다음으로 진행한다([다음] 버튼 불필요) — 면허/인증의 보유·미보유 버튼과
+// 동일한 즉시선택 UX. 온보딩 전용(ONBOARDING_QUICK_FORM_RENDERERS)이라 이
+// 변경은 기업정보 탭의 별도 select(라인 8599/11308)엔 영향 없다.
 function renderCompanySizeQuickForm(container, onSaved) {
   const p = currentProfile || {};
   container.innerHTML = '';
-  container.appendChild(h(`
-    <form id="quick-company-size-form" class="profile-form">
-      <label>기업 규모
-        <select name="companySize" class="select-input" required>
-          <option value="">선택해주세요</option>
-          ${COMPANY_SIZE_OPTIONS.map(sz => `<option value="${escapeAttr(sz)}" ${sz === p.companySize ? 'selected' : ''}>${escapeHtml(sz)}</option>`).join('')}
-        </select>
-      </label>
+  const wrap = h(`
+    <div class="quick-company-size">
+      <div class="chat-chip-row" id="quick-company-size-buttons">
+        ${COMPANY_SIZE_OPTIONS.map(sz => `<button type="button" class="chat-chip${sz === p.companySize ? ' is-selected' : ''}" data-company-size="${escapeAttr(sz)}">${escapeHtml(sz)}</button>`).join('')}
+      </div>
       <div id="quick-company-size-error" class="error" style="display:none"></div>
-      ${onboardingQuickFormButtonsHtml()}
-    </form>
-  `));
-  const form = document.getElementById('quick-company-size-form');
-  const errorBox = document.getElementById('quick-company-size-error');
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    errorBox.style.display = 'none';
-    const fd = new FormData(form);
-    try {
-      const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ companySize: fd.get('companySize') || null }));
-      currentProfile = data.companyProfile;
-      onSaved();
-    } catch (err) {
-      errorBox.textContent = err.message;
-      errorBox.style.display = 'block';
-    }
+    </div>
+  `);
+  container.appendChild(wrap);
+  // h()는 DocumentFragment를 돌려주고 appendChild가 그 자식들을 container로
+  // 옮기며 fragment를 비운다 — 그래서 이벤트 리스너는 반드시 append 후 live
+  // DOM(container)에서 재조회한 노드에 붙여야 한다(fragment에 붙이면 무효).
+  const errorBox = container.querySelector('#quick-company-size-error');
+  const buttons = container.querySelectorAll('button[data-company-size]');
+  buttons.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      errorBox.style.display = 'none';
+      const size = btn.getAttribute('data-company-size');
+      buttons.forEach(b => { b.classList.toggle('is-selected', b === btn); b.disabled = true; });
+      try {
+        const data = await apiRequest('PUT', '/api/me/company-profile', companyProfileUpdatePayload({ companySize: size }));
+        currentProfile = data.companyProfile;
+        onSaved();
+      } catch (err) {
+        buttons.forEach(b => { b.disabled = false; });
+        errorBox.textContent = err.message;
+        errorBox.style.display = 'block';
+      }
+    });
   });
 }
 
