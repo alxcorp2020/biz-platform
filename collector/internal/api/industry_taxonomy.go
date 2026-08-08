@@ -1,10 +1,31 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"strings"
 )
+
+// activeIndustryMids — 활성 조달청 중분류명 목록(대분류·정렬 순). 사업자등록증
+// AI 추출의 enum 강제 등에 쓴다. 조회 실패/빈 결과면 nil을 돌려 호출부가
+// 레거시 목록으로 폴백하게 한다.
+func (s *Server) activeIndustryMids(ctx context.Context) []string {
+	rows, err := s.db.QueryContext(ctx, `SELECT mid_name FROM industry_taxonomy WHERE active ORDER BY large_name, sort_order, mid_name`)
+	if err != nil {
+		s.logger.Error("industry-taxonomy: active mids query failed", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err == nil {
+			out = append(out, m)
+		}
+	}
+	return out
+}
 
 // handleGetIndustryTaxonomy — GET /api/industry-taxonomy?q=
 // 조달청 공공조달분류를 대분류로 그룹핑한 중분류 목록으로 반환한다(2026-08-08

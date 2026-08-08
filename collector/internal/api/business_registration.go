@@ -153,6 +153,14 @@ func (s *Server) handleExtractBusinessRegistration(w http.ResponseWriter, r *htt
 func (s *Server) extractBusinessRegistrationCandidate(ctx context.Context, body []byte, ext, mediaType string) (*businessRegistrationCandidate, error) {
 	b64 := base64.StdEncoding.EncodeToString(body)
 
+	// industry enum — Phase 2b: 조달청 공공조달분류 중분류(industry_taxonomy)로
+	// AI가 직접 매핑하게 강제한다. taxonomy가 비어 있으면(초기 배포 등) 레거시
+	// 10그룹으로 폴백한다(매칭은 두 값을 다 처리하므로 안전 — expandCompanyIndustries).
+	industryEnum := s.activeIndustryMids(ctx)
+	if len(industryEnum) == 0 {
+		industryEnum = industryGroups
+	}
+
 	var docBlock anthropic.ContentBlockParamUnion
 	if ext == "pdf" {
 		docBlock = anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{Data: b64})
@@ -166,8 +174,8 @@ func (s *Server) extractBusinessRegistrationCandidate(ctx context.Context, body 
 			"업로드된 사업자등록증에서 실제로 문서에 적혀 있는 정보만 추출합니다. " +
 				"문서에 없는 내용은 절대 만들어내지 마세요. 확인할 수 없는 필드는 빈 문자열(배열은 빈 배열)로 " +
 				"두세요. region은 사업장 주소를 보고 제공된 17개 광역시도 중 하나로 매핑하세요(정확히 " +
-				"특정할 수 없으면 \"전국\"). industry는 업태/종목을 보고 제공된 대분류 중 해당하는 것을 " +
-				"모두 선택하세요(겸업 반영, 전혀 판단할 수 없으면 빈 배열).",
+				"특정할 수 없으면 \"전국\"). industry는 업태/종목을 보고 제공된 조달청 공공조달분류 중분류 중 " +
+				"가장 가까운 것을 모두 선택하세요(겸업 반영, 전혀 판단할 수 없으면 빈 배열).",
 		),
 		InputSchema: anthropic.ToolInputSchemaParam{
 			Properties: map[string]any{
@@ -182,10 +190,10 @@ func (s *Server) extractBusinessRegistrationCandidate(ctx context.Context, body 
 				},
 				"industry": map[string]any{
 					"type":        "array",
-					"description": "업태/종목을 업종 대분류로 매핑한 값(복수 선택 가능)",
+					"description": "업태/종목을 조달청 공공조달분류 중분류로 매핑한 값(복수 선택 가능)",
 					"items": map[string]any{
 						"type": "string",
-						"enum": industryGroups,
+						"enum": industryEnum,
 					},
 				},
 				"businessType": map[string]any{

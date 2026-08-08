@@ -110,6 +110,15 @@
   /* 공고 검색 자동완성/최근검색 드롭다운 — 긴 제목은 줄바꿈, 일치 부분 강조 */
   .search-suggest-menu .dropdown-menu-item { white-space: normal; line-height: 1.4; }
   .search-suggest-menu .dropdown-menu-item strong { color: var(--accent-blue); font-weight: 700; }
+
+  /* 업종 자동완성 picker(조달청 중분류) — 칩 입력 + 대분류로 그룹핑된 드롭다운 */
+  .industry-picker-box { flex-wrap: wrap; }
+  .industry-picker-menu .industry-picker-group { border-top: 1px solid var(--border); }
+  .industry-picker-menu .industry-picker-group:first-child { border-top: none; }
+  .industry-picker-menu .industry-picker-large { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; width: 100%; text-align: left; background: none; border: none; padding: 0.5rem 0.7rem; font-weight: 700; color: var(--navy); cursor: pointer; font-size: 0.85rem; }
+  .industry-picker-menu .industry-picker-large span { color: var(--accent-blue); font-weight: 500; font-size: 0.78rem; white-space: nowrap; }
+  .industry-picker-menu .industry-picker-large:hover { background: var(--bg-soft); }
+  .industry-picker-menu .industry-picker-mid { padding-left: 1.3rem; white-space: normal; }
   * { box-sizing: border-box; }
   body {
     margin: 0;
@@ -5765,6 +5774,68 @@ function renderRegionQuickForm(container, onSaved) {
   });
 }
 
+// attachIndustryPicker — 조달청 중분류 업종을 자동완성+칩으로 다중선택하는 공용
+// 위젯(Phase 2b). mountEl 안에 칩·검색입력·숨은 input(name=fieldName)을 그린다.
+// 폼 제출은 기존과 동일하게 fd.getAll(fieldName)으로 값을 받는다(숨은 input 재사용)
+// — 그래서 각 폼의 제출 로직은 손대지 않는다. 레거시 10그룹 값도 칩으로 그대로
+// 표시되어(마이그레이션 전 호환) 사용자가 필요 시 빼고 중분류로 다시 고를 수 있다.
+function attachIndustryPicker(mountEl, initialValues, fieldName) {
+  const selected = [];
+  (initialValues || []).forEach(v => { v = (v || '').trim(); if (v && !selected.includes(v)) selected.push(v); });
+  mountEl.classList.add('industry-picker');
+  mountEl.innerHTML = `
+    <div class="tag-input industry-picker-box">
+      <span class="tag-pills"></span>
+      <input type="text" class="tag-input-field industry-picker-search" placeholder="업종 검색 (예: 시스템, 설계, 청소)" autocomplete="off">
+    </div>
+    <div class="industry-picker-hidden"></div>`;
+  const box = mountEl.querySelector('.industry-picker-box');
+  const pills = mountEl.querySelector('.tag-pills');
+  const search = mountEl.querySelector('.industry-picker-search');
+  const hidden = mountEl.querySelector('.industry-picker-hidden');
+  let menuEl = null;
+
+  const syncHidden = () => { hidden.innerHTML = selected.map(v => `<input type="hidden" name="${escapeAttr(fieldName)}" value="${escapeAttr(v)}">`).join(''); };
+  const renderPills = () => {
+    pills.innerHTML = selected.map((v, i) => `<span class="tag-pill">${escapeHtml(v)}<button type="button" class="tag-pill-remove" data-i="${i}" aria-label="삭제">×</button></span>`).join('');
+    pills.querySelectorAll('.tag-pill-remove').forEach(b => b.addEventListener('click', () => { selected.splice(Number(b.dataset.i), 1); renderPills(); syncHidden(); }));
+  };
+  const addValue = (v) => { v = (v || '').trim(); if (v && !selected.includes(v)) { selected.push(v); renderPills(); syncHidden(); } };
+  const closeMenu = () => { if (menuEl) { menuEl.remove(); menuEl = null; } document.removeEventListener('click', onOutside, true); };
+  function onOutside(e) { if (menuEl && !menuEl.contains(e.target) && e.target !== search) closeMenu(); }
+  async function openMenu() {
+    const q = search.value.trim();
+    let data;
+    try { data = await fetchJSON('/api/industry-taxonomy' + (q ? '?q=' + encodeURIComponent(q) : '')); } catch (e) { return; }
+    closeMenu();
+    const groups = (data.taxonomy || []).map(g => ({ large: g.large, mids: g.mids.filter(m => !selected.includes(m)) })).filter(g => g.mids.length);
+    if (!groups.length) return;
+    const menu = document.createElement('div');
+    menu.className = 'dropdown-menu industry-picker-menu';
+    menu.innerHTML = groups.map(g => `
+      <div class="industry-picker-group">
+        <button type="button" class="industry-picker-large" data-mids="${escapeAttr(g.mids.join('|'))}">${escapeHtml(g.large)} <span>전체 추가</span></button>
+        ${g.mids.map(m => `<button type="button" class="dropdown-menu-item industry-picker-mid" data-v="${escapeAttr(m)}">${escapeHtml(m)}</button>`).join('')}
+      </div>`).join('');
+    document.body.appendChild(menu);
+    const rect = box.getBoundingClientRect();
+    menu.style.top = (rect.bottom + 4) + 'px';
+    menu.style.left = rect.left + 'px';
+    menu.style.minWidth = rect.width + 'px';
+    menu.style.maxWidth = Math.min(560, window.innerWidth - 16) + 'px';
+    menu.querySelectorAll('.industry-picker-mid').forEach(b => b.addEventListener('mousedown', (e) => { e.preventDefault(); addValue(b.dataset.v); openMenu(); }));
+    menu.querySelectorAll('.industry-picker-large').forEach(b => b.addEventListener('mousedown', (e) => { e.preventDefault(); b.dataset.mids.split('|').forEach(addValue); openMenu(); }));
+    menuEl = menu;
+    setTimeout(() => document.addEventListener('click', onOutside, true), 0);
+  }
+  let timer = null;
+  search.addEventListener('focus', openMenu);
+  search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(openMenu, 180); });
+  search.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+  renderPills();
+  syncHidden();
+}
+
 function renderIndustryQuickForm(container, onSaved) {
   const p = currentProfile || {};
   const selected = new Set(p.industry || []);
@@ -5773,15 +5844,14 @@ function renderIndustryQuickForm(container, onSaved) {
     <form id="quick-industry-form" class="profile-form">
       <div class="field-group">
         <span class="field-group-label">업종(복수 선택 가능)</span>
-        <div class="checkbox-grid">
-          ${INDUSTRY_GROUPS.map(g => `<label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}" ${selected.has(g) ? 'checked' : ''}> ${escapeHtml(g)}</label>`).join('')}
-        </div>
+        <div id="quick-industry-picker"></div>
       </div>
       <div id="quick-industry-error" class="error" style="display:none"></div>
       ${onboardingQuickFormButtonsHtml()}
     </form>
   `));
   const form = document.getElementById('quick-industry-form');
+  attachIndustryPicker(document.getElementById('quick-industry-picker'), p.industry, 'industry');
   const errorBox = document.getElementById('quick-industry-error');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -8478,11 +8548,7 @@ function regionIndustryCompanySizeFieldsHtml(item, isDefault) {
       </label>
       <div class="field-group">
         <span class="field-group-label">업종 (겸업 시 여러 개 선택 가능)</span>
-        <div class="checkbox-grid">
-          ${INDUSTRY_GROUPS.map(g => `
-            <label class="checkbox-label"><input type="checkbox" name="defaultCardIndustry" value="${escapeAttr(g)}" ${selectedIndustry.has(g) ? 'checked' : ''}> ${escapeHtml(g)}</label>
-          `).join('')}
-        </div>
+        <div id="default-card-industry-picker"></div>
       </div>
       <label>기업 규모
         <select name="defaultCardCompanySize" class="select-input">
@@ -8572,6 +8638,8 @@ function renderSavedSearchForm(formSlot, item, contacts, onSaved) {
   `));
 
   const form = document.getElementById('saved-search-form');
+  const defaultCardIndustryMount = document.getElementById('default-card-industry-picker');
+  if (defaultCardIndustryMount) attachIndustryPicker(defaultCardIndustryMount, (currentProfile || {}).industry, 'defaultCardIndustry');
   attachCurrencyAutoFormat(form.budgetMin);
   attachCurrencyAutoFormat(form.budgetMax);
   renderBudgetRangeSlider(document.getElementById('saved-search-budget-slider'), form.budgetMin, form.budgetMax);
@@ -10476,10 +10544,8 @@ function fillProfileForm(form, profile) {
   if (!profile) return;
   form.businessType.value = (profile.businessType || []).join(', ');
   form.region.value = profile.region || '';
-  const selectedIndustry = new Set(profile.industry || []);
-  form.querySelectorAll('input[name="industry"]').forEach(cb => {
-    cb.checked = selectedIndustry.has(cb.value);
-  });
+  const industryPickerMount = form.querySelector('#profile-modal-industry-picker');
+  if (industryPickerMount) attachIndustryPicker(industryPickerMount, profile.industry, 'industry');
   // foundingDate — 2026-08-06부터 founding_date 컬럼에 실제로 저장되므로
   // (예전엔 안 그랬음) 다른 필드들과 동일하게 프리필한다.
   if (form.foundingDate) form.foundingDate.value = profile.foundingDate || '';
@@ -11189,11 +11255,7 @@ function openProfileEditModal(summaryContainer) {
         <label>지역<input type="text" name="region"></label>
         <div class="field-group">
           <span class="field-group-label">업종 (겸업 시 여러 개 선택 가능 — 하나라도 일치하면 적합 판정)</span>
-          <div class="checkbox-grid">
-            ${INDUSTRY_GROUPS.map(g => `
-              <label class="checkbox-label"><input type="checkbox" name="industry" value="${escapeAttr(g)}"> ${escapeHtml(g)}</label>
-            `).join('')}
-          </div>
+          <div id="profile-modal-industry-picker"></div>
         </div>
         <label>개업일 <span style="font-weight:400;color:var(--ink-soft);font-size:0.85em">(업력을 자동으로 계산해요)</span>
           <input type="date" name="foundingDate" max="${new Date().toISOString().slice(0, 10)}">
