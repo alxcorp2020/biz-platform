@@ -56,6 +56,10 @@ type businessRegistrationCandidate struct {
 	// 이 값으로 업력을 자동 계산해 저장하고, 더 이상 업력을 따로 묻지
 	// 않는다(구간select로 저장되던 기존 방식의 근본 원인 제거).
 	FoundingDate string `json:"foundingDate"`
+	// PublicBidFit — 2026-08-08. 업태 기준 공공입찰 적합도("none"/"low"/"normal").
+	// 온보딩 OCR 확인 카드가 이 값으로 "공공입찰이 매우 적을 수 있음" 경고를
+	// 바로 띄운다(public_bid_fit.go).
+	PublicBidFit string `json:"publicBidFit"`
 }
 
 // handleExtractBusinessRegistration — POST /api/me/business-registration/extract
@@ -259,6 +263,7 @@ func (s *Server) extractBusinessRegistrationCandidate(ctx context.Context, body 
 					candidate.FoundingDate = "" // 모델이 형식을 안 지켰으면 프론트 업력 계산이 틀어지느니 그냥 비운다
 				}
 			}
+			candidate.PublicBidFit = classifyPublicBidFit(candidate.BusinessType, candidate.Industry)
 			return &candidate, nil
 		}
 	}

@@ -389,6 +389,10 @@ type companyProfileDTO struct {
 	// 게이트가 이 값으로 온보딩 화면 강제 여부를 판단한다. 기존 회원은
 	// 마이그레이션 때 일괄 백필돼 전부 non-null이라 소급 적용되지 않는다.
 	OnboardingCompletedAt *time.Time `json:"onboardingCompletedAt"`
+	// PublicBidFit — 2026-08-08. 업태 기준 공공입찰 적합도("none"/"low"/"normal").
+	// 서버에서 매 조회마다 계산(저장 컬럼 아님). 프론트가 이 값으로 "공공입찰
+	// 추천이 매우 적을 수 있습니다" 경고 배너를 띄운다(public_bid_fit.go).
+	PublicBidFit string `json:"publicBidFit"`
 }
 
 // getCompanyProfile resolves "which organization does this user belong to"
@@ -482,6 +486,7 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 	for i, v := range notificationDaysBefore {
 		p.NotificationDaysBefore[i] = int(v)
 	}
+	p.PublicBidFit = classifyPublicBidFit(p.BusinessType, p.Industry)
 	return &p, nil
 }
 
@@ -611,7 +616,9 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 	}
 	for _, g := range req.Industry {
 		g = strings.TrimSpace(g)
-		if g == "" || (!isKnownIndustryGroup(g) && !industryMidSet[g]) {
+		// consumerRetailIndustry("일반 소비자 대상 업종")는 조달청 분류에 없지만
+		// 온보딩의 명시적 B2C 선택지라 허용한다(public_bid_fit.go).
+		if g == "" || (g != consumerRetailIndustry && !isKnownIndustryGroup(g) && !industryMidSet[g]) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_industry_group"})
 			return
 		}
