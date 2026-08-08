@@ -319,42 +319,56 @@ func (s *Server) evaluateRegion(ctx context.Context, versionID, profileID string
 // "company"는 기업 프로필에 업종 정보가 없는 경우(사용자가 "내 프로필"에서
 // 채우면 해결됨). insufficient_data가 아닌 경우(met/needs_confirmation)엔
 // 항상 빈 문자열.
-// industryRestricted(*bool)는 g2b의 indstrytyLmtYn(2026-08-08 Phase 0에서 저장)을
-// 반영한다: false면 이 공고는 업종 제한이 없으므로 어떤 업종이든 참가 가능 →
-// 업종 조건을 자동 충족으로 본다(정확도 개선의 핵심, 실측상 약 36%가 무제한).
-// nil(미상/비-g2b 소스)이면 기존 그룹 매칭 로직으로 폴백한다.
+//
+// "met"(=참여 권장의 근거)은 오직 "공고 업종이 회사가 선택한 업종과 실제로
+// 일치"할 때만 준다(2026-08-08 개선). 이전엔 업종 제한 없는 공고(indstrytyLmtYn=N,
+// 열린 공고의 ~25%)를 무조건 met으로 봤는데, "참가 가능"과 "추천할 만큼 관련 있음"은
+// 다르다 — 음식점이 건설·IT 용역에 참가 자체는 가능해도 추천은 아니다. 그 자동충족이
+// 지역(전국)·예산만 맞으면 업종 무관하게 "참여 권장"을 남발해 추천공고가 무관하게
+// 넘치는 원인이었다. 이제 제한 없는 공고는 일치가 없으면 "확인 필요(참여 가능하나
+// 관련 낮음)"로 내려 추천에서 빠지되, not_met(참여 곤란)까진 아니므로 검색·판정엔
+// 그대로 노출된다.
+// "기타"는 조달 카테고리에 안 맞는 업종이 떨어지는 미분류 버킷이라 관련성 신호로
+// 보지 않는다("기타"↔"기타" 우연 일치를 met에서 제외).
 func scoreIndustry(noticeIndustry sql.NullString, companyGroups []string, industryRestricted *bool) (result, reason, dataGapSide string) {
 	noticeRaw := strings.TrimSpace(noticeIndustry.String)
 
-	// 업종 제한이 없는 공고(indstrytyLmtYn=N)는 회사 업종/공고 분류와 무관하게 충족.
-	if industryRestricted != nil && !*industryRestricted {
-		return "met", "이 공고는 업종 제한이 없어(참가 제한 없음) 업종 조건을 충족합니다.", ""
-	}
-	// 업종 제한이 있는 공고(Y)는 아래 사유에 그 사실을 덧붙여 안내한다.
-	restrictNote := ""
-	if industryRestricted != nil && *industryRestricted {
-		restrictNote = "이 공고는 업종 제한이 있습니다. "
-	}
-
+	// 데이터 부족은 어떤 규칙보다 먼저 판정한다(제한 유무와 무관).
 	switch {
 	case !noticeIndustry.Valid || noticeRaw == "":
 		return "insufficient_data", "공고에 업종 정보가 없어 업종 조건을 판정할 수 없습니다.", "notice"
 	case len(companyGroups) == 0:
 		return "insufficient_data", "기업 프로필에 업종 정보가 없어 판정할 수 없습니다.", "company"
-	default:
-		// Phase 2b — 회사가 선택한 업종을 "조달청 중분류 집합"으로 전개해 공고
-		// 중분류(noticeRaw)와 직접 비교한다. 신규 값(조달청 중분류명)은 그대로 쓰고,
-		// 레거시 10그룹명(마이그레이션 2c 이전 기존 회사)은 그 그룹의 중분류들로
-		// 전개한다 — 전개 결과가 기존 그룹 매칭과 동치라 하위호환이 유지된다.
+	}
+
+	// Phase 2b — 회사가 선택한 업종을 "조달청 중분류 집합"으로 전개해 공고
+	// 중분류(noticeRaw)와 직접 비교한다. 신규 값(조달청 중분류명)은 그대로 쓰고,
+	// 레거시 10그룹명(마이그레이션 2c 이전 기존 회사)은 그 그룹의 중분류들로
+	// 전개한다 — 전개 결과가 기존 그룹 매칭과 동치라 하위호환이 유지된다.
+	// 단, "기타"는 미분류라 실제 일치로 치지 않는다.
+	if noticeRaw != "기타" {
 		effective := expandCompanyIndustries(companyGroups)
 		if effective[noticeRaw] {
 			return "met", fmt.Sprintf("공고 업종(%s)이 기업이 선택한 업종과 일치합니다.", noticeRaw), ""
 		}
-		return "needs_confirmation", fmt.Sprintf(
-			"%s공고 업종(%s)이 기업이 선택한 업종(%s)에 없습니다. 조달청 분류가 참가자격과 정확히 "+
-				"같진 않아 실제로는 겹칠 수 있으니 원문에서 직접 확인하세요.",
-			restrictNote, noticeRaw, strings.Join(companyGroups, ", ")), ""
 	}
+
+	// 실제 일치가 아님. 제한 유무로 안내 문구만 달리하되, 어느 쪽도 "참여 권장"까진
+	// 올리지 않는다(추천은 실제 업종 일치일 때만).
+	if industryRestricted != nil && !*industryRestricted {
+		return "needs_confirmation", fmt.Sprintf(
+			"이 공고는 업종 제한이 없어 참여 자체는 가능하지만, 공고 업종(%s)이 기업이 선택한 업종(%s)과 "+
+				"직접 관련은 낮습니다. 관련 있다고 판단되면 원문에서 직접 확인하세요.",
+			noticeRaw, strings.Join(companyGroups, ", ")), ""
+	}
+	restrictNote := ""
+	if industryRestricted != nil && *industryRestricted {
+		restrictNote = "이 공고는 업종 제한이 있습니다. "
+	}
+	return "needs_confirmation", fmt.Sprintf(
+		"%s공고 업종(%s)이 기업이 선택한 업종(%s)에 없습니다. 조달청 분류가 참가자격과 정확히 "+
+			"같진 않아 실제로는 겹칠 수 있으니 원문에서 직접 확인하세요.",
+		restrictNote, noticeRaw, strings.Join(companyGroups, ", ")), ""
 }
 
 // expandCompanyIndustries — 회사가 선택한 업종 값들을 조달청 "중분류 이름 집합"으로

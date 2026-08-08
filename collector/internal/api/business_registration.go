@@ -175,7 +175,12 @@ func (s *Server) extractBusinessRegistrationCandidate(ctx context.Context, body 
 				"문서에 없는 내용은 절대 만들어내지 마세요. 확인할 수 없는 필드는 빈 문자열(배열은 빈 배열)로 " +
 				"두세요. region은 사업장 주소를 보고 제공된 17개 광역시도 중 하나로 매핑하세요(정확히 " +
 				"특정할 수 없으면 \"전국\"). industry는 업태/종목을 보고 제공된 조달청 공공조달분류 중분류 중 " +
-				"가장 가까운 것을 모두 선택하세요(겸업 반영, 전혀 판단할 수 없으면 빈 배열).",
+				"'정부·공공기관에 그 업무를 납품/용역으로 제공한다면 어느 분류인지'를 기준으로 가장 가까운 것을 " +
+				"모두 선택하세요(겸업 반영). 예: 급식·식자재·구내식당 운영→\"음식서비스\", 소프트웨어 개발→" +
+				"\"SW 및 시스템 개발\", 건축·토목 설계→\"설계\", 청소·시설관리→\"시설물관리, 청소 등\", " +
+				"인쇄·간판·현수막→\"매체제작\". \"기타\"는 실제로 기타 조달 용역을 수행하는 경우에만 고르고, " +
+				"일반 소매·요식업 등 공공조달과 직접 관련이 없어 어느 분류에도 맞지 않으면 \"기타\"로 억지 매핑하지 " +
+				"말고 빈 배열로 두세요.",
 		),
 		InputSchema: anthropic.ToolInputSchemaParam{
 			Properties: map[string]any{
@@ -190,7 +195,7 @@ func (s *Server) extractBusinessRegistrationCandidate(ctx context.Context, body 
 				},
 				"industry": map[string]any{
 					"type":        "array",
-					"description": "업태/종목을 조달청 공공조달분류 중분류로 매핑한 값(복수 선택 가능)",
+					"description": "업태/종목을 조달청 공공조달분류 중분류로 매핑한 값(복수 선택 가능). 어느 분류에도 맞지 않으면 \"기타\" 대신 빈 배열",
 					"items": map[string]any{
 						"type": "string",
 						"enum": industryEnum,
