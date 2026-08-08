@@ -210,6 +210,22 @@
   }
   .pipeline-cancel-btn { margin-top: 0.6rem; color: var(--danger); }
   .pipeline-cancel-btn:hover { border-color: var(--danger); }
+  /* 결과 기록(제출완료 건) — 낙찰/탈락 원클릭 확정 박스(2026-08-09 Phase 2) */
+  .pipeline-result-record {
+    margin: 0.9rem 0; padding: 0.9rem 1rem; border: 1px solid var(--border);
+    border-radius: var(--radius-card); background: var(--bg-soft);
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.7rem;
+  }
+  .pipeline-result-record-q { font-size: 0.9rem; font-weight: 600; color: var(--ink); }
+  .pipeline-result-record-btns { display: flex; gap: 0.5rem; }
+  .pipeline-result-btn {
+    padding: 0.5rem 1.1rem; border-radius: 8px; font-weight: 700; font-size: 0.9rem;
+    cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+  }
+  .pipeline-result-btn--win { background: var(--success); border-color: var(--success); color: #fff; }
+  .pipeline-result-btn--win:hover { filter: brightness(0.95); }
+  .pipeline-result-btn--lose:hover { border-color: var(--danger); color: var(--danger); }
+  .pipeline-result-btn:disabled { opacity: 0.6; cursor: default; }
   /* row-card-grade-reason — 목록 단계 AI 등급 사유(2026-08-06, "추천공고
      왜 목록단계 노출"). .ai-grade-reason(상세 페이지)과 같은 톤이지만
      목록 행 안에 들어가므로 여백/글자크기만 더 작게. 2026-08-07: 원래
@@ -6678,6 +6694,7 @@ const LIST_ROW_ICONS = {
   recommendation: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
   license_expiring: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M8.5 13.5 7 21l5-3 5 3-1.5-7.5"/></svg>',
   notice_change: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+  result_pending: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 0 1-10 0zM17 5h2a2 2 0 0 1-2 2M7 5H5a2 2 0 0 0 2 2"/></svg>',
 };
 
 // homeListRowHtml — 원형 아이콘 + 제목/부제 + D-day 배지 + 행동 버튼 +
@@ -7556,6 +7573,14 @@ async function renderPipelineDetail(container, id) {
       <p class="detail-eyebrow">${escapeHtml(entry.organizationName || '-')}</p>
       <h2><a href="#/notices/${escapeAttr(entry.noticeId)}">${escapeHtml(entry.noticeTitle)}</a></h2>
       <div class="pipeline-step-summary">${pipelineStepIndicatorHtml(entry.status)}</div>
+      ${entry.status === '제출완료' ? `
+      <div class="pipeline-result-record">
+        <span class="pipeline-result-record-q">개찰 결과가 나왔나요? 결과를 기록하세요.</span>
+        <div class="pipeline-result-record-btns">
+          <button type="button" class="pipeline-result-btn pipeline-result-btn--win" data-result="낙찰">🏆 낙찰</button>
+          <button type="button" class="pipeline-result-btn pipeline-result-btn--lose" data-result="탈락">탈락</button>
+        </div>
+      </div>` : ''}
       <a class="calendar-add-link" href="/api/pipeline/${escapeAttr(entry.id)}/calendar.ics" download>&#128197; 캘린더에 추가 (.ics)</a>
       <form id="pipeline-entry-form" class="profile-form">
         <label>상태${pipelineStatusSelectHtml(entry.status)}</label>
@@ -7577,6 +7602,24 @@ async function renderPipelineDetail(container, id) {
   // 시작합니다"로 즉시 안내한다(2026-08-07, UX 경량화 3단계).
   document.querySelector('.calendar-add-link').addEventListener('click', () => {
     showToast('캘린더 파일을 다운로드합니다.', 'info');
+  });
+
+  // 결과 기록(Phase 2) — 제출완료 건에서 낙찰/탈락을 원클릭으로 확정. 상태 select을
+  // 열어 고르지 않아도 되게 큰 버튼 2개로. 낙찰 시 실제 계약금액은 저장 폼의
+  // "낙찰 금액"에서 이어서 입력하면 성장분석 ROI에 반영된다.
+  container.querySelectorAll('.pipeline-result-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const result = btn.dataset.result;
+      btn.disabled = true;
+      try {
+        await apiRequest('PATCH', '/api/pipeline/' + encodeURIComponent(id), { status: result });
+        showToast(`결과를 "${result}"(으)로 기록했습니다.`, 'success');
+        renderPipelineDetail(container, id);
+      } catch (err) {
+        btn.disabled = false;
+        showToast(err.message || '결과 기록에 실패했습니다.', 'error');
+      }
+    });
   });
 
   // 참여 취소 — 진행 중 사업에서 완전 삭제한다(예전엔 "제외"로 남겨 목록에 계속

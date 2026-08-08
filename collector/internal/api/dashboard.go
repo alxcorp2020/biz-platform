@@ -160,6 +160,24 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				deadlineSoonCount++
 			}
 		}
+		// 결과 리마인더(2026-08-09, Phase 2): 제출완료인데 제출마감이 지난 건은
+		// 개찰 결과가 나왔을 수 있으니 "낙찰/탈락을 기록하세요"를 우선 업무로 띄운다.
+		// (낙찰이력 자동대조는 데이터 정합 미검증이라, 사용자가 한 번 클릭으로
+		// 확정하는 리마인더 방식으로 확실하게 처리 — 사용자 확정.)
+		if pr.status == "제출완료" && pr.deadline.Valid && pr.deadline.Time.Before(dateOnly(time.Now())) {
+			entryID := pr.id
+			status := pr.status
+			resultItem := dashboardPriorityItem{
+				Kind: "result_pending", NoticeID: pr.noticeID, PipelineEntryID: &entryID,
+				Title: pr.title, OrganizationName: pr.organizationName.String, Status: &status,
+				IsBookmarked: bookmarkedIDs[pr.noticeID],
+				Reason:       "결과가 나왔을 수 있어요 — 낙찰/탈락을 기록하세요", CtaLabel: "결과 기록",
+				CtaHref:      "#/pipeline/" + pr.id,
+			}
+			resultItem.ApplicationEndAt = &pr.deadline.Time
+			priorityItems = append(priorityItems, resultItem)
+			continue
+		}
 		if !pipelineActiveStatuses[pr.status] || (!pipelineUndecidedStatuses[pr.status] && incomplete == 0) {
 			continue // 우선 업무 대상 아님: 종결됐거나, 상태도 정해지고 서류도 다 갖춰짐
 		}
