@@ -122,11 +122,11 @@ func TestDeadlineSchedule_SubmissionLadder(t *testing.T) {
 		{deadline.Add(-2*time.Hour + time.Minute), evtSubmissionH2},
 	}
 	for _, s := range steps {
-		if err := srv.runDeadlineScheduleAt(ctx, s.at); err != nil {
+		if _, err := srv.runDeadlineScheduleAt(ctx, s.at); err != nil {
 			t.Fatalf("스케줄러 실행 실패(%v): %v", s.at, err)
 		}
 		// 같은 시점 두 번째 틱 — 중복발송 없어야 함.
-		if err := srv.runDeadlineScheduleAt(ctx, s.at); err != nil {
+		if _, err := srv.runDeadlineScheduleAt(ctx, s.at); err != nil {
 			t.Fatalf("스케줄러 재실행 실패: %v", err)
 		}
 	}
@@ -152,7 +152,7 @@ func TestDeadlineSchedule_NoRetroactive(t *testing.T) {
 	defer cleanup()
 
 	// 참여 직후(now = created+1분)에 틱.
-	if err := srv.runDeadlineScheduleAt(ctx, created.Add(time.Minute)); err != nil {
+	if _, err := srv.runDeadlineScheduleAt(ctx, created.Add(time.Minute)); err != nil {
 		t.Fatalf("스케줄러 실행 실패: %v", err)
 	}
 	got := firedEvents(t, db, seed.entryID)

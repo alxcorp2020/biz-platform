@@ -224,8 +224,10 @@ func startBackgroundDeadlineSchedule(srv *api.Server, logger *slog.Logger) {
 	go func() {
 		ctx := context.Background()
 		runOnce := func() {
-			if err := srv.RunDeadlineSchedule(ctx); err != nil {
+			if st, err := srv.RunDeadlineSchedule(ctx); err != nil {
 				logger.Error("deadline schedule batch failed", "error", err)
+			} else if st.Notifications > 0 || st.Changed > 0 {
+				logger.Info("deadline schedule batch completed", "processed", st.Processed, "notifications", st.Notifications, "changed", st.Changed)
 			}
 		}
 		runOnce()
@@ -247,8 +249,10 @@ func startBackgroundResultLookup(srv *api.Server, logger *slog.Logger) {
 	go func() {
 		ctx := context.Background()
 		runOnce := func() {
-			if err := srv.RunResultLookup(ctx); err != nil {
+			if st, err := srv.RunResultLookup(ctx); err != nil {
 				logger.Error("result lookup batch failed", "error", err)
+			} else if st.Processed > 0 {
+				logger.Info("result lookup batch completed", "processed", st.Processed, "changed", st.Changed, "notifications", st.Notifications, "errors", st.Errors)
 			}
 		}
 		runOnce()

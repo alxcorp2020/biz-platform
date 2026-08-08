@@ -29,6 +29,7 @@ import (
 	"database/sql"
 	"fmt"
 	"html"
+	"net/http"
 	"strings"
 	"time"
 
@@ -95,12 +96,41 @@ type deadlineScheduleRow struct {
 }
 
 // RunDeadlineSchedule은 30분 티커/관리자 수동트리거가 호출하는 진입점.
+// deadlineScheduleStats — 실행 결과 요약(관리자 수동 트리거 응답/티커 로그용).
+// Processed=스캔한 준비중 엔트리 수, Notifications=발송한 마감 이벤트 수,
+// Changed=마감 정정 감지 수, Errors=발송/갱신 중 오류 수.
+type deadlineScheduleStats struct {
+	Processed     int
+	Notifications int
+	Changed       int
+	Errors        int
+}
+
 // 실제 로직은 시각 주입 가능한 runDeadlineScheduleAt에 있다(테스트용).
-func (s *Server) RunDeadlineSchedule(ctx context.Context) error {
+func (s *Server) RunDeadlineSchedule(ctx context.Context) (deadlineScheduleStats, error) {
 	return s.runDeadlineScheduleAt(ctx, time.Now())
 }
 
-func (s *Server) runDeadlineScheduleAt(ctx context.Context, now time.Time) error {
+// handleRunDeadlineSchedule — 관리자 수동 트리거. 30분 티커를 기다리지 않고
+// 즉시 마감 스케줄러를 돌려 실행 결과 카운트를 반환한다(기존 run-* 패턴 동일).
+func (s *Server) handleRunDeadlineSchedule(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireSystemAdmin(w, r); !ok {
+		return
+	}
+	st, err := s.RunDeadlineSchedule(r.Context())
+	if err != nil {
+		s.logger.Error("run-deadline-schedule: batch failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "query_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true, "processed": st.Processed, "changed": st.Changed,
+		"notifications": st.Notifications, "errors": st.Errors,
+	})
+}
+
+func (s *Server) runDeadlineScheduleAt(ctx context.Context, now time.Time) (deadlineScheduleStats, error) {
+	var st deadlineScheduleStats
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT pe.id, pe.notice_id, pe.company_profile_id, n.title, n.organization_name, pe.created_at,
 		       COALESCE(n.application_end_datetime, (n.application_end_at::timestamp AT TIME ZONE 'Asia/Seoul')) AS sub_deadline,
@@ -112,7 +142,7 @@ func (s *Server) runDeadlineScheduleAt(ctx context.Context, now time.Time) error
 		JOIN notices n ON n.id = pe.notice_id
 		WHERE pe.status = '준비중'`)
 	if err != nil {
-		return err
+		return st, err
 	}
 	var entries []deadlineScheduleRow
 	for rows.Next() {
@@ -126,11 +156,12 @@ func (s *Server) runDeadlineScheduleAt(ctx context.Context, now time.Time) error
 	}
 	if cerr := rows.Err(); cerr != nil {
 		rows.Close()
-		return cerr
+		return st, cerr
 	}
 	rows.Close()
+	st.Processed = len(entries)
 	if len(entries) == 0 {
-		return nil
+		return st, nil
 	}
 
 	// 준비율(필요서류 대비 '보유') 일괄 조회 — sendDeadlineReminders와 동일 기준.
@@ -138,8 +169,16 @@ func (s *Server) runDeadlineScheduleAt(ctx context.Context, now time.Time) error
 
 	for _, e := range entries {
 		// 1) 마감 정정 감지 + 스냅샷/seen_at 갱신. 이번 틱에 쓸 유효 seen_at을 반환.
-		subSeen := s.reconcileDeadlineSnapshot(ctx, e, now, "submission")
-		qualSeen := s.reconcileDeadlineSnapshot(ctx, e, now, "qualification")
+		subSeen, subChanged := s.reconcileDeadlineSnapshot(ctx, e, now, "submission")
+		qualSeen, qualChanged := s.reconcileDeadlineSnapshot(ctx, e, now, "qualification")
+		if subChanged {
+			st.Changed++
+			st.Notifications++
+		}
+		if qualChanged {
+			st.Changed++
+			st.Notifications++
+		}
 
 		// 2) 제출마감 이벤트
 		if e.subDeadline.Valid {
@@ -147,17 +186,21 @@ func (s *Server) runDeadlineScheduleAt(ctx context.Context, now time.Time) error
 				if def.requiresTime && !e.subHasTime {
 					continue // 시각 미상이면 시간단위 알림은 건너뜀
 				}
-				s.maybeFireDeadlineEvent(ctx, e, def, e.subDeadline.Time, subSeen, now, prep[e.entryID])
+				if s.maybeFireDeadlineEvent(ctx, e, def, e.subDeadline.Time, subSeen, now, prep[e.entryID]) {
+					st.Notifications++
+				}
 			}
 		}
 		// 3) 참가자격등록 마감 이벤트
 		if e.qualDeadline.Valid {
 			for _, def := range qualificationEventDefs {
-				s.maybeFireDeadlineEvent(ctx, e, def, e.qualDeadline.Time, qualSeen, now, prep[e.entryID])
+				if s.maybeFireDeadlineEvent(ctx, e, def, e.qualDeadline.Time, qualSeen, now, prep[e.entryID]) {
+					st.Notifications++
+				}
 			}
 		}
 	}
-	return nil
+	return st, nil
 }
 
 // prepCount — 한 엔트리의 필요서류 총계/준비완료 수.
@@ -193,8 +236,8 @@ func (s *Server) fetchPrepCounts(ctx context.Context, entries []deadlineSchedule
 // reconcileDeadlineSnapshot — 이 엔트리의 특정 마감 종류에 대해 스냅샷과 현재
 // 공고 마감을 비교한다. 처음 관측이면 스냅샷을 심고(seen_at=참여시각, 알림 없음),
 // 값이 바뀌었으면 "마감일 변경" 알림을 보내고 seen_at을 now로 갱신한다.
-// 반환값은 이번 틱의 소급방지 floor 계산에 쓸 유효 seen_at.
-func (s *Server) reconcileDeadlineSnapshot(ctx context.Context, e deadlineScheduleRow, now time.Time, kind string) time.Time {
+// 반환값은 이번 틱의 소급방지 floor 계산에 쓸 유효 seen_at + 정정 감지 여부.
+func (s *Server) reconcileDeadlineSnapshot(ctx context.Context, e deadlineScheduleRow, now time.Time, kind string) (time.Time, bool) {
 	var cur, snapshot, seenAt sql.NullTime
 	var snapCol, seenCol, changedEvent, label string
 	if kind == "submission" {
@@ -210,9 +253,9 @@ func (s *Server) reconcileDeadlineSnapshot(ctx context.Context, e deadlineSchedu
 	// 현재 마감이 없으면(미상) 아무것도 안 함 — NULL을 정정으로 보지 않는다.
 	if !cur.Valid {
 		if seenAt.Valid {
-			return seenAt.Time
+			return seenAt.Time, false
 		}
-		return e.createdAt
+		return e.createdAt, false
 	}
 
 	switch {
@@ -220,7 +263,7 @@ func (s *Server) reconcileDeadlineSnapshot(ctx context.Context, e deadlineSchedu
 		// 최초 관측: 스냅샷을 심고 seen_at=참여시각(정상적으로 참여 이후 이벤트가
 		// 발송되도록). 배포 시 옛 엔트리 무더기 발송은 now-24h 하한이 막는다.
 		s.updateDeadlineSnapshot(ctx, e.entryID, snapCol, seenCol, cur.Time, e.createdAt)
-		return e.createdAt
+		return e.createdAt, false
 	case !cur.Time.Equal(snapshot.Time):
 		// 정정 감지: 사용자 알림 + seen_at=now로 갱신(이후 새 마감 기준의 "이미
 		// 지난" 이벤트는 막고 미래 이벤트만 살림). 게이트(deadline_at)가 달라져
@@ -233,12 +276,12 @@ func (s *Server) reconcileDeadlineSnapshot(ctx context.Context, e deadlineSchedu
 		}
 		s.sendPushToProfileMembers(ctx, e.profileID, title, body, "/#/pipeline/"+e.entryID)
 		s.updateDeadlineSnapshot(ctx, e.entryID, snapCol, seenCol, cur.Time, now)
-		return now
+		return now, true
 	default:
 		if seenAt.Valid {
-			return seenAt.Time
+			return seenAt.Time, false
 		}
-		return e.createdAt
+		return e.createdAt, false
 	}
 }
 
@@ -252,7 +295,8 @@ func (s *Server) updateDeadlineSnapshot(ctx context.Context, entryID, snapCol, s
 
 // maybeFireDeadlineEvent — 한 (엔트리, 이벤트정의, 마감시각) 조합이 지금 발송
 // 대상인지 판정하고, 맞으면 DB 게이트를 잠근 뒤(최초 1회만 성공) 알림을 보낸다.
-func (s *Server) maybeFireDeadlineEvent(ctx context.Context, e deadlineScheduleRow, def deadlineEventDef, deadlineAt, seenAt, now time.Time, prep prepCount) {
+// 실제로 발송했으면 true를 반환한다(실행 통계 집계용).
+func (s *Server) maybeFireDeadlineEvent(ctx context.Context, e deadlineScheduleRow, def deadlineEventDef, deadlineAt, seenAt, now time.Time, prep prepCount) bool {
 	eventTime := deadlineAt.Add(-def.offset)
 	// 소급방지 floor = max(참여시각, seen_at, now-24h).
 	floor := e.createdAt
@@ -264,7 +308,7 @@ func (s *Server) maybeFireDeadlineEvent(ctx context.Context, e deadlineScheduleR
 	}
 	// 발송창: floor <= eventTime <= now.
 	if eventTime.Before(floor) || eventTime.After(now) {
-		return
+		return false
 	}
 
 	// DB 게이트 — (엔트리, event_type, deadline_at) 최초 1회만 INSERT 성공.
@@ -275,14 +319,15 @@ func (s *Server) maybeFireDeadlineEvent(ctx context.Context, e deadlineScheduleR
 		ON CONFLICT (pipeline_entry_id, event_type, deadline_at) DO NOTHING
 		RETURNING true`, e.entryID, e.noticeID, e.profileID, def.eventType, deadlineAt).Scan(&gated)
 	if err == sql.ErrNoRows {
-		return // 이미 발송됨
+		return false // 이미 발송됨
 	}
 	if err != nil {
 		s.logger.Error("deadline scheduler: gate insert failed", "error", err, "event", def.eventType, "entry", e.entryID)
-		return
+		return false
 	}
 
 	s.dispatchDeadlineEvent(ctx, e, def, deadlineAt, now, prep)
+	return true
 }
 
 // dispatchDeadlineEvent — 실제 채널 발송(인앱/푸시/이메일/SMS). 게이트를 이미

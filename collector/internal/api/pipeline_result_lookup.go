@@ -24,6 +24,7 @@ import (
 	"database/sql"
 	"fmt"
 	"html"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -153,9 +154,37 @@ func normalizeCompanyName(s string) string {
 	return s
 }
 
+// resultLookupStats — 실행 결과 요약(관리자 수동 트리거 응답/티커 로그용).
+// Processed=이번에 실제 조회한 엔트리 수, Changed=낙찰/탈락 자동전환 수,
+// Notifications=발송 알림 수, Errors=API/DB 오류 수.
+type resultLookupStats struct {
+	Processed     int
+	Changed       int
+	Notifications int
+	Errors        int
+}
+
 // RunResultLookup은 티커/관리자 트리거 진입점.
-func (s *Server) RunResultLookup(ctx context.Context) error {
+func (s *Server) RunResultLookup(ctx context.Context) (resultLookupStats, error) {
 	return s.runResultLookupAt(ctx, time.Now())
+}
+
+// handleRunResultLookup — 관리자 수동 트리거. 즉시 개찰 결과조회를 돌려 실행
+// 결과 카운트를 반환한다. G2B_SERVICE_KEY 미설정이면 processed=0으로 정상 반환.
+func (s *Server) handleRunResultLookup(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireSystemAdmin(w, r); !ok {
+		return
+	}
+	st, err := s.RunResultLookup(r.Context())
+	if err != nil {
+		s.logger.Error("run-result-lookup: batch failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "query_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true, "processed": st.Processed, "changed": st.Changed,
+		"notifications": st.Notifications, "errors": st.Errors,
+	})
 }
 
 // resultLookupRow — 조회 대상 한 건.
@@ -170,9 +199,10 @@ type resultLookupRow struct {
 	ourBizno, ourName            string
 }
 
-func (s *Server) runResultLookupAt(ctx context.Context, now time.Time) error {
+func (s *Server) runResultLookupAt(ctx context.Context, now time.Time) (resultLookupStats, error) {
+	var st resultLookupStats
 	if s.scsbidSource == nil {
-		return nil // G2B_SERVICE_KEY 미설정 — 결과조회 비활성
+		return st, nil // G2B_SERVICE_KEY 미설정 — 결과조회 비활성
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT pe.id, pe.notice_id, pe.company_profile_id, n.external_notice_id, n.title,
@@ -188,7 +218,7 @@ func (s *Server) runResultLookupAt(ctx context.Context, now time.Time) error {
 		  AND pe.result_finalized_at IS NULL
 		  AND pe.result_check_attempts < $2`, now, len(resultCheckOffsets))
 	if err != nil {
-		return err
+		return st, err
 	}
 	var targets []resultLookupRow
 	for rows.Next() {
@@ -201,7 +231,7 @@ func (s *Server) runResultLookupAt(ctx context.Context, now time.Time) error {
 	}
 	if cerr := rows.Err(); cerr != nil {
 		rows.Close()
-		return cerr
+		return st, cerr
 	}
 	rows.Close()
 
@@ -211,13 +241,15 @@ func (s *Server) runResultLookupAt(ctx context.Context, now time.Time) error {
 		if now.Before(nextAt) {
 			continue // 아직 이번 조회 시점 전
 		}
-		s.checkOneResult(ctx, t, now)
+		st.Processed++
+		s.checkOneResult(ctx, t, now, &st)
 	}
-	return nil
+	return st, nil
 }
 
-// checkOneResult — 한 엔트리에 대해 낙찰 결과를 조회·판정·적용한다.
-func (s *Server) checkOneResult(ctx context.Context, t resultLookupRow, now time.Time) {
+// checkOneResult — 한 엔트리에 대해 낙찰 결과를 조회·판정·적용한다. st에 실행
+// 통계를 누적한다(관리자 트리거 응답용).
+func (s *Server) checkOneResult(ctx context.Context, t resultLookupRow, now time.Time, st *resultLookupStats) {
 	// 개찰일시 부근 창에서 낙찰 목록을 받아 우리 공고번호를 매칭한다.
 	begin := t.openingAt.Add(-1 * time.Hour)
 	end := t.openingAt.Add(resultCheckOffsets[t.attempts] + time.Hour)
@@ -227,6 +259,7 @@ func (s *Server) checkOneResult(ctx context.Context, t resultLookupRow, now time
 	records, err := s.scsbidSource.FetchAwards(ctx, begin, end)
 	if err != nil {
 		s.logger.Error("result lookup: FetchAwards failed", "error", err, "entry", t.entryID)
+		st.Errors++
 		// 조회 실패도 시도 1회로 계산해 무한재시도를 막는다(다음 backoff에서 재시도).
 		s.bumpResultAttempt(ctx, t.entryID, now)
 		return
@@ -241,11 +274,16 @@ func (s *Server) checkOneResult(ctx context.Context, t resultLookupRow, now time
 	switch decision.action {
 	case awardActionWin:
 		s.applyAwardWin(ctx, t, matched, now)
+		st.Changed++
+		st.Notifications++
 	case awardActionLose:
 		s.applyAwardLose(ctx, t, matched, now)
+		st.Changed++
+		st.Notifications++
 	case awardActionNameMatch:
 		s.finalizeResultOnly(ctx, t.entryID, resultTypeNameMatch, matched, now)
 		s.notifyResultNameMatch(ctx, t, matched)
+		st.Notifications++
 	case awardActionHold:
 		// 결과는 있으나 자동전환 보류(재입찰/보류유형). 상태 유지하고 조회 중단.
 		s.finalizeResultOnly(ctx, t.entryID, decision.resultType, matched, now)
@@ -254,6 +292,7 @@ func (s *Server) checkOneResult(ctx context.Context, t resultLookupRow, now time
 		} else {
 			s.notifyResultNeedsReview(ctx, t)
 		}
+		st.Notifications++
 	default: // NONE — 아직 결과 없음/미확정
 		if exhausted {
 			// backoff 소진 — 유찰 등으로 결과가 끝내 안 나옴. 조회 중단.
