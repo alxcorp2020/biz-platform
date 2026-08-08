@@ -2841,9 +2841,19 @@ function openDropdown(triggerEl, menuHtml, opts) {
 
 // ---------- 모달/드롭다운 공용 Escape 처리 ----------
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape') return;
-  if (document.getElementById('active-modal-overlay')) { closeModal(); return; }
-  if (activeDropdown) closeActiveDropdown();
+  if (e.key === 'Escape') {
+    if (document.getElementById('active-modal-overlay')) { closeModal(); return; }
+    if (activeDropdown) closeActiveDropdown();
+    return;
+  }
+  // "/" — 공고 검색창 빠른 포커스(파워유저용). 이미 입력창/모달에 타이핑
+  // 중이거나 수정키가 눌린 상태면 무시해서 본문에 "/"를 정상 입력할 수 있게 한다.
+  if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const el = document.activeElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+    const search = document.querySelector('#filter-form input[name="q"]');
+    if (search) { e.preventDefault(); search.focus(); search.select(); }
+  }
 });
 
 // ---------- PC 사이드바 ----------
@@ -7287,6 +7297,15 @@ function wireAssigneeSection(container, entry) {
   }
 }
 
+// favoriteFirst — 담당자 목록/피커에서 "기본 담당자"(isDefault)를 항상 위로
+// 끌어올린다(자주 쓰는 담당자를 매번 찾지 않도록). 그 안에서는 이름 가나다순.
+// 원본 배열을 건드리지 않게 복사본을 정렬해 돌려준다.
+function favoriteFirst(contacts) {
+  return (contacts || []).slice().sort((a, b) =>
+    (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0) ||
+    (a.name || '').localeCompare(b.name || '', 'ko'));
+}
+
 // wireLoadContactButton — "담당자 목록에서 불러오기" 버튼. 클릭 시
 // company_contacts 목록을 모달 목록으로 보여주고(2026-08-07, 기존
 // 인라인 <select>가 "선택 UI가 불명확하다"는 피드백으로 모달로 교체),
@@ -7313,7 +7332,7 @@ function wireLoadContactButton(container) {
     }
     openListPickerModal(
       '담당자 선택',
-      items,
+      favoriteFirst(items),
       (c) => `${c.name}${c.isDefault ? ' (기본)' : ''}`,
       (c) => {
         const form = container.querySelector('#pipeline-entry-form');
@@ -7431,6 +7450,23 @@ function noticeListApiParams(filterParams) {
   return apiParams;
 }
 
+// 최근 검색어 — 검색창 포커스 시 드롭다운으로 최근 키워드 최대 5개를 보여준다.
+// artifact가 아닌 일반 서비스라 localStorage 사용에 제약 없음(팝업/배너 dismiss와 동일 패턴).
+const RECENT_SEARCHES_KEY = 'recent_notice_searches';
+function getRecentSearches() {
+  try {
+    const a = JSON.parse(localStorage.getItem(RECENT_SEARCHES_KEY) || '[]');
+    return Array.isArray(a) ? a.filter(x => typeof x === 'string') : [];
+  } catch { return []; }
+}
+function addRecentSearch(q) {
+  q = (q || '').trim();
+  if (!q) return;
+  const list = getRecentSearches().filter(x => x !== q);
+  list.unshift(q);
+  try { localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(list.slice(0, 5))); } catch { /* 저장 실패해도 검색 자체엔 영향 없음 */ }
+}
+
 function renderList(container) {
   const params = new URLSearchParams(location.hash.split('?')[1] || '');
   const key = noticeListKey(params);
@@ -7467,10 +7503,29 @@ function renderList(container) {
     SAVED_SEARCH_ONLY_PARAMS.concat(['savedSearchName']).forEach(k => {
       if (params.get(k)) p.set(k, params.get(k));
     });
+    addRecentSearch(fd.get('q')); // 검색어가 있으면 최근 검색어로 저장(빈 값은 무시)
     noticeListState = null; // 새 검색/정렬 — 이전 무한스크롤 캐시는 폐기
     location.hash = '#/notices?' + p.toString();
   };
   filterForm.addEventListener('submit', (e) => { e.preventDefault(); submitFilterForm(); });
+
+  // 검색창 포커스 시 최근 검색어 드롭다운(있을 때만). 항목 클릭 → 그 키워드로 즉시 검색.
+  const searchInput = filterForm.querySelector('input[name="q"]');
+  searchInput.addEventListener('focus', () => {
+    const recents = getRecentSearches();
+    if (!recents.length) return;
+    const menu = openDropdown(searchInput, recents.map(q =>
+      `<button type="button" class="dropdown-menu-item" data-q="${escapeAttr(q)}">🕘 ${escapeHtml(q)}</button>`
+    ).join(''));
+    if (!menu) return;
+    menu.querySelectorAll('.dropdown-menu-item').forEach(item => {
+      item.addEventListener('click', () => {
+        searchInput.value = item.dataset.q;
+        closeActiveDropdown();
+        submitFilterForm();
+      });
+    });
+  });
   // 정렬은 검색 버튼을 따로 안 눌러도 바로 반영 — 목록 순서를 바꾸는
   // 것뿐이라 "검색 조건 확정" 성격의 다른 입력들과 달리 즉시 적용이 자연스럽다.
   // 2026-08-07: <select>를 openDropdown() 기반 버튼으로 교체(UX 경량화
@@ -7568,6 +7623,11 @@ function noticeRowHtml(n, showMatchReasons) {
     ? '<span class="badge badge--warn" title="실적 규모가 이 공고 예산 대비 작아 보입니다 — 참고용 신호일 뿐 메인 등급은 그대로입니다">공동수급 검토 권장</span>'
     : '';
   const jointVentureReasonHtml = n.jointVentureReason ? `<p class="row-card-grade-reason">${escapeHtml(n.jointVentureReason)}</p>` : '';
+  // 목록에서 바로 "참여 검토"에 담기(상세 진입 없이 클릭 수 감소). 로그인 +
+  // 회사 프로필이 있을 때만 노출한다(비로그인/프로필 없으면 파이프라인 생성 불가).
+  const pipelineBtnHtml = (currentUser && currentProfile)
+    ? `<button type="button" class="btn btn-secondary btn-sm notice-row-pipeline-btn" data-id="${escapeAttr(n.id)}" title="진행 중 사업(참여 검토)에 담기">참여검토</button>`
+    : '';
   return `
     <div class="row-card notice-row" data-id="${escapeAttr(n.id)}">
       <div class="row-card-main">
@@ -7582,6 +7642,7 @@ function noticeRowHtml(n, showMatchReasons) {
       <div class="row-card-side">
         ${bookmarkButtonHtml(n.id, n.isBookmarked)}
         ${ddayBadgeHtml(n.applicationEndAt)}
+        ${pipelineBtnHtml}
         <span class="row-card-arrow">›</span>
       </div>
       ${gradeReasonHtml}
@@ -7638,6 +7699,22 @@ function renderNoticeListItems(listBody, items, total, showMatchReasons) {
       // 상세로 이동하기 직전 스크롤 위치를 저장 — "뒤로가기" 시 이 값으로 복원.
       if (noticeListState) noticeListState.scrollY = window.scrollY;
       location.hash = '#/notices/' + row.dataset.id;
+    });
+  });
+  // 목록 카드의 "참여검토" 버튼 — 카드 클릭(상세 이동)과 겹치지 않게 전파를 막고,
+  // 파이프라인 항목을 바로 생성한다(POST는 멱등 — 이미 있으면 그대로 담긴다).
+  listBody.querySelectorAll('.notice-row-pipeline-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      btn.disabled = true;
+      try {
+        await apiRequest('POST', '/api/notices/' + encodeURIComponent(btn.dataset.id) + '/pipeline', {});
+        btn.textContent = '담김 ✓';
+        showToast('진행 중 사업(참여 검토)에 담았습니다.', 'success');
+      } catch (err) {
+        btn.disabled = false;
+        showToast(err.message || '담기에 실패했습니다.', 'error');
+      }
     });
   });
   wireBookmarkButtons(listBody);
@@ -8294,7 +8371,7 @@ function renderSavedSearchForm(formSlot, item, contacts, onSaved) {
   const currentReminderDays = c.reminderDaysBefore || [];
   const currentRecipientIds = c.recipientContactIds || [];
   const contactsCheckboxesHtml = contacts.length
-    ? contacts.map(ct => `
+    ? favoriteFirst(contacts).map(ct => `
         <label class="checkbox-label"><input type="checkbox" name="recipientContactIds" value="${escapeAttr(ct.id)}" ${currentRecipientIds.includes(ct.id) ? 'checked' : ''}> ${escapeHtml(ct.name)}${ct.email ? ` (${escapeHtml(ct.email)})` : ''}</label>
       `).join('')
     : `<p class="license-card-meta">등록된 담당자가 없습니다. 위 "담당자 관리"에서 먼저 등록해주세요.</p>`;
@@ -11701,7 +11778,7 @@ async function renderContactsTab(container) {
   if (!items.length) {
     listEl.appendChild(h('<p class="empty">아직 등록한 담당자가 없습니다. 등록해두면 참여 검토 시 자동으로 채워집니다.</p>'));
   } else {
-    items.forEach(item => listEl.appendChild(h(contactCardHtml(item))));
+    favoriteFirst(items).forEach(item => listEl.appendChild(h(contactCardHtml(item))));
   }
 
   const formSlot = document.getElementById('contact-form-slot');
