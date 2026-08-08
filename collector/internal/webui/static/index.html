@@ -635,14 +635,28 @@
      한 줄로 보여준다. 스크롤로 다음 페이지를 불러올 때마다(20건 단위)
      renderNoticeListItems가 통째로 다시 그리면서 이 숫자도 같이 갱신됨. */
   .notice-list-counter { font-size: var(--text-caption); font-weight: 700; color: var(--ink-soft); margin-top: 0; margin-bottom: 0.6rem; }
-  /* 무한스크롤 20건 묶음 구분 표기 — .notice-list(flex column) 안에서
-     .row-card 사이사이에 끼는 행. 클릭 대상이 아니므로 화살표/hover 없이
-     가운데 정렬 텍스트 한 줄로만 표시한다. */
+  /* 공고 검색 결과 목록 — 카드형(2026-08-08 재설계): 한 박스에 촘촘히 쌓지 않고
+     각 공고를 독립 카드로 위아래 여백을 둬 보기 쉽게 한다. */
+  .notice-list--cards {
+    gap: 0.55rem; background: transparent; box-shadow: none;
+    border-radius: 0; overflow: visible;
+  }
+  .notice-list--cards > .row-card,
+  .notice-list--cards > .row-card:last-child {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-card); box-shadow: var(--shadow-soft);
+  }
+  /* 무한스크롤 20건 묶음 구분 표기 — "──── 20건 / 전체 106건 표시 중 ────"
+     처럼 텍스트 양옆으로 가로줄이 채운다(카드 사이 여백 안에 자연스럽게 놓임). */
   .notice-list-batch-divider {
-    margin: 0; padding: 0.6rem var(--space-md);
-    text-align: center; font-size: var(--text-caption); font-weight: 700;
-    color: var(--ink-soft); background: var(--bg-soft);
-    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 0.75rem;
+    margin: 0.4rem 0.2rem; padding: 0; background: transparent; border: none;
+    font-size: var(--text-caption); font-weight: 700; color: var(--ink-soft);
+    white-space: nowrap;
+  }
+  .notice-list-batch-divider::before,
+  .notice-list-batch-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
   }
   /* 알림함(#/notifications)에서 "더보기"로 묶음을 불러올 때마다 그 묶음
      위에 붙는 건수 헤더 — "20건 ────────" 처럼 숫자 뒤로 남는 폭만큼
@@ -691,13 +705,35 @@
   .status-badge--muted { background: var(--bg-soft); color: var(--ink-soft); }
   .row-card-region-restricted { font-size: 0.75rem; color: var(--ink-soft); white-space: nowrap; }
 
-  .empty, .loading, .error {
+  .empty, .error {
     color: var(--ink-soft);
     padding: 3rem 0;
     text-align: center;
     font-size: 0.92rem;
   }
   .error { color: var(--danger); }
+  /* .loading — 예전엔 "불러오는 중..." 텍스트였으나, 텍스트를 숨기고(font-size:0)
+     가운데 스피너 하나만 보이도록 전환(2026-08-08). 모든 `<div class="loading">
+     불러오는 중...</div>`가 자동으로 스피너가 된다. */
+  .loading {
+    display: flex; align-items: center; justify-content: center;
+    padding: 3rem 0; min-height: 120px; font-size: 0; color: transparent;
+  }
+  .loading::before {
+    content: ''; width: 32px; height: 32px;
+    border: 3px solid var(--border); border-top-color: var(--accent-blue);
+    border-radius: 50%; animation: app-boot-spin 0.7s linear infinite;
+  }
+  /* fixed 정중앙 스피너 오버레이 — 무한스크롤 등에서 잠깐 표시. 클릭은 막지 않는다. */
+  .global-spinner-overlay {
+    position: fixed; inset: 0; z-index: 300;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  .global-spinner-overlay .app-boot-spinner {
+    width: 40px; height: 40px; border-width: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+  }
 
   /* ---------- Skeleton loading ---------- */
   .skeleton-block {
@@ -7780,6 +7816,28 @@ function addRecentSearch(q) {
 // 검색 자동완성/최근검색 공용 드롭다운 — openDropdown은 같은 트리거 재클릭 시
 // 토글로 닫혀 "타이핑 중 실시간 갱신"엔 부적합하므로, 자유롭게 다시 그릴 수 있는
 // 전용 메뉴를 직접 관리한다. .dropdown-menu 스타일(position:fixed, 다크 대응)을 재사용.
+// showGlobalSpinner/hideGlobalSpinner — fixed 정중앙 로딩 스피너(2026-08-08).
+// 무한스크롤 다음 페이지 로드 등 "목록이 이미 있는데 잠깐 기다릴 때" 하단
+// 텍스트 대신 화면 정중앙에 스피너 하나만 띄운다. 부팅 오버레이의 스피너
+// (.app-boot-spinner)와 같은 모양을 재사용한다. 중첩 호출은 카운트로 안전 처리.
+let globalSpinnerCount = 0;
+let globalSpinnerEl = null;
+function showGlobalSpinner() {
+  globalSpinnerCount++;
+  if (globalSpinnerEl) return;
+  globalSpinnerEl = document.createElement('div');
+  globalSpinnerEl.className = 'global-spinner-overlay';
+  globalSpinnerEl.innerHTML = '<div class="app-boot-spinner"></div>';
+  document.body.appendChild(globalSpinnerEl);
+}
+function hideGlobalSpinner() {
+  globalSpinnerCount = Math.max(0, globalSpinnerCount - 1);
+  if (globalSpinnerCount === 0 && globalSpinnerEl) {
+    globalSpinnerEl.remove();
+    globalSpinnerEl = null;
+  }
+}
+
 let searchSuggestEl = null;
 let searchSuggestInput = null;
 function searchSuggestOutside(e) {
@@ -8016,6 +8074,9 @@ function renderList(container) {
 async function loadMoreNotices(listBody, key, filterParams, isFirstPage) {
   if (!noticeListState || noticeListState.key !== key || noticeListState.loading || !noticeListState.hasMore) return;
   noticeListState.loading = true;
+  // 무한스크롤 다음 페이지 로드는 하단 텍스트 대신 fixed 정중앙 스피너로 표시한다
+  // (첫 페이지는 스켈레톤이 이미 있으니 스피너 생략).
+  if (!isFirstPage) showGlobalSpinner();
 
   const apiParams = noticeListApiParams(filterParams);
   apiParams.set('offset', String(noticeListState.offset));
@@ -8041,6 +8102,8 @@ async function loadMoreNotices(listBody, key, filterParams, isFirstPage) {
       const sentinel = listBody.querySelector('#notice-list-sentinel');
       if (sentinel) sentinel.textContent = '더 불러오지 못했습니다: ' + err.message;
     }
+  } finally {
+    if (!isFirstPage) hideGlobalSpinner();
   }
 }
 
@@ -8059,15 +8122,11 @@ function noticeRowHtml(n, showMatchReasons) {
     ? `<div class="row-card-match-reasons">${n.matchReasons.map(r => `<span class="badge badge--blue">${escapeHtml(r)}</span>`).join('')}</div>`
     : '';
   const gradeHtml = n.grade ? gradeBadgeHtml(n.grade, GRADE_LABELS[n.grade] || n.grade) : '';
-  const gradeReasonHtml = n.gradeReason ? `<p class="row-card-grade-reason">${escapeHtml(n.gradeReason)}</p>` : '';
-  // 공동수급 검토 서브태그(2026-08-07, 판정엔진 확장 1단계) — 메인 등급
-  // 배지(gradeHtml)와 별개로 붙는 독립 배지다. jointVentureReason은
-  // "등록하면 분석 가능"(중립 안내, 실적 없음) 상태에도 채워질 수 있어
-  // 배지 유무와 무관하게 항상 렌더링한다.
+  // 공동수급 검토 서브태그(배지). 등급/공동수급의 "사유 텍스트 줄"은 목록을 심플하게
+  // 유지하려고 2026-08-08 카드에서 제거했다(사유는 공고 상세에서 확인).
   const jointVentureBadgeHtml = n.jointVentureRecommended
     ? '<span class="badge badge--warn" title="실적 규모가 이 공고 예산 대비 작아 보입니다 — 참고용 신호일 뿐 메인 등급은 그대로입니다">공동수급 검토 권장</span>'
     : '';
-  const jointVentureReasonHtml = n.jointVentureReason ? `<p class="row-card-grade-reason">${escapeHtml(n.jointVentureReason)}</p>` : '';
   // 목록에서 바로 "참여 검토"에 담기/취소(토글). 로그인 + 회사 프로필이 있을 때만
   // 노출. n.pipelineStatus(서버가 내려줌)로 새로고침 후에도 담김 상태를 반영한다 —
   // "제외"(취소됨)와 미담김은 참여검토로, 그 외 담긴 상태는 담김으로 본다.
@@ -8091,8 +8150,6 @@ function noticeRowHtml(n, showMatchReasons) {
         ${pipelineBtnHtml}
         <span class="row-card-arrow">›</span>
       </div>
-      ${gradeReasonHtml}
-      ${jointVentureReasonHtml}
       ${matchReasonsHtml}
     </div>
   `;
@@ -8146,8 +8203,7 @@ function renderNoticeListItems(listBody, items, total, showMatchReasons) {
   listBody.className = '';
   listBody.innerHTML = '';
   listBody.appendChild(h(`
-    <p class="notice-list-counter">${escapeHtml(noticeListCounterText(items.length, total))}</p>
-    <div class="notice-list">${rows}</div>
+    <div class="notice-list notice-list--cards">${rows}</div>
     <p id="notice-list-sentinel" class="notice-list-sentinel"></p>
   `));
   listBody.querySelectorAll('.notice-row').forEach(row => {
@@ -8197,7 +8253,9 @@ function wireNoticeListLoadMore(listBody, key) {
     sentinel.textContent = noticeListState.items.length ? '모든 공고를 불러왔습니다.' : '';
     return;
   }
-  sentinel.textContent = '불러오는 중...';
+  // 로딩 텍스트를 하단에 두지 않는다 — 실제 로딩 표시는 fixed 정중앙 스피너
+  // (loadMoreNotices의 showGlobalSpinner). 센티넬은 관측 대상으로만 비워둔다.
+  sentinel.textContent = '';
   const filterParams = new URLSearchParams(location.hash.split('?')[1] || '');
   const observer = new IntersectionObserver((entries) => {
     if (entries[0].isIntersecting) {
