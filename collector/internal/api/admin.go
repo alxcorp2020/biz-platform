@@ -528,6 +528,77 @@ type adminNotificationFailureItem struct {
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
+type adminAutomationHistoryItem struct {
+	CreatedAt        time.Time `json:"createdAt"`
+	CompanyName      *string   `json:"companyName"`
+	NoticeTitle      string    `json:"noticeTitle"`
+	ExternalNoticeID *string   `json:"externalNoticeId"`
+	FromStatus       *string   `json:"fromStatus"`
+	ToStatus         string    `json:"toStatus"`
+	Reason           *string   `json:"reason"`
+	TriggerType      string    `json:"triggerType"`
+}
+
+// handleAdminAutomationHistory — 시스템(자동화)이 변경한 파이프라인 상태 이력을
+// 최근순으로 보여준다(자동 제외/자동 낙찰/자동 탈락/공고 취소 자동처리 등).
+// DB를 직접 조회하지 않고 관리자에서 확인하기 위함 — notification-failures와
+// 동일한 페이지네이션 패턴을 재사용한다. changed_by='SYSTEM'만 대상.
+func (s *Server) handleAdminAutomationHistory(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireSystemAdmin(w, r); !ok {
+		return
+	}
+	limit := parseListingIntParam(r.URL.Query().Get("limit"), 20)
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	offset := parseListingIntParam(r.URL.Query().Get("offset"), 0)
+
+	var total int
+	if err := s.db.QueryRowContext(r.Context(),
+		`SELECT count(*) FROM pipeline_status_history WHERE changed_by = 'SYSTEM'`).Scan(&total); err != nil {
+		s.logger.Error("admin-automation-history: count query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+
+	rows, err := s.db.QueryContext(r.Context(), `
+		SELECT h.created_at, cp.company_name, n.title, n.external_notice_id,
+		       h.from_status, h.to_status, h.reason, h.trigger_type
+		FROM pipeline_status_history h
+		JOIN notice_pipeline_entries pe ON pe.id = h.pipeline_entry_id
+		JOIN notices n ON n.id = pe.notice_id
+		JOIN company_profiles cp ON cp.id = pe.company_profile_id
+		WHERE h.changed_by = 'SYSTEM'
+		ORDER BY h.created_at DESC
+		LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		s.logger.Error("admin-automation-history: query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	defer rows.Close()
+
+	items := []adminAutomationHistoryItem{}
+	for rows.Next() {
+		var it adminAutomationHistoryItem
+		var company, externalID, fromStatus, reason sql.NullString
+		if err := rows.Scan(&it.CreatedAt, &company, &it.NoticeTitle, &externalID,
+			&fromStatus, &it.ToStatus, &reason, &it.TriggerType); err != nil {
+			s.logger.Error("admin-automation-history: scan failed", "error", err)
+			continue
+		}
+		it.CompanyName = nullStringPtr(company)
+		it.ExternalNoticeID = nullStringPtr(externalID)
+		it.FromStatus = nullStringPtr(fromStatus)
+		it.Reason = nullStringPtr(reason)
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		s.logger.Error("admin-automation-history: rows iteration failed", "error", err)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "limit": limit, "offset": offset})
+}
+
 // handleAdminNotificationFailures — GET /api/admin/notification-failures
 // (Phase 5 2단계). notification_log에 실패(status='failed')가 계속
 // 쌓여도 지금까지 서버 로그로만 남고 볼 방법이 없었다 — 최근 실패 건을

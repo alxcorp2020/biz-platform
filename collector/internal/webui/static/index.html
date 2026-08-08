@@ -13889,12 +13889,14 @@ async function renderAdminDashboard(container) {
     <div class="detail-card" id="admin-settings-section"></div>
     <div class="detail-card" id="admin-changelog-section"></div>
     <div class="detail-card" id="admin-system-status-section"></div>
+    <div class="detail-card" id="admin-automation-history-section"></div>
     <div class="detail-card" id="admin-notification-failures-section"></div>
   `));
 
   renderAdminSettingsSection(document.getElementById('admin-settings-section'));
   renderAdminSystemStatus(document.getElementById('admin-system-status-section'));
   renderAdminChangelogSection(document.getElementById('admin-changelog-section'));
+  renderAdminAutomationHistory(document.getElementById('admin-automation-history-section'));
   renderAdminNotificationFailures(document.getElementById('admin-notification-failures-section'));
 }
 
@@ -14153,6 +14155,58 @@ function renderLegalDocumentTypeSection(sectionEl, docType, label, historyItems,
 // 초기화 없이 renderAdminSystemStatus 등 진입 시점에 0으로 재선언되지
 // 않는 점 주의 — renderAdminNotificationFailures가 항상 이 값을
 // 로컬 인자로 받는 방식이라 매 호출마다 명시적으로 관리한다.
+// renderAdminAutomationHistory — 시스템(자동화)이 바꾼 파이프라인 상태 이력.
+// 자동 제외/자동 낙찰/자동 탈락/공고 취소 자동처리 등을 DB 직접 조회 없이
+// 관리자에서 확인한다. reason/trigger_type은 내부 코드 그대로 보여준다(운영용).
+async function renderAdminAutomationHistory(container, page) {
+  page = page || 0;
+  const limit = 20;
+  container.innerHTML = '<h3>자동화 상태변경 이력</h3><div class="loading">불러오는 중...</div>';
+  let data;
+  try {
+    data = await apiRequest('GET', `/api/admin/automation-history?limit=${limit}&offset=${page * limit}`);
+  } catch (err) {
+    container.innerHTML = `<h3>자동화 상태변경 이력</h3><p class="error">${escapeHtml(err.message)}</p>`;
+    return;
+  }
+  const items = data.items || [];
+  const total = data.total || 0;
+  if (!total) {
+    container.innerHTML = '<h3>자동화 상태변경 이력</h3><p class="empty">아직 자동으로 변경된 상태가 없습니다.</p>';
+    return;
+  }
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const rowsHtml = items.map(it => `
+    <tr>
+      <td>${escapeHtml(formatDateTime(it.createdAt))}</td>
+      <td>${escapeHtml(it.companyName || '-')}</td>
+      <td>${escapeHtml(it.noticeTitle)}${it.externalNoticeId ? `<br><span class="license-card-meta mono">${escapeHtml(it.externalNoticeId)}</span>` : ''}</td>
+      <td>${escapeHtml(it.fromStatus || '-')} → <b>${escapeHtml(it.toStatus)}</b></td>
+      <td>${escapeHtml(it.reason || '-')}</td>
+      <td class="mono">${escapeHtml(it.triggerType)}</td>
+    </tr>
+  `).join('');
+  container.innerHTML = `
+    <h3>자동화 상태변경 이력 (총 ${total}건)</h3>
+    <p class="license-card-meta">시스템이 자동으로 변경한 상태만 표시합니다(자동 제외/낙찰/탈락/공고 취소 등).</p>
+    <div class="pipeline-table-wrap">
+      <table class="pipeline-table">
+        <thead><tr><th>시각</th><th>회사</th><th>공고</th><th>상태 변경</th><th>사유</th><th>트리거</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+    <div class="license-toolbar" style="margin-top:0.75rem;align-items:center">
+      <button type="button" class="btn btn-secondary btn-sm" id="automation-hist-prev" ${page <= 0 ? 'disabled' : ''}>이전</button>
+      <span class="license-card-meta">${page + 1} / ${totalPages} 페이지</span>
+      <button type="button" class="btn btn-secondary btn-sm" id="automation-hist-next" ${page >= totalPages - 1 ? 'disabled' : ''}>다음</button>
+    </div>
+  `;
+  const prevBtn = document.getElementById('automation-hist-prev');
+  const nextBtn = document.getElementById('automation-hist-next');
+  if (prevBtn) prevBtn.addEventListener('click', () => renderAdminAutomationHistory(container, page - 1));
+  if (nextBtn) nextBtn.addEventListener('click', () => renderAdminAutomationHistory(container, page + 1));
+}
+
 async function renderAdminNotificationFailures(container, page) {
   page = page || 0;
   const limit = 20;
@@ -14300,6 +14354,8 @@ function renderAdminSystemStatus(container) {
     { path: '/api/admin/run-notifications', label: '이메일/SMS 알림 배치 실행' },
     { path: '/api/admin/run-pipeline-auto-transitions', label: '파이프라인 자동전환 실행' },
     { path: '/api/admin/run-award-history-ingestion', label: '낙찰이력 수집 실행' },
+    { path: '/api/admin/run-deadline-schedule', label: '마감 알림 스케줄러 실행' },
+    { path: '/api/admin/run-result-lookup', label: '개찰 결과조회 실행' },
     { path: '/api/admin/run-scheduled-downgrades', label: '예약된 플랜 다운그레이드 적용' },
     { path: '/api/admin/run-document-extraction', label: '제출서류/자격조건 추출 실행' },
   ];

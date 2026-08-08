@@ -227,6 +227,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/admin/industry-taxonomy", s.handleAdminCreateIndustryTaxonomy)
 	mux.HandleFunc("PATCH /api/admin/industry-taxonomy/{id}", s.handleAdminUpdateIndustryTaxonomy)
 	mux.HandleFunc("GET /api/admin/notification-failures", s.handleAdminNotificationFailures)
+	mux.HandleFunc("GET /api/admin/automation-history", s.handleAdminAutomationHistory)
 	mux.HandleFunc("GET /api/admin/settings", s.handleAdminGetSettings)
 	mux.HandleFunc("PUT /api/admin/settings/free-plan-email-limit", s.handleAdminSetFreePlanEmailLimit)
 	mux.HandleFunc("PUT /api/admin/settings/phone-verification-required", s.handleAdminSetPhoneVerificationRequired)
