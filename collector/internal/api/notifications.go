@@ -255,8 +255,10 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 		if err := rows.Scan(&r.entryID, &r.noticeID, &r.title, &r.org, &r.status, &r.profileID); err != nil {
 			continue
 		}
-		if !pipelineActiveForNotification[r.status] {
-			continue // 종결된 건은 마감이 와도 알릴 필요 없음
+		// Phase B(2026-08-09): 제출마감 리마인더는 "준비중"(실제 제출 준비 단계)에만
+		// 보낸다. 검토중(참여 결정 전)/제출완료·낙찰·탈락·제외(종결)는 대상 아님.
+		if r.status != "준비중" {
+			continue
 		}
 		targets = append(targets, r)
 	}
@@ -266,13 +268,43 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 	}
 	rows.Close()
 
+	// Phase B — 단순 "D-N"이 아니라 현재 제출서류 준비 현황을 문구에 결합한다
+	// ("필요서류 M개 중 K개 준비, 남은 준비 N개"). 보유='준비됨'으로 본다.
+	prepByEntry := map[string]string{}
+	if len(targets) > 0 {
+		ids := make([]string, len(targets))
+		for i, t := range targets {
+			ids[i] = t.entryID
+		}
+		prepRows, perr := s.db.QueryContext(ctx,
+			`SELECT pipeline_entry_id::text, count(*), count(*) FILTER (WHERE status = '보유')
+			 FROM pipeline_checklist_items WHERE pipeline_entry_id::text = ANY($1) GROUP BY 1`, pq.Array(ids))
+		if perr != nil {
+			s.logger.Error("notify: prep status query failed", "error", perr)
+		} else {
+			for prepRows.Next() {
+				var id string
+				var total, prepared int
+				if err := prepRows.Scan(&id, &total, &prepared); err == nil && total > 0 {
+					if total-prepared > 0 {
+						prepByEntry[id] = fmt.Sprintf(" 필요서류 %d개 중 %d개가 준비됐고, 남은 준비 %d개가 있습니다.", total, prepared, total-prepared)
+					} else {
+						prepByEntry[id] = fmt.Sprintf(" 필요서류 %d개가 모두 준비됐습니다.", total)
+					}
+				}
+			}
+			prepRows.Close()
+		}
+	}
+
 	for _, t := range targets {
 		entryID, noticeID := t.entryID, t.noticeID
+		prepSuffix := prepByEntry[entryID]
 
 		// 인앱 알림함은 이메일/SMS 채널 토글과 무관하게 항상 남는다 — 로그인
 		// 자체가 "받아볼 채널"이라 담당자별 email/sms 설정을 따로 타지 않는다.
 		inAppTitle := fmt.Sprintf("제출마감 D-%d · %s", offsetDays, t.title)
-		inAppBody := fmt.Sprintf("발주기관: %s", t.org.String)
+		inAppBody := fmt.Sprintf("발주기관: %s%s", t.org.String, prepSuffix)
 		if err := s.insertEntryScopedInAppNotification(ctx, t.profileID, eventType, entryID, noticeID, inAppTitle, inAppBody); err != nil {
 			s.logger.Error("notify: in-app notification insert failed", "error", err)
 		}
@@ -295,8 +327,14 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 				subject := fmt.Sprintf("[제출마감 D-%d] %s", offsetDays, t.title)
 				if emailAllowed {
 					body := fmt.Sprintf(
-						"<p>제출마감이 D-%d 남은 참여 건이 있습니다.</p><p><b>%s</b></p><p>발주기관: %s</p>",
+						"<p>제출마감이 D-%d 남은 참여 건이 있습니다.</p><p><b>%s</b></p><p>발주기관: %s</p>%s",
 						offsetDays, html.EscapeString(t.title), html.EscapeString(t.org.String),
+						func() string {
+							if prepSuffix != "" {
+								return "<p>" + html.EscapeString(strings.TrimSpace(prepSuffix)) + "</p>"
+							}
+							return ""
+						}(),
 					)
 					s.sendNotificationEmail(ctx, eventType, c.email, nil, &contactID, &entryID, &noticeID, subject, body)
 				} else {
