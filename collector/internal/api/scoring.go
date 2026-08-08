@@ -22,6 +22,10 @@ type noticeScoringInput struct {
 	Region       sql.NullString
 	Industry     sql.NullString
 	BudgetAmount sql.NullInt64
+	// IndustryRestricted — g2b indstrytyLmtYn(업종제한 여부). nil이면 미상(비-g2b
+	// 소스 등)이라 기존 그룹 매칭으로 폴백. 채우는 건 각 로드 지점의 선택이므로
+	// (옵셔널) 지정 안 하면 자연히 nil = 기존 동작.
+	IndustryRestricted *bool
 }
 
 type companyScoringInput struct {
@@ -108,7 +112,7 @@ func scoreNoticeForCompany(notice noticeScoringInput, company companyScoringInpu
 		return supportProgramScore()
 	}
 	regionResult, regionReason, regionGapSide := scoreRegion(notice.Region, company.Region)
-	industryResult, industryReason, industryGapSide := scoreIndustry(notice.Industry, company.Industry)
+	industryResult, industryReason, industryGapSide := scoreIndustry(notice.Industry, company.Industry, notice.IndustryRestricted)
 	budgetResult, budgetReason, budgetGapSide := scoreBudgetSize(notice.BudgetAmount, company.Size)
 
 	categories := []categoryScore{

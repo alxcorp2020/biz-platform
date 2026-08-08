@@ -378,6 +378,7 @@ type digestNoticeRow struct {
 	org, region, industry sql.NullString
 	budget                sql.NullInt64
 	deadline              sql.NullTime
+	industryRestricted    sql.NullBool
 }
 
 // digestOrDash returns "-" for an unset nullable string — 다이제스트
@@ -545,7 +546,7 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 	}
 
 	noticeRows, err := s.db.QueryContext(ctx, `
-		SELECT id, notice_type, title, organization_name, region, industry, budget_amount, application_end_at
+		SELECT id, notice_type, title, organization_name, region, industry, budget_amount, application_end_at, industry_restricted
 		FROM notices
 		WHERE status NOT IN ('closed','cancelled')
 		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
@@ -556,7 +557,7 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 	var notices []digestNoticeRow
 	for noticeRows.Next() {
 		var n digestNoticeRow
-		if err := noticeRows.Scan(&n.id, &n.noticeType, &n.title, &n.org, &n.region, &n.industry, &n.budget, &n.deadline); err != nil {
+		if err := noticeRows.Scan(&n.id, &n.noticeType, &n.title, &n.org, &n.region, &n.industry, &n.budget, &n.deadline, &n.industryRestricted); err != nil {
 			continue
 		}
 		notices = append(notices, n)
@@ -591,7 +592,7 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 				continue
 			}
 			score := scoreNoticeForCompany(
-				noticeScoringInput{NoticeType: n.noticeType, Region: n.region, Industry: n.industry, BudgetAmount: n.budget}, company,
+				noticeScoringInput{NoticeType: n.noticeType, Region: n.region, Industry: n.industry, BudgetAmount: n.budget, IndustryRestricted: nullBoolPtr(n.industryRestricted)}, company,
 			)
 			if score.Grade != gradeRecommended {
 				continue

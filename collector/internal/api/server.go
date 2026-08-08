@@ -452,7 +452,7 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT n.id, n.notice_type, n.title, n.organization_name, n.region, n.industry, n.status,
 		       n.application_end_at, n.budget_amount, n.official_url, n.current_version,
-		       (nb.id IS NOT NULL) AS is_bookmarked, n.region_restricted,
+		       (nb.id IS NOT NULL) AS is_bookmarked, n.region_restricted, n.industry_restricted,
 		       EXISTS(SELECT 1 FROM notice_changes nc WHERE nc.notice_id = n.id AND nc.created_at >= now() - interval '7 days') AS recently_changed,
 		       COUNT(*) OVER() AS total_count
 		FROM notices n
@@ -574,10 +574,10 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		var org, region, industry, officialURL sql.NullString
 		var budget sql.NullInt64
 		var deadline sql.NullTime
-		var regionRestricted sql.NullBool
+		var regionRestricted, industryRestricted sql.NullBool
 		var totalCount int
 		if err := rows.Scan(&it.ID, &it.NoticeType, &it.Title, &org, &region, &industry, &it.Status,
-			&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &regionRestricted,
+			&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &regionRestricted, &industryRestricted,
 			&it.RecentlyChanged, &totalCount); err != nil {
 			s.logger.Error("scan notice row failed", "error", err)
 			continue
@@ -597,7 +597,7 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 			it.ApplicationEndAt = &deadline.Time
 		}
 		if scoringCompany != nil {
-			score := scoreNoticeForCompany(noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget}, *scoringCompany)
+			score := scoreNoticeForCompany(noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)}, *scoringCompany)
 			it.Grade = score.Grade
 			it.GradeReason = score.GradeReason
 			it.JointVentureRecommended = score.JointVentureRecommended
@@ -641,19 +641,20 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	var org, region, industry, officialURL, department, sourceName sql.NullString
 	var budget sql.NullInt64
 	var deadline, publishedAt, firstCollectedAt, lastVerifiedAt sql.NullTime
+	var industryRestricted sql.NullBool
 
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT n.id, n.notice_type, n.title, n.organization_name, n.region, n.industry, n.status,
 		       n.application_end_at, n.budget_amount, n.official_url, n.current_version,
 		       (nb.id IS NOT NULL) AS is_bookmarked, n.department_name,
-		       n.published_at, n.first_collected_at, n.last_verified_at, ds.name
+		       n.published_at, n.first_collected_at, n.last_verified_at, ds.name, n.industry_restricted
 		FROM notices n
 		LEFT JOIN notice_bookmarks nb ON nb.notice_id = n.id AND nb.user_id = $2
 		LEFT JOIN data_sources ds ON ds.id = n.source_id
 		WHERE n.id = $1`, id, sql.NullString{String: userID, Valid: loggedIn},
 	).Scan(&it.ID, &it.NoticeType, &it.Title, &org, &region, &industry, &it.Status,
 		&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &department,
-		&publishedAt, &firstCollectedAt, &lastVerifiedAt, &sourceName)
+		&publishedAt, &firstCollectedAt, &lastVerifiedAt, &sourceName, &industryRestricted)
 
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notice_not_found"})
@@ -719,7 +720,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 				TrackRecordMaxAmount: trackRecordMax,
 			}
 			computed := scoreNoticeForCompany(
-				noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget},
+				noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)},
 				company,
 			)
 			score = &computed
@@ -785,7 +786,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	var impact *changeImpact
 	if score != nil && versionID != "" {
 		impact, err = s.computeLatestChangeImpact(r.Context(), versionID,
-			noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget}, company, *score)
+			noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)}, company, *score)
 		if err != nil {
 			s.logger.Error("compute change impact failed", "error", err)
 			impact = nil

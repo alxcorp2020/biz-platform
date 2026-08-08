@@ -189,7 +189,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	noticeRows, err := s.db.QueryContext(ctx, `
-		SELECT id, notice_type, title, organization_name, region, industry, budget_amount, application_end_at
+		SELECT id, notice_type, title, organization_name, region, industry, budget_amount, application_end_at, industry_restricted
 		FROM notices
 		WHERE status NOT IN ('closed','cancelled')
 		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
@@ -207,14 +207,15 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		var org, noticeRegion, noticeIndustry sql.NullString
 		var budget sql.NullInt64
 		var deadline sql.NullTime
-		if err := noticeRows.Scan(&id, &noticeType, &title, &org, &noticeRegion, &noticeIndustry, &budget, &deadline); err != nil {
+		var industryRestricted sql.NullBool
+		if err := noticeRows.Scan(&id, &noticeType, &title, &org, &noticeRegion, &noticeIndustry, &budget, &deadline, &industryRestricted); err != nil {
 			continue
 		}
 		if pipelinedNoticeIDs[id] {
 			continue // 이미 파이프라인에 있음 — 위에서 이미 처리됨
 		}
 		score := scoreNoticeForCompany(
-			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget},
+			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)},
 			company,
 		)
 		if score.Grade != gradeRecommended {
@@ -363,7 +364,7 @@ func (s *Server) computeEligibilityBucketSummary(ctx context.Context, company co
 	missingCounts := map[string]int{}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT notice_type, region, industry, budget_amount FROM notices
+		SELECT notice_type, region, industry, budget_amount, industry_restricted FROM notices
 		WHERE status NOT IN ('closed','cancelled')
 		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
 		LIMIT `+itoa(dashboardNoticeScanLimit))
@@ -376,11 +377,12 @@ func (s *Server) computeEligibilityBucketSummary(ctx context.Context, company co
 		var noticeType string
 		var noticeRegion, noticeIndustry sql.NullString
 		var budget sql.NullInt64
-		if err := rows.Scan(&noticeType, &noticeRegion, &noticeIndustry, &budget); err != nil {
+		var industryRestricted sql.NullBool
+		if err := rows.Scan(&noticeType, &noticeRegion, &noticeIndustry, &budget, &industryRestricted); err != nil {
 			continue
 		}
 		score := scoreNoticeForCompany(
-			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget},
+			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)},
 			company,
 		)
 
@@ -735,7 +737,7 @@ func (s *Server) computeAutomationSummary(ctx context.Context, company companySc
 	summary := automationSummary{SavedMinutesAssumption: fmt.Sprintf("공고 1건당 검토 %d분 가정", dashboardAssumedMinutesPerNotice)}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, notice_type, region, industry, budget_amount
+		SELECT id, notice_type, region, industry, budget_amount, industry_restricted
 		FROM notices
 		WHERE created_at >= date_trunc('month', now())
 		LIMIT `+itoa(dashboardNoticeScanLimit))
@@ -747,12 +749,13 @@ func (s *Server) computeAutomationSummary(ctx context.Context, company companySc
 		var id, noticeType string
 		var region, industry sql.NullString
 		var budget sql.NullInt64
-		if err := rows.Scan(&id, &noticeType, &region, &industry, &budget); err != nil {
+		var industryRestricted sql.NullBool
+		if err := rows.Scan(&id, &noticeType, &region, &industry, &budget, &industryRestricted); err != nil {
 			continue
 		}
 		noticeIDs = append(noticeIDs, id)
 		score := scoreNoticeForCompany(
-			noticeScoringInput{NoticeType: noticeType, Region: region, Industry: industry, BudgetAmount: budget}, company,
+			noticeScoringInput{NoticeType: noticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)}, company,
 		)
 		if score.Grade == gradeRecommended {
 			summary.NarrowedCount++

@@ -682,7 +682,7 @@ func (s *Server) attachPipelineGrades(ctx context.Context, profile *companyProfi
 		noticeIDs[i] = it.NoticeID
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, notice_type, region, industry, budget_amount FROM notices WHERE id = ANY($1)`,
+		`SELECT id, notice_type, region, industry, budget_amount, industry_restricted FROM notices WHERE id = ANY($1)`,
 		pq.Array(noticeIDs),
 	)
 	if err != nil {
@@ -696,10 +696,11 @@ func (s *Server) attachPipelineGrades(ctx context.Context, profile *companyProfi
 		var id, noticeType string
 		var noticeRegion, industry sql.NullString
 		var budget sql.NullInt64
-		if err := rows.Scan(&id, &noticeType, &noticeRegion, &industry, &budget); err != nil {
+		var industryRestricted sql.NullBool
+		if err := rows.Scan(&id, &noticeType, &noticeRegion, &industry, &budget, &industryRestricted); err != nil {
 			continue
 		}
-		notices[id] = noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: industry, BudgetAmount: budget}
+		notices[id] = noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)}
 	}
 
 	for i := range items {

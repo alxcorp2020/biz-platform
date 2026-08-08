@@ -167,9 +167,10 @@ func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 	var noticeRegion, noticeIndustry sql.NullString
 	var budgetAmount sql.NullInt64
 	var currentVersion int
+	var industryRestricted sql.NullBool
 	err = s.db.QueryRowContext(ctx,
-		`SELECT notice_type, region, industry, budget_amount, current_version FROM notices WHERE id = $1`, noticeID,
-	).Scan(&noticeType, &noticeRegion, &noticeIndustry, &budgetAmount, &currentVersion)
+		`SELECT notice_type, region, industry, budget_amount, current_version, industry_restricted FROM notices WHERE id = $1`, noticeID,
+	).Scan(&noticeType, &noticeRegion, &noticeIndustry, &budgetAmount, &currentVersion, &industryRestricted)
 	if err == sql.ErrNoRows {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notice_not_found"})
 		return
@@ -214,7 +215,7 @@ func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 			return
 		}
-		industryItem, err := s.evaluateIndustry(ctx, versionID, profileID, noticeIndustry, []string(companyIndustry))
+		industryItem, err := s.evaluateIndustry(ctx, versionID, profileID, noticeIndustry, []string(companyIndustry), nullBoolPtr(industryRestricted))
 		if err != nil {
 			s.logger.Error("evaluate: industry check failed", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
@@ -318,8 +319,22 @@ func (s *Server) evaluateRegion(ctx context.Context, versionID, profileID string
 // "company"는 기업 프로필에 업종 정보가 없는 경우(사용자가 "내 프로필"에서
 // 채우면 해결됨). insufficient_data가 아닌 경우(met/needs_confirmation)엔
 // 항상 빈 문자열.
-func scoreIndustry(noticeIndustry sql.NullString, companyGroups []string) (result, reason, dataGapSide string) {
+// industryRestricted(*bool)는 g2b의 indstrytyLmtYn(2026-08-08 Phase 0에서 저장)을
+// 반영한다: false면 이 공고는 업종 제한이 없으므로 어떤 업종이든 참가 가능 →
+// 업종 조건을 자동 충족으로 본다(정확도 개선의 핵심, 실측상 약 36%가 무제한).
+// nil(미상/비-g2b 소스)이면 기존 그룹 매칭 로직으로 폴백한다.
+func scoreIndustry(noticeIndustry sql.NullString, companyGroups []string, industryRestricted *bool) (result, reason, dataGapSide string) {
 	noticeRaw := strings.TrimSpace(noticeIndustry.String)
+
+	// 업종 제한이 없는 공고(indstrytyLmtYn=N)는 회사 업종/공고 분류와 무관하게 충족.
+	if industryRestricted != nil && !*industryRestricted {
+		return "met", "이 공고는 업종 제한이 없어(참가 제한 없음) 업종 조건을 충족합니다.", ""
+	}
+	// 업종 제한이 있는 공고(Y)는 아래 사유에 그 사실을 덧붙여 안내한다.
+	restrictNote := ""
+	if industryRestricted != nil && *industryRestricted {
+		restrictNote = "이 공고는 업종 제한이 있습니다. "
+	}
 
 	switch {
 	case !noticeIndustry.Valid || noticeRaw == "":
@@ -331,23 +346,33 @@ func scoreIndustry(noticeIndustry sql.NullString, companyGroups []string) (resul
 		switch {
 		case !known:
 			return "needs_confirmation", fmt.Sprintf(
-				"공고 업종(%s)이 자동 분류 목록에 없는 새로운 값입니다. 기업이 선택한 업종(%s)과 "+
+				"%s공고 업종(%s)이 자동 분류 목록에 없는 새로운 값입니다. 기업이 선택한 업종(%s)과 "+
 					"일치하는지 원문에서 직접 확인하세요.",
-				noticeRaw, strings.Join(companyGroups, ", ")), ""
+				restrictNote, noticeRaw, strings.Join(companyGroups, ", ")), ""
 		case containsString(companyGroups, noticeGroup):
 			return "met", fmt.Sprintf("공고 업종(%s, %s 분류)이 기업이 선택한 업종과 일치합니다.", noticeRaw, noticeGroup), ""
 		default:
 			return "needs_confirmation", fmt.Sprintf(
-				"공고 업종(%s, %s 분류)이 기업이 선택한 업종(%s)과 다릅니다. 업종 분류가 정확한 표준 "+
+				"%s공고 업종(%s, %s 분류)이 기업이 선택한 업종(%s)과 다릅니다. 업종 분류가 정확한 표준 "+
 					"산업분류가 아니므로 실제로는 겹칠 수 있으니 원문에서 직접 확인하세요.",
-				noticeRaw, noticeGroup, strings.Join(companyGroups, ", ")), ""
+				restrictNote, noticeRaw, noticeGroup, strings.Join(companyGroups, ", ")), ""
 		}
 	}
 }
 
-func (s *Server) evaluateIndustry(ctx context.Context, versionID, profileID string, noticeIndustry sql.NullString, companyGroups []string) (eligibilityItem, error) {
+// nullBoolPtr — 스캔한 sql.NullBool을 *bool로(NULL이면 nil). 업종제한 등
+// nullable BOOLEAN 컬럼을 noticeScoringInput.IndustryRestricted로 옮길 때 쓴다.
+func nullBoolPtr(nb sql.NullBool) *bool {
+	if nb.Valid {
+		b := nb.Bool
+		return &b
+	}
+	return nil
+}
+
+func (s *Server) evaluateIndustry(ctx context.Context, versionID, profileID string, noticeIndustry sql.NullString, companyGroups []string, industryRestricted *bool) (eligibilityItem, error) {
 	noticeRaw := strings.TrimSpace(noticeIndustry.String)
-	result, reason, _ := scoreIndustry(noticeIndustry, companyGroups)
+	result, reason, _ := scoreIndustry(noticeIndustry, companyGroups, industryRestricted)
 
 	conditionID, err := s.findOrCreateAutoCondition(ctx, versionID,
 		"업종", "auto:industry", "eq", noticeRaw,

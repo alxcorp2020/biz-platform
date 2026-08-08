@@ -237,7 +237,7 @@ func (s *Server) fetchGradeDistribution(ctx context.Context, profile *companyPro
 // 매번 재계산이 아니라 실제 시계열이 되게 한다(growthTrendPoint 참고).
 func (s *Server) gradeDistributionForCompany(ctx context.Context, company companyScoringInput) ([]gradeDistributionItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT notice_type, region, industry, budget_amount FROM notices
+		SELECT notice_type, region, industry, budget_amount, industry_restricted FROM notices
 		WHERE status NOT IN ('closed','cancelled')
 		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
 		LIMIT `+itoa(dashboardNoticeScanLimit))
@@ -251,11 +251,12 @@ func (s *Server) gradeDistributionForCompany(ctx context.Context, company compan
 		var noticeType string
 		var noticeRegion, noticeIndustry sql.NullString
 		var budget sql.NullInt64
-		if err := rows.Scan(&noticeType, &noticeRegion, &noticeIndustry, &budget); err != nil {
+		var industryRestricted sql.NullBool
+		if err := rows.Scan(&noticeType, &noticeRegion, &noticeIndustry, &budget, &industryRestricted); err != nil {
 			continue
 		}
 		score := scoreNoticeForCompany(
-			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget},
+			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)},
 			company,
 		)
 		counts[score.Grade]++
