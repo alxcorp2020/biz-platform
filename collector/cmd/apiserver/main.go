@@ -271,6 +271,11 @@ func startBackgroundCollection(dsn string, logger *slog.Logger, srv *api.Server)
 
 		runOnce := func() {
 			res := rn.RunIncremental(ctx, time.Time{})
+			if res.Status == runner.StatusFailed {
+				logger.Error("background collection cycle failed",
+					"status", res.Status, "processed", res.ProcessedCount, "success", res.SuccessCount, "errors", res.Errors)
+				return
+			}
 			logger.Info("background collection cycle finished",
 				"status", res.Status, "processed", res.ProcessedCount, "success", res.SuccessCount)
 		}
@@ -310,6 +315,13 @@ func startBackgroundBizinfoCollection(dsn string, logger *slog.Logger, srv *api.
 
 		runOnce := func() {
 			res := rn.RunIncremental(ctx, time.Time{})
+			if res.Status == runner.StatusFailed {
+				// 실패 사유(예: bizinfo api error: 존재하지 않는 인증키)는 res.Errors에만
+				// 담겨 기존엔 로그에 안 나왔다 — 원인 파악을 위해 반드시 함께 남긴다.
+				logger.Error("background bizinfo collection cycle failed",
+					"status", res.Status, "processed", res.ProcessedCount, "success", res.SuccessCount, "errors", res.Errors)
+				return
+			}
 			logger.Info("background bizinfo collection cycle finished",
 				"status", res.Status, "processed", res.ProcessedCount, "success", res.SuccessCount)
 		}
