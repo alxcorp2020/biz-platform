@@ -409,6 +409,17 @@ func ensureIndustryTaxonomyTable(ctx context.Context, db *sql.DB) error {
 		) t WHERE rn = 1
 		ON CONFLICT (mid_name) DO NOTHING;
 	`)
+	if err != nil {
+		return err
+	}
+	// "기타"는 미분류 버킷이라 선택지에서 제외한다(2026-08-08). 회사가 "기타"를
+	// 고르면 지역·예산만 걸러진 셈이라 공고 검색과 차이가 없어 정확도에 기여하지
+	// 않는다. 매칭(scoreIndustry)에서도 "기타"는 met으로 치지 않으므로 선택지로
+	// 남겨둘 이유가 없다. 위 동기화가 notices의 "기타"를 active=true로 새로 넣을 수
+	// 있어(신규 DB) 매 시작 시 확실히 비활성화한다 — active로 필터하는 picker/AI enum
+	// 두 producer 모두에서 자동으로 빠진다. (notices.industry의 "기타"는 그대로 두어
+	// 공고 분류 자체는 보존한다.)
+	_, err = db.ExecContext(ctx, `UPDATE industry_taxonomy SET active = false WHERE mid_name = '기타' AND active`)
 	return err
 }
 

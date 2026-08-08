@@ -158,7 +158,15 @@ func (s *Server) extractBusinessRegistrationCandidate(ctx context.Context, body 
 	// 10그룹으로 폴백한다(매칭은 두 값을 다 처리하므로 안전 — expandCompanyIndustries).
 	industryEnum := s.activeIndustryMids(ctx)
 	if len(industryEnum) == 0 {
-		industryEnum = industryGroups
+		// taxonomy가 비어 있을 때만 레거시 폴백. "기타"는 선택지에서 제외한다
+		// (activeIndustryMids는 industry_taxonomy에서 이미 비활성 처리로 빠지지만,
+		// 폴백 경로에도 동일 원칙을 적용).
+		for _, g := range industryGroups {
+			if g == "기타" {
+				continue
+			}
+			industryEnum = append(industryEnum, g)
+		}
 	}
 
 	var docBlock anthropic.ContentBlockParamUnion
