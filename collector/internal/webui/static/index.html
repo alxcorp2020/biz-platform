@@ -2164,6 +2164,13 @@
   .changelog-date { font-weight: 600; color: var(--ink); margin-bottom: 0.3rem; }
   .changelog-items { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.9rem; color: var(--ink-soft); }
   .tech-spec-list { margin: 0.4rem 0 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.9rem; }
+  /* 개발 스택 개요 항목 */
+  .stack-item { padding: 0.7rem 0; border-top: 1px solid var(--border); }
+  .stack-item:first-of-type { border-top: none; padding-top: 0.3rem; }
+  .stack-item-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .stack-item-name { font-weight: 700; color: var(--ink); }
+  .stack-item-detail summary { cursor: pointer; color: var(--accent-blue); font-size: 0.85rem; margin-top: 0.3rem; width: fit-content; }
+  .stack-item-detail p { margin: 0.4rem 0 0; font-size: 0.88rem; color: var(--ink-soft); line-height: 1.65; }
   .integration-env-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.15rem; }
   .integration-env-list code { font-size: 0.8rem; }
 
@@ -14074,10 +14081,37 @@ async function renderAdminTechSpec(container) {
 
   const listHtml = (items) => `<ul class="tech-spec-list">${(items || []).map(i => `<li class="mono">${escapeHtml(i)}</li>`).join('')}</ul>`;
 
+  // 개발 스택 개요 — 카테고리별로 묶고, 항목마다 [상세보기]로 구현 내역을 펼친다.
+  const stack = data.stack || [];
+  const stackCats = [];
+  const stackByCat = {};
+  stack.forEach(it => {
+    if (!stackByCat[it.category]) { stackByCat[it.category] = []; stackCats.push(it.category); }
+    stackByCat[it.category].push(it);
+  });
+  const stackHtml = stackCats.map(cat => `
+    <div class="detail-card">
+      <h3>${escapeHtml(cat)}</h3>
+      ${stackByCat[cat].map(it => `
+        <div class="stack-item">
+          <div class="stack-item-head">
+            <span class="stack-item-name">${escapeHtml(it.name)}</span>
+            <span class="badge badge--gray">${escapeHtml(it.version)}</span>
+          </div>
+          <p class="license-card-meta">${escapeHtml(it.summary)}</p>
+          <details class="stack-item-detail"><summary>상세보기</summary><p>${escapeHtml(it.detail)}</p></details>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+
   container.innerHTML = '';
   container.appendChild(h(`
     <a href="#/admin" class="back-link">&larr; 관리자 대시보드로</a>
-    <h2>기술 스펙</h2>
+    <h2>개발 스택</h2>
+    <p class="license-card-meta">현재 공공사업 참여 플랫폼이 구현한 기술 스택 개요입니다. 각 항목의 [상세보기]로 구현 내역·핵심 파일·비고를 확인할 수 있습니다.</p>
+    ${stackHtml}
+    <h2 style="margin-top:1.5rem">상세 기술 스펙</h2>
     <div class="detail-card">
       <h3>백엔드</h3>
       <p class="license-card-meta">Go ${escapeHtml(data.backend.goVersion)} · ${escapeHtml(data.backend.framework)}</p>
