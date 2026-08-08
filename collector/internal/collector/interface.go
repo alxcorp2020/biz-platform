@@ -76,6 +76,17 @@ type NormalizedNotice struct {
 	ProcurementClassLarge  string // 대분류명(pubPrcrmntLrgClsfcNm)
 	ProcurementClassDetail string // 세분류명(pubPrcrmntClsfcNm)
 	IndustryRestricted     *bool  // 업종제한 여부(indstrytyLmtYn Y/N). RegionRestricted와 동일하게 nil=미상
+
+	// 시각 포함 일정 필드(2026-08-09 추가, Phase C 후속). 기존 Application*At은
+	// date 단위라 시간 자동화(H-6/H-2 등)에 못 쓴다 — g2b 응답이 원래 주던
+	// HH:MM까지 살려 별도 TIMESTAMPTZ 컬럼에 담는다. g2b만 채우므로 다른
+	// 소스는 nil/빈값. ApplicationStart/EndDatetime은 기존 date 컬럼과 공존한다.
+	ApplicationStartDatetime *time.Time // bidBeginDt(제출시작 일시)
+	ApplicationEndDatetime   *time.Time // bidClseDt(제출마감 일시)
+	QualificationDeadlineAt  *time.Time // bidQlfctRgstDt(참가자격등록마감 일시)
+	OpeningAt                *time.Time // opengDt(개찰 일시)
+	RebidOpeningAt           *time.Time // rbidOpengDt(재입찰 개찰 일시)
+	SuccessBidMethodName     string     // sucsfbidMthdNm(낙찰방법명 — 협상/공동수급 자동탈락 게이팅용)
 }
 
 // Collector is the contract every source package (g2b, bizinfo, ...) implements.

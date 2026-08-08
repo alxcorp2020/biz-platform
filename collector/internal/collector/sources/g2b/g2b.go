@@ -92,6 +92,13 @@ type bidItem struct {
 	BidBeginDt string `json:"bidBeginDt"` // 입찰개시일시
 	BidClseDt  string `json:"bidClseDt"`  // 입찰마감일시
 
+	// 2026-08-09 Phase C 후속 — 그동안 안 읽던 시각 포함 일정 필드(응답에 원래
+	// 있었음). 시간단위 자동화(자격마감 H-6, 제출마감 H-2, 개찰 결과조회)에 쓴다.
+	BidQlfctRgstDt string `json:"bidQlfctRgstDt"` // 참가자격등록마감 일시
+	OpengDt        string `json:"opengDt"`        // 개찰 일시
+	RbidOpengDt    string `json:"rbidOpengDt"`    // 재입찰 개찰 일시
+	SucsfbidMthdNm string `json:"sucsfbidMthdNm"` // 낙찰방법명(협상/공동수급 자동탈락 게이팅)
+
 	AsignBdgtAmt string `json:"asignBdgtAmt"` // 배정예산액
 
 	PubPrcrmntMidClsfcNm string `json:"pubPrcrmntMidClsfcNm"` // 공공조달분류 중분류명 (업종 근사치, notices.industry로 저장)
@@ -385,19 +392,37 @@ func (s *Source) Normalize(ctx context.Context, doc collector.RawDocument) (coll
 	}
 	if t, err := parseG2BTime(it.BidBeginDt); err == nil {
 		n.ApplicationStartAt = &t
+		n.ApplicationStartDatetime = &t
 	}
 	if t, err := parseG2BTime(it.BidClseDt); err == nil {
 		n.ApplicationEndAt = &t
+		n.ApplicationEndDatetime = &t
 	}
+	if t, err := parseG2BTime(it.BidQlfctRgstDt); err == nil {
+		n.QualificationDeadlineAt = &t
+	}
+	if t, err := parseG2BTime(it.OpengDt); err == nil {
+		n.OpeningAt = &t
+	}
+	if t, err := parseG2BTime(it.RbidOpengDt); err == nil {
+		n.RebidOpeningAt = &t
+	}
+	n.SuccessBidMethodName = strings.TrimSpace(it.SucsfbidMthdNm)
 	if amt, err := strconv.ParseInt(it.AsignBdgtAmt, 10, 64); err == nil && amt > 0 {
 		n.BudgetAmount = &amt
 	}
 	return n, nil
 }
 
+// parseG2BTime — g2b 일시 파싱. 실측상 초까지 오는 값('...:00')과 분까지만 오는
+// 값('...HH:MM')이 섞여 있어 두 형식을 모두 시도한다(KST=time.Local).
 func parseG2BTime(v string) (time.Time, error) {
+	v = strings.TrimSpace(v)
 	if v == "" {
 		return time.Time{}, fmt.Errorf("empty timestamp")
 	}
-	return time.ParseInLocation("2006-01-02 15:04:05", v, time.Local)
+	if t, err := time.ParseInLocation("2006-01-02 15:04:05", v, time.Local); err == nil {
+		return t, nil
+	}
+	return time.ParseInLocation("2006-01-02 15:04", v, time.Local)
 }

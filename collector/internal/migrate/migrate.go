@@ -253,6 +253,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensurePipelineAutomationSchema(ctx, db); err != nil {
 		return fmt.Errorf("migrate pipeline automation schema: %w", err)
 	}
+	if err := ensureNoticeDatetimeColumnsAndBackfill(ctx, db); err != nil {
+		return fmt.Errorf("migrate notice datetime columns/backfill: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -399,6 +402,59 @@ func migratePipelineStatusesToSixStage(ctx context.Context, db *sql.DB) error {
 		if _, err := db.ExecContext(ctx, q); err != nil {
 			return fmt.Errorf("%s: %w", q, err)
 		}
+	}
+	return nil
+}
+
+// ensureNoticeDatetimeColumnsAndBackfill — 2026-08-09 Phase C 후속. g2b 응답엔
+// 개찰일시(opengDt)·참가자격등록마감(bidQlfctRgstDt)·제출시작/마감(bidBeginDt/
+// bidClseDt)이 시각(HH:MM)까지 있는데 그동안 date로만(또는 아예 미저장) 담았다.
+// 회귀 방지를 위해 기존 DATE 컬럼은 그대로 두고 신규 TIMESTAMPTZ 컬럼을 추가한 뒤,
+// 이미 저장된 raw_documents(원본 JSON)로 백필한다(외부 API 재호출 없음).
+// g2b 시각은 KST라 'Asia/Seoul'로 해석한다. 멱등: 컬럼은 IF NOT EXISTS, 백필은
+// 대상 컬럼이 NULL인 행만(COALESCE) 채우므로 재실행 시 no-op.
+func ensureNoticeDatetimeColumnsAndBackfill(ctx context.Context, db *sql.DB) error {
+	cols := []string{
+		`ALTER TABLE notices ADD COLUMN IF NOT EXISTS application_start_datetime TIMESTAMPTZ`,
+		`ALTER TABLE notices ADD COLUMN IF NOT EXISTS application_end_datetime TIMESTAMPTZ`,
+		`ALTER TABLE notices ADD COLUMN IF NOT EXISTS qualification_deadline_at TIMESTAMPTZ`,
+		`ALTER TABLE notices ADD COLUMN IF NOT EXISTS opening_at TIMESTAMPTZ`,
+		`ALTER TABLE notices ADD COLUMN IF NOT EXISTS rebid_opening_at TIMESTAMPTZ`,
+		`ALTER TABLE notices ADD COLUMN IF NOT EXISTS success_bid_method_name TEXT`,
+	}
+	for _, q := range cols {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("%s: %w", q, err)
+		}
+	}
+	// 백필: external_notice_id별 최신 raw에서 각 datetime을 뽑아 채운다. 값 형식은
+	// 'YYYY-MM-DD HH:MM(:SS)?'라 정규식으로 검증한 것만 캐스팅(잡값 방어).
+	backfill := `
+		WITH latest_raw AS (
+		  SELECT DISTINCT ON (external_notice_id) external_notice_id,
+		    CASE WHEN raw_content::jsonb->>'bidBeginDt'     ~ '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}' THEN (raw_content::jsonb->>'bidBeginDt')::timestamp     AT TIME ZONE 'Asia/Seoul' END AS start_dt,
+		    CASE WHEN raw_content::jsonb->>'bidClseDt'      ~ '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}' THEN (raw_content::jsonb->>'bidClseDt')::timestamp      AT TIME ZONE 'Asia/Seoul' END AS end_dt,
+		    CASE WHEN raw_content::jsonb->>'bidQlfctRgstDt' ~ '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}' THEN (raw_content::jsonb->>'bidQlfctRgstDt')::timestamp AT TIME ZONE 'Asia/Seoul' END AS qual_dt,
+		    CASE WHEN raw_content::jsonb->>'opengDt'        ~ '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}' THEN (raw_content::jsonb->>'opengDt')::timestamp        AT TIME ZONE 'Asia/Seoul' END AS openg_dt,
+		    CASE WHEN raw_content::jsonb->>'rbidOpengDt'    ~ '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}' THEN (raw_content::jsonb->>'rbidOpengDt')::timestamp    AT TIME ZONE 'Asia/Seoul' END AS rbid_dt,
+		    NULLIF(raw_content::jsonb->>'sucsfbidMthdNm','') AS method
+		  FROM raw_documents
+		  WHERE raw_content LIKE '%opengDt%'
+		  ORDER BY external_notice_id, collected_at DESC
+		)
+		UPDATE notices n SET
+		  application_start_datetime = COALESCE(n.application_start_datetime, lr.start_dt),
+		  application_end_datetime   = COALESCE(n.application_end_datetime, lr.end_dt),
+		  qualification_deadline_at  = COALESCE(n.qualification_deadline_at, lr.qual_dt),
+		  opening_at                 = COALESCE(n.opening_at, lr.openg_dt),
+		  rebid_opening_at           = COALESCE(n.rebid_opening_at, lr.rbid_dt),
+		  success_bid_method_name    = COALESCE(n.success_bid_method_name, lr.method)
+		FROM latest_raw lr
+		WHERE lr.external_notice_id = n.external_notice_id
+		  AND (n.opening_at IS NULL OR n.application_end_datetime IS NULL OR n.qualification_deadline_at IS NULL
+		       OR n.application_start_datetime IS NULL OR n.success_bid_method_name IS NULL)`
+	if _, err := db.ExecContext(ctx, backfill); err != nil {
+		return fmt.Errorf("backfill notice datetimes: %w", err)
 	}
 	return nil
 }
