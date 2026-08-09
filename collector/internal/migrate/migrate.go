@@ -253,8 +253,8 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensurePipelineAutomationSchema(ctx, db); err != nil {
 		return fmt.Errorf("migrate pipeline automation schema: %w", err)
 	}
-	if err := ensureNoticeDatetimeColumnsAndBackfill(ctx, db); err != nil {
-		return fmt.Errorf("migrate notice datetime columns/backfill: %w", err)
+	if err := ensureNoticeDatetimeColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate notice datetime columns: %w", err)
 	}
 	if err := ensureDeadlineSchedulerSchema(ctx, db); err != nil {
 		return fmt.Errorf("migrate deadline scheduler schema: %w", err)
@@ -375,48 +375,33 @@ func ensureNoticeProcurementClassColumns(ctx context.Context, db *sql.DB) error 
 	`); err != nil {
 		return err
 	}
-	// 🚨 2026-08-09: 이 백필도 raw_documents를 LIKE로 스캔하는 무거운 쿼리라 매
-	// 부팅마다 돌리면 안 된다(startup 블로킹 → 배포 실패). schema_backfills 마커로
-	// 1회만 실행하고, 이미 채워진 DB는 무거운 스캔을 건너뛰고 마커만 남긴다.
-	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_backfills (
-		name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
-		return fmt.Errorf("ensure schema_backfills: %w", err)
-	}
-	var marked bool
-	if err := db.QueryRowContext(ctx,
-		`SELECT EXISTS(SELECT 1 FROM schema_backfills WHERE name = 'notice_procurement_class_backfill_v1')`).Scan(&marked); err != nil {
-		return fmt.Errorf("check procurement backfill marker: %w", err)
-	}
-	if marked {
-		return nil
-	}
-	var alreadyPopulated bool
-	if err := db.QueryRowContext(ctx,
-		`SELECT EXISTS(SELECT 1 FROM notices WHERE procurement_class_code IS NOT NULL)`).Scan(&alreadyPopulated); err != nil {
-		return fmt.Errorf("check procurement populated: %w", err)
-	}
-	if !alreadyPopulated {
-		if _, err := db.ExecContext(ctx, `
-			UPDATE notices n SET
-				procurement_class_code   = NULLIF(r.raw_content::jsonb->>'pubPrcrmntClsfcNo',''),
-				procurement_class_large  = NULLIF(r.raw_content::jsonb->>'pubPrcrmntLrgClsfcNm',''),
-				procurement_class_detail = NULLIF(r.raw_content::jsonb->>'pubPrcrmntClsfcNm',''),
-				industry_restricted      = CASE r.raw_content::jsonb->>'indstrytyLmtYn'
-				                             WHEN 'Y' THEN true WHEN 'N' THEN false ELSE NULL END
-			FROM notice_versions v
-			JOIN raw_documents r ON r.id = v.raw_document_id
-			WHERE v.notice_id = n.id AND v.is_current
-			  AND n.procurement_class_code IS NULL
-			  AND r.raw_content LIKE '%pubPrcrmntClsfcNo%';
-		`); err != nil {
-			return err
-		}
-	}
-	if _, err := db.ExecContext(ctx,
-		`INSERT INTO schema_backfills (name) VALUES ('notice_procurement_class_backfill_v1') ON CONFLICT DO NOTHING`); err != nil {
-		return fmt.Errorf("mark procurement backfill done: %w", err)
-	}
+	// 🚨 2026-08-09: 이 백필도 raw_documents를 LIKE로 스캔하는 무거운 쿼리라
+	// startup에서 돌리면 배포가 블로킹된다. 컬럼 추가만 startup에 두고, 백필은
+	// 관리자 수동 실행(RunProcurementClassBackfill)으로 분리한다.
 	return nil
+}
+
+// RunProcurementClassBackfill — 관리자 수동 실행용(startup 아님). 현재버전의
+// raw_content에서 공공조달분류 코드/계층/업종제한을 재파싱해 채운다. 멱등:
+// procurement_class_code IS NULL인 행만 채운다. 반환값은 갱신 행 수.
+func RunProcurementClassBackfill(ctx context.Context, db *sql.DB) (int64, error) {
+	res, err := db.ExecContext(ctx, `
+		UPDATE notices n SET
+			procurement_class_code   = NULLIF(r.raw_content::jsonb->>'pubPrcrmntClsfcNo',''),
+			procurement_class_large  = NULLIF(r.raw_content::jsonb->>'pubPrcrmntLrgClsfcNm',''),
+			procurement_class_detail = NULLIF(r.raw_content::jsonb->>'pubPrcrmntClsfcNm',''),
+			industry_restricted      = CASE r.raw_content::jsonb->>'indstrytyLmtYn'
+			                             WHEN 'Y' THEN true WHEN 'N' THEN false ELSE NULL END
+		FROM notice_versions v
+		JOIN raw_documents r ON r.id = v.raw_document_id
+		WHERE v.notice_id = n.id AND v.is_current
+		  AND n.procurement_class_code IS NULL
+		  AND r.raw_content LIKE '%pubPrcrmntClsfcNo%'`)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // migratePipelineStatusesToSixStage — 2026-08-09. 파이프라인 상태를 9단계에서
@@ -442,14 +427,15 @@ func migratePipelineStatusesToSixStage(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// ensureNoticeDatetimeColumnsAndBackfill — 2026-08-09 Phase C 후속. g2b 응답엔
-// 개찰일시(opengDt)·참가자격등록마감(bidQlfctRgstDt)·제출시작/마감(bidBeginDt/
-// bidClseDt)이 시각(HH:MM)까지 있는데 그동안 date로만(또는 아예 미저장) 담았다.
-// 회귀 방지를 위해 기존 DATE 컬럼은 그대로 두고 신규 TIMESTAMPTZ 컬럼을 추가한 뒤,
-// 이미 저장된 raw_documents(원본 JSON)로 백필한다(외부 API 재호출 없음).
-// g2b 시각은 KST라 'Asia/Seoul'로 해석한다. 멱등: 컬럼은 IF NOT EXISTS, 백필은
-// 대상 컬럼이 NULL인 행만(COALESCE) 채우므로 재실행 시 no-op.
-func ensureNoticeDatetimeColumnsAndBackfill(ctx context.Context, db *sql.DB) error {
+// ensureNoticeDatetimeColumns — 2026-08-09 Phase C 후속. g2b 응답의 시각 포함
+// 일정 필드를 담을 TIMESTAMPTZ 컬럼을 추가한다(기존 DATE 컬럼은 유지).
+// 🚨 2026-08-09 운영 배포 실패 수정: 예전엔 여기서 raw_documents 전체를 LIKE로
+// 스캔하는 무거운 백필 UPDATE를 startup에서 돌렸는데, 수집 데이터가 커지면서
+// 이 쿼리가 migrate.Apply(로깅/ListenAndServe보다 먼저 돎)를 오래 블로킹해 Render
+// 헬스체크 포트 오픈 전에 배포가 "No open ports"로 실패했다. → startup에선 가벼운
+// 컬럼 추가만 하고, 무거운 백필은 관리자 수동 실행(RunNoticeDatetimeBackfill)으로
+// 분리한다(서비스가 살아있는 상태에서 여유있게 1회 실행).
+func ensureNoticeDatetimeColumns(ctx context.Context, db *sql.DB) error {
 	cols := []string{
 		`ALTER TABLE notices ADD COLUMN IF NOT EXISTS application_start_datetime TIMESTAMPTZ`,
 		`ALTER TABLE notices ADD COLUMN IF NOT EXISTS application_end_datetime TIMESTAMPTZ`,
@@ -463,38 +449,14 @@ func ensureNoticeDatetimeColumnsAndBackfill(ctx context.Context, db *sql.DB) err
 			return fmt.Errorf("%s: %w", q, err)
 		}
 	}
+	return nil
+}
 
-	// 🚨 2026-08-09 운영 배포 실패 수정: 아래 백필은 raw_documents(대용량)를 통째로
-	// LIKE 스캔하는 무거운 UPDATE라, 매 부팅마다 실행하면 안 된다. 수집기가 raw를
-	// 매일 쌓으면서 이 쿼리가 점점 느려져 startup에서 오래 블로킹됐고, Render가
-	// 헬스체크 포트 오픈 전에 배포를 "No open ports"로 실패 처리했다(앱 로그가
-	// 안 남는 이유: migrate.Apply가 로깅/ListenAndServe보다 먼저 돎).
-	// → schema_backfills 마커로 "정확히 1회만" 실행한다. 이미 opening_at이 채워진
-	//    DB(과거 배포에서 백필 완료)에서는 무거운 스캔을 아예 건너뛰고 마커만 남겨
-	//    부팅을 즉시 통과시킨다. 컬럼 추가(위)는 가벼워 매 부팅 그대로 둔다.
-	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_backfills (
-		name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
-		return fmt.Errorf("ensure schema_backfills: %w", err)
-	}
-	var marked bool
-	if err := db.QueryRowContext(ctx,
-		`SELECT EXISTS(SELECT 1 FROM schema_backfills WHERE name = 'notice_datetime_backfill_v1')`).Scan(&marked); err != nil {
-		return fmt.Errorf("check backfill marker: %w", err)
-	}
-	if marked {
-		return nil // 이미 1회 실행/스킵 처리됨 — 무거운 스캔 재실행 안 함
-	}
-	// 마커가 없어도, 이미 백필이 완료된 흔적(opening_at 존재)이 있으면 무거운
-	// 스캔을 생략한다(EXISTS는 첫 non-null에서 멈춰 빠름). 이 경우 마커만 남긴다.
-	var alreadyPopulated bool
-	if err := db.QueryRowContext(ctx,
-		`SELECT EXISTS(SELECT 1 FROM notices WHERE opening_at IS NOT NULL)`).Scan(&alreadyPopulated); err != nil {
-		return fmt.Errorf("check backfill populated: %w", err)
-	}
-	if !alreadyPopulated {
-		// 백필: external_notice_id별 최신 raw에서 각 datetime을 뽑아 채운다. 값 형식은
-		// 'YYYY-MM-DD HH:MM(:SS)?'라 정규식으로 검증한 것만 캐스팅(잡값 방어).
-		backfill := `
+// RunNoticeDatetimeBackfill — 관리자 수동 실행용(startup 아님). external_notice_id별
+// 최신 raw에서 datetime을 뽑아 채운다. 값 형식은 'YYYY-MM-DD HH:MM(:SS)?'라 정규식
+// 검증한 것만 캐스팅. 멱등: NULL인 행만 COALESCE로 채운다. 반환값은 갱신 행 수.
+func RunNoticeDatetimeBackfill(ctx context.Context, db *sql.DB) (int64, error) {
+	res, err := db.ExecContext(ctx, `
 		WITH latest_raw AS (
 		  SELECT DISTINCT ON (external_notice_id) external_notice_id,
 		    CASE WHEN raw_content::jsonb->>'bidBeginDt'     ~ '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}' THEN (raw_content::jsonb->>'bidBeginDt')::timestamp     AT TIME ZONE 'Asia/Seoul' END AS start_dt,
@@ -517,16 +479,12 @@ func ensureNoticeDatetimeColumnsAndBackfill(ctx context.Context, db *sql.DB) err
 		FROM latest_raw lr
 		WHERE lr.external_notice_id = n.external_notice_id
 		  AND (n.opening_at IS NULL OR n.application_end_datetime IS NULL OR n.qualification_deadline_at IS NULL
-		       OR n.application_start_datetime IS NULL OR n.success_bid_method_name IS NULL)`
-		if _, err := db.ExecContext(ctx, backfill); err != nil {
-			return fmt.Errorf("backfill notice datetimes: %w", err)
-		}
+		       OR n.application_start_datetime IS NULL OR n.success_bid_method_name IS NULL)`)
+	if err != nil {
+		return 0, err
 	}
-	if _, err := db.ExecContext(ctx,
-		`INSERT INTO schema_backfills (name) VALUES ('notice_datetime_backfill_v1') ON CONFLICT DO NOTHING`); err != nil {
-		return fmt.Errorf("mark backfill done: %w", err)
-	}
-	return nil
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // ensureChecklistMatchColumns — 2026-08-09 Step 3 재적용. 회사 문서 자동매칭

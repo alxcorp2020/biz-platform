@@ -198,6 +198,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/admin/run-award-history-ingestion", s.handleRunAwardHistoryIngestion)
 	mux.HandleFunc("POST /api/admin/run-deadline-schedule", s.handleRunDeadlineSchedule)
 	mux.HandleFunc("POST /api/admin/run-result-lookup", s.handleRunResultLookup)
+	mux.HandleFunc("POST /api/admin/run-notice-datetime-backfill", s.handleRunNoticeDatetimeBackfill)
+	mux.HandleFunc("POST /api/admin/run-procurement-class-backfill", s.handleRunProcurementClassBackfill)
 	mux.HandleFunc("POST /api/admin/run-document-extraction", s.handleRunDocumentExtraction)
 	mux.HandleFunc("GET /api/me/subscription", s.handleGetSubscription)
 	mux.HandleFunc("GET /api/me/payment-history", s.handleGetPaymentHistory)
