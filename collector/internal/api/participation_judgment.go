@@ -14,8 +14,42 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 )
+
+// buildJudgmentForNotice — 공고 하나에 대한 참여판정을 만든다. 공고 상세
+// (handleGetNotice)와 '동일한' 입력(같은 notices 행의 지역/업종/예산/업종제한 +
+// scoreNoticeForCompany + 현재버전 required_documents)으로 buildParticipationJudgment를
+// 재사용하므로, 같은 notice/company면 상세와 파이프라인 상세의 judgment가 반드시
+// 일치한다. procurement가 아니면 nil. DB 변경 없음(조회 시점 계산).
+func (s *Server) buildJudgmentForNotice(ctx context.Context, noticeID, profileID string, company companyScoringInput) *participationJudgment {
+	var noticeType string
+	var region, industry sql.NullString
+	var budget sql.NullInt64
+	var industryRestricted sql.NullBool
+	var currentVersion int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT notice_type, region, industry, budget_amount, industry_restricted, current_version
+		 FROM notices WHERE id = $1`, noticeID,
+	).Scan(&noticeType, &region, &industry, &budget, &industryRestricted, &currentVersion)
+	if err != nil || noticeType != "procurement" {
+		return nil
+	}
+	score := scoreNoticeForCompany(noticeScoringInput{
+		NoticeType: noticeType, Region: region, Industry: industry, BudgetAmount: budget,
+		IndustryRestricted: nullBoolPtr(industryRestricted),
+	}, company)
+	versionID, err := s.currentVersionID(ctx, noticeID, currentVersion)
+	if err != nil {
+		return nil
+	}
+	reqDocs, err := s.listRequiredDocuments(ctx, versionID, profileID)
+	if err != nil {
+		reqDocs = nil
+	}
+	return s.buildParticipationJudgment(ctx, versionID, profileID, &score, reqDocs)
+}
 
 const (
 	condPASS    = "PASS"

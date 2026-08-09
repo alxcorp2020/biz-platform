@@ -1802,6 +1802,12 @@
   .home-list-judgment { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.25rem; }
   .pj-mini { font-size: 0.72rem; font-weight: 700; padding: 0.08rem 0.45rem; border-radius: 999px; }
   .home-list-judgment-reasons { font-size: 0.78rem; color: var(--ink-soft); }
+  /* 진행 중 사업 상세 — 제출완료/종결 상태에서 판정 요약을 접어서 보조화 */
+  .pipeline-judgment-collapse { margin: 0.75rem 0; }
+  .pipeline-judgment-collapse > summary { cursor: pointer; font-size: 0.9rem; font-weight: 700; color: var(--accent-blue); list-style: none; }
+  .pipeline-judgment-collapse > summary::-webkit-details-marker { display: none; }
+  .pipeline-judgment-collapse > summary::after { content: ' ▾'; color: var(--ink-soft); font-weight: 400; }
+  .pipeline-judgment-collapse[open] > summary::after { content: ' ▴'; }
   .cond-list { display: flex; flex-direction: column; gap: 0.6rem; }
   .cond-row { display: flex; gap: 0.6rem; align-items: flex-start; }
   .cond-icon { flex-shrink: 0; width: 1.4rem; height: 1.4rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.85rem; color: #fff; }
@@ -7856,12 +7862,25 @@ async function renderPipelineDetail(container, id) {
   const entry = data.entry;
   const checklist = data.checklist || [];
 
+  // 참여판정 요약(2026-08-09): 공고 상세와 동일한 participationJudgment를 진행 중
+  // 사업 상세에도 보여준다. 검토중/준비중은 제목 아래 바로(강조), 제출완료/낙찰/
+  // 탈락/제외는 접어서(축소) — 그 상태에선 개찰/결과가 더 중요하기 때문(§4).
+  const pj = data.participationJudgment;
+  const hasJudgment = pj && pj.conditions && pj.conditions.length;
+  const judgmentActive = entry.status === '검토중' || entry.status === '준비중';
+  const judgmentSlotHtml = hasJudgment
+    ? (judgmentActive
+        ? '<div id="pipeline-judgment-section"></div>'
+        : '<details class="pipeline-judgment-collapse"><summary>참여판정 보기</summary><div id="pipeline-judgment-section"></div></details>')
+    : '';
+
   container.innerHTML = '';
   container.appendChild(h(`
     <a href="#/pipeline" class="back-link">&larr; 진행 중 사업 목록으로</a>
     <div class="detail-card">
       <p class="detail-eyebrow">${escapeHtml(entry.organizationName || '-')}</p>
       <h2><a href="#/notices/${escapeAttr(entry.noticeId)}">${escapeHtml(entry.noticeTitle)}</a></h2>
+      ${judgmentSlotHtml}
       <div class="pipeline-step-summary">${pipelineStepIndicatorHtml(entry.status)}${pipelineResultBadgeHtml(entry)}</div>
       ${pipelineOfficialResultHtml(entry)}
       ${pipelineActionBarHtml(entry)}
@@ -7890,6 +7909,11 @@ async function renderPipelineDetail(container, id) {
     <h3>제출서류 체크리스트</h3>
     <div id="pipeline-checklist-section"></div>
   `));
+
+  // 공고 상세와 동일한 참여판정 렌더(같은 컴포넌트 재사용 → 판정/순서 일치).
+  if (hasJudgment) {
+    renderParticipationJudgment(document.getElementById('pipeline-judgment-section'), pj);
+  }
 
   // ics 다운로드는 일반 <a download> 링크라 완료 이벤트를 JS로 알 방법이
   // 없다(브라우저가 네이티브로 처리) — 클릭 시점에 "다운로드를
@@ -10614,7 +10638,12 @@ function renderParticipationJudgment(container, j) {
   container.innerHTML = '';
   if (!j || !j.conditions || !j.conditions.length) return;
   const tone = PARTICIPATION_GRADE_TONE[j.grade] || 'pj-grade--review';
-  const rows = j.conditions.map(c => {
+  // "확인할 것 먼저" — 사용자가 해야 할 것(FAIL/REVIEW/UNKNOWN)을 위로, 자동확인된
+  // PASS는 아래로 정렬한다(판정 로직/데이터는 그대로, 표시 순서만). 공고 상세·
+  // 진행중 사업 상세 양쪽에 동일 적용.
+  const COND_ORDER = { FAIL: 0, REVIEW: 1, UNKNOWN: 2, PASS: 3 };
+  const sortedConds = j.conditions.slice().sort((a, b) => (COND_ORDER[a.result] ?? 4) - (COND_ORDER[b.result] ?? 4));
+  const rows = sortedConds.map(c => {
     const meta = PARTICIPATION_COND_META[c.result] || PARTICIPATION_COND_META.UNKNOWN;
     const soft = c.severity === 'SOFT' ? '<span class="cond-soft">우대</span>' : '';
     const evidence = [c.requirementText ? `공고 요구: ${c.requirementText}` : '', c.companyEvidence ? `회사 보유: ${c.companyEvidence}` : '']

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"io"
 	"log/slog"
 	"testing"
@@ -271,5 +272,88 @@ func TestDashboardDetailJudgmentConsistency_Integration(t *testing.T) {
 	}
 	if jDetail.Grade != "ready" { // 3요소 met + 면허 보유 PASS → 참여 가능
 		t.Errorf("grade=%q want ready", jDetail.Grade)
+	}
+}
+
+// 진행 중 사업 상세(buildJudgmentForNotice)가 공고 상세와 동일한 judgment를 내는지,
+// 그리고 지원사업은 nil인지 검증한다.
+func TestBuildJudgmentForNotice_Integration(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+	srv := testServer(db)
+	srv.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	ctx := context.Background()
+
+	var sourceID string
+	if err := db.QueryRowContext(ctx, `SELECT id FROM data_sources LIMIT 1`).Scan(&sourceID); err != nil {
+		t.Fatalf("data_sources: %v", err)
+	}
+	must := func(q string, args ...any) string {
+		var id string
+		if err := db.QueryRowContext(ctx, q, args...).Scan(&id); err != nil {
+			t.Fatalf("seed [%.40s]: %v", q, err)
+		}
+		return id
+	}
+	ext := "PIPEJ-" + time.Now().Format("150405.000000")
+	noticeID := must(`INSERT INTO notices (source_id, external_notice_id, notice_type, title, organization_name,
+		region, industry, budget_amount, industry_restricted, current_version)
+		VALUES ($1,$2,'procurement','파이프판정','기관','서울특별시','소프트웨어개발',100000000,false,1) RETURNING id`, sourceID, ext)
+	rawID := must(`INSERT INTO raw_documents (source_id, external_notice_id, request_url, response_status, raw_content, content_hash, collector_version)
+		VALUES ($1,$2,'x',200,'{}','h','t') RETURNING id`, sourceID, ext)
+	versionID := must(`INSERT INTO notice_versions (notice_id, version_number, raw_document_id, change_type, is_current)
+		VALUES ($1,1,$2,'initial',true) RETURNING id`, noticeID, rawID)
+	must(`INSERT INTO required_documents (notice_version_id, document_name, is_required, confidence, review_status, extraction_method, ai_supplement_attempts)
+		VALUES ($1,'정보통신공사업 면허',true,0.8,'pending','rule',0) RETURNING id`, versionID)
+	extS := "PIPEJS-" + time.Now().Format("150405.000000")
+	supportID := must(`INSERT INTO notices (source_id, external_notice_id, notice_type, title, organization_name, current_version)
+		VALUES ($1,$2,'support_program','지원사업','기관',1) RETURNING id`, sourceID, extS)
+	userID := must(`INSERT INTO users (email) VALUES ($1) RETURNING id`, ext+"@t.local")
+	profileID := must(`INSERT INTO company_profiles (user_id, company_name, region, industry, company_size)
+		VALUES ($1,'파이프테스트사','서울특별시', ARRAY['소프트웨어개발'], '소기업') RETURNING id`, userID)
+	must(`INSERT INTO company_licenses (company_profile_id, category, name, confidence, status)
+		VALUES ($1,'면허','정보통신공사업 면허','A','보유') RETURNING id`, profileID)
+	defer func() {
+		db.ExecContext(ctx, `DELETE FROM required_documents WHERE notice_version_id=$1`, versionID)
+		db.ExecContext(ctx, `DELETE FROM company_licenses WHERE company_profile_id=$1`, profileID)
+		db.ExecContext(ctx, `DELETE FROM company_profiles WHERE id=$1`, profileID)
+		db.ExecContext(ctx, `DELETE FROM users WHERE id=$1`, userID)
+		db.ExecContext(ctx, `DELETE FROM notice_versions WHERE id=$1`, versionID)
+		db.ExecContext(ctx, `DELETE FROM raw_documents WHERE id=$1`, rawID)
+		db.ExecContext(ctx, `DELETE FROM notices WHERE id IN ($1,$2)`, noticeID, supportID)
+	}()
+
+	company := companyScoringInput{
+		Region:   sql.NullString{String: "서울특별시", Valid: true},
+		Industry: []string{"소프트웨어개발"},
+		Size:     sql.NullString{String: "소기업", Valid: true},
+	}
+
+	// 파이프라인 경로
+	jPipe := srv.buildJudgmentForNotice(ctx, noticeID, profileID, company)
+	if jPipe == nil {
+		t.Fatal("buildJudgmentForNotice nil (procurement인데)")
+	}
+
+	// 공고 상세 경로(같은 공개 함수들로 수동 재현)
+	score := scoreNoticeForCompany(noticeScoringInput{
+		NoticeType:   "procurement",
+		Region:       sql.NullString{String: "서울특별시", Valid: true},
+		Industry:     sql.NullString{String: "소프트웨어개발", Valid: true},
+		BudgetAmount: sql.NullInt64{Int64: 100000000, Valid: true},
+	}, company)
+	reqDocs, _ := srv.listRequiredDocuments(ctx, versionID, profileID)
+	jNotice := srv.buildParticipationJudgment(ctx, versionID, profileID, &score, reqDocs)
+
+	if jPipe.Grade != jNotice.Grade {
+		t.Errorf("grade 불일치: pipeline=%q notice=%q", jPipe.Grade, jNotice.Grade)
+	}
+	if len(jPipe.Conditions) != len(jNotice.Conditions) {
+		t.Errorf("조건 수 불일치: pipeline=%d notice=%d", len(jPipe.Conditions), len(jNotice.Conditions))
+	}
+
+	// 지원사업은 nil
+	if got := srv.buildJudgmentForNotice(ctx, supportID, profileID, company); got != nil {
+		t.Errorf("support_program은 nil이어야 함, got grade=%q", got.Grade)
 	}
 }

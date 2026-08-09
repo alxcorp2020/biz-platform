@@ -975,5 +975,19 @@ func (s *Server) handleGetPipelineEntry(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"entry": entry, "checklist": checklist, "documentAnalysisStatus": documentAnalysisStatus})
+	// 참여판정 요약(2026-08-09): 공고 상세와 '동일한' judgment를 파이프라인 상세에도
+	// 얹는다 — 공고 상세에서 참여판정을 본 뒤 진행 중 사업으로 넘어와도 같은 판정/
+	// 확인필요 조건을 계속 볼 수 있게. 판정 로직 신설 없음(buildJudgmentForNotice 재사용).
+	var region, size sql.NullString
+	if profile.Region != nil {
+		region = sql.NullString{String: *profile.Region, Valid: true}
+	}
+	if profile.CompanySize != nil {
+		size = sql.NullString{String: *profile.CompanySize, Valid: true}
+	}
+	trackRecordMax, _ := s.fetchTrackRecordMaxAmount(ctx, profile.ID)
+	company := companyScoringInput{Region: region, Industry: profile.Industry, Size: size, TrackRecordMaxAmount: trackRecordMax}
+	partJudgment := s.buildJudgmentForNotice(ctx, entry.NoticeID, profile.ID, company)
+
+	writeJSON(w, http.StatusOK, map[string]any{"entry": entry, "checklist": checklist, "documentAnalysisStatus": documentAnalysisStatus, "participationJudgment": partJudgment})
 }
