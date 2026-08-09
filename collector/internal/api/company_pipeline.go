@@ -65,20 +65,20 @@ type pipelineEntry struct {
 	// 예산·공고상태)으로 보여주기 위해 추가. "Status"(파이프라인 자체
 	// 진행상태: 검토전/참여검토/.../낙찰 등)와는 별개 — 헷갈리지 않게
 	// 이쪽은 전부 Notice 접두어를 붙였다.
-	NoticeType              string     `json:"noticeType"`
-	Region                  *string    `json:"region"`
-	Industry                *string    `json:"industry"`
-	BudgetAmount            *int64     `json:"budgetAmount"`
-	NoticeStatus            string     `json:"noticeStatus"`
-	Status                  string     `json:"status"`
-	AssigneeName            *string    `json:"assigneeName"`
-	AssigneeEmail           *string    `json:"assigneeEmail"`
-	AssigneePhone           *string    `json:"assigneePhone"`
-	AssigneeUserID          *string    `json:"assigneeUserId"` // 회원계정으로 지정된 경우만(자유텍스트 담당자면 nil)
-	DecidedAt               *time.Time `json:"decidedAt"`
-	SubmissionDeadline      *string    `json:"submissionDeadline"`
-	Memo                    *string    `json:"memo"`
-	AwardedAmount           *int64     `json:"awardedAmount"` // 성장분석 ROI 근거 — status='낙찰'일 때 사용자가 직접 입력
+	NoticeType         string     `json:"noticeType"`
+	Region             *string    `json:"region"`
+	Industry           *string    `json:"industry"`
+	BudgetAmount       *int64     `json:"budgetAmount"`
+	NoticeStatus       string     `json:"noticeStatus"`
+	Status             string     `json:"status"`
+	AssigneeName       *string    `json:"assigneeName"`
+	AssigneeEmail      *string    `json:"assigneeEmail"`
+	AssigneePhone      *string    `json:"assigneePhone"`
+	AssigneeUserID     *string    `json:"assigneeUserId"` // 회원계정으로 지정된 경우만(자유텍스트 담당자면 nil)
+	DecidedAt          *time.Time `json:"decidedAt"`
+	SubmissionDeadline *string    `json:"submissionDeadline"`
+	Memo               *string    `json:"memo"`
+	AwardedAmount      *int64     `json:"awardedAmount"` // 성장분석 ROI 근거 — status='낙찰'일 때 사용자가 직접 입력
 	// ExcludeReason/SubmissionConfirmedAt — 2026-08-09 Phase A. 내부 자동화용.
 	// 화면엔 상태로 노출하지 않고(항상 "제외" 하나), 복원 대상 판단/문구에만 쓴다.
 	ExcludeReason         *string    `json:"excludeReason,omitempty"`
@@ -87,14 +87,14 @@ type pipelineEntry struct {
 	// 제출완료를 유지하고, 파이프라인 상세의 "보조 배지"(개찰 예정/결과 확인 중/
 	// 결과 확인 필요/재입찰 확인 중) 계산에만 쓴다. result_type 같은 내부 enum은
 	// 프론트가 한글 문구로 변환해서 보여주고, 원문자열을 그대로 노출하지 않는다.
-	OpeningAt           *time.Time `json:"openingAt,omitempty"`
-	ResultType          *string    `json:"resultType,omitempty"`
-	LastResultCheckedAt *time.Time `json:"lastResultCheckedAt,omitempty"`
-	ResultFinalizedAt   *time.Time `json:"resultFinalizedAt,omitempty"`
-	ResultCheckAttempts int        `json:"resultCheckAttempts,omitempty"` // 조건판단용(>0)만. 횟수 자체는 UI 비노출.
-	WinnerName          *string    `json:"winnerName,omitempty"`          // 탈락 시 낙찰업체 표시용
-	AwardRate           *float64   `json:"awardRate,omitempty"`
-	CreatedAt           time.Time  `json:"createdAt"`
+	OpeningAt               *time.Time `json:"openingAt,omitempty"`
+	ResultType              *string    `json:"resultType,omitempty"`
+	LastResultCheckedAt     *time.Time `json:"lastResultCheckedAt,omitempty"`
+	ResultFinalizedAt       *time.Time `json:"resultFinalizedAt,omitempty"`
+	ResultCheckAttempts     int        `json:"resultCheckAttempts,omitempty"` // 조건판단용(>0)만. 횟수 자체는 UI 비노출.
+	WinnerName              *string    `json:"winnerName,omitempty"`          // 탈락 시 낙찰업체 표시용
+	AwardRate               *float64   `json:"awardRate,omitempty"`
+	CreatedAt               time.Time  `json:"createdAt"`
 	UpdatedAt               time.Time  `json:"updatedAt"`
 	IncompleteDocumentCount int        `json:"incompleteDocumentCount"` // handleListPipeline만 채움(대시보드 카드 클릭 → 서류확인필요 필터용) — handleGetPipelineEntry는 체크리스트 원본을 따로 내려주므로 항상 0
 	AIGrade                 string     `json:"aiGrade,omitempty"`       // handleListPipeline만 채움(Phase 3 칸반/표 뷰용). 영속 컬럼이 아니라 growth_analytics.go의 fetchGradeDistribution과 동일하게 요청 시점에 scoreNoticeForCompany로 계산한다.
@@ -348,11 +348,20 @@ func (s *Server) generateChecklistItems(ctx context.Context, entryID, versionID,
 	rows.Close()
 
 	for _, d := range docs {
-		status := s.matchChecklistStatus(ctx, profileID, d.name)
+		// Step 3(2026-08-09 재적용): 면허/인증 이름 정확일치에 더해 회사 문서함
+		// (company_documents)·프로필 추출값까지 자동매칭하고, 근거(match_method/
+		// matched_document_id/matched_at)도 남긴다. matched_document_id는 DB 외래키가
+		// 아니라 순수 UUID 참조라, 무결성은 앱 레벨(reevaluateChecklistMatches)에서 지킨다.
+		status, method, matchedDocID := s.resolveChecklistMatch(ctx, profileID, d.name)
+		var methodVal, matchedAtVal any
+		if method != "" {
+			methodVal = method
+			matchedAtVal = time.Now()
+		}
 		if _, err := s.db.ExecContext(ctx, `
-			INSERT INTO pipeline_checklist_items (pipeline_entry_id, document_name, status, required_document_id)
-			VALUES ($1, $2, $3, $4)`,
-			entryID, d.name, status, d.id,
+			INSERT INTO pipeline_checklist_items (pipeline_entry_id, document_name, status, required_document_id, matched_document_id, match_method, matched_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			entryID, d.name, status, d.id, matchedDocID, methodVal, matchedAtVal,
 		); err != nil {
 			return err
 		}
@@ -360,44 +369,51 @@ func (s *Server) generateChecklistItems(ctx context.Context, entryID, versionID,
 	return nil
 }
 
-// matchChecklistStatus looks for an exact-name match (TRIM'd, no fuzzy
-// scoring) in company_licenses/certifications and maps its status/expiry
-// into the checklist's 5-value status. No match, or an ambiguous source
-// status, always falls back to 확인필요 — never guessed as 신규작성.
-func (s *Server) matchChecklistStatus(ctx context.Context, profileID, documentName string) string {
-	name := strings.TrimSpace(documentName)
-	if name == "" {
-		return "확인필요"
-	}
-	var licenseStatus string
-	var expiresAt sql.NullTime
-	err := s.db.QueryRowContext(ctx, `
-		SELECT status, expires_at FROM (
-			SELECT status, expires_at, created_at FROM company_licenses
-			WHERE company_profile_id = $1 AND TRIM(name) = $2
-			UNION ALL
-			SELECT status, expires_at, created_at FROM company_certifications
-			WHERE company_profile_id = $1 AND TRIM(name) = $2
-		) matched ORDER BY created_at DESC LIMIT 1`,
-		profileID, name,
-	).Scan(&licenseStatus, &expiresAt)
+// reevaluateChecklistMatches — matched_document_id는 DB 외래키가 아니므로, 참조한
+// 회사 문서가 하드삭제되면 dangling 참조가 남는다. 이 함수는 (a) 해당 문서가 이
+// 회사 소유로 실제 존재하는지 company_profile_id로 스코프해 확인하고, (b) 존재하지
+// 않으면(삭제됨/타 회사) 자동매칭을 해제한 뒤 resolveChecklistMatch로 다시 평가해
+// 상태·근거를 갱신한다. 체크리스트 레코드 자체는 지우지 않는다(무효 참조만 해제).
+// 존재하지 않는 UUID여도 쿼리는 0행을 돌려줄 뿐이라 panic/500이 나지 않는다.
+// GET /api/pipeline/{id}에서 fetch 직전에 호출해 다음 조회에서 자연히 자가치유된다.
+func (s *Server) reevaluateChecklistMatches(ctx context.Context, entryID, profileID string) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT pci.id, pci.document_name
+		FROM pipeline_checklist_items pci
+		WHERE pci.pipeline_entry_id = $1
+		  AND pci.matched_document_id IS NOT NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM company_documents cd
+			WHERE cd.id = pci.matched_document_id AND cd.company_profile_id = $2
+		  )`, entryID, profileID)
 	if err != nil {
-		if err != sql.ErrNoRows {
-			s.logger.Error("pipeline: checklist match query failed", "error", err)
-		}
-		return "확인필요"
+		s.logger.Error("checklist reevaluate: dangling query failed", "error", err)
+		return
 	}
-
-	switch licenseStatus {
-	case "보유":
-		if expiresAt.Valid && expiresAt.Time.Before(time.Now()) {
-			return "갱신필요"
+	type stale struct{ id, name string }
+	var stales []stale
+	for rows.Next() {
+		var st stale
+		if err := rows.Scan(&st.id, &st.name); err != nil {
+			continue
 		}
-		return "보유"
-	case "미보유":
-		return "발급필요"
-	default: // 확인되지않음
-		return "확인필요"
+		stales = append(stales, st)
+	}
+	rows.Close()
+	for _, st := range stales {
+		// 무효 참조 해제 + 재평가.
+		status, method, matchedDocID := s.resolveChecklistMatch(ctx, profileID, st.name)
+		var methodVal, matchedAtVal any
+		if method != "" {
+			methodVal = method
+			matchedAtVal = time.Now()
+		}
+		if _, err := s.db.ExecContext(ctx, `
+			UPDATE pipeline_checklist_items
+			SET status = $2, matched_document_id = $3, match_method = $4, matched_at = $5
+			WHERE id = $1`, st.id, status, matchedDocID, methodVal, matchedAtVal); err != nil {
+			s.logger.Error("checklist reevaluate: update failed", "error", err, "item", st.id)
+		}
 	}
 }
 
@@ -922,6 +938,9 @@ func (s *Server) handleGetPipelineEntry(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
+	// Step 3(2026-08-09): matched_document_id는 외래키가 아니므로, 참조 문서가
+	// 하드삭제된 dangling 참조를 fetch 직전에 자동 해제·재평가한다(자가치유).
+	s.reevaluateChecklistMatches(ctx, entryID, ownerProfileID)
 	checklist, err := s.fetchChecklistItems(ctx, entryID)
 	if err != nil {
 		s.logger.Error("get-pipeline: fetch checklist failed", "error", err)

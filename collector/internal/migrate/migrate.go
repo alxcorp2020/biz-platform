@@ -262,6 +262,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureResultLookupSchema(ctx, db); err != nil {
 		return fmt.Errorf("migrate result lookup schema: %w", err)
 	}
+	if err := ensureChecklistMatchColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate checklist match columns: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -522,6 +525,27 @@ func ensureNoticeDatetimeColumnsAndBackfill(ctx context.Context, db *sql.DB) err
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO schema_backfills (name) VALUES ('notice_datetime_backfill_v1') ON CONFLICT DO NOTHING`); err != nil {
 		return fmt.Errorf("mark backfill done: %w", err)
+	}
+	return nil
+}
+
+// ensureChecklistMatchColumns — 2026-08-09 Step 3 재적용. 회사 문서 자동매칭
+// 추적용 컬럼. 🚨 matched_document_id에 DB 외래키를 만들지 않는다(순수 UUID) —
+// 롤링 배포 중 ALTER TABLE ... ADD COLUMN ... REFERENCES가 참조 테이블
+// (company_documents)까지 락을 잡아 마이그레이션이 블로킹되고 배포가 실패한
+// 사고가 있었다(b5f955c). 무결성은 애플리케이션 레벨에서 검증한다:
+// 조회는 항상 company_profile_id로 스코프하고, dangling 참조(하드삭제된 문서)는
+// reevaluateChecklistMatches에서 자동 해제 후 재평가한다(FK cascade 없음).
+func ensureChecklistMatchColumns(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`ALTER TABLE pipeline_checklist_items ADD COLUMN IF NOT EXISTS matched_document_id UUID`,
+		`ALTER TABLE pipeline_checklist_items ADD COLUMN IF NOT EXISTS match_method TEXT`,
+		`ALTER TABLE pipeline_checklist_items ADD COLUMN IF NOT EXISTS matched_at TIMESTAMPTZ`,
+	}
+	for _, q := range stmts {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("%.60s...: %w", q, err)
+		}
 	}
 	return nil
 }
