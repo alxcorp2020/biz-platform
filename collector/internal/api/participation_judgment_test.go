@@ -6,7 +6,34 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/lib/pq"
 )
+
+func TestRecommendationJudgmentFrom(t *testing.T) {
+	// 전부 PASS → 참여 가능, 이유 없음
+	ready := &participationJudgment{Grade: "ready", GradeLabel: "참여 가능", Conditions: []conditionResult{
+		{ConditionType: "지역", Result: condPASS}, {ConditionType: "면허", Result: condPASS},
+	}}
+	r := recommendationJudgmentFrom(ready)
+	if r.Grade != "ready" || len(r.Reasons) != 0 {
+		t.Errorf("ready: grade=%q reasons=%v", r.Grade, r.Reasons)
+	}
+	// REVIEW 2개 초과 → 최대 2개, FAIL/REVIEW/UNKNOWN 순
+	j := &participationJudgment{Grade: "needsReview", GradeLabel: "확인 필요", Conditions: []conditionResult{
+		{ConditionType: "지역", Result: condPASS},
+		{ConditionType: "면허", Result: condREVIEW},
+		{ConditionType: "직접생산확인", Result: condREVIEW},
+		{ConditionType: "인증", Result: condREVIEW},
+	}}
+	r = recommendationJudgmentFrom(j)
+	if len(r.Reasons) != 2 {
+		t.Fatalf("reasons len=%d want 2", len(r.Reasons))
+	}
+	if r.Reasons[0] != "면허 확인 필요" || r.Reasons[1] != "직접생산 세부품명 확인" {
+		t.Errorf("reasons=%v", r.Reasons)
+	}
+}
 
 func TestMapCategoryResult(t *testing.T) {
 	cases := map[string]string{
@@ -153,5 +180,96 @@ func TestBuildParticipationJudgment_Integration(t *testing.T) {
 	j4 := srv.buildParticipationJudgment(ctx, "", profileID, failScore, []requiredDocumentItem{{DocumentName: "사업자등록증"}})
 	if j4.Grade != "notRecommended" {
 		t.Errorf("지역 not_met grade=%q want notRecommended(3요소 정상 FAIL)", j4.Grade)
+	}
+}
+
+// 대시보드 배치 경로와 상세 경로가 같은 공고/회사에 대해 동일한 judgment를 내는지
+// (일치 보장의 핵심: 배치 SQL이 listRequiredDocuments와 같은 필터로 같은 서류명을
+// 가져오는지) 검증한다.
+func TestDashboardDetailJudgmentConsistency_Integration(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+	srv := testServer(db)
+	srv.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	ctx := context.Background()
+
+	var sourceID string
+	if err := db.QueryRowContext(ctx, `SELECT id FROM data_sources LIMIT 1`).Scan(&sourceID); err != nil {
+		t.Fatalf("data_sources: %v", err)
+	}
+	must := func(q string, args ...any) string {
+		var id string
+		if err := db.QueryRowContext(ctx, q, args...).Scan(&id); err != nil {
+			t.Fatalf("seed [%.40s]: %v", q, err)
+		}
+		return id
+	}
+	ext := "CONSIST-" + time.Now().Format("150405.000000")
+	noticeID := must(`INSERT INTO notices (source_id, external_notice_id, notice_type, title, organization_name, current_version)
+		VALUES ($1,$2,'procurement','일치테스트','기관',1) RETURNING id`, sourceID, ext)
+	rawID := must(`INSERT INTO raw_documents (source_id, external_notice_id, request_url, response_status, raw_content, content_hash, collector_version)
+		VALUES ($1,$2,'x',200,'{}','h','t') RETURNING id`, sourceID, ext)
+	versionID := must(`INSERT INTO notice_versions (notice_id, version_number, raw_document_id, change_type, is_current)
+		VALUES ($1,1,$2,'initial',true) RETURNING id`, noticeID, rawID)
+	must(`INSERT INTO required_documents (notice_version_id, document_name, is_required, confidence, review_status, extraction_method, ai_supplement_attempts)
+		VALUES ($1,'정보통신공사업 면허',true,0.8,'pending','rule',0) RETURNING id`, versionID)
+	must(`INSERT INTO required_documents (notice_version_id, document_name, is_required, confidence, review_status, extraction_method, ai_supplement_attempts)
+		VALUES ($1,'제외될 서류',true,0.8,'rejected','rule',0) RETURNING id`, versionID) // rejected → 양쪽 모두 제외돼야
+	userID := must(`INSERT INTO users (email) VALUES ($1) RETURNING id`, ext+"@t.local")
+	profileID := must(`INSERT INTO company_profiles (user_id, company_name) VALUES ($1,'일치테스트사') RETURNING id`, userID)
+	must(`INSERT INTO company_licenses (company_profile_id, category, name, confidence, status)
+		VALUES ($1,'면허','정보통신공사업 면허','A','보유') RETURNING id`, profileID)
+	defer func() {
+		db.ExecContext(ctx, `DELETE FROM required_documents WHERE notice_version_id=$1`, versionID)
+		db.ExecContext(ctx, `DELETE FROM company_licenses WHERE company_profile_id=$1`, profileID)
+		db.ExecContext(ctx, `DELETE FROM company_profiles WHERE id=$1`, profileID)
+		db.ExecContext(ctx, `DELETE FROM users WHERE id=$1`, userID)
+		db.ExecContext(ctx, `DELETE FROM notice_versions WHERE id=$1`, versionID)
+		db.ExecContext(ctx, `DELETE FROM raw_documents WHERE id=$1`, rawID)
+		db.ExecContext(ctx, `DELETE FROM notices WHERE id=$1`, noticeID)
+	}()
+
+	score := &participationScore{Categories: []categoryScore{
+		{Category: "지역", Result: "met"}, {Category: "업종", Result: "met"}, {Category: "예산 규모", Result: "met"},
+	}}
+
+	// 상세 경로: currentVersionID → listRequiredDocuments → judgment
+	vID, err := srv.currentVersionID(ctx, noticeID, 1)
+	if err != nil {
+		t.Fatalf("currentVersionID: %v", err)
+	}
+	reqDetail, err := srv.listRequiredDocuments(ctx, vID, profileID)
+	if err != nil {
+		t.Fatalf("listRequiredDocuments: %v", err)
+	}
+	jDetail := srv.buildParticipationJudgment(ctx, vID, profileID, score, reqDetail)
+
+	// 대시보드 경로: dashboard.go와 동일한 배치 SQL
+	reqBatch := []requiredDocumentItem{}
+	rows, err := db.QueryContext(ctx, `
+		SELECT nv.notice_id, rd.document_name FROM required_documents rd
+		JOIN notice_versions nv ON nv.id = rd.notice_version_id
+		JOIN notices n ON n.id = nv.notice_id AND nv.version_number = n.current_version
+		WHERE nv.notice_id = ANY($1) AND rd.review_status != 'rejected'`, pq.Array([]string{noticeID}))
+	if err != nil {
+		t.Fatalf("batch: %v", err)
+	}
+	for rows.Next() {
+		var nid, dname string
+		rows.Scan(&nid, &dname)
+		reqBatch = append(reqBatch, requiredDocumentItem{DocumentName: dname})
+	}
+	rows.Close()
+	jDash := srv.buildParticipationJudgment(ctx, "", profileID, score, reqBatch)
+
+	// rejected 제외 → 양쪽 모두 면허 1건만
+	if len(reqDetail) != 1 || len(reqBatch) != 1 {
+		t.Fatalf("서류 수 불일치: detail=%d batch=%d (rejected 제외 후 각 1이어야)", len(reqDetail), len(reqBatch))
+	}
+	if jDetail.Grade != jDash.Grade {
+		t.Errorf("grade 불일치: detail=%q dashboard=%q", jDetail.Grade, jDash.Grade)
+	}
+	if jDetail.Grade != "ready" { // 3요소 met + 면허 보유 PASS → 참여 가능
+		t.Errorf("grade=%q want ready", jDetail.Grade)
 	}
 }

@@ -54,6 +54,9 @@ type dashboardPriorityItem struct {
 	Reason   string `json:"reason"`
 	CtaLabel string `json:"ctaLabel"`
 	CtaHref  string `json:"ctaHref"`
+	// Judgment — 추천 항목에만 채워진다(2026-08-09). 공고 상세와 동일한
+	// buildParticipationJudgment 결과의 경량 요약(참여 가능/확인 필요 + 짧은 이유).
+	Judgment *recommendationJudgment `json:"judgment,omitempty"`
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +175,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				Title: pr.title, OrganizationName: pr.organizationName.String, Status: &status,
 				IsBookmarked: bookmarkedIDs[pr.noticeID],
 				Reason:       "결과가 나왔을 수 있어요 — 낙찰/탈락을 기록하세요", CtaLabel: "결과 기록",
-				CtaHref:      "#/pipeline/" + pr.id,
+				CtaHref: "#/pipeline/" + pr.id,
 			}
 			resultItem.ApplicationEndAt = &pr.deadline.Time
 			priorityItems = append(priorityItems, resultItem)
@@ -221,6 +224,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	defer noticeRows.Close()
 
+	recScores := map[string]participationScore{} // 추천된 공고의 3요소 판정 결과(judgment 재사용용)
 	for noticeRows.Next() {
 		var id, title, noticeType string
 		var org, noticeRegion, noticeIndustry sql.NullString
@@ -240,6 +244,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		if score.Grade != gradeRecommended {
 			continue
 		}
+		recScores[id] = score // 아래에서 상세와 동일한 판정(judgment) 계산에 재사용
 		item := dashboardPriorityItem{
 			Kind: "recommendation", NoticeID: id, Title: title, OrganizationName: org.String,
 			IsBookmarked: bookmarkedIDs[id],
@@ -255,6 +260,43 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := noticeRows.Err(); err != nil {
 		s.logger.Error("dashboard: notices scan failed", "error", err)
+	}
+
+	// 추천공고에 상세와 '동일한' 참여판정(participationJudgment)을 연결한다(2026-08-09).
+	// 판정 로직을 새로 만들지 않고 buildParticipationJudgment를 그대로 재사용한다 —
+	// 상세와 대시보드에서 같은 공고의 최종 grade가 반드시 일치하게. 비용을 위해
+	// 추천 공고들의 현재버전 required_documents(문서명)를 배치 1쿼리로 미리 가져온다
+	// (상세의 listRequiredDocuments와 동일 필터: 현재버전 + review_status != 'rejected').
+	if profileID != "" && len(recommendationItems) > 0 {
+		recIDs := make([]string, 0, len(recommendationItems))
+		for _, it := range recommendationItems {
+			recIDs = append(recIDs, it.NoticeID)
+		}
+		docsByNotice := map[string][]requiredDocumentItem{}
+		drows, derr := s.db.QueryContext(ctx, `
+			SELECT nv.notice_id, rd.document_name
+			FROM required_documents rd
+			JOIN notice_versions nv ON nv.id = rd.notice_version_id
+			JOIN notices n ON n.id = nv.notice_id AND nv.version_number = n.current_version
+			WHERE nv.notice_id = ANY($1) AND rd.review_status != 'rejected'`, pq.Array(recIDs))
+		if derr != nil {
+			s.logger.Error("dashboard: recommendation required_documents batch failed", "error", derr)
+		} else {
+			for drows.Next() {
+				var nid, dname string
+				if err := drows.Scan(&nid, &dname); err != nil {
+					continue
+				}
+				docsByNotice[nid] = append(docsByNotice[nid], requiredDocumentItem{DocumentName: dname})
+			}
+			drows.Close()
+		}
+		for i := range recommendationItems {
+			nid := recommendationItems[i].NoticeID
+			sc := recScores[nid]
+			j := s.buildParticipationJudgment(ctx, "", profileID, &sc, docsByNotice[nid])
+			recommendationItems[i].Judgment = recommendationJudgmentFrom(j)
+		}
 	}
 
 	// reviewNeededCount — 오늘의 AI 브리핑 한 문장의 근거. "오늘 해야 할

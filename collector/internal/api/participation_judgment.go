@@ -232,6 +232,63 @@ func finalizeJudgment(j *participationJudgment) {
 	}
 }
 
+// recommendationJudgment — 대시보드 추천 카드용 경량 요약(전체 conditions는 안
+// 싣는다). 상세와 동일한 buildParticipationJudgment 결과에서 grade + 짧은 이유
+// 최대 2개만 뽑는다(판정 로직을 새로 만들지 않는다).
+type recommendationJudgment struct {
+	Grade      string   `json:"grade"`      // ready | needsReview | notRecommended
+	GradeLabel string   `json:"gradeLabel"` // 참여 가능 / 확인 필요 / 참여 어려움
+	Reasons    []string `json:"reasons,omitempty"`
+}
+
+// recommendationJudgmentFrom은 판정 결과에서 카드용 요약을 만든다. 이유는
+// FAIL > REVIEW > UNKNOWN 순으로 최대 2개(§5).
+func recommendationJudgmentFrom(j *participationJudgment) *recommendationJudgment {
+	if j == nil {
+		return nil
+	}
+	r := &recommendationJudgment{Grade: j.Grade, GradeLabel: j.GradeLabel}
+	add := func(want string) {
+		for _, c := range j.Conditions {
+			if len(r.Reasons) >= 2 {
+				return
+			}
+			if c.Result == want {
+				r.Reasons = append(r.Reasons, shortConditionReason(c))
+			}
+		}
+	}
+	add(condFAIL)
+	add(condREVIEW)
+	add(condUNKNOWN)
+	return r
+}
+
+// shortConditionReason — 카드에 넣을 짧은 사유 라벨(1행).
+func shortConditionReason(c conditionResult) string {
+	switch c.ConditionType {
+	case "면허":
+		if c.Result == condFAIL {
+			return "면허 조건 미충족"
+		}
+		return "면허 확인 필요"
+	case "인증":
+		return "인증 확인 필요"
+	case "직접생산확인":
+		return "직접생산 세부품명 확인"
+	case "필수 면허·자격":
+		return "공고문 분석 대기"
+	default: // 지역/업종/기업규모
+		if c.Result == condFAIL {
+			return c.ConditionType + " 조건 미충족"
+		}
+		if c.Result == condUNKNOWN {
+			return c.ConditionType + " 정보 부족"
+		}
+		return c.ConditionType + " 확인 필요"
+	}
+}
+
 // companyHasDirectProductionCert — 프로필의 direct_production_cert(boolean).
 func (s *Server) companyHasDirectProductionCert(ctx context.Context, profileID string) bool {
 	var has bool

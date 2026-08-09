@@ -1796,6 +1796,10 @@
   .pj-grade--review { background: #fff4e5; color: #b26a00; }
   .pj-grade--fail { background: #fdecea; color: #b3261e; }
   .pj-summary { font-size: 0.85rem; color: var(--ink-soft); }
+  /* 추천 카드 판정 미니배지(대시보드) — pj-grade 톤 재사용, 크기만 축소 */
+  .home-list-judgment { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.25rem; }
+  .pj-mini { font-size: 0.72rem; font-weight: 700; padding: 0.08rem 0.45rem; border-radius: 999px; }
+  .home-list-judgment-reasons { font-size: 0.78rem; color: var(--ink-soft); }
   .cond-list { display: flex; flex-direction: column; gap: 0.6rem; }
   .cond-row { display: flex; gap: 0.6rem; align-items: flex-start; }
   .cond-icon { flex-shrink: 0; width: 1.4rem; height: 1.4rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.85rem; color: #fff; }
@@ -6877,9 +6881,21 @@ const LIST_ROW_ICONS = {
 // 이동한다(kind별 이동 규칙은 서버가 이미 확정해 내려주므로 프론트는
 // 다시 판단하지 않는다) — 버튼도 별도 리스너 없이 이 이동을 그대로
 // 상속받는다.
+// HOME_JUDGMENT_TONE — 추천 카드 판정 미니배지 색(공고 상세 pj-grade와 동일 톤).
+const HOME_JUDGMENT_TONE = { ready: 'pj-grade--ready', needsReview: 'pj-grade--review', notRecommended: 'pj-grade--fail' };
+
 function homeListRowHtml(item) {
   const org = item.organizationName || '-';
-  const subtitle = item.reason ? `${org} · ${item.reason}` : org;
+  // 추천 항목엔 상세와 동일한 판정(judgment)을 미니배지+짧은 이유로 보여준다.
+  // 판정이 있으면 기존 "참여 여부 결정 필요" 일반 문구 대신 판정 이유를 쓴다.
+  const j = item.judgment;
+  const subtitle = j ? org : (item.reason ? `${org} · ${item.reason}` : org);
+  let judgmentHtml = '';
+  if (j) {
+    const tone = HOME_JUDGMENT_TONE[j.grade] || 'pj-grade--review';
+    const reasons = (j.reasons || []).slice(0, 2).map(escapeHtml).join(' · ');
+    judgmentHtml = `<div class="home-list-judgment"><span class="pj-mini ${tone}">${escapeHtml(j.gradeLabel || '')}</span>${reasons ? `<span class="home-list-judgment-reasons">${reasons}</span>` : ''}</div>`;
+  }
   const dday = ddayInfo(item.applicationEndAt);
   const isUrgent = dday.cls.includes('danger');
   const icon = LIST_ROW_ICONS[item.kind] || LIST_ROW_ICONS.pipeline;
@@ -6889,6 +6905,7 @@ function homeListRowHtml(item) {
       <div class="home-list-main">
         <div class="home-list-title">${escapeHtml(item.title)}</div>
         <div class="home-list-subtitle">${escapeHtml(subtitle)}</div>
+        ${judgmentHtml}
       </div>
       <div class="home-list-side">
         ${ddayBadgeHtml(item.applicationEndAt)}
