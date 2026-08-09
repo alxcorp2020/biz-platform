@@ -1704,6 +1704,45 @@
   /* checklist-status-select 자체는 이제 시각 스타일을 안 갖는다 — 박스
      스타일은 .select-input이 전부 담당하고, 이 클래스는 JS 훅(querySelectorAll)
      + 위쪽 @media(pointer: coarse)의 44px 탭 타겟 규칙 용도로만 남는다. */
+  /* Step 4: 제출 준비 요약 + 해야 할 일 우선 체크리스트 */
+  .checklist-summary {
+    padding: 0.9rem 1rem; margin-bottom: 1rem;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface-subtle, #f2f4f6);
+  }
+  .checklist-summary-top { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }
+  .checklist-prep-pct { font-size: 1.15rem; font-weight: 800; color: var(--ink); }
+  .checklist-total { font-size: 0.85rem; color: var(--text-secondary, #6b7684); }
+  .checklist-summary-counts { display: flex; gap: 0.5rem 1rem; flex-wrap: wrap; margin: 0.5rem 0; }
+  .ck-count { font-size: 0.82rem; font-weight: 600; }
+  .ck-done { color: #157347; }
+  .ck-warn { color: #b5850b; }
+  .ck-miss { color: var(--text-secondary, #6b7684); }
+  .checklist-summary-msg { margin: 0.25rem 0 0; font-size: 0.88rem; color: var(--ink); line-height: 1.5; }
+  .checklist-group-title { font-size: 0.95rem; font-weight: 700; margin: 0.5rem 0 0.6rem; }
+  .checklist-all-done { padding: 0.9rem 1rem; border-radius: 8px; background: rgba(21,115,71,0.08); color: #157347; font-weight: 600; }
+  .checklist-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 0.6rem 1rem; flex-wrap: wrap;
+    padding: 0.7rem 0.9rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+    border-left-width: 3px;
+  }
+  .checklist-item.ck-tone-warn { border-left-color: #e0a30b; }
+  .checklist-item.ck-tone-miss { border-left-color: #8b95a1; }
+  .checklist-item.ck-tone-form { border-left-color: #6b7fd7; }
+  .checklist-item.ck-tone-confirm { border-left-color: #c99a2e; }
+  .checklist-item--done { border-left-color: #2aa971; opacity: 0.92; }
+  .checklist-item-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; flex: 1 1 60%; }
+  .checklist-item-name { font-size: 0.92rem; font-weight: 600; color: var(--ink); }
+  .checklist-item-hint { font-size: 0.8rem; color: var(--text-secondary, #6b7684); line-height: 1.4; }
+  .checklist-hint-ok { color: #157347; }
+  .checklist-hint-sub { color: var(--text-secondary, #6b7684); font-weight: 400; }
+  .checklist-item-cta { flex: 0 0 auto; white-space: nowrap; }
+  .checklist-manual { flex: 0 0 auto; }
+  .checklist-manual > summary { font-size: 0.75rem; color: var(--text-secondary, #6b7684); cursor: pointer; list-style: none; }
+  .checklist-manual > summary::-webkit-details-marker { display: none; }
+  .checklist-manual[open] { flex-basis: 100%; margin-top: 0.4rem; }
+  .checklist-done-group { margin-top: 1rem; }
+  .checklist-done-group > summary { font-size: 0.9rem; font-weight: 600; color: var(--text-secondary, #6b7684); cursor: pointer; padding: 0.5rem 0; }
+  .checklist-done-group[open] > summary { margin-bottom: 0.5rem; }
   .official-link {
     display: inline-block;
     margin-top: 1rem;
@@ -7972,21 +8011,95 @@ function renderPipelineChecklist(container, entryId, items, analysisStatus, noti
     container.appendChild(h(`<p class="empty">${escapeHtml(text)}</p>${linkHtml}`));
     return;
   }
-  const rows = items.map(it => `
-    <div class="checklist-row" data-item-id="${escapeAttr(it.id)}">
-      <span class="checklist-doc-name">${escapeHtml(it.documentName)}</span>
-      <select class="select-input checklist-status-select">
+  // Step 4(2026-08-09): 단순 목록 대신 "남은 일 우선 + 자동확인 접기 + 요약".
+  // 목표는 사용자가 이번 공고에서 실제로 추가 준비할 것만 보게 하는 것.
+  // '보유'만 완료(자동 확인)로 보고, 나머지는 해야 할 일로 위에 올린다.
+  const isDone = s => s === '보유';
+  const done = items.filter(it => isDone(it.status));
+  const actionable = items.filter(it => !isDone(it.status));
+  const total = items.length;
+  const autoConfirmed = done.length;
+  const renewCount = items.filter(it => it.status === '갱신필요').length;
+  const confirmCount = items.filter(it => it.status === '확인필요').length;
+  const prepareCount = items.filter(it => it.status === '발급필요' || it.status === '신규작성').length;
+  // 준비율은 "서류 보유율"이다(입찰 자격 충족률이 아님) — 과장하지 않기 위해 명시.
+  const prepPct = total ? Math.round(autoConfirmed / total * 100) : 0;
+
+  const summaryHtml = `
+    <div class="checklist-summary">
+      <div class="checklist-summary-top">
+        <span class="checklist-prep-pct">서류 준비 ${prepPct}%</span>
+        <span class="checklist-total">필요서류 ${total}개</span>
+      </div>
+      <div class="checklist-summary-counts">
+        <span class="ck-count ck-done">✓ 자동 확인 ${autoConfirmed}</span>
+        <span class="ck-count ck-warn">! 확인 필요 ${confirmCount + renewCount}</span>
+        <span class="ck-count ck-miss">○ 새로 준비 ${prepareCount}</span>
+      </div>
+      <p class="checklist-summary-msg">기존 회사정보와 등록서류 ${autoConfirmed}개를 자동으로 확인했습니다.${actionable.length ? ` 이번 공고에서는 ${actionable.length}개만 추가로 준비하면 됩니다.` : ' 추가로 준비할 서류가 없습니다.'}</p>
+    </div>`;
+
+  // 정렬: 갱신/마감 → 미등록 → 확인 필요(해야 할 일을 위로).
+  const order = { '갱신필요': 0, '발급필요': 1, '신규작성': 1, '확인필요': 2 };
+  actionable.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+
+  // 항목당 주 행동 최대 1개(모바일 고려). 내부 enum/match_method는 노출하지 않는다.
+  const manualHtml = it => `
+    <details class="checklist-manual"><summary>직접 변경</summary>
+      <select class="select-input checklist-status-select" data-item-id="${escapeAttr(it.id)}">
         ${CHECKLIST_STATUS_LIST.map(s => `<option value="${escapeAttr(s)}" ${s === it.status ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
       </select>
-    </div>
-  `).join('');
-  container.appendChild(h(`<div class="checklist-list">${rows}</div>`));
+    </details>`;
+
+  const actionMeta = it => {
+    if (it.status === '갱신필요') return { hint: '등록된 정보가 만료되었습니다. 갱신이 필요합니다.', ctaLabel: '갱신하기', href: '#/me/saved-searches', tone: 'ck-tone-warn' };
+    if (it.status === '신규작성') return { hint: '이번 공고에서 준비하는 서류입니다.', ctaLabel: noticeId ? '양식 보기' : '준비하기', href: noticeId ? `#/notices/${escapeAttr(noticeId)}` : '#/me/saved-searches', tone: 'ck-tone-form' };
+    if (it.status === '발급필요') return { hint: '아직 등록되지 않았습니다.', ctaLabel: '등록하기', href: '#/me/saved-searches', tone: 'ck-tone-miss' };
+    return { hint: '확인이 필요합니다.', ctaLabel: '확인하기', href: '#/me/saved-searches', tone: 'ck-tone-confirm' }; // 확인필요
+  };
+
+  const doneHint = it => {
+    if (it.evidenceType === 'file') return { main: '✓ 등록된 서류 자동 확인', sub: '공고 세부 조건은 별도 확인이 필요할 수 있어요.' };
+    if (it.evidenceType === 'license') return { main: '✓ 등록정보 확인', sub: '' };
+    if (it.evidenceType === 'profile') return { main: '✓ 회사정보에서 확인', sub: '제출용 파일이 필요하면 별도 등록이 필요할 수 있어요.' };
+    return { main: '✓ 확인됨', sub: '' };
+  };
+
+  const actionItemHtml = it => {
+    const m = actionMeta(it);
+    return `<div class="checklist-item ${m.tone}" data-item-id="${escapeAttr(it.id)}">
+      <div class="checklist-item-main">
+        <span class="checklist-item-name">${escapeHtml(it.documentName)}</span>
+        <span class="checklist-item-hint">${escapeHtml(m.hint)}</span>
+      </div>
+      <a class="btn btn-secondary btn-sm checklist-item-cta" href="${m.href}">${escapeHtml(m.ctaLabel)}</a>
+      ${manualHtml(it)}
+    </div>`;
+  };
+  const doneItemHtml = it => {
+    const d = doneHint(it);
+    return `<div class="checklist-item checklist-item--done" data-item-id="${escapeAttr(it.id)}">
+      <div class="checklist-item-main">
+        <span class="checklist-item-name">${escapeHtml(it.documentName)}</span>
+        <span class="checklist-item-hint checklist-hint-ok">${escapeHtml(d.main)}${d.sub ? `<span class="checklist-hint-sub"> · ${escapeHtml(d.sub)}</span>` : ''}</span>
+      </div>
+      ${manualHtml(it)}
+    </div>`;
+  };
+
+  const actionsHtml = actionable.length
+    ? `<h4 class="checklist-group-title">준비해야 할 서류 ${actionable.length}개</h4><div class="checklist-list">${actionable.map(actionItemHtml).join('')}</div>`
+    : `<p class="checklist-all-done">✓ 이번 공고에 필요한 서류가 모두 확인되었습니다.</p>`;
+  const doneGroupHtml = done.length
+    ? `<details class="checklist-done-group"><summary>자동 확인된 서류 ${done.length}개</summary><div class="checklist-list">${done.map(doneItemHtml).join('')}</div></details>`
+    : '';
+
+  container.appendChild(h(summaryHtml + actionsHtml + doneGroupHtml));
 
   container.querySelectorAll('.checklist-status-select').forEach(sel => {
     const originalValue = sel.value;
     sel.addEventListener('change', async () => {
-      const row = sel.closest('.checklist-row');
-      const itemId = row.dataset.itemId;
+      const itemId = sel.dataset.itemId;
       sel.disabled = true;
       try {
         await apiRequest('PATCH',

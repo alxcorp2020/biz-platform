@@ -53,6 +53,12 @@ type pipelineChecklistItem struct {
 	DocumentName       string  `json:"documentName"`
 	Status             string  `json:"status"`
 	RequiredDocumentID *string `json:"requiredDocumentId"`
+	// Step 4(2026-08-09): 자동매칭 근거를 화면 문구로 구분하기 위한 파생값.
+	// 사용자에겐 내부 enum(match_method)을 노출하지 않고, 이 evidenceType으로
+	// "등록된 서류 자동 확인(file)"/"회사정보에서 확인(profile)"/"등록정보
+	// 확인(license)"을 구분한다. matchedDocumentId는 실제 파일 근거일 때만.
+	EvidenceType      string  `json:"evidenceType,omitempty"` // file | profile | license | ""
+	MatchedDocumentID *string `json:"matchedDocumentId,omitempty"`
 }
 
 type pipelineEntry struct {
@@ -419,7 +425,7 @@ func (s *Server) reevaluateChecklistMatches(ctx context.Context, entryID, profil
 
 func (s *Server) fetchChecklistItems(ctx context.Context, entryID string) ([]pipelineChecklistItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, document_name, status, required_document_id
+		SELECT id, document_name, status, required_document_id, matched_document_id, match_method
 		FROM pipeline_checklist_items WHERE pipeline_entry_id = $1 ORDER BY created_at`, entryID)
 	if err != nil {
 		return nil, err
@@ -429,11 +435,22 @@ func (s *Server) fetchChecklistItems(ctx context.Context, entryID string) ([]pip
 	items := []pipelineChecklistItem{}
 	for rows.Next() {
 		var it pipelineChecklistItem
-		var reqDocID sql.NullString
-		if err := rows.Scan(&it.ID, &it.DocumentName, &it.Status, &reqDocID); err != nil {
+		var reqDocID, matchedDocID, matchMethod sql.NullString
+		if err := rows.Scan(&it.ID, &it.DocumentName, &it.Status, &reqDocID, &matchedDocID, &matchMethod); err != nil {
 			continue
 		}
 		it.RequiredDocumentID = nullStringPtr(reqDocID)
+		it.MatchedDocumentID = nullStringPtr(matchedDocID)
+		// 증거출처 파생: 실제 파일 근거(file) > 면허/인증 등록정보(license) >
+		// 프로필 추출값(profile). 자동매칭이 아니면 빈값.
+		switch {
+		case matchedDocID.Valid:
+			it.EvidenceType = "file"
+		case matchMethod.String == matchMethodExact:
+			it.EvidenceType = "license"
+		case matchMethod.String == matchMethodCategory || matchMethod.String == matchMethodAlias:
+			it.EvidenceType = "profile"
+		}
 		items = append(items, it)
 	}
 	return items, rows.Err()
