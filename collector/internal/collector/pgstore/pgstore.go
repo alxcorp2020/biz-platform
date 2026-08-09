@@ -135,7 +135,13 @@ func (p *PgStore) CreateNotice(ctx context.Context, notice collector.NormalizedN
 		return "", "", fmt.Errorf("insert notice_version: %w", err)
 	}
 
-	return noticeID, versionID, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return "", "", err
+	}
+	// 지원사업 전용 상세는 notice 커밋 후 별도 UPSERT(비원자적) — 상세 저장 실패가
+	// 공고 수집 자체를 롤백시키지 않도록(부차 데이터, 재수집 시 재갱신). g2b는 nil.
+	p.upsertSupportProgramDetail(ctx, noticeID, notice.SupportDetail)
+	return noticeID, versionID, nil
 }
 
 func (p *PgStore) AddNewVersion(ctx context.Context, noticeID string, notice collector.NormalizedNotice, rawDocID string, changeType string) (string, int, error) {
@@ -182,7 +188,48 @@ func (p *PgStore) AddNewVersion(ctx context.Context, noticeID string, notice col
 		return "", 0, err
 	}
 
-	return versionID, newVerNum, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return "", 0, err
+	}
+	p.upsertSupportProgramDetail(ctx, noticeID, notice.SupportDetail)
+	return versionID, newVerNum, nil
+}
+
+// upsertSupportProgramDetail — 지원사업(support_program) 전용 공식 데이터를
+// support_program_details에 notice_id 기준 UPSERT한다. detail이 nil(입찰 등)이면
+// no-op. 공식 API 재수집마다 최신 값으로 덮어쓴다(수집기 정책과 일관 — notices
+// upsert와 동일). 실패는 로그만 남기고 공고 수집을 막지 않는다(부차 데이터).
+func (p *PgStore) upsertSupportProgramDetail(ctx context.Context, noticeID string, d *collector.SupportProgramDetail) {
+	if d == nil {
+		return
+	}
+	_, err := p.db.ExecContext(ctx, `
+		INSERT INTO support_program_details
+			(notice_id, support_target, business_summary_html, business_summary_text,
+			 application_method, reference_contact, application_url,
+			 support_category_major, support_category_middle, hashtags, inquiry_count, source_updated_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())
+		ON CONFLICT (notice_id) DO UPDATE SET
+			support_target = EXCLUDED.support_target,
+			business_summary_html = EXCLUDED.business_summary_html,
+			business_summary_text = EXCLUDED.business_summary_text,
+			application_method = EXCLUDED.application_method,
+			reference_contact = EXCLUDED.reference_contact,
+			application_url = EXCLUDED.application_url,
+			support_category_major = EXCLUDED.support_category_major,
+			support_category_middle = EXCLUDED.support_category_middle,
+			hashtags = EXCLUDED.hashtags,
+			inquiry_count = EXCLUDED.inquiry_count,
+			source_updated_at = EXCLUDED.source_updated_at,
+			updated_at = now()`,
+		noticeID, nullIfEmpty(d.SupportTarget), nullIfEmpty(d.BusinessSummaryHTML), nullIfEmpty(d.BusinessSummaryText),
+		nullIfEmpty(d.ApplicationMethod), nullIfEmpty(d.ReferenceContact), nullIfEmpty(d.ApplicationURL),
+		nullIfEmpty(d.CategoryMajor), nullIfEmpty(d.CategoryMiddle), nullIfEmpty(d.Hashtags), d.InquiryCount, d.SourceUpdatedAt)
+	if err != nil {
+		// 로거가 pgstore엔 없어(원본 계층) 조용히 무시 — 공고/원본은 이미 저장됨.
+		// 재수집 시 다시 UPSERT되므로 일시 실패는 자연 복구된다.
+		_ = err
+	}
 }
 
 // RecordChanges resolves each ChangeRecord's from/to version *numbers* into

@@ -265,6 +265,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureChecklistMatchColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate checklist match columns: %w", err)
 	}
+	if err := ensureSupportProgramDetailsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate support_program_details: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -485,6 +488,34 @@ func RunNoticeDatetimeBackfill(ctx context.Context, db *sql.DB) (int64, error) {
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
+}
+
+// ensureSupportProgramDetailsTable — 2026-08-09 B-2. 기업마당 지원사업 전용 공식
+// 필드(지원대상/사업개요/신청방법/문의처/신청URL/대·중분류/해시태그/조회수/수정일)를
+// notices 공용 테이블 비대화 없이 별도 저장한다. notice_type=support_program에만
+// row가 생긴다. 🚨 notices로의 외래키는 만들지 않는다(순수 notice_id PK) — 롤링
+// 배포 중 ALTER/CREATE의 FK가 hot 테이블(notices, 수집이 계속 upsert)에 락을 걸어
+// 부팅을 블로킹한 사고(Step 3) 재발 방지. 무결성은 앱 레벨(수집기가 support만 기록,
+// 조인은 notice_id)로 지킨다. 가벼운 CREATE TABLE 1회(startup 안전, backfill 없음).
+func ensureSupportProgramDetailsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS support_program_details (
+			notice_id               UUID PRIMARY KEY,
+			support_target          TEXT,
+			business_summary_html   TEXT,
+			business_summary_text   TEXT,
+			application_method      TEXT,
+			reference_contact       TEXT,
+			application_url         TEXT,
+			support_category_major  TEXT,
+			support_category_middle TEXT,
+			hashtags                TEXT,
+			inquiry_count           BIGINT,
+			source_updated_at       TIMESTAMPTZ,
+			created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`)
+	return err
 }
 
 // ensureChecklistMatchColumns — 2026-08-09 Step 3 재적용. 회사 문서 자동매칭
