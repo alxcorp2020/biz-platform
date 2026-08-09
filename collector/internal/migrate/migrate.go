@@ -262,9 +262,6 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureResultLookupSchema(ctx, db); err != nil {
 		return fmt.Errorf("migrate result lookup schema: %w", err)
 	}
-	if err := ensureChecklistMatchColumns(ctx, db); err != nil {
-		return fmt.Errorf("migrate checklist match columns: %w", err)
-	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -464,24 +461,6 @@ func ensureNoticeDatetimeColumnsAndBackfill(ctx context.Context, db *sql.DB) err
 		       OR n.application_start_datetime IS NULL OR n.success_bid_method_name IS NULL)`
 	if _, err := db.ExecContext(ctx, backfill); err != nil {
 		return fmt.Errorf("backfill notice datetimes: %w", err)
-	}
-	return nil
-}
-
-// ensureChecklistMatchColumns — 2026-08-09 Step 3. 회사 문서 자동매칭 추적용
-// 컬럼(새 테이블 없이 기존 pipeline_checklist_items 확장). matched_document_id는
-// 회사 문서 파일이 근거일 때만 채워지고, 문서 삭제 시 NULL로 남긴다(상태값은 다음
-// 재계산 때 갱신). match_method는 EXACT/CATEGORY/ALIAS/MANUAL(운영/디버깅용).
-func ensureChecklistMatchColumns(ctx context.Context, db *sql.DB) error {
-	stmts := []string{
-		`ALTER TABLE pipeline_checklist_items ADD COLUMN IF NOT EXISTS matched_document_id UUID REFERENCES company_documents(id) ON DELETE SET NULL`,
-		`ALTER TABLE pipeline_checklist_items ADD COLUMN IF NOT EXISTS match_method TEXT`,
-		`ALTER TABLE pipeline_checklist_items ADD COLUMN IF NOT EXISTS matched_at TIMESTAMPTZ`,
-	}
-	for _, q := range stmts {
-		if _, err := db.ExecContext(ctx, q); err != nil {
-			return fmt.Errorf("%.60s...: %w", q, err)
-		}
 	}
 	return nil
 }
