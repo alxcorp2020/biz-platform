@@ -1754,6 +1754,13 @@
   .official-link:hover { text-decoration: underline; }
   .new-tab-icon { width: 0.85em; height: 0.85em; margin-left: 0.3em; vertical-align: -0.05em; flex-shrink: 0; }
 
+  /* 지원사업 "신청 안내" 탭(B-2) — 사업개요/CTA/역할별 첨부 그룹 */
+  .support-summary { margin-top: 1.25rem; }
+  .support-summary p { white-space: pre-line; color: var(--ink-soft); line-height: 1.6; }
+  .support-cta { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1.25rem; }
+  .support-attachment-group { margin: 1.1rem 0 0.5rem; font-size: 0.95rem; font-weight: 700; color: var(--ink); }
+  .support-attachment-group:first-child { margin-top: 0; }
+
   /* margin-left/right 생략 이유는 .dash-section-title 주석 참고(같은
      버그 — main > *의 auto 가운데정렬을 좌우 margin:0이 덮어씀). 이
      범용 h3 규칙은 클래스 없는 모든 <h3>(예: #/pipeline/{id}의
@@ -2972,6 +2979,18 @@ function escapeHtml(s) {
   }[c]));
 }
 function escapeAttr(s) { return escapeHtml(s); }
+// safeExternalHttpUrl — 외부 이동 링크(href)로 쓸 수 있는 http/https URL만
+// 통과시킨다. javascript:·data: 등 스킴은 null 반환(XSS/피싱 회피, B-2 §9).
+// 지원사업 "사업 신청하기" CTA(application_url)에 사용.
+function safeExternalHttpUrl(u) {
+  if (!u || typeof u !== 'string') return null;
+  const trimmed = u.trim();
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return trimmed;
+  } catch (e) { /* 상대경로/파싱불가 → 링크로 쓰지 않음 */ }
+  return null;
+}
 
 // ---------- 모달 / 바텀시트 공용 헬퍼 ----------
 // 데스크톱에선 중앙 모달, 좁은 화면에선 하단 바텀시트로 보이는 같은
@@ -9467,9 +9486,6 @@ function renderDetail(container, id) {
         ? tabBtn('conditions', '신청 안내') + tabBtn('summary', '요약') + tabBtn('documents', '첨부·서류') + tabBtn('changes', '변경이력')
         : tabBtn('summary', '요약') + tabBtn('participation', '판정') + tabBtn('conditions', '참가조건') + tabBtn('documents', '제출서류') + tabBtn('award-history', '낙찰이력') + tabBtn('changes', '변경이력');
       const panelHidden = (tab) => activeTab === tab ? '' : 'hidden';
-      const supportOfficialCta = n.officialUrl
-        ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고에서 자세히 보기 ${newTabIconHtml()}</a>`
-        : '';
 
       body.className = '';
       body.innerHTML = '';
@@ -9505,8 +9521,7 @@ function renderDetail(container, id) {
             <div><dt>상태</dt><dd>${statusBadgeHtml(n.status)}</dd></div>
             <div><dt>공고 게시</dt><dd class="mono">${n.publishedAt ? formatDate(n.publishedAt) : '-'}</dd></div>
           </dl>
-          <p class="detail-sub">지원대상·신청 자격·제출서류·지원 내용·신청 시작일은 원문 공고에서 확인해주세요.</p>
-          ${supportOfficialCta}
+          <div id="support-detail-section"></div>
           ` : `
           <dl class="detail-meta">
             <div><dt>발주기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
@@ -9530,11 +9545,16 @@ function renderDetail(container, id) {
           </div>
         </div>
         <div class="detail-tab-panel" role="tabpanel" data-tab-panel="documents" hidden>
+          ${isSupport ? `
+          <h3>공고문·첨부자료</h3>
+          <div id="attachments-section"></div>
+          ` : `
           ${extractionBannerHtml}
           <h3>제출서류</h3>
           <div id="required-documents-section"></div>
           <h3>첨부파일</h3>
           <div id="attachments-section"></div>
+          `}
         </div>
         <div class="detail-tab-panel" role="tabpanel" data-tab-panel="award-history" hidden>
           <div id="award-history-section"></div>
@@ -9554,10 +9574,17 @@ function renderDetail(container, id) {
       renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
       renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail);
       renderBidCalculator(document.getElementById('bid-calculator-section'), data.detail);
-      renderAttachments(document.getElementById('attachments-section'), data.attachments || []);
+      if (isSupport) {
+        // B-2: 지원사업 공식 데이터(지원대상·사업개요·신청방법·문의처·지원분야) +
+        // "사업 신청하기" CTA를 "신청 안내" 탭에, 첨부는 공고문/별첨자료로 나눠 표시.
+        renderSupportProgramDetail(document.getElementById('support-detail-section'), data.supportDetail, n);
+        renderSupportAttachments(document.getElementById('attachments-section'), data.attachments || []);
+      } else {
+        renderAttachments(document.getElementById('attachments-section'), data.attachments || []);
+        renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || [], id, data.documentReadiness, data.documentAnalysisStatus, n.officialUrl);
+      }
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || [], data.documentAnalysisStatus, n.officialUrl);
       renderLicenseRequirementMatches(document.getElementById('license-requirement-match-section'), data.licenseMatches || [], data.documentAnalysisStatus, n.officialUrl);
-      renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || [], id, data.documentReadiness, data.documentAnalysisStatus, n.officialUrl);
       renderAwardHistory(document.getElementById('award-history-section'), data.organizationAwardHistory, data.hasCompetitiveOverlap);
       renderPipelineReviewAction(document.getElementById('pipeline-review-action'), id, data.existingPipelineEntryId);
       wireDetailTabs(body);
@@ -9977,27 +10004,110 @@ function renderBidCalculator(container, detail) {
   recompute();
 }
 
+// attachmentRowHtml — 첨부 한 줄 마크업. renderAttachments/renderSupportAttachments
+// 공용. downloadUrl 없으면 파일명만(죽은 링크 안 만듦).
+function attachmentRowHtml(it) {
+  const sizeText = formatFileSize(it.fileSizeBytes);
+  const statusBadge = it.downloadStatus !== 'completed'
+    ? `<span class="status-badge status-badge--muted">${escapeHtml(it.downloadStatus)}</span>`
+    : '';
+  const nameHtml = it.downloadUrl
+    ? `<a href="${escapeAttr(it.downloadUrl)}" target="_blank" rel="noopener">${escapeHtml(it.originalFilename)} ${newTabIconHtml()}</a>`
+    : escapeHtml(it.originalFilename);
+  return `
+      <li class="attachment-item">
+        <span class="attachment-name">${nameHtml}</span>
+        <span class="attachment-meta mono">${escapeHtml((it.fileType || '').toUpperCase())} ${sizeText}</span>
+        ${statusBadge}
+      </li>`;
+}
+
+// renderSupportProgramDetail — B-2. 지원사업 "신청 안내" 탭에 기업마당 공식
+// 데이터(지원대상·사업개요·신청방법·문의처·지원분야)를 표시하고 "사업
+// 신청하기"(application_url) CTA를 우선 노출한다. detail이 없으면(미수집)
+// 원문 공고 링크로 안내한다. 사업개요는 서버가 평문(businessSummaryText)으로
+// 내려준 값만 escapeHtml로 출력한다 — 원본 HTML은 절대 innerHTML하지 않는다.
+function renderSupportProgramDetail(container, detail, notice) {
+  if (!container) return;
+  container.innerHTML = '';
+
+  const officialUrl = safeExternalHttpUrl(notice && notice.officialUrl);
+  const applyUrl = detail ? safeExternalHttpUrl(detail.applicationUrl) : null;
+
+  const rows = [];
+  const addRow = (label, value) => {
+    const v = (value == null ? '' : String(value)).trim();
+    if (!v) return;
+    rows.push(`<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(v)}</dd></div>`);
+  };
+  if (detail) {
+    addRow('지원대상', detail.supportTarget);
+    const category = [detail.categoryMajor, detail.categoryMiddle].filter(Boolean).join(' > ');
+    addRow('지원분야', category);
+    addRow('신청방법', detail.applicationMethod);
+    addRow('문의처', detail.referenceContact);
+  }
+
+  const summary = detail && detail.businessSummaryText ? String(detail.businessSummaryText).trim() : '';
+  const summaryHtml = summary
+    ? `<div class="support-summary"><h3>사업 개요</h3><p>${escapeHtml(summary)}</p></div>`
+    : '';
+
+  const metaHtml = rows.length
+    ? `<dl class="detail-meta">${rows.join('')}</dl>`
+    : '';
+
+  // CTA: 신청 링크가 있으면 "사업 신청하기"를 주 버튼으로, 원문 공고를 보조로.
+  // 신청 링크가 없으면 원문 공고 보기를 주 버튼으로 노출한다.
+  const ctas = [];
+  if (applyUrl) {
+    ctas.push(`<a class="btn btn-primary" href="${escapeAttr(applyUrl)}" target="_blank" rel="noopener">사업 신청하기 ${newTabIconHtml()}</a>`);
+    if (officialUrl) ctas.push(`<a class="btn btn-secondary" href="${escapeAttr(officialUrl)}" target="_blank" rel="noopener">공고 원문 보기 ${newTabIconHtml()}</a>`);
+  } else if (officialUrl) {
+    ctas.push(`<a class="btn btn-primary" href="${escapeAttr(officialUrl)}" target="_blank" rel="noopener">공고 원문 보기 ${newTabIconHtml()}</a>`);
+  }
+  const ctaHtml = ctas.length ? `<div class="support-cta">${ctas.join('')}</div>` : '';
+
+  // 공식 데이터가 아직 없을 때(입찰이 아닌데 미수집)의 안내.
+  const noteHtml = (!metaHtml && !summaryHtml)
+    ? '<p class="detail-sub">지원대상·신청 방법 등 상세 정보는 원문 공고에서 확인해주세요.</p>'
+    : '<p class="detail-sub">신청 자격·제출 서류 등 세부 조건은 원문 공고와 첨부 공고문에서 반드시 확인해주세요.</p>';
+
+  container.appendChild(h(`<div>${metaHtml}${summaryHtml}${noteHtml}${ctaHtml}</div>`));
+}
+
+// renderSupportAttachments — B-2. 지원사업 첨부를 역할별로 나눠 보여준다:
+// 공고문(SUPPORT_PRINT_DOCUMENT) / 별첨자료(SUPPORT_ATTACHMENT) / 기타(역할 미상).
+function renderSupportAttachments(container, items) {
+  if (!container) return;
+  container.innerHTML = '';
+  if (!items.length) {
+    container.appendChild(h('<p class="section-empty">첨부파일이 없습니다.</p>'));
+    return;
+  }
+  const groups = [
+    { role: 'SUPPORT_PRINT_DOCUMENT', label: '공고문', items: [] },
+    { role: 'SUPPORT_ATTACHMENT', label: '별첨자료', items: [] },
+    { role: '', label: '기타 첨부', items: [] },
+  ];
+  items.forEach(it => {
+    const g = groups.find(x => x.role === (it.role || '')) || groups[2];
+    g.items.push(it);
+  });
+  const blocks = groups
+    .filter(g => g.items.length)
+    .map(g => `<h4 class="support-attachment-group">${escapeHtml(g.label)}</h4><ul class="attachment-list">${g.items.map(attachmentRowHtml).join('')}</ul>`)
+    .join('');
+  container.appendChild(h(blocks));
+}
+
 function renderAttachments(container, items) {
   container.innerHTML = '';
   if (!items.length) {
     container.appendChild(h('<p class="section-empty">첨부파일이 없습니다.</p>'));
     return;
   }
-  const rows = items.map(it => {
-    const sizeText = formatFileSize(it.fileSizeBytes);
-    const statusBadge = it.downloadStatus !== 'completed'
-      ? `<span class="status-badge status-badge--muted">${escapeHtml(it.downloadStatus)}</span>`
-      : '';
-    const nameHtml = it.downloadUrl
-      ? `<a href="${escapeAttr(it.downloadUrl)}" target="_blank" rel="noopener">${escapeHtml(it.originalFilename)} ${newTabIconHtml()}</a>`
-      : escapeHtml(it.originalFilename);
-    return `
-      <li class="attachment-item">
-        <span class="attachment-name">${nameHtml}</span>
-        <span class="attachment-meta mono">${escapeHtml((it.fileType || '').toUpperCase())} ${sizeText}</span>
-        ${statusBadge}
-      </li>`;
-  }).join('');
+  const rows = items.map(attachmentRowHtml).join('');
   container.appendChild(h(`<ul class="attachment-list">${rows}</ul>`));
 }
 

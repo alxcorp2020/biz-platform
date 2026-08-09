@@ -144,6 +144,58 @@ type attachmentItem struct {
 	FileSizeBytes    *int64 `json:"fileSizeBytes"`
 	DownloadURL      string `json:"downloadUrl"`
 	DownloadStatus   string `json:"downloadStatus"`
+	// Role — B-2. 지원사업 상세에서 "공고문"(SUPPORT_PRINT_DOCUMENT)과
+	// "별첨자료"(SUPPORT_ATTACHMENT)를 구분해 보여주기 위함. g2b 첨부는 빈값.
+	Role string `json:"role,omitempty"`
+}
+
+// supportDetailDTO — 지원사업 전용 공식 데이터(B-2). notice_type=support_program일
+// 때만 채워진다. business_summary는 평문(text)만 노출한다(원본 HTML은 서버 보관 —
+// 프론트 XSS 회피). applicationUrl은 원본 그대로 주고, href 안전검증은 프론트가 한다.
+type supportDetailDTO struct {
+	SupportTarget       string  `json:"supportTarget,omitempty"`
+	BusinessSummaryText string  `json:"businessSummaryText,omitempty"`
+	ApplicationMethod   string  `json:"applicationMethod,omitempty"`
+	ReferenceContact    string  `json:"referenceContact,omitempty"`
+	ApplicationURL      string  `json:"applicationUrl,omitempty"`
+	CategoryMajor       string  `json:"categoryMajor,omitempty"`
+	CategoryMiddle      string  `json:"categoryMiddle,omitempty"`
+	Hashtags            string  `json:"hashtags,omitempty"`
+	InquiryCount        *int64  `json:"inquiryCount,omitempty"`
+	SourceUpdatedAt     *string `json:"sourceUpdatedAt,omitempty"`
+}
+
+// fetchSupportProgramDetail returns the support-program official detail for a
+// notice, or nil when there's no row (procurement notices, or not yet collected).
+func (s *Server) fetchSupportProgramDetail(ctx context.Context, noticeID string) *supportDetailDTO {
+	var d supportDetailDTO
+	var target, text, method, contact, url, catMajor, catMid, tags sql.NullString
+	var inquiry sql.NullInt64
+	var updated sql.NullTime
+	err := s.db.QueryRowContext(ctx, `
+		SELECT support_target, business_summary_text, application_method, reference_contact, application_url,
+		       support_category_major, support_category_middle, hashtags, inquiry_count, source_updated_at
+		FROM support_program_details WHERE notice_id = $1`, noticeID).
+		Scan(&target, &text, &method, &contact, &url, &catMajor, &catMid, &tags, &inquiry, &updated)
+	if err != nil {
+		return nil // sql.ErrNoRows(미수집/입찰) 포함 — 없으면 nil
+	}
+	d.SupportTarget = target.String
+	d.BusinessSummaryText = text.String
+	d.ApplicationMethod = method.String
+	d.ReferenceContact = contact.String
+	d.ApplicationURL = url.String
+	d.CategoryMajor = catMajor.String
+	d.CategoryMiddle = catMid.String
+	d.Hashtags = tags.String
+	if inquiry.Valid {
+		d.InquiryCount = &inquiry.Int64
+	}
+	if updated.Valid {
+		v := updated.Time.Format("2006-01-02")
+		d.SourceUpdatedAt = &v
+	}
+	return &d
 }
 
 // listAttachments surfaces the download_url g2b originally served the file
@@ -152,7 +204,8 @@ type attachmentItem struct {
 // and the attachments table already tracks whether the download completed.
 func (s *Server) listAttachments(ctx context.Context, versionID string) ([]attachmentItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT original_filename, COALESCE(file_type, ''), file_size_bytes, COALESCE(download_url, ''), download_status
+		SELECT original_filename, COALESCE(file_type, ''), file_size_bytes, COALESCE(download_url, ''), download_status,
+		       COALESCE(attachment_role, '')
 		FROM attachments
 		WHERE notice_version_id = $1
 		ORDER BY created_at`, versionID)
@@ -165,7 +218,7 @@ func (s *Server) listAttachments(ctx context.Context, versionID string) ([]attac
 	for rows.Next() {
 		var it attachmentItem
 		var size sql.NullInt64
-		if err := rows.Scan(&it.OriginalFilename, &it.FileType, &size, &it.DownloadURL, &it.DownloadStatus); err != nil {
+		if err := rows.Scan(&it.OriginalFilename, &it.FileType, &size, &it.DownloadURL, &it.DownloadStatus, &it.Role); err != nil {
 			continue
 		}
 		if size.Valid {
