@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -356,13 +357,25 @@ func startBackgroundBizinfoCollection(dsn string, logger *slog.Logger, srv *api.
 	go func() {
 		ctx := context.Background()
 		src := bizinfo.New(key)
+		// 운영 첫 수집을 통제하기 위한 선택적 상한(기본 미설정 = 기존 동작 유지).
+		// BIZINFO_PAGE_SIZE=20 + BIZINFO_MAX_PAGES=1 → 한 주기당 20건만 수집(단계적
+		// 운영 검증용). 값을 비우거나 유효하지 않으면 기존 기본값(PageSize=100,
+		// MaxPages=1000)을 그대로 쓴다. 신규 기능이 아니라 수집량 안전장치일 뿐이다.
+		if ps := positiveIntEnv("BIZINFO_PAGE_SIZE"); ps > 0 {
+			src.PageSize = ps
+		}
 		st, err := pgstore.Open(ctx, dsn, src.SourceCode(), "중소벤처기업부_기업마당", "support_program", "https://www.bizinfo.go.kr/uss/rss/bizinfoApi.do")
 		if err != nil {
 			logger.Error("background bizinfo collection: failed to open store", "error", err)
 			return
 		}
 		rn := runner.New(src, st, logger)
+		if mp := positiveIntEnv("BIZINFO_MAX_PAGES"); mp > 0 {
+			rn.MaxPages = mp
+		}
 		rn.OnChangesRecorded = srv.NotifyNoticeChanged
+		logger.Info("background bizinfo collection configured",
+			"page_size", src.PageSize, "max_pages", rn.MaxPages)
 
 		runOnce := func() {
 			res := rn.RunIncremental(ctx, time.Time{})
@@ -384,6 +397,20 @@ func startBackgroundBizinfoCollection(dsn string, logger *slog.Logger, srv *api.
 			runOnce()
 		}
 	}()
+}
+
+// positiveIntEnv reads an env var as a positive int, returning 0 when it's
+// unset, non-numeric, or ≤0 — callers treat 0 as "keep the default".
+func positiveIntEnv(name string) int {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 // newCollectorSource picks the real 나라장터 source when G2B_SERVICE_KEY is
