@@ -271,6 +271,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureAttachmentRoleColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate attachment role column: %w", err)
 	}
+	if err := ensureSupportProgramConditionsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate support_program_conditions: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -508,6 +511,46 @@ func ensureAttachmentRoleColumn(ctx context.Context, db *sql.DB) error {
 // 배포 중 ALTER/CREATE의 FK가 hot 테이블(notices, 수집이 계속 upsert)에 락을 걸어
 // 부팅을 블로킹한 사고(Step 3) 재발 방지. 무결성은 앱 레벨(수집기가 support만 기록,
 // 조인은 notice_id)로 지킨다. 가벼운 CREATE TABLE 1회(startup 안전, backfill 없음).
+// ensureSupportProgramConditionsTable — 2026-08-09 B-3. 지원사업 공고문(공고문
+// 첨부, SUPPORT_PRINT_DOCUMENT)에서 규칙 기반으로 뽑은 '상세 신청조건'을 담는다.
+// 공식 API 분류(support_program_details)와 역할이 분리된다 — 이 테이블은 덮어쓰지
+// 않고 보완만 한다. notice_id PK(공고당 1행, FK 없이 — 핫 테이블 FK 회피 정책).
+// required_documents는 JSONB 배열([{name,required,source_text}]). extraction_method
+// 는 RULE/RULE_AI/MANUAL, ai_version은 AI 붙기 전까지 NULL. 재분석 방지는
+// source_file_hash + extractor_version로 판단한다.
+func ensureSupportProgramConditionsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS support_program_conditions (
+			notice_id               UUID PRIMARY KEY,
+			source_document_id      UUID,
+			source_file_hash        TEXT,
+			eligibility_text        TEXT,
+			required_documents      JSONB NOT NULL DEFAULT '[]'::jsonb,
+			support_amount_text     TEXT,
+			support_limit_text      TEXT,
+			support_limit_amount    BIGINT,
+			support_rate_text       TEXT,
+			support_scale_text      TEXT,
+			business_age_condition  TEXT,
+			revenue_condition       TEXT,
+			region_condition        TEXT,
+			exclusion_conditions    JSONB NOT NULL DEFAULT '[]'::jsonb,
+			preference_conditions   JSONB NOT NULL DEFAULT '[]'::jsonb,
+			selection_process       TEXT,
+			text_length             INTEGER,
+			text_poor               BOOLEAN NOT NULL DEFAULT false,
+			needs_ai                BOOLEAN NOT NULL DEFAULT false,
+			extraction_method       TEXT NOT NULL DEFAULT 'RULE',
+			confidence              TEXT,
+			extractor_version       TEXT,
+			ai_version              TEXT,
+			extracted_at            TIMESTAMPTZ,
+			created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`)
+	return err
+}
+
 func ensureSupportProgramDetailsTable(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS support_program_details (
