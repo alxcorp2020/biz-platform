@@ -42,6 +42,10 @@ type Attachment struct {
 	DownloadURL      string
 	FileType         string
 	FileSizeBytes    int64
+	// Role — 첨부의 역할 구분(2026-08-09 B-2). 지원사업은 별첨(SUPPORT_ATTACHMENT)과
+	// 본문출력 공고문(SUPPORT_PRINT_DOCUMENT)이 서로 다른 파일이라 구분이 필요하다.
+	// 빈값이면 역할 미구분(g2b 등 기존 소스는 안 채워 NULL로 저장 — 기존 동작 유지).
+	Role string
 }
 
 // NormalizedNotice is the common schema all source-specific fields map into

@@ -272,11 +272,11 @@ func (p *PgStore) SaveAttachment(ctx context.Context, att store.AttachmentRecord
 	err := p.db.QueryRowContext(ctx, `
 		INSERT INTO attachments
 			(notice_version_id, original_filename, stored_filename, file_type, file_size_bytes,
-			 file_hash, download_url, download_status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			 file_hash, download_url, download_status, attachment_role)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		RETURNING id`,
 		att.NoticeVersionID, att.OriginalFilename, att.StoredKey, att.FileType, att.FileSizeBytes,
-		att.FileHash, att.DownloadURL, att.DownloadStatus,
+		att.FileHash, att.DownloadURL, att.DownloadStatus, nullIfEmpty(att.Role),
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("insert attachment: %w", err)

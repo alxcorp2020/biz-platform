@@ -268,6 +268,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureSupportProgramDetailsTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate support_program_details: %w", err)
 	}
+	if err := ensureAttachmentRoleColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate attachment role column: %w", err)
+	}
 	if err := ensureSavedSearchesTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches table: %w", err)
 	}
@@ -488,6 +491,14 @@ func RunNoticeDatetimeBackfill(ctx context.Context, db *sql.DB) (int64, error) {
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
+}
+
+// ensureAttachmentRoleColumn — 2026-08-09 B-2. 첨부 역할 구분(지원사업의 별첨 vs
+// 본문출력 공고문). 가벼운 nullable ADD COLUMN 1개 — 기존 g2b 첨부는 NULL로 남아
+// 동작 불변. startup 안전(backfill/무거운 작업 없음).
+func ensureAttachmentRoleColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `ALTER TABLE attachments ADD COLUMN IF NOT EXISTS attachment_role TEXT`)
+	return err
 }
 
 // ensureSupportProgramDetailsTable — 2026-08-09 B-2. 기업마당 지원사업 전용 공식

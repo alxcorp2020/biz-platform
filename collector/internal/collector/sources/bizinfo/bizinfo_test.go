@@ -258,6 +258,42 @@ func TestBizinfo_NewFieldsNormalize(t *testing.T) {
 	}
 }
 
+// TestBizinfo_FetchAttachments_BothRoles — 별첨(flpthNm)과 본문출력(printFlpthNm)이
+// 서로 다른 파일로 각각 역할과 함께 반환되는지(22.10~22.12).
+func TestBizinfo_FetchAttachments_BothRoles(t *testing.T) {
+	item := `{"pblancId":"P","flpthNm":"https://x/att","fileNm":"신청서.hwp",
+	          "printFlpthNm":"https://x/doc","printFileNm":"공고문.pdf"}`
+	atts, err := New("x").FetchAttachments(context.Background(), collector.RawDocument{RawContent: item})
+	if err != nil {
+		t.Fatalf("FetchAttachments: %v", err)
+	}
+	if len(atts) != 2 {
+		t.Fatalf("첨부 %d개(기대 2)", len(atts))
+	}
+	byRole := map[string]collector.Attachment{}
+	for _, a := range atts {
+		byRole[a.Role] = a
+	}
+	att := byRole[RoleSupportAttachment]
+	doc := byRole[RoleSupportPrintDocument]
+	if att.DownloadURL != "https://x/att" || att.OriginalFilename != "신청서.hwp" || att.FileType != "hwp" {
+		t.Errorf("별첨 오류: %+v", att)
+	}
+	if doc.DownloadURL != "https://x/doc" || doc.OriginalFilename != "공고문.pdf" || doc.FileType != "pdf" {
+		t.Errorf("본문출력 오류: %+v", doc)
+	}
+	if att.DownloadURL == doc.DownloadURL {
+		t.Error("별첨과 본문출력이 같은 URL로 반환됨(중복)")
+	}
+
+	// 별첨만 있고 본문출력 없는 경우 → 1개.
+	only := `{"pblancId":"P","flpthNm":"https://x/att","fileNm":"a.zip"}`
+	atts2, _ := New("x").FetchAttachments(context.Background(), collector.RawDocument{RawContent: only})
+	if len(atts2) != 1 || atts2[0].Role != RoleSupportAttachment {
+		t.Errorf("별첨만 케이스 오류: %+v", atts2)
+	}
+}
+
 // TestBizinfo_ReqstBeginEndDe_BothFormats — 신형(YYYY-MM-DD)·구형(YYYYMMDD) 모두.
 func TestBizinfo_ReqstBeginEndDe_BothFormats(t *testing.T) {
 	for _, v := range []string{"2026-08-07 ~ 2026-08-12", "20260807 ~ 20260812"} {

@@ -334,15 +334,35 @@ func (s *Source) FetchAttachments(ctx context.Context, doc collector.RawDocument
 	if err := json.Unmarshal([]byte(doc.RawContent), &it); err != nil {
 		return nil, fmt.Errorf("parse detail for attachments: %w", err)
 	}
-	if it.FlpthNm == "" || it.FileNm == "" {
-		return nil, nil
+	var out []collector.Attachment
+	// 별첨(flpthNm/fileNm) — 신청서/서식 등(실측 91%).
+	if it.FlpthNm != "" && it.FileNm != "" {
+		out = append(out, collector.Attachment{
+			OriginalFilename: it.FileNm,
+			DownloadURL:      it.FlpthNm,
+			FileType:         fileExt(it.FileNm),
+			Role:             RoleSupportAttachment,
+		})
 	}
-	return []collector.Attachment{{
-		OriginalFilename: it.FileNm,
-		DownloadURL:      it.FlpthNm,
-		FileType:         fileExt(it.FileNm),
-	}}, nil
+	// 본문출력 공고문(printFlpthNm/printFileNm) — 별첨과 다른 파일(공고 본문, 실측
+	// 100%). B-3에서 AI 분석의 1차 문서원으로 쓸 예정이라 역할을 구분해 저장한다.
+	if it.PrintFlpthNm != "" && it.PrintFileNm != "" {
+		out = append(out, collector.Attachment{
+			OriginalFilename: it.PrintFileNm,
+			DownloadURL:      it.PrintFlpthNm,
+			FileType:         fileExt(it.PrintFileNm),
+			Role:             RoleSupportPrintDocument,
+		})
+	}
+	return out, nil
 }
+
+// 첨부 역할(B-2). support_program_details와 함께 지원사업 상세 화면에서
+// "공고문"(SUPPORT_PRINT_DOCUMENT)과 "별첨자료"(SUPPORT_ATTACHMENT)를 구분한다.
+const (
+	RoleSupportAttachment    = "SUPPORT_ATTACHMENT"
+	RoleSupportPrintDocument = "SUPPORT_PRINT_DOCUMENT"
+)
 
 func fileExt(name string) string {
 	idx := strings.LastIndex(name, ".")

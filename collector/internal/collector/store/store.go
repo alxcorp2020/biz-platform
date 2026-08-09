@@ -21,31 +21,31 @@ type RawDocumentRecord struct {
 }
 
 type NoticeVersionRecord struct {
-	ID              string
-	NoticeID        string
-	VersionNumber   int
-	RawDocumentID   string
-	ChangeType      string
-	ChangeSummary   string
-	IsCurrent       bool
+	ID            string
+	NoticeID      string
+	VersionNumber int
+	RawDocumentID string
+	ChangeType    string
+	ChangeSummary string
+	IsCurrent     bool
 }
 
 type NoticeRecord struct {
-	ID                 string
-	Notice             collector.NormalizedNotice
-	CurrentVersion     int
-	FirstCollectedAt   time.Time
-	LastVerifiedAt     time.Time
+	ID               string
+	Notice           collector.NormalizedNotice
+	CurrentVersion   int
+	FirstCollectedAt time.Time
+	LastVerifiedAt   time.Time
 }
 
 type ChangeRecord struct {
-	NoticeID     string
-	FromVersion  int
-	ToVersion    int
-	Field        string
-	OldValue     string
-	NewValue     string
-	Importance   string
+	NoticeID    string
+	FromVersion int
+	ToVersion   int
+	Field       string
+	OldValue    string
+	NewValue    string
+	Importance  string
 }
 
 // AttachmentRecord mirrors the attachments table (5.5). StoredKey is a
@@ -61,6 +61,7 @@ type AttachmentRecord struct {
 	FileHash         string // "" for a failed download — schema requires NOT NULL, not a real hash
 	DownloadURL      string
 	DownloadStatus   string // "completed" | "failed"
+	Role             string // 첨부 역할(B-2): "" | SUPPORT_ATTACHMENT | SUPPORT_PRINT_DOCUMENT
 }
 
 // Store is the persistence contract the collector runner depends on.

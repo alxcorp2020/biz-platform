@@ -238,6 +238,7 @@ func (r *Runner) processAttachment(ctx context.Context, versionID string, att co
 			FileHash:         existing.FileHash,
 			DownloadURL:      att.DownloadURL,
 			DownloadStatus:   "completed",
+			Role:             att.Role,
 		})
 		return err
 	}
@@ -251,6 +252,7 @@ func (r *Runner) processAttachment(ctx context.Context, versionID string, att co
 			FileType:         att.FileType,
 			DownloadURL:      att.DownloadURL,
 			DownloadStatus:   "failed",
+			Role:             att.Role,
 		})
 		if saveErr != nil {
 			return fmt.Errorf("download failed (%w) and save failed record failed: %v", err, saveErr)
@@ -279,6 +281,7 @@ func (r *Runner) processAttachment(ctx context.Context, versionID string, att co
 		FileHash:         hash,
 		DownloadURL:      att.DownloadURL,
 		DownloadStatus:   "completed",
+		Role:             att.Role,
 	})
 	return err
 }
@@ -287,6 +290,12 @@ func (r *Runner) downloadAttachment(ctx context.Context, url string) ([]byte, er
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
+	}
+	// 🚨 B-2 실측: 기업마당 파일 다운로드(getImageFile)는 브라우저 UA + Referer가
+	// 없으면 403을 준다. source=bizinfo 첨부에만 이 헤더를 붙인다(다른 소스엔 무영향).
+	if r.Collector.SourceCode() == "bizinfo" {
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; biz-platform-collector)")
+		req.Header.Set("Referer", "https://www.bizinfo.go.kr/")
 	}
 	resp, err := r.HTTPClient.Do(req)
 	if err != nil {
