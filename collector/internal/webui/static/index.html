@@ -1808,6 +1808,21 @@
   .pipeline-judgment-collapse > summary::-webkit-details-marker { display: none; }
   .pipeline-judgment-collapse > summary::after { content: ' ▾'; color: var(--ink-soft); font-weight: 400; }
   .pipeline-judgment-collapse[open] > summary::after { content: ' ▴'; }
+  /* 준비중 사업 상단 "제출 준비" 요약 */
+  .prep-summary-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+  .prep-summary-head h3 { margin: 0; }
+  .prep-pct { font-size: 0.95rem; font-weight: 800; color: var(--accent-blue); }
+  .prep-pct-sub { font-weight: 500; color: var(--ink-soft); font-size: 0.8rem; }
+  .prep-deadline-row { font-size: 0.85rem; color: var(--ink-soft); margin: 0.4rem 0; display: flex; align-items: center; gap: 0.4rem; }
+  .prep-deadline { color: var(--ink-soft); }
+  .prep-lead { margin: 0.6rem 0 0.4rem; font-size: 0.95rem; }
+  .prep-lead--done { color: var(--ink-soft); }
+  .prep-todo { margin: 0; padding: 0; list-style: none; }
+  .prep-todo li { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.4rem 0; border-top: 1px solid var(--border); }
+  .prep-doc { font-weight: 600; }
+  .prep-act { flex-shrink: 0; font-size: 0.78rem; font-weight: 700; color: var(--accent-blue); background: var(--surface-sunken, #f1f3f5); padding: 0.1rem 0.5rem; border-radius: 999px; }
+  .prep-more { color: var(--ink-soft); font-size: 0.85rem; justify-content: flex-start !important; }
+  .prep-jump { display: inline-block; margin-top: 0.6rem; background: none; border: none; padding: 0; cursor: pointer; font: inherit; }
   .cond-list { display: flex; flex-direction: column; gap: 0.6rem; }
   .cond-row { display: flex; gap: 0.6rem; align-items: flex-start; }
   .cond-icon { flex-shrink: 0; width: 1.4rem; height: 1.4rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.85rem; color: #fff; }
@@ -7769,6 +7784,38 @@ async function renderAIUsage(container) {
   });
 }
 
+// pipelinePrepSummaryHtml — 준비중 사업 상단 "제출 준비" 요약(2026-08-09). 기존
+// renderPipelineChecklist의 분류('보유'만 완료, 그 외는 해야 할 일 + 갱신→발급/신규
+// →확인 순)를 그대로 재사용해, 사용자가 폼/체크리스트까지 스크롤하지 않고도 "지금
+// 할 일 N건 + 상위 항목 + 준비율"을 제목 아래에서 바로 보게 한다. 데이터가 없으면
+// (분석 전) 생략 — 체크리스트 섹션의 빈 상태 안내가 이유를 대신 설명한다.
+function pipelinePrepSummaryHtml(checklist, entry) {
+  const items = checklist || [];
+  if (!items.length) return '';
+  const done = items.filter(it => it.status === '보유');
+  const actionable = items.filter(it => it.status !== '보유');
+  const total = items.length;
+  const prepPct = total ? Math.round(done.length / total * 100) : 0;
+  const order = { '갱신필요': 0, '발급필요': 1, '신규작성': 1, '확인필요': 2 };
+  actionable.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+  const shortAction = it => it.status === '갱신필요' ? '갱신 확인' : it.status === '신규작성' ? '양식 작성' : it.status === '발급필요' ? '발급·등록' : '확인';
+  const ddayHtml = entry.submissionDeadline ? `${ddayBadgeHtml(entry.submissionDeadline)}<span class="prep-deadline mono">${escapeHtml(entry.submissionDeadline)}</span>` : '';
+  const body = actionable.length
+    ? `<p class="prep-lead">지금 할 일 <strong>${actionable.length}건</strong></p>
+       <ul class="prep-todo">${actionable.slice(0, 3).map(it => `<li><span class="prep-doc">${escapeHtml(it.documentName)}</span><span class="prep-act">${escapeHtml(shortAction(it))}</span></li>`).join('')}${actionable.length > 3 ? `<li class="prep-more">외 ${actionable.length - 3}건</li>` : ''}</ul>`
+    : '<p class="prep-lead prep-lead--done">추가로 준비할 서류가 없어요. 제출 준비가 끝났습니다.</p>';
+  return `
+    <div class="detail-card prep-summary-card">
+      <div class="prep-summary-head">
+        <h3>제출 준비</h3>
+        <span class="prep-pct">서류 준비 ${prepPct}% <span class="prep-pct-sub">(${done.length}/${total})</span></span>
+      </div>
+      ${ddayHtml ? `<p class="prep-deadline-row">제출 마감 ${ddayHtml}</p>` : ''}
+      ${body}
+      <button type="button" class="official-link prep-jump" data-scroll-to="pipeline-checklist-section">준비할 것 자세히 보기 &rarr;</button>
+    </div>`;
+}
+
 // pipelineActionBarHtml — Phase A(2026-08-09). 사용자가 상태를 직접 고르지 않고
 // "행동"을 누르면 상태가 바뀌게 한다. 상태별로 실제로 할 만한 행동만 큰 버튼으로.
 //   검토중  → [참여할게요](준비중) [제외]
@@ -7881,6 +7928,7 @@ async function renderPipelineDetail(container, id) {
       <p class="detail-eyebrow">${escapeHtml(entry.organizationName || '-')}</p>
       <h2><a href="#/notices/${escapeAttr(entry.noticeId)}">${escapeHtml(entry.noticeTitle)}</a></h2>
       ${judgmentSlotHtml}
+      ${entry.status === '준비중' ? pipelinePrepSummaryHtml(checklist, entry) : ''}
       <div class="pipeline-step-summary">${pipelineStepIndicatorHtml(entry.status)}${pipelineResultBadgeHtml(entry)}</div>
       ${pipelineOfficialResultHtml(entry)}
       ${pipelineActionBarHtml(entry)}
@@ -7913,6 +7961,16 @@ async function renderPipelineDetail(container, id) {
   // 공고 상세와 동일한 참여판정 렌더(같은 컴포넌트 재사용 → 판정/순서 일치).
   if (hasJudgment) {
     renderParticipationJudgment(document.getElementById('pipeline-judgment-section'), pj);
+  }
+
+  // "준비할 것 자세히 보기" → 같은 화면의 체크리스트 섹션으로 스크롤(해시 라우팅을
+  // 건드리지 않도록 href 대신 scrollIntoView 사용).
+  const prepJump = container.querySelector('.prep-jump');
+  if (prepJump) {
+    prepJump.addEventListener('click', () => {
+      const target = document.getElementById(prepJump.dataset.scrollTo);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
 
   // ics 다운로드는 일반 <a download> 링크라 완료 이벤트를 JS로 알 방법이
