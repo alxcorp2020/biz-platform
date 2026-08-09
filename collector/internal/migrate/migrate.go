@@ -433,9 +433,38 @@ func ensureNoticeDatetimeColumnsAndBackfill(ctx context.Context, db *sql.DB) err
 			return fmt.Errorf("%s: %w", q, err)
 		}
 	}
-	// 백필: external_notice_id별 최신 raw에서 각 datetime을 뽑아 채운다. 값 형식은
-	// 'YYYY-MM-DD HH:MM(:SS)?'라 정규식으로 검증한 것만 캐스팅(잡값 방어).
-	backfill := `
+
+	// 🚨 2026-08-09 운영 배포 실패 수정: 아래 백필은 raw_documents(대용량)를 통째로
+	// LIKE 스캔하는 무거운 UPDATE라, 매 부팅마다 실행하면 안 된다. 수집기가 raw를
+	// 매일 쌓으면서 이 쿼리가 점점 느려져 startup에서 오래 블로킹됐고, Render가
+	// 헬스체크 포트 오픈 전에 배포를 "No open ports"로 실패 처리했다(앱 로그가
+	// 안 남는 이유: migrate.Apply가 로깅/ListenAndServe보다 먼저 돎).
+	// → schema_backfills 마커로 "정확히 1회만" 실행한다. 이미 opening_at이 채워진
+	//    DB(과거 배포에서 백필 완료)에서는 무거운 스캔을 아예 건너뛰고 마커만 남겨
+	//    부팅을 즉시 통과시킨다. 컬럼 추가(위)는 가벼워 매 부팅 그대로 둔다.
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_backfills (
+		name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
+		return fmt.Errorf("ensure schema_backfills: %w", err)
+	}
+	var marked bool
+	if err := db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM schema_backfills WHERE name = 'notice_datetime_backfill_v1')`).Scan(&marked); err != nil {
+		return fmt.Errorf("check backfill marker: %w", err)
+	}
+	if marked {
+		return nil // 이미 1회 실행/스킵 처리됨 — 무거운 스캔 재실행 안 함
+	}
+	// 마커가 없어도, 이미 백필이 완료된 흔적(opening_at 존재)이 있으면 무거운
+	// 스캔을 생략한다(EXISTS는 첫 non-null에서 멈춰 빠름). 이 경우 마커만 남긴다.
+	var alreadyPopulated bool
+	if err := db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM notices WHERE opening_at IS NOT NULL)`).Scan(&alreadyPopulated); err != nil {
+		return fmt.Errorf("check backfill populated: %w", err)
+	}
+	if !alreadyPopulated {
+		// 백필: external_notice_id별 최신 raw에서 각 datetime을 뽑아 채운다. 값 형식은
+		// 'YYYY-MM-DD HH:MM(:SS)?'라 정규식으로 검증한 것만 캐스팅(잡값 방어).
+		backfill := `
 		WITH latest_raw AS (
 		  SELECT DISTINCT ON (external_notice_id) external_notice_id,
 		    CASE WHEN raw_content::jsonb->>'bidBeginDt'     ~ '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}' THEN (raw_content::jsonb->>'bidBeginDt')::timestamp     AT TIME ZONE 'Asia/Seoul' END AS start_dt,
@@ -459,8 +488,13 @@ func ensureNoticeDatetimeColumnsAndBackfill(ctx context.Context, db *sql.DB) err
 		WHERE lr.external_notice_id = n.external_notice_id
 		  AND (n.opening_at IS NULL OR n.application_end_datetime IS NULL OR n.qualification_deadline_at IS NULL
 		       OR n.application_start_datetime IS NULL OR n.success_bid_method_name IS NULL)`
-	if _, err := db.ExecContext(ctx, backfill); err != nil {
-		return fmt.Errorf("backfill notice datetimes: %w", err)
+		if _, err := db.ExecContext(ctx, backfill); err != nil {
+			return fmt.Errorf("backfill notice datetimes: %w", err)
+		}
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO schema_backfills (name) VALUES ('notice_datetime_backfill_v1') ON CONFLICT DO NOTHING`); err != nil {
+		return fmt.Errorf("mark backfill done: %w", err)
 	}
 	return nil
 }
