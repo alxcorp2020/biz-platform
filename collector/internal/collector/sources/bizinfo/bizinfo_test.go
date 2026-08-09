@@ -3,6 +3,7 @@ package bizinfo
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"biz-platform/collector/internal/collector"
@@ -92,7 +93,10 @@ func TestParseExampleResponse(t *testing.T) {
 		if len(items) != 1 {
 			t.Fatalf("%s: expected 1 item, got %d", name, len(items))
 		}
-		it := items[0]
+		var it bizinfoItem
+		if err := json.Unmarshal(items[0], &it); err != nil {
+			t.Fatalf("%s: decode item: %v", name, err)
+		}
 		if it.PblancId != "PBLN_000000000080236" {
 			t.Errorf("%s: PblancId = %q", name, it.PblancId)
 		}
@@ -117,7 +121,8 @@ func TestParseExampleResponse(t *testing.T) {
 		t.Fatalf("direct: unmarshal: %v", err)
 	}
 	items := extractBizinfoItems(env2.JsonArray)
-	if len(items) != 1 || items[0].PblancId != "PBLN_1" {
+	var d0 bizinfoItem
+	if len(items) != 1 || json.Unmarshal(items[0], &d0) != nil || d0.PblancId != "PBLN_1" {
 		t.Fatalf("direct-array form not parsed: %+v", items)
 	}
 }
@@ -184,9 +189,81 @@ func rawDocumentFromExample(t *testing.T) collector.RawDocument {
 	if len(items) == 0 {
 		t.Fatalf("no items extracted from example")
 	}
-	raw, err := json.Marshal(items[0])
-	if err != nil {
-		t.Fatalf("marshal item: %v", err)
+	// 원본 RawMessage를 그대로 raw_content로 쓴다(raw 보존 방식과 동일).
+	return collector.RawDocument{RawContent: string(items[0])}
+}
+
+// TestBizinfo_RawPreservation — struct에 없는 필드도 extractBizinfoItems가
+// 원본 RawMessage로 보존해야 한다(json.Marshal(struct) 소실 문제 방지, 22.3).
+func TestBizinfo_RawPreservation(t *testing.T) {
+	body := `{"jsonArray":[{"pblancId":"PBLN_RAW","pblancNm":"보존테스트","totCnt":1,"미래신규필드":"보존되어야함","trgetNm":"창업"}]}`
+	var env apiEnvelope
+	if err := json.Unmarshal([]byte(body), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
 	}
-	return collector.RawDocument{RawContent: string(raw)}
+	items := extractBizinfoItems(env.JsonArray)
+	if len(items) != 1 {
+		t.Fatalf("expected 1, got %d", len(items))
+	}
+	raw := string(items[0])
+	if !strings.Contains(raw, "미래신규필드") || !strings.Contains(raw, "보존되어야함") {
+		t.Errorf("struct에 없는 필드가 raw에서 소실됨: %s", raw)
+	}
+}
+
+// TestBizinfo_NewFieldsNormalize — 100건 실측 기반 신규 10필드가 SupportDetail로
+// 매핑되고, HTML→평문/조회수/신청기간(YYYY-MM-DD)이 올바르게 처리되는지(22.4).
+func TestBizinfo_NewFieldsNormalize(t *testing.T) {
+	item := `{
+      "pblancId":"PBLN_NEW","pblancNm":"신규필드공고","pblancUrl":"https://www.bizinfo.go.kr/x",
+      "jrsdInsttNm":"중소벤처기업부","excInsttNm":"창업진흥원","pldirSportRealmLclasCodeNm":"수출",
+      "pldirSportRealmMlsfcCodeNm":"해외진출준비","reqstBeginEndDe":"2026-08-07 ~ 2026-08-12",
+      "creatPnttm":"2026-08-07 14:43:49","updtPnttm":"2026-08-07 15:22:48",
+      "trgetNm":"창업벤처","bsnsSumryCn":"<p>해외시장 &amp; 진출 <br>지원사업</p>",
+      "reqstMthPapersCn":"온라인 접수 (K-Startup)","refrncNm":"창업진흥원 042-720-4561",
+      "rceptEngnHmpgUrl":"https://www.k-startup.go.kr/x","hashtags":"수출,창업,서울,부산","inqireCo":"4103"
+    }`
+	n, err := New("dummy").Normalize(context.Background(), collector.RawDocument{RawContent: item})
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	// 기존 매핑 회귀(22.5)
+	if n.OrganizationName != "중소벤처기업부" || n.DepartmentName != "창업진흥원" || n.Industry != "수출" {
+		t.Errorf("기존 매핑 회귀: org=%q dept=%q ind=%q", n.OrganizationName, n.DepartmentName, n.Industry)
+	}
+	if n.ApplicationEndAt == nil || n.ApplicationEndAt.Format("2006-01-02") != "2026-08-12" {
+		t.Errorf("신청기간(하이픈 형식) 파싱 실패: %v", n.ApplicationEndAt)
+	}
+	d := n.SupportDetail
+	if d == nil {
+		t.Fatal("SupportDetail nil")
+	}
+	if d.SupportTarget != "창업벤처" || d.ApplicationMethod != "온라인 접수 (K-Startup)" ||
+		d.ReferenceContact != "창업진흥원 042-720-4561" || d.CategoryMajor != "수출" || d.CategoryMiddle != "해외진출준비" ||
+		d.ApplicationURL != "https://www.k-startup.go.kr/x" || d.Hashtags != "수출,창업,서울,부산" {
+		t.Errorf("SupportDetail 매핑 오류: %+v", d)
+	}
+	if d.InquiryCount == nil || *d.InquiryCount != 4103 {
+		t.Errorf("InquiryCount = %v", d.InquiryCount)
+	}
+	if d.SourceUpdatedAt == nil || d.SourceUpdatedAt.Format("2006-01-02 15:04") != "2026-08-07 15:22" {
+		t.Errorf("SourceUpdatedAt = %v", d.SourceUpdatedAt)
+	}
+	// HTML 원본 보존 + 평문 변환(태그 제거, 엔티티 복원)
+	if d.BusinessSummaryHTML != "<p>해외시장 &amp; 진출 <br>지원사업</p>" {
+		t.Errorf("HTML 원본 미보존: %q", d.BusinessSummaryHTML)
+	}
+	if strings.Contains(d.BusinessSummaryText, "<") || !strings.Contains(d.BusinessSummaryText, "해외시장 & 진출") {
+		t.Errorf("HTML→평문 변환 오류: %q", d.BusinessSummaryText)
+	}
+}
+
+// TestBizinfo_ReqstBeginEndDe_BothFormats — 신형(YYYY-MM-DD)·구형(YYYYMMDD) 모두.
+func TestBizinfo_ReqstBeginEndDe_BothFormats(t *testing.T) {
+	for _, v := range []string{"2026-08-07 ~ 2026-08-12", "20260807 ~ 20260812"} {
+		s, e, err := parseReqstBeginEndDe(v)
+		if err != nil || s.Format("2006-01-02") != "2026-08-07" || e.Format("2006-01-02") != "2026-08-12" {
+			t.Errorf("%q → s=%v e=%v err=%v", v, s, e, err)
+		}
+	}
 }

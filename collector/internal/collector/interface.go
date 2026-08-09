@@ -12,9 +12,9 @@ import (
 // Cursor represents pagination/incremental state for a source.
 // Opaque to the caller; each collector interprets its own cursor format.
 type Cursor struct {
-	Token       string    // opaque paging token (page number, offset, next-link, etc.)
-	SinceTime   time.Time // for incremental collection: only items changed after this time
-	HasMore     bool
+	Token     string    // opaque paging token (page number, offset, next-link, etc.)
+	SinceTime time.Time // for incremental collection: only items changed after this time
+	HasMore   bool
 }
 
 // RawItem is a single list-row before detail/attachments have been fetched.
@@ -47,21 +47,21 @@ type Attachment struct {
 // NormalizedNotice is the common schema all source-specific fields map into
 // (4.3 정규화 계층). Field names intentionally mirror the notices table.
 type NormalizedNotice struct {
-	SourceID            string
-	ExternalNoticeID     string
-	NoticeType           string // "procurement" | "support_program"
-	Title                string
-	OrganizationName     string
-	DepartmentName       string
-	Region               string
-	Industry             string
-	PublishedAt          *time.Time
-	ApplicationStartAt   *time.Time
-	ApplicationEndAt     *time.Time
-	BudgetAmount         *int64
-	SupportAmount        *int64
-	Status               string
-	OfficialURL          string
+	SourceID           string
+	ExternalNoticeID   string
+	NoticeType         string // "procurement" | "support_program"
+	Title              string
+	OrganizationName   string
+	DepartmentName     string
+	Region             string
+	Industry           string
+	PublishedAt        *time.Time
+	ApplicationStartAt *time.Time
+	ApplicationEndAt   *time.Time
+	BudgetAmount       *int64
+	SupportAmount      *int64
+	Status             string
+	OfficialURL        string
 	// RegionRestricted — 지역제한 여부(2026-08-06 추가). 신뢰할 수 있는
 	// 소스만 채운다 — nil이면 "정보 없음"(이 소스가 애초에 이 값을 안
 	// 주거나 판단 불가), 지어내지 않는다.
@@ -87,6 +87,29 @@ type NormalizedNotice struct {
 	OpeningAt                *time.Time // opengDt(개찰 일시)
 	RebidOpeningAt           *time.Time // rbidOpengDt(재입찰 개찰 일시)
 	SuccessBidMethodName     string     // sucsfbidMthdNm(낙찰방법명 — 협상/공동수급 자동탈락 게이팅용)
+
+	// SupportDetail — 지원사업(support_program) 전용 공식 필드(2026-08-09 B-2).
+	// notices 공용 스키마를 비대화하지 않으려 별도 구조로 분리한다 — g2b 등
+	// 입찰 소스는 nil로 두므로 컴파일/동작 영향이 없다. 값이 있으면 pgstore가
+	// support_program_details 테이블에 notice_id 기준으로 UPSERT한다.
+	SupportDetail *SupportProgramDetail
+}
+
+// SupportProgramDetail — 기업마당 지원사업 공식 API가 제공하는 지원사업 전용
+// 데이터(2026-08-09 B-2, AI 없음/공식 값만). notices에 넣지 않고 별도
+// support_program_details 테이블에 저장한다. 필드명은 실제 응답 철자 기준.
+type SupportProgramDetail struct {
+	SupportTarget       string     // trgetNm(지원대상)
+	BusinessSummaryHTML string     // bsnsSumryCn 원본(HTML 포함)
+	BusinessSummaryText string     // bsnsSumryCn을 HTML 제거한 화면용 텍스트
+	ApplicationMethod   string     // reqstMthPapersCn(신청방법)
+	ReferenceContact    string     // refrncNm(문의처, 부서+전화)
+	ApplicationURL      string     // rceptEngnHmpgUrl(사업 신청 URL, 원본 보존 — href는 프론트에서 안전검증)
+	CategoryMajor       string     // pldirSportRealmLclasCodeNm(지원분야 대분류)
+	CategoryMiddle      string     // pldirSportRealmMlsfcCodeNm(지원분야 중분류)
+	Hashtags            string     // hashtags(소문자, 원본 보존 — 지역 자동추출은 별도 작업)
+	InquiryCount        *int64     // inqireCo(조회수, 파싱 실패 시 nil)
+	SourceUpdatedAt     *time.Time // updtPnttm(공식 수정일, published_at과 구분)
 }
 
 // Collector is the contract every source package (g2b, bizinfo, ...) implements.

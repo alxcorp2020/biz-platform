@@ -36,9 +36,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -112,9 +114,23 @@ type bizinfoItem struct {
 	ReqstBeginEndDe            string      `json:"reqstBeginEndDe"`            // 신청기간, "YYYYMMDD ~ YYYYMMDD"
 	PldirSportRealmLclasCodeNm string      `json:"pldirSportRealmLclasCodeNm"` // 지원분야 대분류(g2b의 조달 업종 분류와는 다른 체계 — industryRawToGroup에 없는 값이라 자동으로 "확인필요"로만 처리되고 강제 매칭되지 않는다)
 	CreatPnttm                 string      `json:"creatPnttm"`                 // 등록일자, "YYYY-MM-DD HH:MM:SS"
-	FlpthNm                    string      `json:"flpthNm"`                    // 첨부파일 경로
-	FileNm                     string      `json:"fileNm"`                     // 첨부파일명
+	FlpthNm                    string      `json:"flpthNm"`                    // 첨부파일 경로(별첨)
+	FileNm                     string      `json:"fileNm"`                     // 첨부파일명(별첨)
 	TotCnt                     flexibleInt `json:"totCnt"`                     // 전체건수(페이지마다 각 item에 반복됨)
+
+	// 2026-08-09 B-2 — 100건 실측으로 확인된 추가 공식 필드(철자 실제 응답 기준).
+	// 🚨 hashtags는 소문자(문서 명세의 hashTags 아님). 지원사업 전용이라 별도
+	// SupportProgramDetail로 저장된다(notices 미저장).
+	TrgetNm                    string      `json:"trgetNm"`                    // 지원대상
+	ReqstMthPapersCn           string      `json:"reqstMthPapersCn"`           // 사업신청방법
+	RefrncNm                   string      `json:"refrncNm"`                   // 문의처(부서+전화)
+	RceptEngnHmpgUrl           string      `json:"rceptEngnHmpgUrl"`           // 사업 신청 URL(59% 존재)
+	PrintFlpthNm               string      `json:"printFlpthNm"`               // 본문출력파일 경로(공고문 본문, 100%)
+	PrintFileNm                string      `json:"printFileNm"`                // 본문출력파일명(공고문)
+	Hashtags                   string      `json:"hashtags"`                   // 해시태그(소문자, 지역명 섞임)
+	InqireCo                   flexibleInt `json:"inqireCo"`                   // 조회수(숫자/문자열 혼재 → flexibleInt)
+	UpdtPnttm                  string      `json:"updtPnttm"`                  // 수정일자
+	PldirSportRealmMlsfcCodeNm string      `json:"pldirSportRealmMlsfcCodeNm"` // 지원분야 중분류
 }
 
 // apiEnvelope.ReqErr — verified 2026-08-01 via live curl against the real
@@ -138,7 +154,20 @@ type apiEnvelope struct {
 //   - 배열이고 원소가 공고 항목 자체(pblancId 보유)면 그대로 담는다
 //   - 객체({item:[...]})면 그 item을 쓴다(문서 예시 형태)
 //   - item은 배열 또는 (단일 결과일 때) 객체 하나일 수 있다
-func extractBizinfoItems(raw json.RawMessage) []bizinfoItem {
+//
+// hasBizinfoPblancId — RawMessage가 공고 항목(pblancId 보유)인지 가볍게 확인.
+func hasBizinfoPblancId(raw json.RawMessage) bool {
+	var probe struct {
+		PblancId string `json:"pblancId"`
+	}
+	return json.Unmarshal(raw, &probe) == nil && probe.PblancId != ""
+}
+
+// extractBizinfoItems — jsonArray의 형태 변형을 흡수해 각 공고의 **원본 item
+// json.RawMessage**를 반환한다(2026-08-09 B-2). 예전엔 bizinfoItem으로 디코드해
+// 반환했는데(struct에 없는 필드 소실), 이제 원본 RawMessage를 그대로 넘겨
+// FetchList가 raw_content에 원본을 보존하도록 한다. 배열/{item:[...]} 호환 유지.
+func extractBizinfoItems(raw json.RawMessage) []json.RawMessage {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
@@ -149,7 +178,7 @@ func extractBizinfoItems(raw json.RawMessage) []bizinfoItem {
 		if json.Unmarshal(raw, &arr) != nil {
 			return nil
 		}
-		var out []bizinfoItem
+		var out []json.RawMessage
 		for _, el := range arr {
 			var wrap struct {
 				Item json.RawMessage `json:"item"`
@@ -158,9 +187,8 @@ func extractBizinfoItems(raw json.RawMessage) []bizinfoItem {
 				out = append(out, decodeBizinfoItemList(wrap.Item)...)
 				continue
 			}
-			var it bizinfoItem
-			if json.Unmarshal(el, &it) == nil && it.PblancId != "" {
-				out = append(out, it)
+			if hasBizinfoPblancId(el) {
+				out = append(out, append(json.RawMessage(nil), el...))
 			}
 		}
 		return out
@@ -175,21 +203,28 @@ func extractBizinfoItems(raw json.RawMessage) []bizinfoItem {
 	return nil
 }
 
-func decodeBizinfoItemList(raw json.RawMessage) []bizinfoItem {
+// decodeBizinfoItemList — item이 배열 또는 단일 객체일 때 각 공고의 원본
+// RawMessage를 반환한다.
+func decodeBizinfoItemList(raw json.RawMessage) []json.RawMessage {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
 		return nil
 	}
 	if raw[0] == '[' {
-		var arr []bizinfoItem
-		if json.Unmarshal(raw, &arr) == nil {
-			return arr
+		var arr []json.RawMessage
+		if json.Unmarshal(raw, &arr) != nil {
+			return nil
 		}
-		return nil
+		var out []json.RawMessage
+		for _, el := range arr {
+			if hasBizinfoPblancId(el) {
+				out = append(out, append(json.RawMessage(nil), el...))
+			}
+		}
+		return out
 	}
-	var single bizinfoItem
-	if json.Unmarshal(raw, &single) == nil && single.PblancId != "" {
-		return []bizinfoItem{single}
+	if hasBizinfoPblancId(raw) {
+		return []json.RawMessage{append(json.RawMessage(nil), raw...)}
 	}
 	return nil
 }
@@ -251,25 +286,28 @@ func (s *Source) FetchList(ctx context.Context, cursor collector.Cursor) ([]coll
 		return nil, cursor, err
 	}
 
-	itemList := extractBizinfoItems(envelope.JsonArray)
-	items := make([]collector.RawItem, 0, len(itemList))
-	for _, it := range itemList {
-		raw, err := json.Marshal(it)
-		if err != nil {
+	rawItems := extractBizinfoItems(envelope.JsonArray)
+	items := make([]collector.RawItem, 0, len(rawItems))
+	var totCnt int
+	for i, ri := range rawItems {
+		// 원본 RawMessage를 그대로 RawPayload로 보존한다(struct에 없는 필드도
+		// raw_content에 남아, 이후 필드 추가 시 소실되지 않음). 목록 식별용으로만
+		// bizinfoItem으로 디코드한다.
+		var it bizinfoItem
+		if json.Unmarshal(ri, &it) != nil {
 			continue
+		}
+		if i == 0 {
+			totCnt = int(it.TotCnt)
 		}
 		items = append(items, collector.RawItem{
 			SourceID:         s.SourceCode(),
 			ExternalNoticeID: it.PblancId,
 			Title:            it.PblancNm,
-			RawPayload:       string(raw),
+			RawPayload:       string(ri),
 		})
 	}
 
-	var totCnt int
-	if len(itemList) > 0 {
-		totCnt = int(itemList[0].TotCnt)
-	}
 	fetchedSoFar := pageIndex * s.PageSize
 	nextCursor := collector.Cursor{
 		Token:   strconv.Itoa(pageIndex + 1),
@@ -342,23 +380,76 @@ func (s *Source) Normalize(ctx context.Context, doc collector.RawDocument) (coll
 	if t, err := parseBizinfoTimestamp(it.CreatPnttm); err == nil {
 		n.PublishedAt = &t
 	}
+
+	// 지원사업 전용 공식 필드 → SupportProgramDetail(2026-08-09 B-2, AI 없음).
+	detail := &collector.SupportProgramDetail{
+		SupportTarget:       strings.TrimSpace(it.TrgetNm),
+		BusinessSummaryHTML: it.BsnsSumryCn,
+		BusinessSummaryText: htmlToPlainText(it.BsnsSumryCn),
+		ApplicationMethod:   strings.TrimSpace(it.ReqstMthPapersCn),
+		ReferenceContact:    strings.TrimSpace(it.RefrncNm),
+		ApplicationURL:      strings.TrimSpace(it.RceptEngnHmpgUrl),
+		CategoryMajor:       strings.TrimSpace(it.PldirSportRealmLclasCodeNm),
+		CategoryMiddle:      strings.TrimSpace(it.PldirSportRealmMlsfcCodeNm),
+		Hashtags:            strings.TrimSpace(it.Hashtags),
+	}
+	if iq := int64(it.InqireCo); iq >= 0 {
+		detail.InquiryCount = &iq // flexibleInt가 숫자/문자열 모두 흡수(파싱 실패로 서비스 안 죽음)
+	}
+	if t, err := parseBizinfoTimestamp(it.UpdtPnttm); err == nil {
+		detail.SourceUpdatedAt = &t
+	}
+	n.SupportDetail = detail
 	return n, nil
 }
 
+// htmlToPlainText — bsnsSumryCn 등 HTML이 섞인 공식 텍스트를 화면용 평문으로
+// 변환한다(태그 제거 + 엔티티 복원 + 공백 정리). 원본 HTML은 별도 보존하고,
+// 프론트에는 이 평문을 기본 표시한다(XSS 회피 — 원본 HTML을 innerHTML로 넣지 않음).
+func htmlToPlainText(s string) string {
+	if s == "" {
+		return ""
+	}
+	// <br>, </p>, </div>, </li> 등 블록 종료는 줄바꿈/공백으로.
+	s = blockTagRe.ReplaceAllString(s, " ")
+	s = tagRe.ReplaceAllString(s, "") // 나머지 태그 제거
+	s = html.UnescapeString(s)        // &nbsp; &amp; 등 복원
+	s = wsRe.ReplaceAllString(s, " ") // 연속 공백 정리
+	return strings.TrimSpace(s)
+}
+
+var (
+	blockTagRe = regexp.MustCompile(`(?i)<\s*/?\s*(br|p|div|li|tr|h[1-6])\b[^>]*>`)
+	tagRe      = regexp.MustCompile(`<[^>]*>`)
+	wsRe       = regexp.MustCompile(`\s+`)
+)
+
+// parseReqstBeginEndDe — 신청기간 "시작 ~ 마감"을 파싱. 🚨 2026-08-09 B-2 실측:
+// 실제 응답은 "YYYY-MM-DD ~ YYYY-MM-DD"(하이픈)인데 기존 코드는 "YYYYMMDD"만
+// 처리해 신청기간이 저장되지 않던 버그가 있었다. 두 형식을 모두 수용한다
+// (매핑 의미는 그대로 application_start/end_at).
 func parseReqstBeginEndDe(v string) (start, end time.Time, err error) {
 	parts := strings.Split(v, "~")
 	if len(parts) != 2 {
 		return time.Time{}, time.Time{}, fmt.Errorf("unexpected reqstBeginEndDe format: %q", v)
 	}
-	start, err = time.ParseInLocation("20060102", strings.TrimSpace(parts[0]), time.Local)
+	start, err = parseBizinfoDate(strings.TrimSpace(parts[0]))
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
-	end, err = time.ParseInLocation("20060102", strings.TrimSpace(parts[1]), time.Local)
+	end, err = parseBizinfoDate(strings.TrimSpace(parts[1]))
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
 	return start, end, nil
+}
+
+// parseBizinfoDate — "2006-01-02"(실측) 우선, "20060102"(구형식) 폴백.
+func parseBizinfoDate(v string) (time.Time, error) {
+	if t, e := time.ParseInLocation("2006-01-02", v, time.Local); e == nil {
+		return t, nil
+	}
+	return time.ParseInLocation("20060102", v, time.Local)
 }
 
 func parseBizinfoTimestamp(v string) (time.Time, error) {
