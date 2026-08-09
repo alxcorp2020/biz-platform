@@ -1165,6 +1165,21 @@
      드러남) — 위아래 margin만 지정해 좌우는 main > * 규칙에 맡긴다. */
   .dash-section-title { font-size: 1.05rem; font-weight: 700; color: var(--ink); margin-top: 0; margin-bottom: 1rem; }
 
+  /* 보조 KPI 스트립(2026-08-09) — "오늘 할 일/추천 공고" 아래로 내린 3개 타일.
+     숫자를 조금 줄이고 위 여백을 둬 메인 흐름의 첫인상을 지배하지 않게 한다. */
+  .dash-tiles--secondary { margin-top: var(--space-md); }
+  .dash-tiles--secondary .dash-tile { padding: var(--space-sm) var(--space-md); }
+  .dash-tiles--secondary .dash-tile-count { font-size: 1.5rem; margin-bottom: 0.15rem; }
+  /* 회사정보 카드 — 두 개의 보조 링크(보완/AI 사용내역) 사이 간격 */
+  .dash-growth-card .official-link + .official-link { margin-left: 1rem; }
+  /* "업무 바로가기" 접기(details) — 보조영역이라 기본 접힘 */
+  .dash-useful-collapse { margin-top: var(--space-lg); border-top: 1px solid var(--border); padding-top: var(--space-md); }
+  .dash-useful-summary { cursor: pointer; font-size: 1.05rem; font-weight: 700; color: var(--ink); list-style: none; }
+  .dash-useful-summary::-webkit-details-marker { display: none; }
+  .dash-useful-summary::after { content: ' ▾'; color: var(--ink-soft); font-weight: 400; }
+  .dash-useful-collapse[open] .dash-useful-summary::after { content: ' ▴'; }
+  .dash-useful-collapse[open] .useful-links-grid { margin-top: var(--space-md); }
+
   /* ---------- 대시보드 "유용한 사이트 바로가기"(2026-08-07) ----------
      2열 카드 그리드(기업신용평가/입찰인증서) + 외부 링크 모음 드롭다운
      5개. 카드는 .license-card/.dash-tile과 같은 흰 배경+옅은 그림자
@@ -6564,10 +6579,15 @@ function usefulLinksSectionHtml() {
   const dropdownTriggersHtml = DASHBOARD_EXTERNAL_LINK_GROUPS.map((g, i) => `
     <button type="button" class="btn btn-secondary btn-sm useful-links-dropdown-trigger" data-group-index="${i}">${escapeHtml(g.label)} <span aria-hidden="true">▾</span></button>
   `).join('');
+  // 유용한 사이트는 핵심 업무가 아니라 보조라, 접기(details)로 축소해 메인
+  // 흐름을 방해하지 않게 한다(2026-08-09). 내부 카드/드롭다운 마크업·배선
+  // (wireUsefulLinksSection)은 그대로 재사용한다.
   return `
-    <h3 class="dash-section-title">유용한 사이트 바로가기</h3>
-    <div class="useful-links-grid">${cardsHtml}</div>
-    <div class="useful-links-dropdown-row">${dropdownTriggersHtml}</div>
+    <details class="dash-useful-collapse">
+      <summary class="dash-useful-summary">업무 바로가기</summary>
+      <div class="useful-links-grid">${cardsHtml}</div>
+      <div class="useful-links-dropdown-row">${dropdownTriggersHtml}</div>
+    </details>
   `;
 }
 
@@ -6606,27 +6626,23 @@ function renderDashboard(container, data) {
   // 로직(data-href + 아래 dash-tile--clickable 리스너)은 기존 그대로
   // 재사용 — 타일 전체가 여전히 하나의 클릭 영역이고, cta는 그 위에
   // 얹는 시각적 라벨일 뿐 별도 이벤트 리스너를 새로 달지 않는다.
+  // 상단 KPI 타일은 실제 "행동 대상" 3개만 남긴다(2026-08-09 정보우선순위 개편).
+  // 담당자미지정은 팀 기능이라 진행중 사업 화면(파이프라인 필터)에, AI 분석
+  // 사용량은 "회사정보" 카드 링크로 옮겨 메인 첫인상에서 약화한다 — API 데이터는
+  // 그대로 유지하고 노출 위치/우선순위만 낮춘다. 이 타일들은 "오늘 할 일/추천
+  // 공고" 아래 보조 스트립으로 배치한다(0건 카드가 첫 화면을 지배하지 않게).
   const tiles = [
     { label: '참여검토 대기', cta: '확인하기', count: s.reviewPendingCount, cls: 'dash-tile--review', href: '#/pipeline?filter=reviewPending' },
     { label: '마감임박', cta: '확인하기', count: s.deadlineSoonCount, cls: 'dash-tile--not-recommended', href: '#/pipeline?filter=deadlineSoon' },
     { label: '서류확인필요', cta: '서류 확인하기', count: s.needsDocumentCount, cls: '', href: '#/pipeline?filter=needsDocument' },
-    { label: '담당자미지정', cta: '담당자 지정하기', count: s.unassignedCount, cls: '', href: '#/pipeline?filter=unassigned' },
   ];
-  const aiLimitLabel = s.aiAnalysisLimit < 0 ? '무제한' : s.aiAnalysisLimit;
-  const aiCountLabel = s.aiAnalysisLimit < 0 ? `${s.aiAnalysisUsedCount}건` : `${s.aiAnalysisUsedCount}/${aiLimitLabel}건`;
   const tilesHtml = tiles.map(t => `
     <div class="dash-tile ${t.cls} dash-tile--clickable" data-href="${escapeAttr(t.href)}">
       <div class="dash-tile-count">${t.count}건</div>
       <div class="dash-tile-label">${escapeHtml(t.label)}</div>
       <div class="dash-tile-cta">${escapeHtml(t.cta)} &rarr;</div>
     </div>
-  `).join('') + `
-    <div class="dash-tile dash-tile--clickable" data-href="#/ai-usage">
-      <div class="dash-tile-count">${aiCountLabel}</div>
-      <div class="dash-tile-label">AI 분석 (이번달)</div>
-      <div class="dash-tile-cta">사용내역 보기 &rarr;</div>
-    </div>
-  `;
+  `).join('');
 
   const items = data.priorityItems || [];
   const itemsHtml = items.length
@@ -6644,25 +6660,34 @@ function renderDashboard(container, data) {
   const eligibilityHtml = renderEligibilitySummaryHtml(data.eligibilitySummary, data.growthSummary && data.growthSummary.overallCompleteness);
   const requirementGapsHtml = renderDocumentRequirementGapsHtml(data.documentRequirementGaps);
 
+  // 정보 우선순위(2026-08-09): "관리 상태 대시보드" → "오늘 무엇을 할지 알려주는
+  // 업무 비서". ① 오늘 할 일 ② 추천 공고를 최상단으로 올리고, KPI 타일/판정현황/
+  // 회사정보 보완/자동화 성과/바로가기를 그 아래 보조 흐름으로 재배치한다.
+  const greetingTitle = items.length > 0
+    ? `오늘 확인할 업무가 ${items.length}건 있어요.`
+    : '오늘은 급하게 확인할 업무가 없어요.';
   container.appendChild(h(`
     <div class="dash-greeting">
       <p class="dash-greeting-eyebrow">안녕하세요.</p>
-      <h2 class="dash-greeting-title">오늘 확인할 업무입니다.</h2>
+      <h2 class="dash-greeting-title">${escapeHtml(greetingTitle)}</h2>
     </div>
     <div id="dashboard-profile-banner"></div>
     <div class="dash-brief-card">
       <p class="dash-brief-text">${escapeHtml(data.briefing || '')}</p>
     </div>
-    <div class="dash-tiles">${tilesHtml}</div>
-    <p class="license-card-meta">${glossaryHtml('AI 분석')} 카드는 이번달 AI 자동분석 사용 현황입니다.</p>
+
     <h3 class="dash-section-title">오늘 해야 할 일 (${items.length}건)</h3>
     ${itemsHtml}
     ${publicBidFitBannerHtml((currentProfile || {}).publicBidFit)}
+
     <h3 class="dash-section-title">오늘의 추천 공고 (${recommendations.length}건)</h3>
     ${recommendationsHtml}
-    ${growthHtml}
+
+    <div class="dash-tiles dash-tiles--secondary">${tilesHtml}</div>
+
     ${eligibilityHtml}
     ${requirementGapsHtml}
+    ${growthHtml}
     ${automationHtml}
     ${usefulLinksSectionHtml()}
   `));
@@ -6700,14 +6725,18 @@ function renderAutomationSummaryHtml(a) {
 // 정교한 제안은 Phase 7 몫 — 여기서 새로 만들지 않는다).
 function renderGrowthSummaryHtml(g) {
   if (!g) return '';
+  // "AI 분석 커버리지 %"는 사용자가 돈을 내는 가치가 아니라 보조 지표라, 메인
+  // 첫인상에서 약화한다(2026-08-09) — 회사정보 등록 정도로 문구를 바꾸고 위치도
+  // 하단 보조영역으로 내린다. AI 사용내역 링크는 상단 타일에서 뺀 대신 여기에 둔다.
   return `
-    <div class="detail-card">
-      <h3>AI 분석 커버리지</h3>
+    <div class="detail-card dash-growth-card">
+      <h3>회사정보 등록 정도</h3>
       <div class="stat-highlight">
         <div class="stat-highlight-value">${g.overallCompleteness}<span class="stat-highlight-unit">%</span></div>
-        <div class="stat-highlight-label">AI가 귀사를 파악한 정도 — 높을수록 더 정확하게 판정할 수 있어요</div>
+        <div class="stat-highlight-label">등록할수록 더 많은 공고를 정확하게 판정할 수 있어요</div>
       </div>
-      <a href="#/me/saved-searches" class="official-link">프로필 보완하기 &rarr;</a>
+      <a href="#/me/saved-searches" class="official-link">회사정보 보완하기 &rarr;</a>
+      <a href="#/ai-usage" class="official-link">AI 분석 사용내역 &rarr;</a>
     </div>
   `;
 }
@@ -6745,11 +6774,14 @@ function eligibilitySummaryRowsHtml(eg, overallCompleteness) {
       </div>
     `;
   }
+  // 라벨 정직화(2026-08-09): 판정은 지역·업종·규모 3요소만 본다(면허/실적 등
+  // 미반영). "즉시 참여 가능"은 과신이라 "기본 조건 충족"으로, "조건 보완 후
+  // 참여 가능"은 "추가 확인 필요"로 바꿔 오해를 줄인다.
   return `
     <div class="profile-summary-list">
-      <div class="profile-summary-row"><span>✅ 즉시 참여 가능</span><strong>${eg.ready}건</strong></div>
-      <div class="profile-summary-row"><span>🟡 조건 보완 후 참여 가능</span><strong>${eg.needsReview}건</strong></div>
-      <div class="profile-summary-row"><span>🔴 현재 참여 어려움</span><strong>${eg.notRecommended}건</strong></div>
+      <div class="profile-summary-row"><span>✅ 기본 조건 충족</span><strong>${eg.ready}건</strong></div>
+      <div class="profile-summary-row"><span>🟡 추가 확인 필요</span><strong>${eg.needsReview}건</strong></div>
+      <div class="profile-summary-row"><span>🔴 조건 미충족</span><strong>${eg.notRecommended}건</strong></div>
     </div>
   `;
 }
@@ -6768,7 +6800,7 @@ function renderEligibilitySummaryHtml(eg, overallCompleteness) {
   return `
     <div class="detail-card">
       <h3>추천공고 판정 현황</h3>
-      <p class="license-card-meta">현재 활성화된 공고 ${total}건 기준</p>
+      <p class="license-card-meta">활성 공고 ${total}건을 지역·업종·규모 기준으로 자동 분류 (면허·실적 등 세부 자격은 공고 상세에서 확인)</p>
       ${eligibilitySummaryRowsHtml(eg, overallCompleteness)}
       ${!isLowConfidence && eg.insufficientData > 0 && missingLabels.length ? `
         <p class="license-card-meta">${escapeHtml(missingLabels.join('·'))} 정보가 없어 ${eg.insufficientData}건을 정확하게 판정하지 못했습니다. <a href="#/me/saved-searches">입력하기 &rarr;</a></p>
@@ -6790,7 +6822,7 @@ function renderDocumentRequirementGapsHtml(gaps) {
   `).join('');
   return `
     <div class="detail-card">
-      <h3>등록하면 더 정확해져요</h3>
+      <h3>더 정확한 판정을 위한 회사정보 보완</h3>
       ${rows}
     </div>
   `;
