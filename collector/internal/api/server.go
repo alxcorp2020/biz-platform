@@ -887,8 +887,10 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	// supportDetail — B-2. 지원사업(support_program)일 때만 공식 데이터를 얹는다.
 	// 입찰 공고는 support_program_details 행이 없어 nil(응답에서 null).
 	var supportDetail *supportDetailDTO
+	var supportConditions *supportConditionsDTO
 	if it.NoticeType == "support_program" {
 		supportDetail = s.fetchSupportProgramDetail(r.Context(), id)
+		supportConditions = s.fetchSupportConditions(r.Context(), id) // B-3: 공고문 규칙 추출 상세조건
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -902,6 +904,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"attachments":              attachments,
 		"detail":                   rawDetail,
 		"supportDetail":            supportDetail,
+		"supportConditions":        supportConditions,
 		"participationScore":       score,
 		"confidenceTier":           confidenceTier,
 		"aiSummary":                aiSummary,

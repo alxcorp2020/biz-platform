@@ -165,6 +165,70 @@ type supportDetailDTO struct {
 	SourceUpdatedAt     *string `json:"sourceUpdatedAt,omitempty"`
 }
 
+// supportConditionsDTO — 지원사업 공고문에서 규칙 기반으로 뽑은 상세 신청조건(B-3).
+// 공식 분류(supportDetailDTO)와 역할이 분리된다 — 이건 공고문 근거 상세조건이다.
+// notice_type=support_program이고 규칙 추출이 끝난 공고에서만 채워진다.
+type supportConditionsDTO struct {
+	EligibilityText      string               `json:"eligibilityText,omitempty"`
+	RequiredDocuments    []supportRequiredDoc `json:"requiredDocuments"`
+	SupportAmountText    string               `json:"supportAmountText,omitempty"`
+	SupportLimitText     string               `json:"supportLimitText,omitempty"`
+	SupportLimitAmount   *int64               `json:"supportLimitAmount,omitempty"`
+	SupportRateText      string               `json:"supportRateText,omitempty"`
+	SupportScaleText     string               `json:"supportScaleText,omitempty"`
+	BusinessAgeCondition string               `json:"businessAgeCondition,omitempty"`
+	RevenueCondition     string               `json:"revenueCondition,omitempty"`
+	RegionCondition      string               `json:"regionCondition,omitempty"`
+	ExclusionConditions  []string             `json:"exclusionConditions"`
+	PreferenceConditions []string             `json:"preferenceConditions"`
+	SelectionProcess     string               `json:"selectionProcess,omitempty"`
+	Confidence           string               `json:"confidence,omitempty"`
+	NeedsAI              bool                 `json:"needsAi"`
+	TextPoor             bool                 `json:"textPoor"`
+	ExtractionMethod     string               `json:"extractionMethod,omitempty"`
+}
+
+// fetchSupportConditions returns the rule-extracted detailed conditions for a
+// support-program notice, or nil when there's no row (procurement, or not yet
+// extracted). B-3.
+func (s *Server) fetchSupportConditions(ctx context.Context, noticeID string) *supportConditionsDTO {
+	var d supportConditionsDTO
+	var elig, amountT, limitT, rateT, scaleT, ageC, revC, regionC, sel, conf, method sql.NullString
+	var limitAmt sql.NullInt64
+	var reqDocs, excl, pref []byte
+	err := s.db.QueryRowContext(ctx, `
+		SELECT eligibility_text, required_documents, support_amount_text, support_limit_text, support_limit_amount,
+		       support_rate_text, support_scale_text, business_age_condition, revenue_condition, region_condition,
+		       exclusion_conditions, preference_conditions, selection_process, confidence, needs_ai, text_poor, extraction_method
+		FROM support_program_conditions WHERE notice_id = $1`, noticeID).
+		Scan(&elig, &reqDocs, &amountT, &limitT, &limitAmt, &rateT, &scaleT, &ageC, &revC, &regionC,
+			&excl, &pref, &sel, &conf, &d.NeedsAI, &d.TextPoor, &method)
+	if err != nil {
+		return nil // sql.ErrNoRows(입찰/미추출) 포함
+	}
+	d.EligibilityText = elig.String
+	d.SupportAmountText = amountT.String
+	d.SupportLimitText = limitT.String
+	if limitAmt.Valid {
+		d.SupportLimitAmount = &limitAmt.Int64
+	}
+	d.SupportRateText = rateT.String
+	d.SupportScaleText = scaleT.String
+	d.BusinessAgeCondition = ageC.String
+	d.RevenueCondition = revC.String
+	d.RegionCondition = regionC.String
+	d.SelectionProcess = sel.String
+	d.Confidence = conf.String
+	d.ExtractionMethod = method.String
+	d.RequiredDocuments = []supportRequiredDoc{}
+	d.ExclusionConditions = []string{}
+	d.PreferenceConditions = []string{}
+	_ = json.Unmarshal(reqDocs, &d.RequiredDocuments)
+	_ = json.Unmarshal(excl, &d.ExclusionConditions)
+	_ = json.Unmarshal(pref, &d.PreferenceConditions)
+	return &d
+}
+
 // fetchSupportProgramDetail returns the support-program official detail for a
 // notice, or nil when there's no row (procurement notices, or not yet collected).
 func (s *Server) fetchSupportProgramDetail(ctx context.Context, noticeID string) *supportDetailDTO {
