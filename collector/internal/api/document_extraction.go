@@ -356,10 +356,16 @@ func (s *Server) processAttachmentForRuleExtraction(ctx context.Context, tx *sql
 // picks them up automatically once the text shows up. Returns how many
 // attachments were actually processed this run (for admin visibility).
 func (s *Server) runRuleBasedDocumentExtraction(ctx context.Context) int {
+	// 🚨 B-3(2026-08-09): 이 규칙 추출은 입찰(procurement) 어휘(참가자격/제출서류)
+	// 전용이라 지원사업(support_program) 공고문에는 적용하지 않는다 — 지원사업은
+	// runSupportConditionExtraction이 지원사업 어휘로 별도 처리한다(역할 분리).
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, extracted_text FROM attachments
-		WHERE extraction_status = 'completed' AND section_extraction_processed_at IS NULL
-		ORDER BY created_at
+		SELECT a.id, a.extracted_text FROM attachments a
+		JOIN notice_versions nv ON nv.id = a.notice_version_id
+		JOIN notices n ON n.id = nv.notice_id
+		WHERE a.extraction_status = 'completed' AND a.section_extraction_processed_at IS NULL
+		  AND n.notice_type <> 'support_program'
+		ORDER BY a.created_at
 		LIMIT `+itoa(documentExtractionBatchLimit))
 	if err != nil {
 		s.logger.Error("document-extraction: attachment query failed", "error", err)
@@ -854,6 +860,8 @@ func (s *Server) saveDocumentSupplement(ctx context.Context, t aiSupplementTarge
 type documentExtractionSummary struct {
 	Status                           string `json:"status"`
 	RuleBasedProcessedCount          int    `json:"ruleBasedProcessedCount"`
+	SupportConditionProcessedCount   int    `json:"supportConditionProcessedCount"` // B-3: 지원사업 규칙 추출 건수
+
 	EligibilitySupplementTargetCount int    `json:"eligibilitySupplementTargetCount"`
 	EligibilitySupplementSavedCount  int    `json:"eligibilitySupplementSavedCount"`
 	EligibilitySupplementFailedCount int    `json:"eligibilitySupplementFailedCount"`
@@ -870,11 +878,14 @@ type documentExtractionSummary struct {
 // keeps going, matching RunDailyNotifications' pattern.
 func (s *Server) RunDocumentExtraction(ctx context.Context) documentExtractionSummary {
 	ruleProcessed := s.runRuleBasedDocumentExtraction(ctx)
+	// B-3(2026-08-09): 지원사업 상세조건 규칙 추출(AI 없음) — 같은 배치에 얹는다.
+	supportProcessed := s.runSupportConditionExtraction(ctx)
 	eligResult := s.runAIEligibilitySupplementExtraction(ctx)
 	docResult := s.runAIDocumentSupplementExtraction(ctx)
 	return documentExtractionSummary{
 		Status:                           "completed",
 		RuleBasedProcessedCount:          ruleProcessed,
+		SupportConditionProcessedCount:   supportProcessed,
 		EligibilitySupplementTargetCount: eligResult.TargetCount,
 		EligibilitySupplementSavedCount:  eligResult.SavedCount,
 		EligibilitySupplementFailedCount: eligResult.FailedCount,
