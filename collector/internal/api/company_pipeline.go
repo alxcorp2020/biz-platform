@@ -348,57 +348,24 @@ func (s *Server) generateChecklistItems(ctx context.Context, entryID, versionID,
 	rows.Close()
 
 	for _, d := range docs {
-		status := s.matchChecklistStatus(ctx, profileID, d.name)
+		// Step 3(2026-08-09): 면허/인증 이름 정확일치에 더해 회사 문서함
+		// (company_documents)·프로필 추출값까지 자동매칭하고, 어떤 근거로
+		// 매칭됐는지(match_method/matched_document_id/matched_at)도 남긴다.
+		status, method, matchedDocID := s.resolveChecklistMatch(ctx, profileID, d.name)
+		var methodVal, matchedAtVal any
+		if method != "" {
+			methodVal = method
+			matchedAtVal = time.Now()
+		}
 		if _, err := s.db.ExecContext(ctx, `
-			INSERT INTO pipeline_checklist_items (pipeline_entry_id, document_name, status, required_document_id)
-			VALUES ($1, $2, $3, $4)`,
-			entryID, d.name, status, d.id,
+			INSERT INTO pipeline_checklist_items (pipeline_entry_id, document_name, status, required_document_id, matched_document_id, match_method, matched_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			entryID, d.name, status, d.id, matchedDocID, methodVal, matchedAtVal,
 		); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// matchChecklistStatus looks for an exact-name match (TRIM'd, no fuzzy
-// scoring) in company_licenses/certifications and maps its status/expiry
-// into the checklist's 5-value status. No match, or an ambiguous source
-// status, always falls back to 확인필요 — never guessed as 신규작성.
-func (s *Server) matchChecklistStatus(ctx context.Context, profileID, documentName string) string {
-	name := strings.TrimSpace(documentName)
-	if name == "" {
-		return "확인필요"
-	}
-	var licenseStatus string
-	var expiresAt sql.NullTime
-	err := s.db.QueryRowContext(ctx, `
-		SELECT status, expires_at FROM (
-			SELECT status, expires_at, created_at FROM company_licenses
-			WHERE company_profile_id = $1 AND TRIM(name) = $2
-			UNION ALL
-			SELECT status, expires_at, created_at FROM company_certifications
-			WHERE company_profile_id = $1 AND TRIM(name) = $2
-		) matched ORDER BY created_at DESC LIMIT 1`,
-		profileID, name,
-	).Scan(&licenseStatus, &expiresAt)
-	if err != nil {
-		if err != sql.ErrNoRows {
-			s.logger.Error("pipeline: checklist match query failed", "error", err)
-		}
-		return "확인필요"
-	}
-
-	switch licenseStatus {
-	case "보유":
-		if expiresAt.Valid && expiresAt.Time.Before(time.Now()) {
-			return "갱신필요"
-		}
-		return "보유"
-	case "미보유":
-		return "발급필요"
-	default: // 확인되지않음
-		return "확인필요"
-	}
 }
 
 func (s *Server) fetchChecklistItems(ctx context.Context, entryID string) ([]pipelineChecklistItem, error) {
