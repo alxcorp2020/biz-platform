@@ -372,21 +372,48 @@ func ensureNoticeProcurementClassColumns(ctx context.Context, db *sql.DB) error 
 	`); err != nil {
 		return err
 	}
-	// 최초 1회 백필 — 이미 채워진 행은 procurement_class_code IS NULL 가드로 건너뛴다(멱등).
-	_, err := db.ExecContext(ctx, `
-		UPDATE notices n SET
-			procurement_class_code   = NULLIF(r.raw_content::jsonb->>'pubPrcrmntClsfcNo',''),
-			procurement_class_large  = NULLIF(r.raw_content::jsonb->>'pubPrcrmntLrgClsfcNm',''),
-			procurement_class_detail = NULLIF(r.raw_content::jsonb->>'pubPrcrmntClsfcNm',''),
-			industry_restricted      = CASE r.raw_content::jsonb->>'indstrytyLmtYn'
-			                             WHEN 'Y' THEN true WHEN 'N' THEN false ELSE NULL END
-		FROM notice_versions v
-		JOIN raw_documents r ON r.id = v.raw_document_id
-		WHERE v.notice_id = n.id AND v.is_current
-		  AND n.procurement_class_code IS NULL
-		  AND r.raw_content LIKE '%pubPrcrmntClsfcNo%';
-	`)
-	return err
+	// 🚨 2026-08-09: 이 백필도 raw_documents를 LIKE로 스캔하는 무거운 쿼리라 매
+	// 부팅마다 돌리면 안 된다(startup 블로킹 → 배포 실패). schema_backfills 마커로
+	// 1회만 실행하고, 이미 채워진 DB는 무거운 스캔을 건너뛰고 마커만 남긴다.
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_backfills (
+		name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
+		return fmt.Errorf("ensure schema_backfills: %w", err)
+	}
+	var marked bool
+	if err := db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM schema_backfills WHERE name = 'notice_procurement_class_backfill_v1')`).Scan(&marked); err != nil {
+		return fmt.Errorf("check procurement backfill marker: %w", err)
+	}
+	if marked {
+		return nil
+	}
+	var alreadyPopulated bool
+	if err := db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM notices WHERE procurement_class_code IS NOT NULL)`).Scan(&alreadyPopulated); err != nil {
+		return fmt.Errorf("check procurement populated: %w", err)
+	}
+	if !alreadyPopulated {
+		if _, err := db.ExecContext(ctx, `
+			UPDATE notices n SET
+				procurement_class_code   = NULLIF(r.raw_content::jsonb->>'pubPrcrmntClsfcNo',''),
+				procurement_class_large  = NULLIF(r.raw_content::jsonb->>'pubPrcrmntLrgClsfcNm',''),
+				procurement_class_detail = NULLIF(r.raw_content::jsonb->>'pubPrcrmntClsfcNm',''),
+				industry_restricted      = CASE r.raw_content::jsonb->>'indstrytyLmtYn'
+				                             WHEN 'Y' THEN true WHEN 'N' THEN false ELSE NULL END
+			FROM notice_versions v
+			JOIN raw_documents r ON r.id = v.raw_document_id
+			WHERE v.notice_id = n.id AND v.is_current
+			  AND n.procurement_class_code IS NULL
+			  AND r.raw_content LIKE '%pubPrcrmntClsfcNo%';
+		`); err != nil {
+			return err
+		}
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO schema_backfills (name) VALUES ('notice_procurement_class_backfill_v1') ON CONFLICT DO NOTHING`); err != nil {
+		return fmt.Errorf("mark procurement backfill done: %w", err)
+	}
+	return nil
 }
 
 // migratePipelineStatusesToSixStage — 2026-08-09. 파이프라인 상태를 9단계에서
