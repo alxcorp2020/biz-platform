@@ -294,6 +294,82 @@ func TestBizinfo_FetchAttachments_BothRoles(t *testing.T) {
 	}
 }
 
+// TestBizinfo_FetchAttachments_MultiFile — 🚨 2026-08-09 다중 별첨 '@' 분할 버그 수정 검증.
+func TestBizinfo_FetchAttachments_MultiFile(t *testing.T) {
+	ctx := context.Background()
+
+	// Case 2: URL 3개@ / 파일명 3개@ → 첨부 3건 정확히 pairing.
+	item := `{"pblancId":"P","flpthNm":"https://x/a@https://x/b@https://x/c","fileNm":"신청서.hwp@계획서.hwpx@참고.xlsx"}`
+	atts, err := New("x").FetchAttachments(ctx, collector.RawDocument{RawContent: item})
+	if err != nil {
+		t.Fatalf("FetchAttachments: %v", err)
+	}
+	if len(atts) != 3 {
+		t.Fatalf("Case2 첨부 %d개(기대 3)", len(atts))
+	}
+	want := []struct{ url, name, ext string }{
+		{"https://x/a", "신청서.hwp", "hwp"},
+		{"https://x/b", "계획서.hwpx", "hwpx"},
+		{"https://x/c", "참고.xlsx", "xlsx"},
+	}
+	for i, w := range want {
+		if atts[i].DownloadURL != w.url || atts[i].OriginalFilename != w.name || atts[i].FileType != w.ext || atts[i].Role != RoleSupportAttachment {
+			t.Errorf("Case2[%d] 오류: %+v", i, atts[i])
+		}
+	}
+
+	// Case 3: URL 3개 / 파일명 2개 → panic 없이 3건, 3번째는 fallback 파일명.
+	item = `{"pblancId":"P","flpthNm":"https://x/a@https://x/b@https://x/c","fileNm":"신청서.hwp@계획서.hwpx"}`
+	atts, err = New("x").FetchAttachments(ctx, collector.RawDocument{RawContent: item})
+	if err != nil {
+		t.Fatalf("Case3 FetchAttachments: %v", err)
+	}
+	if len(atts) != 3 {
+		t.Fatalf("Case3 첨부 %d개(기대 3)", len(atts))
+	}
+	if atts[2].DownloadURL != "https://x/c" || atts[2].OriginalFilename != "첨부파일" || atts[2].FileType != "" {
+		t.Errorf("Case3 fallback 오류: %+v", atts[2])
+	}
+
+	// Case 4: 중간 빈 URL(@@) → 빈 항목 skip, 2건만.
+	item = `{"pblancId":"P","flpthNm":"https://x/a@@https://x/c","fileNm":"a.hwp@무시@c.pdf"}`
+	atts, err = New("x").FetchAttachments(ctx, collector.RawDocument{RawContent: item})
+	if err != nil {
+		t.Fatalf("Case4 FetchAttachments: %v", err)
+	}
+	if len(atts) != 2 {
+		t.Fatalf("Case4 첨부 %d개(기대 2): %+v", len(atts), atts)
+	}
+	if atts[0].DownloadURL != "https://x/a" || atts[1].DownloadURL != "https://x/c" {
+		t.Errorf("Case4 URL 오류: %+v", atts)
+	}
+
+	// Case 5: printFlpthNm 다중 → SUPPORT_PRINT_DOCUMENT 다건.
+	item = `{"pblancId":"P","printFlpthNm":"https://x/d1@https://x/d2","printFileNm":"공고1.pdf@공고2.hwp"}`
+	atts, err = New("x").FetchAttachments(ctx, collector.RawDocument{RawContent: item})
+	if err != nil {
+		t.Fatalf("Case5 FetchAttachments: %v", err)
+	}
+	if len(atts) != 2 {
+		t.Fatalf("Case5 첨부 %d개(기대 2)", len(atts))
+	}
+	for i, a := range atts {
+		if a.Role != RoleSupportPrintDocument {
+			t.Errorf("Case5[%d] role=%s(기대 %s)", i, a.Role, RoleSupportPrintDocument)
+		}
+	}
+
+	// dedup: 같은 필드에 동일 URL이 두 번 → url+role 조합 1건만.
+	item = `{"pblancId":"P","flpthNm":"https://x/dup@https://x/dup","fileNm":"a.hwp@b.hwp"}`
+	atts, err = New("x").FetchAttachments(ctx, collector.RawDocument{RawContent: item})
+	if err != nil {
+		t.Fatalf("dedup FetchAttachments: %v", err)
+	}
+	if len(atts) != 1 {
+		t.Errorf("dedup 첨부 %d개(기대 1): %+v", len(atts), atts)
+	}
+}
+
 // TestBizinfo_ReqstBeginEndDe_BothFormats — 신형(YYYY-MM-DD)·구형(YYYYMMDD) 모두.
 func TestBizinfo_ReqstBeginEndDe_BothFormats(t *testing.T) {
 	for _, v := range []string{"2026-08-07 ~ 2026-08-12", "20260807 ~ 20260812"} {

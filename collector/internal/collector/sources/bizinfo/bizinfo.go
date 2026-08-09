@@ -335,26 +335,62 @@ func (s *Source) FetchAttachments(ctx context.Context, doc collector.RawDocument
 		return nil, fmt.Errorf("parse detail for attachments: %w", err)
 	}
 	var out []collector.Attachment
-	// 별첨(flpthNm/fileNm) — 신청서/서식 등(실측 91%).
-	if it.FlpthNm != "" && it.FileNm != "" {
+	// 별첨(flpthNm/fileNm) — 신청서/서식 등. 🚨 2026-08-09 B-2 실측: 한 공고에
+	// 별첨이 여러 개면 URL/파일명을 '@'로 이어붙여 준다(URL_A@URL_B, 이름1@이름2).
+	// 통째로 한 건 처리하면 URL이 깨져 0바이트로 저장되던 버그를 splitBizinfoFiles로
+	// 나눠서 해결한다.
+	out = append(out, splitBizinfoFiles(it.FlpthNm, it.FileNm, RoleSupportAttachment)...)
+	// 본문출력 공고문(printFlpthNm/printFileNm) — 별첨과 다른 파일(공고 본문). 실측상
+	// 대부분 1건이지만 향후 다중값에 대비해 동일 helper로 방어적으로 분할한다.
+	// B-3에서 AI 분석의 1차 문서원으로 쓸 예정이라 역할을 구분해 저장한다.
+	out = append(out, splitBizinfoFiles(it.PrintFlpthNm, it.PrintFileNm, RoleSupportPrintDocument)...)
+	// dedup: 동일 URL+role 조합은 한 번만(같은 필드에 URL이 중복돼 오는 경우 방어).
+	// 재수집 간 중복은 runner의 FindAttachmentByDownloadURL이 별도로 막는다.
+	seen := make(map[string]bool, len(out))
+	deduped := out[:0]
+	for _, a := range out {
+		k := a.DownloadURL + "\x00" + a.Role
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		deduped = append(deduped, a)
+	}
+	return deduped, nil
+}
+
+// splitBizinfoFiles는 '@'로 이어붙은 기업마당 다중 첨부 필드(URL/파일명)를
+// 개별 Attachment로 나눈다. URL을 기준으로 순회하며 같은 인덱스의 파일명을
+// 짝짓는다 — 빈 URL은 건너뛰고, 파일명이 모자라거나 비면 fallback을 쓴다
+// (URL만 있고 이름 없는 항목도 유효 첨부로 만든다). URL 없는 이름-only 항목은
+// 만들지 않는다. URL 수 ≠ 파일명 수여도 인덱스 초과 접근(panic)이 없다.
+func splitBizinfoFiles(pathField, nameField, role string) []collector.Attachment {
+	if strings.TrimSpace(pathField) == "" {
+		return nil
+	}
+	urls := strings.Split(pathField, "@")
+	names := strings.Split(nameField, "@")
+	var out []collector.Attachment
+	for i, rawURL := range urls {
+		url := strings.TrimSpace(rawURL)
+		if url == "" {
+			continue // 빈 URL은 첨부로 만들지 않는다
+		}
+		name := ""
+		if i < len(names) {
+			name = strings.TrimSpace(names[i])
+		}
+		if name == "" {
+			name = "첨부파일" // 파일명 누락 시 fallback(확장자 없음)
+		}
 		out = append(out, collector.Attachment{
-			OriginalFilename: it.FileNm,
-			DownloadURL:      it.FlpthNm,
-			FileType:         fileExt(it.FileNm),
-			Role:             RoleSupportAttachment,
+			OriginalFilename: name,
+			DownloadURL:      url,
+			FileType:         fileExt(name),
+			Role:             role,
 		})
 	}
-	// 본문출력 공고문(printFlpthNm/printFileNm) — 별첨과 다른 파일(공고 본문, 실측
-	// 100%). B-3에서 AI 분석의 1차 문서원으로 쓸 예정이라 역할을 구분해 저장한다.
-	if it.PrintFlpthNm != "" && it.PrintFileNm != "" {
-		out = append(out, collector.Attachment{
-			OriginalFilename: it.PrintFileNm,
-			DownloadURL:      it.PrintFlpthNm,
-			FileType:         fileExt(it.PrintFileNm),
-			Role:             RoleSupportPrintDocument,
-		})
-	}
-	return out, nil
+	return out
 }
 
 // 첨부 역할(B-2). support_program_details와 함께 지원사업 상세 화면에서
