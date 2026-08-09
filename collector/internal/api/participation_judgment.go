@@ -107,38 +107,40 @@ func (s *Server) buildParticipationJudgment(ctx context.Context, versionID, prof
 		}
 	}
 
-	// 3) 면허(HARD): 요구 면허별 보유/만료/미보유를 matchLicenseCertByName(만료
-	//    반영)으로 확인해 하나의 조건으로 집계한다. 보수적으로 최악값을 채택.
+	// 3) 면허(HARD 중요도, 단 FAIL로 단정하지 않음): 요구 면허는 required_documents의
+	//    "제출서류명"에서 감지하는데(g2b 원문에 구조화된 필수면허 필드가 없음),
+	//    ① 제출서류명("면허증 사본" 등)이 회사 면허명("정보통신공사업 면허")과
+	//    정확일치(matchLicenseCertByName은 TRIM 정확일치)하지 않아 실제 보유해도
+	//    not-found가 나기 쉽고, ② 필수/조건부·OR/AND를 서류명만으로 구분할 수 없다.
+	//    → 미보유/미확인/만료를 HARD FAIL로 단정하면 실제 참여 가능한 공고를 오탈락
+	//    시킨다(FALSE HARD FAIL). 그래서 보유(정확일치)만 PASS, 나머지는 REVIEW로
+	//    두어 "확실하지 않으면 확인 필요" 원칙을 지킨다(2026-08-09 HARD FAIL 안전 검증).
 	if len(licenseNames) > 0 {
-		var held, missing, expired, uncertain []string
+		var held, expired, unresolved []string
 		for _, name := range licenseNames {
 			st, ok := s.matchLicenseCertByName(ctx, profileID, name)
 			switch {
-			case !ok || st == "발급필요":
-				missing = append(missing, name)
-			case st == "갱신필요":
-				expired = append(expired, name)
-			case st == "보유":
+			case ok && st == "보유":
 				held = append(held, name)
-			default: // 확인필요
-				uncertain = append(uncertain, name)
+			case ok && st == "갱신필요":
+				expired = append(expired, name)
+			default: // not-found(정확명 불일치 포함) / 발급필요 / 확인필요
+				unresolved = append(unresolved, name)
 			}
 		}
 		cond := conditionResult{ConditionType: "면허", Severity: sevHARD, RequirementText: strings.Join(licenseNames, ", ")}
 		switch {
-		case len(missing) > 0:
-			cond.Result = condFAIL
-			cond.Reason = "이 공고가 요구하는 면허(" + strings.Join(missing, ", ") + ")를 보유하지 않았습니다."
-		case len(expired) > 0:
-			cond.Result = condREVIEW
-			cond.Reason = "요구 면허(" + strings.Join(expired, ", ") + ")가 만료 상태입니다 — 갱신 여부를 확인해주세요."
-		case len(uncertain) > 0:
-			cond.Result = condREVIEW
-			cond.Reason = "요구 면허 보유 여부가 명확하지 않습니다 — 확인이 필요합니다."
-		default:
+		case len(unresolved) == 0 && len(expired) == 0:
 			cond.Result = condPASS
 			cond.CompanyEvidence = strings.Join(held, ", ")
 			cond.Reason = "보유하신 면허가 이 공고 요건과 일치합니다."
+		case len(expired) > 0 && len(unresolved) == 0:
+			cond.Result = condREVIEW
+			cond.Reason = "요구 면허(" + strings.Join(expired, ", ") + ")가 만료 상태입니다 — 갱신 여부를 확인해주세요."
+		default:
+			// 서류명만으로는 필수성·OR/AND·정확 면허명을 확정할 수 없어 FAIL로 단정하지 않는다.
+			cond.Result = condREVIEW
+			cond.Reason = "이 공고가 요구하는 면허(" + strings.Join(unresolved, ", ") + ") 보유·충족 여부를 확인해주세요."
 		}
 		j.Conditions = append(j.Conditions, cond)
 	}

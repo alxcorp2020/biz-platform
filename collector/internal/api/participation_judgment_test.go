@@ -127,18 +127,31 @@ func TestBuildParticipationJudgment_Integration(t *testing.T) {
 		t.Errorf("grade=%q want needsReview", j.Grade)
 	}
 
-	// 케이스 2: 미보유 면허 요구 → 면허 FAIL(HARD) → 참여 어려움
+	// 케이스 2(FALSE HARD FAIL 방지): 회사가 보유하지 않은/정확명 불일치 면허
+	// 서류명 → HARD FAIL로 단정하지 않고 REVIEW → 참여 어려움이 아니라 확인 필요.
 	j2 := srv.buildParticipationJudgment(ctx, "", profileID, score, []requiredDocumentItem{{DocumentName: "건설업 면허"}})
-	if byType(j2)["면허"].Result != condFAIL {
-		t.Errorf("미보유 면허=%q want FAIL", byType(j2)["면허"].Result)
+	if byType(j2)["면허"].Result != condREVIEW {
+		t.Errorf("미매칭 면허=%q want REVIEW(FALSE FAIL 방지)", byType(j2)["면허"].Result)
 	}
-	if j2.Grade != "notRecommended" {
-		t.Errorf("grade=%q want notRecommended", j2.Grade)
+	if j2.Grade == "notRecommended" {
+		t.Errorf("면허 미매칭이 참여어려움을 만들면 안 됨: grade=%q", j2.Grade)
+	}
+	if j2.Grade != "needsReview" {
+		t.Errorf("grade=%q want needsReview", j2.Grade)
 	}
 
 	// 케이스 3: 서류 분석 전(빈 목록) → UNKNOWN 안전장치 → 확인 필요(참여 가능 아님)
 	j3 := srv.buildParticipationJudgment(ctx, "", profileID, score, nil)
 	if j3.Grade != "needsReview" {
 		t.Errorf("빈 서류 grade=%q want needsReview(안전장치)", j3.Grade)
+	}
+
+	// 케이스 4: 3요소 중 하나가 not_met(구조화 판정) → 정상 HARD FAIL → 참여 어려움
+	failScore := &participationScore{Categories: []categoryScore{
+		{Category: "지역", Result: "not_met"}, {Category: "업종", Result: "met"}, {Category: "예산 규모", Result: "met"},
+	}}
+	j4 := srv.buildParticipationJudgment(ctx, "", profileID, failScore, []requiredDocumentItem{{DocumentName: "사업자등록증"}})
+	if j4.Grade != "notRecommended" {
+		t.Errorf("지역 not_met grade=%q want notRecommended(3요소 정상 FAIL)", j4.Grade)
 	}
 }
