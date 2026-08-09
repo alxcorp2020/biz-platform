@@ -9455,6 +9455,22 @@ function renderDetail(container, id) {
         </div>
       `;
 
+      // 지원사업(support_program)은 입찰과 성격이 달라 상세 탭을 재구성한다
+      // (B-1, UI만/백엔드·데이터 무변경): 판정·낙찰이력 탭 숨김, 참가조건→
+      // "신청 안내"·제출서류→"첨부·서류" 라벨, "신청 안내"를 기본 탭으로.
+      // applicationStartAt/departmentName은 상세 DTO에 없어 현재 보유 필드만
+      // 쓰고, 신청 시작일·지원대상·신청서류 등은 원문 공고 링크로 안내한다.
+      const isSupport = n.noticeType === 'support_program';
+      const activeTab = isSupport ? 'conditions' : 'summary';
+      const tabBtn = (tab, label) => `<button type="button" class="detail-tab${activeTab === tab ? ' is-active' : ''}" role="tab" aria-selected="${activeTab === tab}" data-tab="${tab}">${label}</button>`;
+      const tabsHtml = isSupport
+        ? tabBtn('conditions', '신청 안내') + tabBtn('summary', '요약') + tabBtn('documents', '첨부·서류') + tabBtn('changes', '변경이력')
+        : tabBtn('summary', '요약') + tabBtn('participation', '판정') + tabBtn('conditions', '참가조건') + tabBtn('documents', '제출서류') + tabBtn('award-history', '낙찰이력') + tabBtn('changes', '변경이력');
+      const panelHidden = (tab) => activeTab === tab ? '' : 'hidden';
+      const supportOfficialCta = n.officialUrl
+        ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고에서 자세히 보기 ${newTabIconHtml()}</a>`
+        : '';
+
       body.className = '';
       body.innerHTML = '';
       body.appendChild(h(`
@@ -9467,26 +9483,31 @@ function renderDetail(container, id) {
           </div>
           <div id="pipeline-review-action"></div>
           ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 ${newTabIconHtml()}</a>` : ''}
-          <a class="official-link" href="#/notices/${escapeAttr(n.id)}/report">참여판단 보고서 보기 &rarr;</a>
+          ${isSupport ? '' : `<a class="official-link" href="#/notices/${escapeAttr(n.id)}/report">참여판단 보고서 보기 &rarr;</a>`}
           <p class="detail-sub notice-data-trust">${trustLine}</p>
         </div>
 
-        <div class="detail-tabs" role="tablist">
-          <button type="button" class="detail-tab is-active" role="tab" aria-selected="true" data-tab="summary">요약</button>
-          <button type="button" class="detail-tab" role="tab" aria-selected="false" data-tab="participation">판정</button>
-          <button type="button" class="detail-tab" role="tab" aria-selected="false" data-tab="conditions">참가조건</button>
-          <button type="button" class="detail-tab" role="tab" aria-selected="false" data-tab="documents">제출서류</button>
-          <button type="button" class="detail-tab" role="tab" aria-selected="false" data-tab="award-history">낙찰이력</button>
-          <button type="button" class="detail-tab" role="tab" aria-selected="false" data-tab="changes">변경이력</button>
-        </div>
+        <div class="detail-tabs" role="tablist">${tabsHtml}</div>
 
-        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="summary">
+        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="summary" ${panelHidden('summary')}>
+          ${isSupport ? '<p class="detail-sub">이 지원사업의 핵심 안내는 "신청 안내" 탭과 원문 공고를 확인해주세요.</p>' : ''}
           <div id="ai-summary-section"></div>
         </div>
         <div class="detail-tab-panel" role="tabpanel" data-tab-panel="participation" hidden>
           <div id="ai-participation-section"></div>
         </div>
-        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="conditions" hidden>
+        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="conditions" ${panelHidden('conditions')}>
+          ${isSupport ? `
+          <dl class="detail-meta">
+            <div><dt>소관기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
+            <div><dt>지원분야</dt><dd>${escapeHtml(n.industry || '-')}</dd></div>
+            <div><dt>신청 마감</dt><dd>${ddayBadgeHtml(n.applicationEndAt, 'dday-badge--inline')}<span class="mono">${formatDate(n.applicationEndAt)}</span></dd></div>
+            <div><dt>상태</dt><dd>${statusBadgeHtml(n.status)}</dd></div>
+            <div><dt>공고 게시</dt><dd class="mono">${n.publishedAt ? formatDate(n.publishedAt) : '-'}</dd></div>
+          </dl>
+          <p class="detail-sub">지원대상·신청 자격·제출서류·지원 내용·신청 시작일은 원문 공고에서 확인해주세요.</p>
+          ${supportOfficialCta}
+          ` : `
           <dl class="detail-meta">
             <div><dt>발주기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
             <div><dt>지역</dt><dd>${escapeHtml(n.region || '-')}</dd></div>
@@ -9495,16 +9516,18 @@ function renderDetail(container, id) {
             <div><dt>마감일</dt><dd>${ddayBadgeHtml(n.applicationEndAt, 'dday-badge--inline')}<span class="mono">${formatDate(n.applicationEndAt)}</span></dd></div>
             <div><dt>예산</dt><dd class="mono">${formatBudget(n.budgetAmount)}</dd></div>
             <div><dt>버전</dt><dd class="mono">v${n.currentVersion}</dd></div>
-          </dl>
-          <h3>공고 상세정보</h3>
-          <div id="notice-detail-info-section"></div>
-          <h3>적격심사 계산기</h3>
-          <div id="bid-calculator-section"></div>
-          ${extractionBannerHtml}
-          <h3>참가자격 요건</h3>
-          <div id="eligibility-conditions-section"></div>
-          <h3>면허·인증 요건 확인</h3>
-          <div id="license-requirement-match-section"></div>
+          </dl>`}
+          <div ${isSupport ? 'hidden' : ''}>
+            <h3>공고 상세정보</h3>
+            <div id="notice-detail-info-section"></div>
+            <h3>적격심사 계산기</h3>
+            <div id="bid-calculator-section"></div>
+            ${extractionBannerHtml}
+            <h3>참가자격 요건</h3>
+            <div id="eligibility-conditions-section"></div>
+            <h3>면허·인증 요건 확인</h3>
+            <div id="license-requirement-match-section"></div>
+          </div>
         </div>
         <div class="detail-tab-panel" role="tabpanel" data-tab-panel="documents" hidden>
           ${extractionBannerHtml}
