@@ -1788,6 +1788,33 @@
     .cond-badge--medium { background: #3a2c12; color: #f0b866; }
     .cond-badge--low { background: #3a1a17; color: #f2a099; }
   }
+
+  /* 참여판정 조건 카드(유료화 1단계, 2026-08-09) — 조건별 PASS/REVIEW/FAIL/UNKNOWN */
+  .participation-judgment .pj-head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .pj-grade { font-size: 1rem; font-weight: 800; padding: 0.25rem 0.7rem; border-radius: 999px; }
+  .pj-grade--ready { background: #e6f4ea; color: #1e7e34; }
+  .pj-grade--review { background: #fff4e5; color: #b26a00; }
+  .pj-grade--fail { background: #fdecea; color: #b3261e; }
+  .pj-summary { font-size: 0.85rem; color: var(--ink-soft); }
+  .cond-list { display: flex; flex-direction: column; gap: 0.6rem; }
+  .cond-row { display: flex; gap: 0.6rem; align-items: flex-start; }
+  .cond-icon { flex-shrink: 0; width: 1.4rem; height: 1.4rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.85rem; color: #fff; }
+  .cond--pass .cond-icon { background: #1e7e34; }
+  .cond--review .cond-icon { background: #d08a00; }
+  .cond--fail .cond-icon { background: #c62828; }
+  .cond--unknown .cond-icon { background: #9aa0a6; }
+  .cond-head-line { display: flex; align-items: center; gap: 0.4rem; }
+  .cond-soft { font-size: 0.7rem; font-weight: 700; color: var(--ink-soft); background: var(--surface-sunken, #f1f3f5); padding: 0.05rem 0.35rem; border-radius: 4px; }
+  .cond-reason { font-size: 0.88rem; color: var(--ink-soft); line-height: 1.5; margin-top: 0.1rem; }
+  .cond-evidence { font-size: 0.78rem; color: var(--ink-mute, #8a8f98); margin-top: 0.15rem; }
+  @media (prefers-color-scheme: dark) {
+    .cond-badge--high { background: #16351f; color: #7ee2a0; }
+    .cond-badge--medium { background: #3a2c12; color: #f0b866; }
+    .cond-badge--low { background: #3a1a17; color: #f2a099; }
+    .pj-grade--ready { background: #16351f; color: #7ee2a0; }
+    .pj-grade--review { background: #3a2c12; color: #f0b866; }
+    .pj-grade--fail { background: #3a1a17; color: #f2a099; }
+  }
   .support-summary { margin-top: 1.25rem; }
   .support-summary p { white-space: pre-line; color: var(--ink-soft); line-height: 1.6; }
   .support-cta { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1.25rem; }
@@ -9560,6 +9587,7 @@ function renderDetail(container, id) {
           <div id="ai-summary-section"></div>
         </div>
         <div class="detail-tab-panel" role="tabpanel" data-tab-panel="participation" hidden>
+          <div id="participation-judgment-section"></div>
           <div id="ai-participation-section"></div>
         </div>
         <div class="detail-tab-panel" role="tabpanel" data-tab-panel="conditions" ${panelHidden('conditions')}>
@@ -9621,6 +9649,7 @@ function renderDetail(container, id) {
         </div>
       `));
       renderAISummary(document.getElementById('ai-summary-section'), data.aiSummary, n.officialUrl);
+      renderParticipationJudgment(document.getElementById('participation-judgment-section'), data.participationJudgment);
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.confidenceTier);
       renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
       renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail);
@@ -10515,6 +10544,52 @@ function renderAISummary(container, summary, officialUrl) {
     <div class="ai-summary-card">
       <ul class="ai-summary-list">${items}</ul>
       <p class="ai-summary-meta">AI 요약 · ${escapeHtml(summary.model || '')} · ${formatDateTime(summary.generatedAt)}</p>
+    </div>
+  `));
+}
+
+// PARTICIPATION_COND_META — 조건 결과별 아이콘/색. PASS ✓ / REVIEW ! /
+// FAIL ✕ / UNKNOWN ?. 근거 기반 판정이라 "왜"를 항상 함께 보여준다.
+const PARTICIPATION_COND_META = {
+  PASS:    { icon: '✓', cls: 'cond--pass' },
+  REVIEW:  { icon: '!', cls: 'cond--review' },
+  FAIL:    { icon: '✕', cls: 'cond--fail' },
+  UNKNOWN: { icon: '?', cls: 'cond--unknown' },
+};
+const PARTICIPATION_GRADE_TONE = { ready: 'pj-grade--ready', needsReview: 'pj-grade--review', notRecommended: 'pj-grade--fail' };
+
+// renderParticipationJudgment — 유료화 1단계(2026-08-09). 조건별
+// PASS/REVIEW/FAIL/UNKNOWN 판정(participationJudgment)을 근거와 함께 보여준다.
+// 입찰 공고 + 로그인 + 회사 프로필이 있을 때만 서버가 채워준다(없으면 null →
+// 렌더 생략, 기존 AI 참여 분석만 노출). 긴 원문 근거는 기본으로 펼치지 않는다.
+function renderParticipationJudgment(container, j) {
+  if (!container) return;
+  container.innerHTML = '';
+  if (!j || !j.conditions || !j.conditions.length) return;
+  const tone = PARTICIPATION_GRADE_TONE[j.grade] || 'pj-grade--review';
+  const rows = j.conditions.map(c => {
+    const meta = PARTICIPATION_COND_META[c.result] || PARTICIPATION_COND_META.UNKNOWN;
+    const soft = c.severity === 'SOFT' ? '<span class="cond-soft">우대</span>' : '';
+    const evidence = [c.requirementText ? `공고 요구: ${c.requirementText}` : '', c.companyEvidence ? `회사 보유: ${c.companyEvidence}` : '']
+      .filter(Boolean).map(escapeHtml).join(' · ');
+    return `
+      <div class="cond-row ${meta.cls}">
+        <span class="cond-icon">${meta.icon}</span>
+        <div class="cond-body">
+          <div class="cond-head-line"><strong>${escapeHtml(c.conditionType)}</strong>${soft}</div>
+          <div class="cond-reason">${escapeHtml(c.reason || '')}</div>
+          ${evidence ? `<div class="cond-evidence">${evidence}</div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+  container.appendChild(h(`
+    <div class="detail-card participation-judgment">
+      <div class="pj-head">
+        <span class="pj-grade ${tone}">${escapeHtml(j.gradeLabel || '')}</span>
+        <span class="pj-summary">자동확인 ${j.passCount} · 확인필요 ${j.reviewCount} · 미충족 ${j.failCount} · 정보부족 ${j.unknownCount}</span>
+      </div>
+      <div class="cond-list">${rows}</div>
+      <p class="cond-caveat">지역·업종·기업규모·면허·인증·직접생산확인 기준 자동 판정입니다. 실적·재무 등 그 밖의 참가자격은 공고 원문을 함께 확인해주세요.</p>
     </div>
   `));
 }

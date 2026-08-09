@@ -893,6 +893,14 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		supportConditions = s.fetchSupportConditions(r.Context(), id) // B-3: 공고문 규칙 추출 상세조건
 	}
 
+	// 참여판정 신뢰성 확장(2026-08-09): 입찰 공고에 한해 기존 3요소 판정에
+	// 면허·인증·직접생산확인을 이어붙여 조건별 PASS/REVIEW/FAIL/UNKNOWN을 만든다.
+	// 지원사업은 판정 기준이 달라 제외. DB 변경 없음(조회 시점 계산).
+	var partJudgment *participationJudgment
+	if it.NoticeType == "procurement" && versionID != "" {
+		partJudgment = s.buildParticipationJudgment(r.Context(), versionID, profileID, score, requiredDocuments)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"notice":                   it,
 		"changes":                  changes,
@@ -906,6 +914,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"supportDetail":            supportDetail,
 		"supportConditions":        supportConditions,
 		"participationScore":       score,
+		"participationJudgment":    partJudgment,
 		"confidenceTier":           confidenceTier,
 		"aiSummary":                aiSummary,
 		"changeImpact":             impact,
