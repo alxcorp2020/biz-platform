@@ -6,10 +6,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -211,6 +213,25 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 	noticeID := r.PathValue("id")
 	ctx := r.Context()
 
+	// targetStatus(선택) — 정상 참여 흐름 2클릭화(2026-08-10). "참여할게요"는
+	// 검토중을 거치지 않고 곧바로 '준비중'으로 담기 위해 targetStatus='준비중'을
+	// 보낸다. 미지정(공고검색 목록의 "참여검토" 북마크, 기존 호출)은 종전대로
+	// '검토중'으로 시작한다 — 검토중 자체는 없애지 않고 "나중에 검토" 용도로 유지.
+	// 생성 대상은 '검토중'/'준비중' 둘만 허용(제출완료 등으로 바로 생성 불가).
+	initialStatus := "검토중"
+	if body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16)); err == nil && len(bytes.TrimSpace(body)) > 0 {
+		var req struct {
+			TargetStatus string `json:"targetStatus"`
+		}
+		if json.Unmarshal(body, &req) == nil && req.TargetStatus != "" {
+			if req.TargetStatus != "검토중" && req.TargetStatus != "준비중" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_target_status"})
+				return
+			}
+			initialStatus = req.TargetStatus
+		}
+	}
+
 	profile, err := s.getCompanyProfile(r, userID)
 	if err != nil {
 		s.logger.Error("create-pipeline: profile lookup failed", "error", err)
@@ -233,13 +254,24 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 	).Scan(&existingID, &existingStatus)
 	if err == nil {
 		if existingStatus == "제외" {
+			// 제외(취소) 상태를 다시 담기 — targetStatus에 따라 검토중/준비중으로 복원.
 			if _, err := s.db.ExecContext(ctx,
-				`UPDATE notice_pipeline_entries SET status = '검토중', decided_at = now(), exclude_reason = NULL WHERE id = $1`, existingID); err != nil {
+				`UPDATE notice_pipeline_entries SET status = $2, decided_at = now(), exclude_reason = NULL WHERE id = $1`, existingID, initialStatus); err != nil {
 				s.logger.Error("create-pipeline: reactivate excluded entry failed", "error", err)
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 				return
 			}
-			s.recordPipelineStatusChange(ctx, existingID, "제외", "검토중", userID, "", "USER")
+			s.recordPipelineStatusChange(ctx, existingID, "제외", initialStatus, userID, "", "USER")
+		} else if existingStatus == "검토중" && initialStatus == "준비중" {
+			// 이미 "검토중"으로 담아둔 공고에서 "참여할게요"를 누른 경우 — 준비중으로
+			// 승격한다(멱등: 준비중/제출완료 등 그 이상 진행 건은 건드리지 않는다).
+			if _, err := s.db.ExecContext(ctx,
+				`UPDATE notice_pipeline_entries SET status = '준비중', decided_at = now() WHERE id = $1`, existingID); err != nil {
+				s.logger.Error("create-pipeline: promote reviewing→preparing failed", "error", err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+				return
+			}
+			s.recordPipelineStatusChange(ctx, existingID, "검토중", "준비중", userID, "", "USER")
 		}
 		entry, err := s.fetchPipelineEntry(ctx, existingID)
 		if err != nil {
@@ -293,13 +325,14 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 		assigneeName, assigneeEmail, assigneePhone = &defaultContact.Name, defaultContact.Email, defaultContact.Phone
 	}
 
-	// "참여 검토 시작" 클릭 자체가 이미 검토에 착수했다는 뜻이라 첫 상태를
-	// '검토중'으로 시작한다(9→6단계 축소, 2026-08-09).
+	// 첫 상태는 initialStatus — 기본 '검토중'(북마크/나중에 검토), "참여할게요"로
+	// 온 요청은 '준비중'(제출 준비 단계 직행). 어느 쪽이든 아래 체크리스트 생성과
+	// 마감 자동화(준비중 스캔)는 동일하게 동작한다.
 	var entryID string
 	err = s.db.QueryRowContext(ctx, `
 		INSERT INTO notice_pipeline_entries (company_profile_id, notice_id, status, decided_at, submission_deadline, assignee_name, assignee_email, assignee_phone, company_profile_snapshot)
-		VALUES ($1, $2, '검토중', now(), $3, $4, $5, $6, (SELECT to_jsonb(cp) FROM company_profiles cp WHERE cp.id = $1)) RETURNING id`,
-		profile.ID, noticeID, deadline, assigneeName, assigneeEmail, assigneePhone,
+		VALUES ($1, $2, $7, now(), $3, $4, $5, $6, (SELECT to_jsonb(cp) FROM company_profiles cp WHERE cp.id = $1)) RETURNING id`,
+		profile.ID, noticeID, deadline, assigneeName, assigneeEmail, assigneePhone, initialStatus,
 	).Scan(&entryID)
 	if err != nil {
 		s.logger.Error("create-pipeline: insert failed", "error", err)
@@ -315,9 +348,9 @@ func (s *Server) handleCreatePipelineEntry(w http.ResponseWriter, r *http.Reques
 	}
 
 	s.recordAuditLog(ctx, userID, "pipeline_entry_created", "notice_pipeline_entry", entryID, map[string]any{
-		"noticeId": noticeID, "status": "검토중",
+		"noticeId": noticeID, "status": initialStatus,
 	})
-	s.recordPipelineStatusChange(ctx, entryID, "", "검토중", userID, "", "USER")
+	s.recordPipelineStatusChange(ctx, entryID, "", initialStatus, userID, "", "USER")
 
 	entry, err := s.fetchPipelineEntry(ctx, entryID)
 	if err != nil {
