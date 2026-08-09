@@ -1785,6 +1785,24 @@
   .cond-list ul { margin: 0; padding-left: 1.1rem; }
   .cond-list li { margin: 0.15rem 0; color: var(--ink-soft); line-height: 1.5; }
   .cond-caveat { margin-top: 1rem; font-size: 0.82rem; color: var(--ink-mute, #8a8f98); }
+  /* 참여판정 질문형 해소(Human-in-the-loop) */
+  .pj-questions { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--border, #e5e7eb); display: flex; flex-direction: column; gap: 0.75rem; }
+  .pj-questions-title { font-size: 0.92rem; font-weight: 700; color: var(--ink, #1f2328); }
+  .pj-questions-sub { font-weight: 400; color: var(--ink-mute, #8a8f98); }
+  .pj-question { background: var(--bg-soft, #f6f8fa); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 0.75rem 0.85rem; }
+  .pj-question-req { font-size: 0.9rem; color: var(--ink-soft); line-height: 1.5; }
+  .pj-question-ask { margin: 0.35rem 0 0.6rem; font-size: 0.95rem; font-weight: 600; color: var(--ink, #1f2328); }
+  .pj-question-btns { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .pj-answer-btn { padding: 0.45rem 0.9rem; border-radius: 8px; border: 1px solid var(--border, #d0d7de); background: var(--surface, #fff); color: var(--ink, #1f2328); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+  .pj-answer-btn:hover { border-color: var(--accent-blue, #2f6feb); }
+  .pj-answer-btn:disabled { opacity: 0.5; cursor: default; }
+  .pj-answer-btn--yes { background: var(--accent-blue, #2f6feb); color: #fff; border-color: var(--accent-blue, #2f6feb); }
+  .pj-answer-btn--skip { color: var(--ink-mute, #8a8f98); }
+  @media (prefers-color-scheme: dark) {
+    .pj-question { background: #1a1d21; border-color: #30363d; }
+    .pj-answer-btn { background: #22272e; color: #e6edf3; border-color: #30363d; }
+    .pj-answer-btn--yes { background: #2f6feb; color: #fff; }
+  }
   @media (prefers-color-scheme: dark) {
     .cond-badge--high { background: #16351f; color: #7ee2a0; }
     .cond-badge--medium { background: #3a2c12; color: #f0b866; }
@@ -7976,7 +7994,9 @@ async function renderPipelineDetail(container, id) {
 
   // 공고 상세와 동일한 참여판정 렌더(같은 컴포넌트 재사용 → 판정/순서 일치).
   if (hasJudgment) {
-    renderParticipationJudgment(document.getElementById('pipeline-judgment-section'), pj);
+    renderParticipationJudgment(document.getElementById('pipeline-judgment-section'), pj, {
+      refetch: async () => (await apiRequest('GET', '/api/pipeline/' + encodeURIComponent(id))).participationJudgment,
+    });
   }
 
   // "준비할 것 자세히 보기" → 같은 화면의 체크리스트 섹션으로 스크롤(해시 라우팅을
@@ -9904,7 +9924,9 @@ function renderDetail(container, id) {
         </div>
       `));
       renderAISummary(document.getElementById('ai-summary-section'), data.aiSummary, n.officialUrl);
-      renderParticipationJudgment(document.getElementById('participation-judgment-section'), data.participationJudgment);
+      renderParticipationJudgment(document.getElementById('participation-judgment-section'), data.participationJudgment, {
+        refetch: async () => (await apiRequest('GET', '/api/notices/' + encodeURIComponent(id))).participationJudgment,
+      });
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.confidenceTier);
       renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
       renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail);
@@ -10822,8 +10844,12 @@ const PARTICIPATION_GRADE_TONE = { ready: 'pj-grade--ready', needsReview: 'pj-gr
 // PASS/REVIEW/FAIL/UNKNOWN 판정(participationJudgment)을 근거와 함께 보여준다.
 // 입찰 공고 + 로그인 + 회사 프로필이 있을 때만 서버가 채워준다(없으면 null →
 // 렌더 생략, 기존 AI 참여 분석만 노출). 긴 원문 근거는 기본으로 펼치지 않는다.
-function renderParticipationJudgment(container, j) {
+// renderParticipationJudgment — 조건별 판정 + (REVIEW 면허/인증에 한해) 사용자
+// 질문형 해소 블록. opts.refetch가 있으면 답변 저장 후 판정을 다시 받아 이 컨테이너를
+// 그 자리에서 재렌더한다(새로고침 없이 확인필요 개수 즉시 감소, §6/§7).
+function renderParticipationJudgment(container, j, opts) {
   if (!container) return;
+  opts = opts || {};
   container.innerHTML = '';
   if (!j || !j.conditions || !j.conditions.length) return;
   const tone = PARTICIPATION_GRADE_TONE[j.grade] || 'pj-grade--review';
@@ -10847,6 +10873,38 @@ function renderParticipationJudgment(container, j) {
         </div>
       </div>`;
   }).join('');
+  // 사용자 질문형 해소(§2~§7): REVIEW 면허/인증 조건 중 "아직 회사 정보에 답이
+  // 없는" 요구명(question.targets)만 짧은 Yes/No 질문으로 노출한다. 답변은 기존
+  // 회사 프로필(면허·인증)에 저장돼 다음 공고에서도 재사용된다(§5/§9).
+  const questions = [];
+  j.conditions.forEach(c => {
+    if (c.question && Array.isArray(c.question.targets)) {
+      c.question.targets.forEach(name => questions.push({ kind: c.question.kind, category: c.question.category, name, condType: c.conditionType }));
+    }
+  });
+  const kindWord = { license: '면허', certification: '인증' };
+  // 목적격 조사: 마지막 글자 받침 유무로 을/를(면허→를, 인증→을).
+  const objJosa = (w) => {
+    const ch = (w || '').slice(-1).charCodeAt(0);
+    if (ch >= 0xAC00 && ch <= 0xD7A3) return ((ch - 0xAC00) % 28) ? '을' : '를';
+    return '을(를)';
+  };
+  const questionsHtml = questions.length ? `
+    <div class="pj-questions">
+      <div class="pj-questions-title">확인할 항목 ${questions.length}개 <span class="pj-questions-sub">— 답하면 판정이 자동으로 갱신됩니다</span></div>
+      ${questions.map((q, i) => `
+        <div class="pj-question" data-kind="${escapeAttr(q.kind)}" data-category="${escapeAttr(q.category)}" data-name="${escapeAttr(q.name)}">
+          <div class="pj-question-req"><strong>${escapeHtml(q.condType)}</strong> — 공고에서 "${escapeHtml(q.name)}"을(를) 요구합니다.</div>
+          <div class="pj-question-ask">회사에서 해당 ${escapeHtml(kindWord[q.kind] || '항목')}${objJosa(kindWord[q.kind] || '항목')} 보유하고 있나요?</div>
+          <div class="pj-question-btns">
+            <button type="button" class="pj-answer-btn pj-answer-btn--yes" data-answer="보유">보유</button>
+            <button type="button" class="pj-answer-btn" data-answer="미보유">미보유</button>
+            <button type="button" class="pj-answer-btn pj-answer-btn--skip" data-answer="모름">잘 모르겠음</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>` : '';
+
   container.appendChild(h(`
     <div class="detail-card participation-judgment">
       <div class="pj-head">
@@ -10854,9 +10912,39 @@ function renderParticipationJudgment(container, j) {
         <span class="pj-summary">자동확인 ${j.passCount} · 확인필요 ${j.reviewCount} · 미충족 ${j.failCount} · 정보부족 ${j.unknownCount}</span>
       </div>
       <div class="cond-list">${rows}</div>
+      ${questionsHtml}
       <p class="cond-caveat">지역·업종·기업규모·면허·인증·직접생산확인 기준 자동 판정입니다. 실적·재무 등 그 밖의 참가자격은 공고 원문을 함께 확인해주세요.</p>
     </div>
   `));
+
+  // 질문 답변 배선. 보유/미보유는 기존 POST로 회사 프로필에 저장(§5) 후 판정을
+  // 다시 받아 재렌더(§7). "잘 모르겠음"은 저장하지 않고 이 질문만 접는다(REVIEW 유지, §10).
+  container.querySelectorAll('.pj-question').forEach(qEl => {
+    qEl.querySelectorAll('.pj-answer-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const answer = btn.dataset.answer;
+        if (answer === '모름') { qEl.remove(); return; }
+        const kind = qEl.dataset.kind, category = qEl.dataset.category, name = qEl.dataset.name;
+        qEl.querySelectorAll('.pj-answer-btn').forEach(b => b.disabled = true);
+        const endpoint = kind === 'certification' ? '/api/me/certifications' : '/api/me/licenses';
+        try {
+          await apiRequest('POST', endpoint, { category, name, status: answer });
+          showToast(answer === '보유' ? '보유로 저장했습니다 — 판정을 갱신합니다.' : '미보유로 저장했습니다.', 'success');
+          if (opts.refetch) {
+            const fresh = await opts.refetch();
+            renderParticipationJudgment(container, fresh, opts); // 같은 자리 재렌더(확인필요 감소)
+          } else {
+            qEl.remove();
+          }
+        } catch (err) {
+          qEl.querySelectorAll('.pj-answer-btn').forEach(b => b.disabled = false);
+          if (err.code === 'owner_only') { showToast('면허·인증 등록은 대표 계정만 가능합니다.', 'error'); return; }
+          if (err.status === 401) { location.hash = '#/auth/login'; return; }
+          showToast(err.message || '저장에 실패했습니다.', 'error');
+        }
+      });
+    });
+  });
 }
 
 // 공고 상세 첫 화면에 자동으로 뜨는 "AI 참여 분석" — data.participationScore

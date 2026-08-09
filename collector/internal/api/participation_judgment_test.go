@@ -184,6 +184,78 @@ func TestBuildParticipationJudgment_Integration(t *testing.T) {
 	}
 }
 
+// 질문형 해소(Human-in-the-loop): REVIEW 면허/인증에 미답변 요구명이 있으면 Question이
+// 붙고, 사용자가 보유로 답하면(company_licenses 저장) PASS로 바뀌며 Question이 사라진다.
+// 미보유로 답하면 REVIEW는 유지하되 같은 질문을 다시 내지 않는다(§9).
+func TestParticipationJudgmentQuestion_Integration(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+	srv := testServer(db)
+	srv.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	ctx := context.Background()
+
+	must := func(q string, args ...any) string {
+		var id string
+		if err := db.QueryRowContext(ctx, q, args...).Scan(&id); err != nil {
+			t.Fatalf("seed [%.40s]: %v", q, err)
+		}
+		return id
+	}
+	ext := "QUEST-" + time.Now().Format("150405.000000")
+	userID := must(`INSERT INTO users (email) VALUES ($1) RETURNING id`, ext+"@t.local")
+	profileID := must(`INSERT INTO company_profiles (user_id, company_name) VALUES ($1,'질문테스트사') RETURNING id`, userID)
+	defer func() {
+		db.ExecContext(ctx, `DELETE FROM company_licenses WHERE company_profile_id=$1`, profileID)
+		db.ExecContext(ctx, `DELETE FROM company_profiles WHERE id=$1`, profileID)
+		db.ExecContext(ctx, `DELETE FROM users WHERE id=$1`, userID)
+	}()
+	score := &participationScore{Categories: []categoryScore{
+		{Category: "지역", Result: "met"}, {Category: "업종", Result: "met"}, {Category: "예산 규모", Result: "met"},
+	}}
+	docs := []requiredDocumentItem{{DocumentName: "정보통신공사업 면허"}}
+	licCond := func(j *participationJudgment) conditionResult {
+		for _, c := range j.Conditions {
+			if c.ConditionType == "면허" {
+				return c
+			}
+		}
+		return conditionResult{}
+	}
+
+	// 1) 미답변 → REVIEW + Question(target=요구명, kind=license, category=면허)
+	c1 := licCond(srv.buildParticipationJudgment(ctx, "", profileID, score, docs))
+	if c1.Result != condREVIEW {
+		t.Fatalf("초기 면허=%q want REVIEW", c1.Result)
+	}
+	if c1.Question == nil || c1.Question.Kind != "license" || c1.Question.Category != "면허" ||
+		len(c1.Question.Targets) != 1 || c1.Question.Targets[0] != "정보통신공사업 면허" {
+		t.Fatalf("Question=%+v want license/면허/[정보통신공사업 면허]", c1.Question)
+	}
+
+	// 2) 사용자가 "보유" 저장 → PASS + Question 사라짐
+	db.ExecContext(ctx, `INSERT INTO company_licenses (company_profile_id, category, name, confidence, status)
+		VALUES ($1,'면허','정보통신공사업 면허','C','보유')`, profileID)
+	c2 := licCond(srv.buildParticipationJudgment(ctx, "", profileID, score, docs))
+	if c2.Result != condPASS {
+		t.Errorf("보유 후 면허=%q want PASS", c2.Result)
+	}
+	if c2.Question != nil {
+		t.Errorf("보유 후 Question이 남으면 안 됨: %+v", c2.Question)
+	}
+
+	// 3) 미보유로 답한 경우: REVIEW 유지하되 재질문 없음(§9)
+	db.ExecContext(ctx, `DELETE FROM company_licenses WHERE company_profile_id=$1`, profileID)
+	db.ExecContext(ctx, `INSERT INTO company_licenses (company_profile_id, category, name, confidence, status)
+		VALUES ($1,'면허','정보통신공사업 면허','C','미보유')`, profileID)
+	c3 := licCond(srv.buildParticipationJudgment(ctx, "", profileID, score, docs))
+	if c3.Result != condREVIEW {
+		t.Errorf("미보유 후 면허=%q want REVIEW(안전정책 유지)", c3.Result)
+	}
+	if c3.Question != nil {
+		t.Errorf("미보유 후 같은 질문 반복 금지: %+v", c3.Question)
+	}
+}
+
 // 대시보드 배치 경로와 상세 경로가 같은 공고/회사에 대해 동일한 judgment를 내는지
 // (일치 보장의 핵심: 배치 SQL이 listRequiredDocuments와 같은 필터로 같은 서류명을
 // 가져오는지) 검증한다.

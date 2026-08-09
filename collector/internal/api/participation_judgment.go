@@ -63,12 +63,25 @@ const (
 
 // conditionResult — 참가조건 하나의 판정 결과 + 근거.
 type conditionResult struct {
-	ConditionType   string `json:"conditionType"`             // 지역/업종/기업규모/면허/인증/직접생산확인
-	Result          string `json:"result"`                    // PASS/REVIEW/FAIL/UNKNOWN
-	Severity        string `json:"severity"`                  // HARD/SOFT
-	RequirementText string `json:"requirementText,omitempty"` // 공고 요구(근거)
-	CompanyEvidence string `json:"companyEvidence,omitempty"` // 회사 데이터(근거)
-	Reason          string `json:"reason"`                    // 사람이 읽는 판정 사유
+	ConditionType   string             `json:"conditionType"`             // 지역/업종/기업규모/면허/인증/직접생산확인
+	Result          string             `json:"result"`                    // PASS/REVIEW/FAIL/UNKNOWN
+	Severity        string             `json:"severity"`                  // HARD/SOFT
+	RequirementText string             `json:"requirementText,omitempty"` // 공고 요구(근거)
+	CompanyEvidence string             `json:"companyEvidence,omitempty"` // 회사 데이터(근거)
+	Reason          string             `json:"reason"`                    // 사람이 읽는 판정 사유
+	Question        *conditionQuestion `json:"question,omitempty"`        // 사용자 질문형 해소(면허/인증 REVIEW만)
+}
+
+// conditionQuestion — Human-in-the-loop(2026-08-10): REVIEW로 남은 면허/인증 조건을
+// 사용자가 짧은 Yes/No 답변으로 해소할 수 있을 때만 채운다. Targets는 "아직 회사
+// 정보에 답이 없는"(company_licenses/certifications에 해당 이름의 행이 아예 없는)
+// 요구명 목록 — 이미 답한 항목은 넣지 않아 같은 질문을 반복하지 않는다(§9). 답변은
+// 프론트가 기존 POST /api/me/licenses|certifications로 회사 프로필에 저장하므로(§5
+// 재사용), 새 저장 구조가 필요 없다. Category는 저장 시 그대로 쓴다(면허/인증).
+type conditionQuestion struct {
+	Kind     string   `json:"kind"`     // license | certification
+	Category string   `json:"category"` // 면허 | 인증 (company_licenses.category)
+	Targets  []string `json:"targets"`  // 미답변 요구명(정확일치 저장키)
 }
 
 // participationJudgment — 조건별 결과 + 종합 grade. 기존 participationScore와
@@ -150,7 +163,7 @@ func (s *Server) buildParticipationJudgment(ctx context.Context, versionID, prof
 	//    시킨다(FALSE HARD FAIL). 그래서 보유(정확일치)만 PASS, 나머지는 REVIEW로
 	//    두어 "확실하지 않으면 확인 필요" 원칙을 지킨다(2026-08-09 HARD FAIL 안전 검증).
 	if len(licenseNames) > 0 {
-		var held, expired, unresolved []string
+		var held, expired, unresolved, askable []string
 		for _, name := range licenseNames {
 			st, ok := s.matchLicenseCertByName(ctx, profileID, name)
 			switch {
@@ -160,6 +173,9 @@ func (s *Server) buildParticipationJudgment(ctx context.Context, versionID, prof
 				expired = append(expired, name)
 			default: // not-found(정확명 불일치 포함) / 발급필요 / 확인필요
 				unresolved = append(unresolved, name)
+				if !ok { // 회사 정보에 이 이름의 행이 아예 없음 = 아직 미답변 → 질문 가능(§9)
+					askable = append(askable, name)
+				}
 			}
 		}
 		cond := conditionResult{ConditionType: "면허", Severity: sevHARD, RequirementText: strings.Join(licenseNames, ", ")}
@@ -176,6 +192,9 @@ func (s *Server) buildParticipationJudgment(ctx context.Context, versionID, prof
 			cond.Result = condREVIEW
 			cond.Reason = "이 공고가 요구하는 면허(" + strings.Join(unresolved, ", ") + ") 보유·충족 여부를 확인해주세요."
 		}
+		if cond.Result == condREVIEW && len(askable) > 0 {
+			cond.Question = &conditionQuestion{Kind: "license", Category: "면허", Targets: askable}
+		}
 		j.Conditions = append(j.Conditions, cond)
 	}
 
@@ -183,13 +202,16 @@ func (s *Server) buildParticipationJudgment(ctx context.Context, versionID, prof
 	//    미보유를 곧바로 FAIL로 두지 않는다 — 보유면 PASS, 아니면 REVIEW.
 	if len(certNames) > 0 {
 		allHeld := true
-		var held []string
+		var held, askable []string
 		for _, name := range certNames {
 			st, ok := s.matchLicenseCertByName(ctx, profileID, name)
 			if ok && st == "보유" {
 				held = append(held, name)
 			} else {
 				allHeld = false
+				if !ok { // 회사 정보에 이 인증명 행이 아예 없음 = 미답변 → 질문 가능(§9)
+					askable = append(askable, name)
+				}
 			}
 		}
 		cond := conditionResult{ConditionType: "인증", Severity: sevSOFT, RequirementText: strings.Join(certNames, ", ")}
@@ -200,6 +222,9 @@ func (s *Server) buildParticipationJudgment(ctx context.Context, versionID, prof
 		} else {
 			cond.Result = condREVIEW
 			cond.Reason = "요구 인증의 보유 여부·필수 여부(필수/우대)를 확인해주세요."
+			if len(askable) > 0 {
+				cond.Question = &conditionQuestion{Kind: "certification", Category: "인증", Targets: askable}
+			}
 		}
 		j.Conditions = append(j.Conditions, cond)
 	}
