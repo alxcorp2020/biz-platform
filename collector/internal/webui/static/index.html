@@ -1924,7 +1924,7 @@
   .ss-reco-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
   .ss-reco-filter { font-size: 0.82rem; font-weight: 600; padding: 0.25rem 0.7rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-soft); cursor: pointer; }
   .ss-reco-filter.is-active { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
-  .ss-profile-collapse { margin: 1rem 0; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 0.85rem 1.1rem; }
+  .ss-profile-collapse { margin: 0; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 0.85rem 1.1rem; }
   .ss-profile-collapse > summary { cursor: pointer; font-weight: 700; color: var(--ink); list-style: none; }
   .ss-profile-collapse > summary::-webkit-details-marker { display: none; }
   .ss-profile-collapse > summary::after { content: ' ▾'; color: var(--ink-soft); font-weight: 400; }
@@ -1932,10 +1932,20 @@
   .ss-profile-collapse[open] #profile-completeness-section { margin-top: 0.85rem; }
   .ss-manage-title { margin-top: 1.5rem; }
   /* 맞춤조건 재설계(2026-08-10) — 추천 결과와 조건 관리를 섹션으로 분리 */
-  .ss-section-divider { margin: 2rem 0 1rem; padding-top: 1.5rem; border-top: 2px solid var(--border); }
+  /* 레이아웃 마감(2026-08-11): 페이지 본문을 하나의 콘텐츠 그리드로 통일.
+     .saved-search-page 하나만 main>*로 가운데정렬되고(1080px), 내부 섹션은
+     flex column + gap으로 좌우 edge와 세로 간격을 단일 기준으로 맞춘다.
+     예전에 각 섹션의 `margin: x 0 y` 축약형이 main>*의 auto 가운데정렬을 덮어써
+     넓은 화면에서 좌우가 틀어지던 문제를 구조적으로 제거한다. 세로 간격은 gap이
+     전담하므로 자식의 상하 margin은 0으로 눕혀 이중간격을 막는다. */
+  .saved-search-page { display: flex; flex-direction: column; gap: 1.25rem; }
+  .saved-search-page > h2 { margin: 0; }
+  .ss-section-divider { margin: 0; padding-top: 1.5rem; border-top: 2px solid var(--border); }
   .ss-section-divider-title { margin: 0; font-size: 1.15rem; }
   .ss-section-divider-desc { margin: 0.2rem 0 0; color: var(--ink-soft); font-size: 0.9rem; }
   .ss-cond-section { margin-top: 1.25rem; }
+  /* 기본↔추가 사이만 간격이 필요하고, 첫 섹션(기본)은 그리드 gap이 이미 띄우므로 0 */
+  #saved-searches-list-section > .ss-cond-section:first-child { margin-top: 0; }
   .ss-cond-section-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
   .ss-cond-section-title { margin: 0 0 0.5rem; font-size: 1rem; color: var(--ink); }
   .ss-cond-section-head .ss-cond-section-title { margin-bottom: 0; }
@@ -9495,19 +9505,26 @@ async function renderSavedSearches(container) {
   container.innerHTML = '';
   // §10/§14: "추천을 보는 것"(오늘의 맞춤공고)과 "추천 기준을 관리하는 것"(내 맞춤조건)을
   // 명확한 섹션 구분선으로 분리한다.
+  // 레이아웃 마감(2026-08-11): 페이지 본문 전체를 하나의 콘텐츠 그리드(.saved-search-page)로
+  // 감싼다. 예전엔 각 섹션이 main>*로 개별 가운데정렬됐는데, 일부 요소의 `margin: x 0 y`
+  // 축약형이 main>*의 margin-left/right:auto를 덮어써 넓은 화면(≥~1384px)에서 좌우 기준선이
+  // 28px씩 틀어졌다. 이제 그리드 하나만 정렬되고 내부는 flex column + gap으로 좌우 edge와
+  // 세로 간격을 단일 기준으로 통일한다(중복 margin/gap 이중간격 없음).
   container.appendChild(h(`
-    <h2>맞춤공고</h2>
-    <div id="saved-search-reco-section"></div>
-    <details class="ss-profile-collapse">
-      <summary>더 정확한 추천을 위해 — 회사정보 등록</summary>
-      <div id="profile-completeness-section"></div>
-      <a href="#/me/company" class="official-link">회사정보 관리로 이동 &rarr;</a>
-    </details>
-    <div class="ss-section-divider">
-      <h3 class="ss-section-divider-title">내 맞춤조건</h3>
-      <p class="ss-section-divider-desc">AI가 어떤 사업을 찾아볼지 관리해요.</p>
+    <div class="saved-search-page">
+      <h2>맞춤공고</h2>
+      <div id="saved-search-reco-section"></div>
+      <details class="ss-profile-collapse">
+        <summary>더 정확한 추천을 위해 — 회사정보 등록</summary>
+        <div id="profile-completeness-section"></div>
+        <a href="#/me/company" class="official-link">회사정보 관리로 이동 &rarr;</a>
+      </details>
+      <div class="ss-section-divider">
+        <h3 class="ss-section-divider-title">내 맞춤조건</h3>
+        <p class="ss-section-divider-desc">AI가 어떤 사업을 찾아볼지 관리해요.</p>
+      </div>
+      <div id="saved-searches-list-section"></div>
     </div>
-    <div id="saved-searches-list-section"></div>
   `));
   renderSavedSearchRecommendations(document.getElementById('saved-search-reco-section'), recommendations);
   renderProfileCompletenessCard(document.getElementById('profile-completeness-section'));
@@ -9570,7 +9587,7 @@ async function renderSavedSearchesListTab(container, autoEditId) {
 
   container.appendChild(h(`
     <div class="ss-cond-section">
-      <h3 class="ss-cond-section-title">내 기본 맞춤조건</h3>
+      <h3 class="ss-cond-section-title">기본 맞춤조건</h3>
       <div class="ss-cond-list">${defaultHtml}</div>
     </div>
     <div class="ss-cond-section">
