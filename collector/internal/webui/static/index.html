@@ -1213,6 +1213,24 @@
   .dash-automation-collapse > summary::before { content: "▸ "; color: var(--ink-mute, #8a8f98); }
   .dash-automation-collapse[open] > summary::before { content: "▾ "; }
   .dash-automation-collapse .dash-automation-card { margin-top: 0.5rem; }
+  /* Phase 1 보정: 가장 먼저 볼 공고 HERO */
+  .dash-hero { margin-top: var(--space-md); background: var(--surface, #fff); border: 1px solid var(--accent-blue); border-radius: 16px; padding: 1.1rem 1.25rem; box-shadow: 0 8px 30px -22px rgba(31,58,95,0.5); }
+  .dash-hero-eyebrow { font-size: 0.75rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-blue); }
+  .dash-hero-title { margin: 0.3rem 0 0.4rem; font-size: 1.3rem; font-weight: 800; line-height: 1.3; }
+  .dash-hero-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.7rem; color: var(--ink-soft); font-size: 0.92rem; }
+  .dash-hero-why { margin: 0.85rem 0 0; background: var(--surface-sunken, #f6f8fa); border-radius: 10px; padding: 0.7rem 0.85rem; }
+  .dash-hero-why-lbl { font-size: 0.78rem; font-weight: 700; color: var(--ink-mute, #8a8f98); text-transform: uppercase; letter-spacing: 0.03em; }
+  .dash-hero-why ul { margin: 0.4rem 0 0; padding: 0; list-style: none; }
+  .dash-hero-why li { color: var(--ink); font-size: 0.92rem; line-height: 1.6; }
+  .dash-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; margin-top: 1rem; }
+  .dash-hero-actions .btn.dash-hero-cta { flex: 0 0 auto; min-width: 9rem; }
+  @media (max-width: 480px) { .dash-hero-actions .btn.dash-hero-cta { width: 100%; } }
+  /* Phase 1 보정: 회사정보 gap(결과 중심 카피) */
+  .company-info-gap { padding: 0.6rem 0; border-top: 1px solid var(--border); list-style: none; }
+  .company-info-gaps { padding-left: 0; }
+  .company-info-gap-title { font-weight: 700; display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+  .company-info-gap-impact { font-size: 0.78rem; font-weight: 700; color: var(--accent-blue); background: var(--surface-sunken, #f1f3f5); padding: 0.05rem 0.5rem; border-radius: 999px; }
+  .company-info-gap-benefit { font-size: 0.9rem; color: var(--ink-soft); margin-top: 0.15rem; }
   /* "업무 바로가기" 접기(details) — 보조영역이라 기본 접힘 */
   .dash-useful-collapse { margin-top: var(--space-lg); border-top: 1px solid var(--border); padding-top: var(--space-md); }
   .dash-useful-summary { cursor: pointer; font-size: 1.05rem; font-weight: 700; color: var(--ink); list-style: none; }
@@ -4388,23 +4406,14 @@ async function renderDashboardProfileBanner(slot) {
   if (!slot) return;
   if (!currentUser || !currentProfile) { slot.innerHTML = ''; return; }
 
+  // Phase 1 보정 §5: 지역·업종·기업규모(이게 없으면 추천/판정 자체가 불가능)가 결측일
+  // 때만 안내한다. 단순히 완성도(%)가 낮다는 이유로는 경고 배너를 띄우지 않는다 —
+  // 추천이 이미 나오는 사용자에게 "정보가 없어 추천을 못 받는다"는 모순 문구를 없앤다.
   const missingRequired = !(currentProfile.region && (currentProfile.industry || []).length && currentProfile.companySize);
-  let pct = 0;
-  try {
-    const data = await apiRequest('GET', '/api/me/profile-completeness');
-    pct = data.overallCompleteness || 0;
-  } catch (err) {
-    slot.innerHTML = '';
-    return;
-  }
-  if (!missingRequired && pct >= 100) { slot.innerHTML = ''; return; }
-
-  const text = missingRequired
-    ? '필수 정보를 입력해주세요. 지역·업종·기업규모를 등록해야 맞춤 공고 추천과 AI 분석을 받을 수 있습니다.'
-    : `AI 분석 커버리지 ${pct}% — 맞춤공고를 완성하면 더 정확한 분석을 받을 수 있어요.`;
+  if (!missingRequired) { slot.innerHTML = ''; return; }
   slot.innerHTML = `
-    <div class="profile-incomplete-banner ${missingRequired ? 'profile-incomplete-banner--urgent' : ''}">
-      <span class="profile-incomplete-banner-text">${escapeHtml(text)}</span>
+    <div class="profile-incomplete-banner profile-incomplete-banner--urgent">
+      <span class="profile-incomplete-banner-text">필수 정보를 입력해주세요. 지역·업종·기업규모를 등록해야 맞춤 공고 추천과 AI 분석을 받을 수 있습니다.</span>
       <a href="#/me/company" class="profile-incomplete-banner-cta">회사정보 완성하기 →</a>
     </div>
   `;
@@ -6778,51 +6787,57 @@ function renderDashboard(container, data) {
   // Phase 1(2026-08-10 IA): 대시보드를 "행동 먼저" 구조로. ① 오늘 확인할 항목(분류
   // 요약) ② 가장 먼저 볼 공고(추천 1건) ③ 오늘 할 일(실제 todo) ④ 확인 필요(회사정보)
   // ⑤ 이번 달 자동 처리(접힘). 모든 수치는 기존 DTO에서만 산출(새 숫자 없음).
+  // Phase 1 보정(2026-08-10): 제품 핵심 = "AI가 어떤 공고를 왜 추천했나". 홈 순서를
+  // ① 인사 ② 가장 먼저 볼 공고(HERO) ③ 오늘 할 일 ④ 회사정보 ⑤ 자동 처리(접힘)로.
+  // greeting/오늘할일 모순 제거: greeting을 recommendations·priorityItems 둘 다 반영해
+  // "급한 일 없음"과 "오늘 할 일 N건"이 동시에 뜨지 않게 한다. 새 숫자 없음(기존 DTO).
   const recommendations = data.recommendations || [];
   const gradeOf = r => (r.judgment && r.judgment.grade) || '';
   const readyRecs = recommendations.filter(r => gradeOf(r) === 'ready');
-  const reviewRecs = recommendations.filter(r => gradeOf(r) === 'needsReview');
-
-  // ① 오늘 확인할 항목 — 분류별 실데이터 카운트(0건 줄 숨김).
-  const checkLines = [
-    { n: readyRecs.length, label: '참여를 결정할 공고', href: '#/me/saved-searches' },
-    { n: s.needsDocumentCount, label: '마감 전 준비할 서류', href: '#/pipeline?filter=needsDocument' },
-    { n: reviewRecs.length, label: '확인이 필요한 자격', href: '#/me/saved-searches' },
-  ].filter(x => x.n > 0);
-  const totalCheck = checkLines.reduce((a, x) => a + x.n, 0);
-  const todayCheckHtml = checkLines.length ? `
-    <div class="detail-card dash-today-card">
-      <div class="dash-today-head"><h3>오늘 확인할 항목</h3><span class="dash-today-total">${totalCheck}건</span></div>
-      <ul class="dash-today-list">
-        ${checkLines.map(x => `<li data-href="${escapeAttr(x.href)}"><span class="dash-today-n">${x.n}</span><span class="dash-today-lbl">${escapeHtml(x.label)}</span><span class="dash-today-arw">&rsaquo;</span></li>`).join('')}
-      </ul>
-    </div>` : '';
-
-  // ② 가장 먼저 볼 공고 — 마감 임박순 정렬된 추천 중 참여 가능 1건(없으면 최상단 1건).
-  const topPick = readyRecs[0] || recommendations[0] || null;
-  const topPickHtml = topPick ? `
-    <section class="dash-block">
-      <div class="dash-block-head"><h3>가장 먼저 볼 공고</h3><a href="#/me/saved-searches" class="official-link">맞춤공고 전체 보기 &rarr;</a></div>
-      <div class="home-list dash-toppick">${homeListRowHtml(Object.assign({}, topPick, { ctaLabel: gradeOf(topPick) === 'ready' ? '참여할게요' : gradeOf(topPick) === 'needsReview' ? '확인하기' : '상세 보기' }))}</div>
-    </section>` : '';
-
-  // ③ 오늘 할 일 — 실제 클릭 가능한 todo(파이프라인·면허만료·공고변경). 추천과 중복
-  // 아님(priorityItems는 recommendations를 포함하지 않음).
   const items = data.priorityItems || [];
+
+  // ② 가장 먼저 볼 공고 HERO — 참여 가능 1건 우선(없으면 최상단 추천 1건). 판정·근거·CTA.
+  const topPick = readyRecs[0] || recommendations[0] || null;
+  let topPickHtml = '';
+  if (topPick) {
+    const g = gradeOf(topPick);
+    const tone = HOME_JUDGMENT_TONE[g] || 'pj-grade--review';
+    const gradeLabel = (topPick.judgment && topPick.judgment.gradeLabel) || '';
+    const rawReasons = ((topPick.judgment && topPick.judgment.reasons) || []).slice(0, 3);
+    // ready는 근거가 비지만 등급 정의상 3요소 충족이 보장된다(가짜 값 아님). review면 실제 사유.
+    const reasonList = rawReasons.length ? rawReasons : (g === 'ready' ? ['지역·업종·기업규모 요건을 충족했습니다'] : []);
+    const cta = g === 'ready' ? '참여할게요' : g === 'needsReview' ? '확인하기' : '상세 보기';
+    topPickHtml = `
+      <section class="dash-hero" data-notice-id="${escapeAttr(topPick.noticeId)}" data-participate="${g === 'ready' ? '1' : '0'}" data-cta-href="${escapeAttr(topPick.ctaHref || ('#/notices/' + topPick.noticeId))}">
+        <div class="dash-hero-eyebrow">가장 먼저 볼 공고</div>
+        <h3 class="dash-hero-title">${escapeHtml(topPick.title)}</h3>
+        <div class="dash-hero-meta"><span>${escapeHtml(topPick.organizationName || '-')}</span>${ddayBadgeHtml(topPick.applicationEndAt)}<span class="pj-mini ${tone}">${escapeHtml(gradeLabel)}</span></div>
+        ${reasonList.length ? `<div class="dash-hero-why"><span class="dash-hero-why-lbl">왜 추천했나요?</span><ul>${reasonList.map(r => `<li>✓ ${escapeHtml(r)}</li>`).join('')}</ul></div>` : ''}
+        <div class="dash-hero-actions"><button type="button" class="btn btn-primary dash-hero-cta">${escapeHtml(cta)}</button><a href="#/me/saved-searches" class="official-link">맞춤공고 전체 보기 &rarr;</a></div>
+      </section>`;
+  }
+
+  // ③ 오늘 할 일 — 실제 처리 todo(파이프라인·면허만료·공고변경). 추천과 별개 모집단.
   const itemsHtml = items.length
     ? `<section class="dash-block"><div class="dash-block-head"><h3>오늘 할 일</h3></div><div class="home-list">${items.map(homeListRowHtml).join('')}</div></section>`
     : '';
 
-  // ④ 확인이 필요한 항목(회사정보 부족) ⑤ 이번 달 자동 처리(접힘)
+  // ④ 판정을 막고 있는 회사정보 ⑤ 이번 달 AI가 대신 처리한 일(접힘)
   const companyInfoHtml = renderCompanyInfoCardHtml(data.growthSummary, data.documentRequirementGaps);
   const automationInner = renderAutomationSummaryHtml(data.automationSummary);
   const automationHtml = automationInner
     ? `<details class="dash-automation-collapse"><summary>이번 달 AI가 대신 처리한 일</summary>${automationInner}</details>`
     : '';
 
-  const greetingTitle = totalCheck > 0
-    ? `오늘 확인할 항목은 ${totalCheck}건입니다`
-    : '오늘은 급하게 확인할 업무가 없어요';
+  // greeting — 추천과 할 일을 모두 반영(모순 방지). 추천이 있으면 그걸 먼저 말한다.
+  const recCount = recommendations.length;
+  const todoCount = items.length;
+  let greetingTitle;
+  if (recCount && todoCount) greetingTitle = `검토할 맞춤공고 ${recCount}건, 처리할 일 ${todoCount}건이 있어요`;
+  else if (recCount) greetingTitle = `검토할 맞춤공고 ${recCount}건이 있어요`;
+  else if (todoCount) greetingTitle = `오늘 처리할 일 ${todoCount}건이 있어요`;
+  else greetingTitle = '오늘은 급하게 확인할 업무가 없어요';
+
   container.appendChild(h(`
     <div class="dash-greeting">
       <p class="dash-greeting-eyebrow">안녕하세요.</p>
@@ -6830,9 +6845,8 @@ function renderDashboard(container, data) {
     </div>
     <div id="dashboard-profile-banner"></div>
 
-    ${todayCheckHtml}
-    ${publicBidFitBannerHtml((currentProfile || {}).publicBidFit)}
     ${topPickHtml}
+    ${publicBidFitBannerHtml((currentProfile || {}).publicBidFit)}
     ${itemsHtml}
 
     ${companyInfoHtml}
@@ -6841,10 +6855,26 @@ function renderDashboard(container, data) {
   `));
   renderDashboardProfileBanner(document.getElementById('dashboard-profile-banner'));
 
-  // "오늘 확인할 항목" 줄 클릭 → 해당 목록으로 이동.
-  container.querySelectorAll('.dash-today-list li').forEach(li => {
-    li.addEventListener('click', () => { if (li.dataset.href) location.hash = li.dataset.href; });
-  });
+  // HERO CTA — 참여 가능은 곧바로 준비중에 담기(맞춤공고와 동일 패턴, 새 API 없음),
+  // 그 외는 공고 상세로 이동. 되돌리기는 워크스페이스의 "참여 취소".
+  const heroEl = container.querySelector('.dash-hero');
+  if (heroEl) {
+    const btn = heroEl.querySelector('.dash-hero-cta');
+    btn.addEventListener('click', async () => {
+      if (heroEl.dataset.participate !== '1') { location.hash = heroEl.dataset.ctaHref; return; }
+      btn.disabled = true; const orig = btn.textContent; btn.textContent = '담는 중...';
+      try {
+        const entry = await apiRequest('POST', '/api/notices/' + encodeURIComponent(heroEl.dataset.noticeId) + '/pipeline', { targetStatus: '준비중' });
+        location.hash = '#/pipeline/' + entry.id;
+      } catch (err) {
+        btn.disabled = false; btn.textContent = orig;
+        if (err.status === 401) { location.hash = '#/auth/login'; return; }
+        if (err.code === 'company_profile_required') { showToast('회사 정보를 먼저 등록해주세요.', 'error'); return; }
+        if (err.code === 'pipeline_quota_exceeded') { showToast('진행 중 사업 등록 한도에 도달했습니다.', 'error'); return; }
+        showToast(err.message || '참여 처리에 실패했습니다.', 'error');
+      }
+    });
+  }
   wireHomeListNav(container);
   wireUsefulLinksSection(container);
 }
@@ -6932,16 +6962,22 @@ function renderGrowthSummaryHtml(g) {
 // 정직하게 적는다(2026-08-10 §4). 면허·인증만 참여 판정(buildParticipationJudgment)에
 // 직접 반영되고, 직접생산은 boolean뿐이라 요구 시 확인 항목(항상 REVIEW), 수행실적은
 // 판정 등급(grade)에는 쓰이지 않고 공동수급/참고 신호로만 쓰인다. 과장 금지.
-const COMPANY_INFO_GAP_USAGE = {
-  license: '등록하면 면허 요건이 참여 판정에 바로 반영됩니다.',
-  certification: '등록하면 인증 요건이 참여 판정에 바로 반영됩니다.',
-  directProduction: '요구 공고에서 확인 항목으로 표시됩니다(세부 품명은 별도 확인).',
-  trackRecord: '공동수급·세부 자격 참고에 활용됩니다(참여 판정 등급에는 직접 쓰이지 않습니다).',
+// 회사정보 gap 카피(Phase 1 보정 §4): 개발자/정책 설명이 아니라 "사용자가 얻는 결과"
+// 중심. 제목(행동) + 혜택 한 줄 + (있으면) 실데이터 영향 건수. 과장 금지 — 면허/인증은
+// 판정에 직접 쓰이지만, 수행실적은 grade 미사용이라 "참고" 수준으로만 정직하게 적는다.
+const COMPANY_INFO_GAP_COPY = {
+  license: { title: '보유 면허를 등록해주세요', benefit: '면허가 필요한 공고를 자동으로 확인할 수 있어요.' },
+  certification: { title: '인증 정보를 등록해주세요', benefit: '인증이 필요한 공고를 자동으로 확인할 수 있어요.' },
+  directProduction: { title: '직접생산확인 정보를 등록해주세요', benefit: '직접생산을 요구하는 공고를 확인할 수 있어요.' },
+  trackRecord: { title: '수행실적을 등록해주세요', benefit: '공동수급·세부 자격 검토에 활용돼요.' },
 };
-function companyInfoGapText(category, label, noticeCount) {
-  const head = noticeCount > 0 ? `${label} 미등록 · 관련 공고 ${noticeCount}건` : `${label} 미등록`;
-  const usage = COMPANY_INFO_GAP_USAGE[category];
-  return usage ? `${head} — ${usage}` : head;
+function companyInfoGapHtml(category, label, noticeCount) {
+  const c = COMPANY_INFO_GAP_COPY[category] || { title: `${label}을(를) 등록해주세요`, benefit: '' };
+  const impact = noticeCount > 0 ? `<span class="company-info-gap-impact">관련 공고 ${noticeCount}건</span>` : '';
+  return `<li class="company-info-gap">
+    <div class="company-info-gap-title">${escapeHtml(c.title)}${impact}</div>
+    ${c.benefit ? `<div class="company-info-gap-benefit">${escapeHtml(c.benefit)}</div>` : ''}
+  </li>`;
 }
 
 // renderCompanyInfoCardHtml — "판정을 더 정확하게 만들 수 있어요"(2026-08-10 §4).
@@ -6950,7 +6986,7 @@ function companyInfoGapText(category, label, noticeCount) {
 function renderCompanyInfoCardHtml(g, gaps) {
   const pct = g ? g.overallCompleteness : null;
   const gapRows = (gaps || []).map(x =>
-    `<li>${escapeHtml(companyInfoGapText(x.category, x.label, x.noticeCount))}</li>`).join('');
+    companyInfoGapHtml(x.category, x.label, x.noticeCount)).join('');
   // §8: 부족 항목이 없으면(다 등록) 카드를 최소화 — % 한 줄만 보조로 남긴다.
   if (!gapRows) {
     if (pct == null) return '';
