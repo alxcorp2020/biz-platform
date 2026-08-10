@@ -298,10 +298,25 @@ type recommendationJudgment struct {
 	Grade      string   `json:"grade"`      // ready | needsReview | notRecommended
 	GradeLabel string   `json:"gradeLabel"` // 참여 가능 / 확인 필요 / 참여 어려움
 	Reasons    []string `json:"reasons,omitempty"`
+	// Questions — 홈 HERO 인라인 REVIEW 질문형 해소용(2026-08-10). 상세와 동일한
+	// conditionResult.Question(면허/인증 중 아직 미답변 요구명)을 그대로 실어, 홈에서도
+	// 같은 질문/답변/저장 규칙을 재사용한다(새 판정·저장 로직 없음). 없으면 생략.
+	Questions []recommendationQuestion `json:"questions,omitempty"`
+}
+
+// recommendationQuestion — recommendationJudgment에 싣는 홈 질문 1건. conditionResult
+// 의 ConditionType/Reason + conditionQuestion(Kind/Category/Targets)을 그대로 옮긴 것.
+type recommendationQuestion struct {
+	ConditionType string   `json:"conditionType"` // 면허 | 인증
+	Reason        string   `json:"reason"`        // 사람이 읽는 확인 사유(상세와 동일)
+	Kind          string   `json:"kind"`          // license | certification (저장 엔드포인트)
+	Category      string   `json:"category"`      // 면허 | 인증 (저장 payload)
+	Targets       []string `json:"targets"`       // 미답변 요구명(정확일치 저장키)
 }
 
 // recommendationJudgmentFrom은 판정 결과에서 카드용 요약을 만든다. 이유는
-// FAIL > REVIEW > UNKNOWN 순으로 최대 2개(§5).
+// FAIL > REVIEW > UNKNOWN 순으로 최대 2개(§5). 질문형 해소가 가능한 조건(면허/인증
+// 의 Question)은 홈에서 인라인으로 답할 수 있게 그대로 옮긴다(상세와 동일 데이터).
 func recommendationJudgmentFrom(j *participationJudgment) *recommendationJudgment {
 	if j == nil {
 		return nil
@@ -320,6 +335,14 @@ func recommendationJudgmentFrom(j *participationJudgment) *recommendationJudgmen
 	add(condFAIL)
 	add(condREVIEW)
 	add(condUNKNOWN)
+	for _, c := range j.Conditions {
+		if c.Question != nil && len(c.Question.Targets) > 0 {
+			r.Questions = append(r.Questions, recommendationQuestion{
+				ConditionType: c.ConditionType, Reason: c.Reason,
+				Kind: c.Question.Kind, Category: c.Question.Category, Targets: c.Question.Targets,
+			})
+		}
+	}
 	return r
 }
 

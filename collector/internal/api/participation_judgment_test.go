@@ -34,6 +34,23 @@ func TestRecommendationJudgmentFrom(t *testing.T) {
 	if r.Reasons[0] != "면허 확인 필요" || r.Reasons[1] != "직접생산 세부품명 확인" {
 		t.Errorf("reasons=%v", r.Reasons)
 	}
+
+	// 홈 HERO 질문형 해소(2026-08-10): 면허/인증 REVIEW의 Question이 그대로 실려야 한다
+	// (상세와 동일 데이터). 질문 없는 조건(직접생산 등)은 제외.
+	jq := &participationJudgment{Grade: "needsReview", GradeLabel: "확인 필요", Conditions: []conditionResult{
+		{ConditionType: "면허", Result: condREVIEW, Reason: "면허 확인 필요",
+			Question: &conditionQuestion{Kind: "license", Category: "면허", Targets: []string{"정보통신공사업 면허"}}},
+		{ConditionType: "직접생산확인", Result: condREVIEW}, // Question 없음 → 홈 질문에서 제외
+	}}
+	rq := recommendationJudgmentFrom(jq)
+	if len(rq.Questions) != 1 {
+		t.Fatalf("questions len=%d want 1(면허만)", len(rq.Questions))
+	}
+	q0 := rq.Questions[0]
+	if q0.ConditionType != "면허" || q0.Kind != "license" || q0.Category != "면허" ||
+		len(q0.Targets) != 1 || q0.Targets[0] != "정보통신공사업 면허" || q0.Reason == "" {
+		t.Errorf("question=%+v", q0)
+	}
 }
 
 func TestMapCategoryResult(t *testing.T) {
