@@ -6791,6 +6791,30 @@ function wireUsefulLinksSection(container) {
   });
 }
 
+// isAnalysisPendingRecommendation — 추천 공고가 "공고문 분석 대기"(사용자가 해결할 수
+// 없는 시스템 상태)인지 판별. 서버가 내려주는 judgment.reasons 값('공고문 분석 대기',
+// participation_judgment.go shortConditionReason)만 사용 — 새 상태값을 만들지 않는다.
+// 질문(면허/인증)이 있으면 분석 대기가 아니다(분석이 끝나야 질문도 생기므로).
+function isAnalysisPendingRecommendation(item) {
+  const j = item && item.judgment;
+  if (!j || (Array.isArray(j.questions) && j.questions.length > 0)) return false;
+  return (j.reasons || []).indexOf('공고문 분석 대기') !== -1;
+}
+
+// recommendationHeroTier — 홈 HERO 우선순위(낮을수록 먼저). "AI가 지금 사용자가 행동할
+// 수 있는 공고를 먼저 보여준다"는 규칙. 기존 judgment 데이터만 사용(추천/판정 로직 무변경).
+//   0 참여 가능(ready) · 1 확인 필요+즉시 답변 가능(question) · 2 확인 필요+상세 확인 ·
+//   3 분석 대기(시스템 처리 중) · 4 참여 어려움(notRecommended)
+function recommendationHeroTier(item) {
+  const j = item && item.judgment;
+  if (!j) return 3;
+  if (j.grade === 'ready') return 0;
+  if (Array.isArray(j.questions) && j.questions.length > 0) return 1;
+  if (isAnalysisPendingRecommendation(item)) return 3;
+  if (j.grade === 'notRecommended') return 4;
+  return 2;
+}
+
 // renderDashboard — "오늘 할 일" 홈 화면. data는 handleDashboard(신규 응답
 // 모양: summary + priorityItems)의 결과를 그대로 받는다. 예전 3버킷
 // 집계(readyCount 등)는 더 이상 없다 — 이 응답을 쓰는 화면은 여기뿐이라
@@ -6824,31 +6848,33 @@ function renderDashboard(container, data) {
   // greeting/오늘할일 모순 제거: greeting을 recommendations·priorityItems 둘 다 반영해
   // "급한 일 없음"과 "오늘 할 일 N건"이 동시에 뜨지 않게 한다. 새 숫자 없음(기존 DTO).
   const recommendations = data.recommendations || [];
-  const gradeOf = r => (r.judgment && r.judgment.grade) || '';
-  const readyRecs = recommendations.filter(r => gradeOf(r) === 'ready');
   const items = data.priorityItems || [];
 
-  // ② 가장 먼저 볼 공고 HERO — 참여 가능 1건 우선(없으면 최상단 추천 1건). 판정·근거·행동.
-  // REVIEW인데 질문형 해소가 가능한 면허/인증(judgment.questions)이면 홈에서 바로 답한다
-  // (공고 상세와 동일한 질문·저장·재판정 규칙 재사용). 질문 불가 REVIEW는 [확인하기]→상세.
-  const topPick = readyRecs[0] || recommendations[0] || null;
+  // ② 가장 먼저 볼 공고 HERO — "지금 행동할 수 있는 공고 먼저" 규칙(recommendationHeroTier).
+  // Tier ASC → 같은 Tier 내 마감 임박순. recommendations는 서버가 이미 마감순 정렬이라
+  // 안정정렬로 Tier만 재배치하면 Tier 내 마감순이 유지된다. 판정/추천 로직 무변경(기존 DTO만).
+  const sortedRecs = recommendations.map((r, i) => ({ r, i })).sort((a, b) => (recommendationHeroTier(a.r) - recommendationHeroTier(b.r)) || (a.i - b.i)).map(x => x.r);
+  const topPick = sortedRecs[0] || null;
   let topPickHtml = '';
   if (topPick) {
-    const g = gradeOf(topPick);
-    const isReady = g === 'ready';
-    const tone = HOME_JUDGMENT_TONE[g] || 'pj-grade--review';
-    const gradeLabel = (topPick.judgment && topPick.judgment.gradeLabel) || '';
-    // 홈 인라인 질문(상세와 동일한 judgment.questions를 그대로 사용 — 프론트 추론 없음).
+    const tier = recommendationHeroTier(topPick);
+    const j = topPick.judgment || {};
+    const gradeLabel = j.gradeLabel || '';
+    const detailHref = topPick.ctaHref || ('#/notices/' + topPick.noticeId);
+    // 홈 인라인 질문(상세와 동일한 judgment.questions 그대로 — 프론트 추론 없음).
     const heroQuestions = [];
-    ((topPick.judgment && topPick.judgment.questions) || []).forEach(q => {
-      (q.targets || []).forEach(name => heroQuestions.push({ kind: q.kind, category: q.category, name, condType: q.conditionType, reason: q.reason }));
-    });
-    const kindWord = { license: '면허', certification: '인증' };
+    (j.questions || []).forEach(q => { (q.targets || []).forEach(name => heroQuestions.push({ kind: q.kind, category: q.category, name, condType: q.conditionType, reason: q.reason })); });
     const objJosa = w => { const ch = (w || '').slice(-1).charCodeAt(0); if (ch >= 0xAC00 && ch <= 0xD7A3) return ((ch - 0xAC00) % 28) ? '을' : '를'; return '을(를)'; };
-    const meta = `<div class="dash-hero-meta"><span>${escapeHtml(topPick.organizationName || '-')}</span>${ddayBadgeHtml(topPick.applicationEndAt)}<span class="pj-mini ${tone}">${escapeHtml(gradeLabel)}</span></div>`;
-    let bodyHtml, actionsHtml;
-    if (heroQuestions.length) {
-      // REVIEW + 질문형 해소 가능 → 홈에서 바로 [보유]/[미보유]/[잘 모르겠어요]
+    // Tier별 배지/아이브로우/본문/행동. 분석대기는 사용자가 해결할 수 없으므로 확인 버튼 없음.
+    let badgeLabel, badgeTone, eyebrow, bodyHtml, actionsHtml, participate = '0';
+    if (tier === 0) {
+      badgeLabel = gradeLabel || '참여 가능'; badgeTone = 'pj-grade--ready'; eyebrow = '가장 먼저 볼 공고'; participate = '1';
+      const rawReasons = (j.reasons || []).slice(0, 3);
+      const reasonList = rawReasons.length ? rawReasons : ['지역·업종·기업규모 요건을 충족했습니다'];
+      bodyHtml = `<div class="dash-hero-why"><span class="dash-hero-why-lbl">왜 추천했나요?</span><ul>${reasonList.map(r => `<li>✓ ${escapeHtml(r)}</li>`).join('')}</ul></div>`;
+      actionsHtml = `<button type="button" class="btn btn-primary dash-hero-cta">참여할게요</button><a href="#/me/saved-searches" class="official-link">맞춤공고 전체 보기 &rarr;</a>`;
+    } else if (tier === 1) {
+      badgeLabel = gradeLabel || '확인 필요'; badgeTone = 'pj-grade--review'; eyebrow = '가장 먼저 확인하세요';
       bodyHtml = `
         <div class="dash-hero-why dash-hero-why--review"><span class="dash-hero-why-lbl">AI가 확인하지 못한 조건</span><p class="dash-hero-why-reason">${escapeHtml(heroQuestions[0].reason || '')}</p></div>
         <div class="dash-hero-questions">
@@ -6862,20 +6888,24 @@ function renderDashboard(container, data) {
               </div>
             </div>`).join('')}
         </div>`;
-      actionsHtml = `<a href="${escapeAttr(topPick.ctaHref || ('#/notices/' + topPick.noticeId))}" class="official-link">공고 상세 보기 &rarr;</a>`;
+      actionsHtml = `<a href="${escapeAttr(detailHref)}" class="official-link">공고 상세 보기 &rarr;</a>`;
+    } else if (tier === 3) {
+      // 분석 대기 — 사용자가 해결할 수 없는 시스템 상태. [확인하기] 금지, 사실만 표시.
+      badgeLabel = '분석 중'; badgeTone = 'pj-grade--review'; eyebrow = '가장 먼저 확인하세요';
+      bodyHtml = `<div class="dash-hero-why dash-hero-why--review"><span class="dash-hero-why-lbl">AI가 공고문을 분석하고 있어요</span><p class="dash-hero-why-reason">공고문 분석이 완료되어야 참여 조건을 확인할 수 있어요.</p></div>`;
+      actionsHtml = `<a href="${escapeAttr(detailHref)}" class="official-link">공고 상세 보기 &rarr;</a>`;
     } else {
-      // ready(근거 노출+참여할게요) 또는 질문 불가 REVIEW(사유+확인하기→상세)
-      const rawReasons = ((topPick.judgment && topPick.judgment.reasons) || []).slice(0, 3);
-      const reasonList = rawReasons.length ? rawReasons : (isReady ? ['지역·업종·기업규모 요건을 충족했습니다'] : []);
-      const whyLbl = isReady ? '왜 추천했나요?' : 'AI가 확인하지 못한 조건';
-      bodyHtml = reasonList.length ? `<div class="dash-hero-why${isReady ? '' : ' dash-hero-why--review'}"><span class="dash-hero-why-lbl">${whyLbl}</span><ul>${reasonList.map(r => `<li>${isReady ? '✓ ' : '• '}${escapeHtml(r)}</li>`).join('')}</ul></div>` : '';
-      actionsHtml = `<button type="button" class="btn btn-primary dash-hero-cta">${isReady ? '참여할게요' : '확인하기'}</button><a href="#/me/saved-searches" class="official-link">맞춤공고 전체 보기 &rarr;</a>`;
+      // Tier 2(상세 확인 필요) / 4(참여 어려움) — 상세로 이동해 확인.
+      badgeLabel = gradeLabel || '확인 필요'; badgeTone = tier === 4 ? 'pj-grade--fail' : 'pj-grade--review'; eyebrow = '가장 먼저 확인하세요';
+      const rawReasons = (j.reasons || []).slice(0, 3);
+      bodyHtml = rawReasons.length ? `<div class="dash-hero-why dash-hero-why--review"><span class="dash-hero-why-lbl">AI가 확인하지 못한 조건</span><ul>${rawReasons.map(r => `<li>• ${escapeHtml(r)}</li>`).join('')}</ul></div>` : '';
+      actionsHtml = `<button type="button" class="btn btn-primary dash-hero-cta">조건 확인하기</button><a href="#/me/saved-searches" class="official-link">맞춤공고 전체 보기 &rarr;</a>`;
     }
     topPickHtml = `
-      <section class="dash-hero" data-notice-id="${escapeAttr(topPick.noticeId)}" data-participate="${isReady ? '1' : '0'}" data-cta-href="${escapeAttr(topPick.ctaHref || ('#/notices/' + topPick.noticeId))}">
-        <div class="dash-hero-eyebrow">${isReady ? '가장 먼저 볼 공고' : '가장 먼저 확인하세요'}</div>
+      <section class="dash-hero" data-notice-id="${escapeAttr(topPick.noticeId)}" data-participate="${participate}" data-cta-href="${escapeAttr(detailHref)}">
+        <div class="dash-hero-eyebrow">${eyebrow}</div>
         <h3 class="dash-hero-title">${escapeHtml(topPick.title)}</h3>
-        ${meta}
+        <div class="dash-hero-meta"><span>${escapeHtml(topPick.organizationName || '-')}</span>${ddayBadgeHtml(topPick.applicationEndAt)}<span class="pj-mini ${badgeTone}">${escapeHtml(badgeLabel)}</span></div>
         ${bodyHtml}
         <div class="dash-hero-actions">${actionsHtml}</div>
       </section>`;
@@ -7086,6 +7116,9 @@ function companyInfoGapHtml(category, label, noticeCount) {
 // (관련 공고 수 desc)만 크게 노출한다. 나머지는 "다른 회사정보 N개 보기 ▾"로 접는다.
 // noticeCount==0이면 "0개 공고" 같은 문구를 크게 쓰지 않는다(혜택 문구로 대체).
 const COMPANY_INFO_GAP_CTA = { license: '면허 등록하기', certification: '인증 등록하기', directProduction: '직접생산확인 등록하기', trackRecord: '수행실적 등록하기' };
+// 회사정보 판정 영향도 tier(§4, 낮을수록 판정에 직접적). 면허·인증=buildParticipationJudgment
+// 직접 사용, 직접생산=요구 시 확인 항목, 수행실적=grade 미사용(공동수급·참고). 코드 기준 사실.
+const COMPANY_INFO_IMPACT_TIER = { license: 0, certification: 0, directProduction: 1, trackRecord: 2 };
 function renderCompanyInfoCardHtml(g, gaps) {
   const pct = g ? g.overallCompleteness : null;
   const list = (gaps || []).slice();
@@ -7097,29 +7130,37 @@ function renderCompanyInfoCardHtml(g, gaps) {
       <a href="#/me/company" class="official-link">회사정보 보기 &rarr;</a>
     </div>`;
   }
-  list.sort((a, b) => (b.noticeCount || 0) - (a.noticeCount || 0)); // 효과 큰 순
+  // 판정 영향도 우선(§4): 면허·인증(judgment 직접 사용) → 직접생산(확인 항목) → 수행실적
+  // (grade 미사용). 같은 tier 안에서만 noticeCount 내림차순. 그래서 수행실적 noticeCount가
+  // 아무리 커도 미등록 면허/인증보다 대표로 올라오지 않는다.
+  const impactTier = c => (COMPANY_INFO_IMPACT_TIER[c] != null ? COMPANY_INFO_IMPACT_TIER[c] : 9);
+  list.sort((a, b) => (impactTier(a.category) - impactTier(b.category)) || ((b.noticeCount || 0) - (a.noticeCount || 0)));
   const top = list[0];
   const rest = list.slice(1);
   const topCopy = COMPANY_INFO_GAP_COPY[top.category] || { title: `${top.label}을(를) 등록해주세요`, benefit: '' };
-  // 실데이터(noticeCount>0)일 때만 구체 건수 문구, 아니면 혜택 문구(§J).
-  const impactLine = top.noticeCount > 0
+  // 제목(§6): 실제 판정에 쓰이는 항목(면허·인증·직접생산, tier<=1)이 하나라도 있으면 "판정을
+  // 막고 있는 정보". 남은 게 수행실적(grade 미사용)뿐이면 "추가로 등록할 회사정보".
+  const hasJudgmentGap = list.some(x => impactTier(x.category) <= 1);
+  const cardTitle = hasJudgmentGap ? '판정을 막고 있는 정보' : '추가로 등록할 회사정보';
+  // 대표 항목 설명: 판정 항목(tier<=1)이고 noticeCount>0일 때만 "N개 공고의 조건을 확정하지
+  // 못하고 있어요"(§8, 실데이터). 그 외(수행실적 등)는 과장 없는 혜택 문구.
+  const impactLine = (impactTier(top.category) <= 1 && top.noticeCount > 0)
     ? `${escapeHtml(top.label)} 정보가 없어 ${top.noticeCount}개 공고의 조건을 확정하지 못하고 있어요.`
     : escapeHtml(topCopy.benefit || '');
   const ctaLabel = COMPANY_INFO_GAP_CTA[top.category] || '회사정보 등록하기';
   const restHtml = rest.length
     ? `<details class="company-info-more"><summary>다른 회사정보 ${rest.length}개 보기</summary><ul class="company-info-gaps">${rest.map(x => companyInfoGapHtml(x.category, x.label, x.noticeCount)).join('')}</ul></details>`
     : '';
-  const pctHtml = pct != null ? `<p class="license-card-meta dash-company-pct">회사정보 등록 ${pct}%</p>` : '';
+  // 73%(§7): 홈에서는 완성도 %를 표시하지 않는다(무엇을 등록하면 무엇이 되는지만).
   return `
     <div class="detail-card dash-growth-card">
-      <h3>판정을 막고 있는 정보</h3>
+      <h3>${cardTitle}</h3>
       <div class="company-info-top">
         <div class="company-info-top-title">${escapeHtml(topCopy.title)}</div>
         ${impactLine ? `<p class="company-info-top-benefit">${impactLine}</p>` : ''}
         <a href="#/me/company" class="btn btn-primary company-info-cta">${escapeHtml(ctaLabel)}</a>
       </div>
       ${restHtml}
-      ${pctHtml}
     </div>
   `;
 }
