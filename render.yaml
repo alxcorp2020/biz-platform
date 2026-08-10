@@ -54,9 +54,10 @@ services:
         sync: false
       - key: VAPID_SUBJECT
         sync: false
-      # 첨부파일 미리보기(PDF 변환) — 상용 변환 API 키. 미설정이면 PDF는 그대로
-      # 미리보기되고, HWP/워드/엑셀 등 변환 대상은 "다운로드"로 폴백된다(서버는 죽지 않음).
-      # CONVERT_API_BASE는 ConvertAPI 호환 엔드포인트(기본 https://v2.convertapi.com).
+      # 첨부파일 미리보기(PDF 변환) — CloudConvert API 키(Bearer). 미설정이면 PDF는 그대로
+      # 미리보기되고, HWP/HWPX/워드/엑셀 등 변환 대상은 "다운로드"로 폴백된다(서버는 죽지 않음).
+      # CloudConvert는 HWP·HWPX·DOC·DOCX·XLS·XLSX→PDF를 공식 지원. CONVERT_API_BASE는
+      # 기본 https://api.cloudconvert.com/v2 (샌드박스: https://api.sandbox.cloudconvert.com/v2).
       - key: CONVERT_API_KEY
         sync: false
       - key: CONVERT_API_BASE

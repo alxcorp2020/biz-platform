@@ -1,7 +1,13 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +92,84 @@ func TestPreviewExtOf(t *testing.T) {
 		if got := previewExtOf(c.filename, c.url); got != c.want {
 			t.Errorf("previewExtOf(%q,%q)=%q want %q", c.filename, c.url, got, c.want)
 		}
+	}
+}
+
+// TestCloudConvertToPDF_MockFlow — 실제 CloudConvert 없이 Job/import/upload/wait/export/
+// download 흐름 전체를 모의 서버로 검증한다(프로토콜 준수 확인). 실제 CloudConvert 키가
+// 없어 실변환은 미검증이지만, 우리 클라이언트가 CloudConvert v2 사양대로 말하는지는 검증됨.
+func TestCloudConvertToPDF_MockFlow(t *testing.T) {
+	var srvURL string
+	var gotInputFormat, gotOutputFormat string
+	uploadHit := false
+
+	mux := http.NewServeMux()
+	// 1) Job 생성 → 업로드 form 반환. convert 태스크의 input/output_format을 캡처.
+	mux.HandleFunc("POST /v2/jobs", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Tasks map[string]map[string]any `json:"tasks"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if c, ok := body.Tasks["convert-1"]; ok {
+			gotInputFormat, _ = c["input_format"].(string)
+			gotOutputFormat, _ = c["output_format"].(string)
+		}
+		if r.Header.Get("Authorization") != "Bearer testkey" {
+			t.Errorf("missing bearer auth on create job: %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"id":"job1","status":"waiting","tasks":[
+			{"name":"import-1","operation":"import/upload","status":"waiting","result":{"form":{"url":"`+srvURL+`/upload","parameters":{"key":"abc123"}}}},
+			{"name":"convert-1","operation":"convert","status":"waiting"},
+			{"name":"export-1","operation":"export/url","status":"waiting"}
+		]}}`)
+	})
+	// 2) 업로드 — 파라미터+file 멀티파트 수신.
+	mux.HandleFunc("POST /upload", func(w http.ResponseWriter, r *http.Request) {
+		uploadHit = true
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("upload not multipart: %v", err)
+		}
+		if r.FormValue("key") != "abc123" {
+			t.Errorf("upload missing form parameter key: %q", r.FormValue("key"))
+		}
+		if _, _, err := r.FormFile("file"); err != nil {
+			t.Errorf("upload missing file field: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+	})
+	// 3) 완료 대기 → finished + export 파일 URL.
+	mux.HandleFunc("GET /v2/jobs/job1/wait", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"id":"job1","status":"finished","tasks":[
+			{"name":"export-1","operation":"export/url","status":"finished","result":{"files":[{"filename":"out.pdf","url":"`+srvURL+`/result.pdf"}]}}
+		]}}`)
+	})
+	// 4) 결과 PDF 다운로드.
+	mux.HandleFunc("GET /result.pdf", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = io.WriteString(w, "%PDF-1.4\nmock-converted\n%%EOF")
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	srvURL = srv.URL
+
+	c := &cloudConvertClient{apiKey: "testkey", baseURL: srv.URL + "/v2", http: srv.Client()}
+	pdf, err := c.ToPDF(context.Background(), "hwp", []byte("\xd0\xcf\x11\xe0fake-hwp"), "과업지시서.hwp")
+	if err != nil {
+		t.Fatalf("ToPDF: %v", err)
+	}
+	if !strings.HasPrefix(string(pdf), "%PDF") {
+		t.Errorf("result not pdf: %.20q", string(pdf))
+	}
+	if gotInputFormat != "hwp" {
+		t.Errorf("input_format=%q want hwp (HWP를 CloudConvert에 정확히 넘겨야 함)", gotInputFormat)
+	}
+	if gotOutputFormat != "pdf" {
+		t.Errorf("output_format=%q want pdf", gotOutputFormat)
+	}
+	if !uploadHit {
+		t.Error("upload step was not called")
 	}
 }

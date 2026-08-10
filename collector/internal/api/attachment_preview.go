@@ -25,7 +25,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -463,22 +462,22 @@ func (s *Server) previewCachePut(hash string, pdf []byte) {
 	_ = os.Rename(tmp, path)
 }
 
-// ---------- 상용 변환 API 클라이언트(provider-agnostic, env 게이트) ----------
+// ---------- 상용 변환 API 클라이언트(CloudConvert, env 게이트) ----------
 
 // documentConverter — 원본 문서 바이트를 PDF로 변환한다. 구현은 외부 상용 API.
 type documentConverter interface {
 	ToPDF(ctx context.Context, kind string, data []byte, filename string) ([]byte, error)
 }
 
-// docConverterFromEnv — CONVERT_API_KEY가 있으면 변환 클라이언트를, 없으면 nil을 준다.
-// nil이면 handler가 "conversion_unavailable"로 폴백(서버는 죽지 않는다).
+// docConverterFromEnv — CONVERT_API_KEY가 있으면 CloudConvert 클라이언트를, 없으면 nil을 준다.
+// nil이면 handler가 "conversion_unavailable"로 폴백(서버는 죽지 않는다 — 컴파일/테스트는 키
+// 없이도 그대로 통과).
 //
-//	CONVERT_API_KEY  : 상용 변환 API 시크릿(필수 — 없으면 변환 비활성)
-//	CONVERT_API_BASE : 기본 https://v2.convertapi.com (ConvertAPI 호환)
+//	CONVERT_API_KEY  : CloudConvert API 키(Bearer). 없으면 변환 비활성.
+//	CONVERT_API_BASE : CloudConvert API base. 기본 https://api.cloudconvert.com/v2
+//	                   (샌드박스는 https://api.sandbox.cloudconvert.com/v2).
 //
-// ⚠️ CloudConvert/ConvertAPI 등 주류 API는 DOC/DOCX/XLS/XLSX→PDF는 지원하지만 HWP/HWPX는
-// 대부분 미지원(한국 전용 포맷)이다. HWP까지 필요하면 HWP를 지원하는 provider를 CONVERT_API_
-// BASE로 지정하거나 별도 변환 서비스를 붙여야 한다 — 지원하지 않으면 변환 실패로 폴백된다.
+// CloudConvert는 HWP·HWPX·DOC·DOCX·XLS·XLSX → PDF를 공식 지원한다(input_format을 그대로 넘긴다).
 func docConverterFromEnv() documentConverter {
 	key := strings.TrimSpace(os.Getenv("CONVERT_API_KEY"))
 	if key == "" {
@@ -486,65 +485,260 @@ func docConverterFromEnv() documentConverter {
 	}
 	base := strings.TrimSpace(os.Getenv("CONVERT_API_BASE"))
 	if base == "" {
-		base = "https://v2.convertapi.com"
+		base = "https://api.cloudconvert.com/v2"
 	}
-	return &convertAPIClient{apiKey: key, baseURL: strings.TrimRight(base, "/")}
+	return &cloudConvertClient{apiKey: key, baseURL: strings.TrimRight(base, "/")}
 }
 
-// convertAPIClient — ConvertAPI(v2) 호환 단일요청 변환. POST {base}/convert/{from}/to/pdf
-// 에 파일을 multipart로 올리면 변환 결과(FileData base64)를 준다.
-type convertAPIClient struct {
+// cloudConvertClient — CloudConvert v2 Job 흐름(import/upload → convert → export/url).
+//  1. POST /jobs 로 세 태스크(업로드/변환/내보내기)를 담은 Job 생성 → 업로드 태스크의
+//     result.form(멀티파트 업로드 URL+파라미터)을 받는다.
+//  2. 그 form URL로 파일 바이트를 멀티파트 업로드(파라미터 먼저, file 필드 마지막).
+//  3. GET /jobs/{id}/wait 로 완료까지 대기(조기 반환 대비 폴링).
+//  4. export 태스크 result.files[0].url 에서 변환된 PDF를 내려받는다.
+type cloudConvertClient struct {
 	apiKey  string
 	baseURL string
+	http    *http.Client // 테스트 주입용(nil이면 기본 클라이언트)
 }
 
-func (c *convertAPIClient) ToPDF(ctx context.Context, kind string, data []byte, filename string) ([]byte, error) {
-	from := kind
-	endpoint := fmt.Sprintf("%s/convert/%s/to/pdf?Secret=%s&Download=inline&StoreFile=false",
-		c.baseURL, url.PathEscape(from), url.QueryEscape(c.apiKey))
+// CloudConvert Job/Task 응답(필요 필드만).
+type ccJobResp struct {
+	Data ccJob `json:"data"`
+}
+type ccJob struct {
+	ID     string   `json:"id"`
+	Status string   `json:"status"` // waiting|processing|finished|error
+	Tasks  []ccTask `json:"tasks"`
+}
+type ccTask struct {
+	Name      string       `json:"name"`
+	Operation string       `json:"operation"`
+	Status    string       `json:"status"`
+	Message   string       `json:"message"`
+	Result    ccTaskResult `json:"result"`
+}
+type ccTaskResult struct {
+	Form  *ccUploadForm `json:"form"`
+	Files []ccFile      `json:"files"`
+}
+type ccUploadForm struct {
+	URL        string            `json:"url"`
+	Parameters map[string]string `json:"parameters"`
+}
+type ccFile struct {
+	Filename string `json:"filename"`
+	URL      string `json:"url"`
+}
 
+func (c *cloudConvertClient) client() *http.Client {
+	if c.http != nil {
+		return c.http
+	}
+	return &http.Client{Timeout: 60 * time.Second}
+}
+
+func (c *cloudConvertClient) ToPDF(ctx context.Context, kind string, data []byte, filename string) ([]byte, error) {
+	// 전체 변환 데드라인(브라우저가 무한정 대기하지 않게).
+	ctx, cancel := context.WithTimeout(ctx, 150*time.Second)
+	defer cancel()
+
+	// 1) Job 생성 — import/upload → convert(input_format=kind, output_format=pdf) → export/url.
+	reqBody := map[string]any{
+		"tasks": map[string]any{
+			"import-1": map[string]any{"operation": "import/upload"},
+			"convert-1": map[string]any{
+				"operation":     "convert",
+				"input":         "import-1",
+				"input_format":  kind, // hwp|hwpx|doc|docx|xls|xlsx — CloudConvert 토큰과 동일
+				"output_format": "pdf",
+			},
+			"export-1": map[string]any{"operation": "export/url", "input": "convert-1"},
+		},
+	}
+	var created ccJobResp
+	if err := c.doJSON(ctx, http.MethodPost, "/jobs", reqBody, &created); err != nil {
+		return nil, fmt.Errorf("create job: %w", err)
+	}
+	form := ccFindUploadForm(created.Data.Tasks)
+	if form == nil || form.URL == "" {
+		return nil, errors.New("cloudconvert: no upload form in job")
+	}
+
+	// 2) 업로드(멀티파트: 폼 parameters 먼저, file 필드 마지막).
+	if err := c.uploadFile(ctx, form, previewSafeFilename(filename, kind), data); err != nil {
+		return nil, fmt.Errorf("upload: %w", err)
+	}
+
+	// 3) 완료 대기.
+	job, err := c.waitJob(ctx, created.Data.ID)
+	if err != nil {
+		return nil, err
+	}
+	if job.Status == "error" {
+		return nil, fmt.Errorf("cloudconvert job error: %s", ccJobErrMessage(job))
+	}
+
+	// 4) export 결과 PDF URL → 다운로드.
+	fileURL := ccFindExportURL(job.Tasks)
+	if fileURL == "" {
+		return nil, errors.New("cloudconvert: no export file url")
+	}
+	pdf, err := c.downloadResult(ctx, fileURL)
+	if err != nil {
+		return nil, fmt.Errorf("download result: %w", err)
+	}
+	if !bytes.HasPrefix(pdf, []byte("%PDF")) {
+		return nil, errors.New("cloudconvert: result is not pdf")
+	}
+	return pdf, nil
+}
+
+// doJSON — CloudConvert API(base)로 Bearer 인증 JSON 요청.
+func (c *cloudConvertClient) doJSON(ctx context.Context, method, path string, body, out any) error {
+	var rdr io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		rdr = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, rdr)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("status %d: %.300s", resp.StatusCode, string(raw))
+	}
+	if out != nil {
+		return json.Unmarshal(raw, out)
+	}
+	return nil
+}
+
+// uploadFile — import/upload 태스크가 준 form(URL+parameters)으로 멀티파트 업로드.
+// 업로드 URL은 CloudConvert 스토리지(S3 등)라 Bearer 인증이 아니라 form parameters로 인증한다.
+func (c *cloudConvertClient) uploadFile(ctx context.Context, form *ccUploadForm, filename string, data []byte) error {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	fw, err := mw.CreateFormFile("File", previewSafeFilename(filename, from))
+	for k, v := range form.Parameters {
+		_ = mw.WriteField(k, v)
+	}
+	fw, err := mw.CreateFormFile("file", filename) // file 필드는 파라미터 뒤(마지막)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if _, err := fw.Write(data); err != nil {
-		return nil, err
+		return err
 	}
 	if err := mw.Close(); err != nil {
-		return nil, err
+		return err
 	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, form.URL, &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := c.client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("upload status %d", resp.StatusCode)
+	}
+	return nil
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
+// waitJob — GET /jobs/{id}/wait 로 완료까지 대기(서버측 long-poll). 조기 반환/부분완료 대비
+// 폴링으로 보강하고, 데드라인/컨텍스트 취소를 존중한다.
+func (c *cloudConvertClient) waitJob(ctx context.Context, id string) (*ccJob, error) {
+	deadline := time.Now().Add(140 * time.Second)
+	for {
+		var jr ccJobResp
+		err := c.doJSON(ctx, http.MethodGet, "/jobs/"+url.PathEscape(id)+"/wait?include=tasks", nil, &jr)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, err
+		}
+		if jr.Data.Status == "finished" || jr.Data.Status == "error" {
+			return &jr.Data, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, errors.New("cloudconvert: wait timeout")
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// downloadResult — export/url 태스크가 준 서명 URL에서 변환된 PDF를 내려받는다(크기 상한).
+func (c *cloudConvertClient) downloadResult(ctx context.Context, fileURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	req.Header.Set("Accept", "application/pdf")
-
-	client := &http.Client{Timeout: 120 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := c.client().Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	out, err := io.ReadAll(io.LimitReader(resp.Body, previewMaxBytes+1))
-	if err != nil {
-		return nil, err
-	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("convert api status %d: %.300s", resp.StatusCode, string(out))
+		return nil, fmt.Errorf("download status %d", resp.StatusCode)
 	}
-	// Download=inline이면 바디가 PDF 자체다.
-	if bytes.HasPrefix(out, []byte("%PDF")) {
-		return out, nil
+	return io.ReadAll(io.LimitReader(resp.Body, previewMaxBytes+1))
+}
+
+// ccFindUploadForm — 태스크 목록에서 import/upload 태스크의 업로드 form을 찾는다.
+func ccFindUploadForm(tasks []ccTask) *ccUploadForm {
+	for _, t := range tasks {
+		if t.Operation == "import/upload" && t.Result.Form != nil {
+			return t.Result.Form
+		}
 	}
-	// 일부 응답은 JSON(Files[].FileData base64)로 온다 — 그 경우 파싱.
-	if pdf := decodeConvertAPIJSON(out); pdf != nil {
-		return pdf, nil
+	return nil
+}
+
+// ccFindExportURL — export/url 태스크의 결과 파일 URL(가장 먼저 발견되는 것)을 반환.
+func ccFindExportURL(tasks []ccTask) string {
+	for _, t := range tasks {
+		if t.Operation == "export/url" {
+			for _, f := range t.Result.Files {
+				if f.URL != "" {
+					return f.URL
+				}
+			}
+		}
 	}
-	return nil, errors.New("convert api: unexpected response (not pdf)")
+	return ""
+}
+
+// ccJobErrMessage — error 상태 Job의 실패 사유(가장 먼저 발견되는 실패 태스크 메시지).
+func ccJobErrMessage(job *ccJob) string {
+	for _, t := range job.Tasks {
+		if t.Status == "error" && t.Message != "" {
+			return t.Message
+		}
+	}
+	return "unknown"
 }
 
 func previewSafeFilename(name, from string) string {
@@ -553,25 +747,4 @@ func previewSafeFilename(name, from string) string {
 		base = "document." + from
 	}
 	return base
-}
-
-// decodeConvertAPIJSON — ConvertAPI JSON 응답의 Files[0].FileData(base64)를 PDF 바이트로.
-func decodeConvertAPIJSON(out []byte) []byte {
-	var parsed struct {
-		Files []struct {
-			FileData string `json:"FileData"`
-		} `json:"Files"`
-	}
-	if err := json.Unmarshal(out, &parsed); err != nil || len(parsed.Files) == 0 {
-		return nil
-	}
-	data := strings.TrimSpace(parsed.Files[0].FileData)
-	if data == "" {
-		return nil
-	}
-	pdf, err := base64.StdEncoding.DecodeString(data)
-	if err != nil || !bytes.HasPrefix(pdf, []byte("%PDF")) {
-		return nil
-	}
-	return pdf
 }
