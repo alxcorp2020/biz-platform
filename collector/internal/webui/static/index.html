@@ -2289,6 +2289,33 @@
   .attachment-name a { color: var(--accent-blue); text-decoration: none; font-weight: 500; }
   .attachment-name a:hover { text-decoration: underline; }
   .attachment-meta { font-size: 0.78rem; color: var(--ink-soft); white-space: nowrap; }
+  /* 첨부 미리보기(2026-08-11) — [미리보기] 버튼 + 모달 PDF 뷰어 */
+  .attachment-preview-btn {
+    flex-shrink: 0; font-size: 0.8rem; font-weight: 700; color: var(--accent-blue);
+    background: var(--accent-blue-soft, rgba(49,130,246,0.08)); border: 1px solid transparent;
+    border-radius: 8px; padding: 0.28rem 0.7rem; cursor: pointer;
+  }
+  .attachment-preview-btn:hover { border-color: var(--accent-blue); }
+  /* 미리보기 모달은 문서를 넓게 보여준다(openModal이 .modal-panel 하나만 쓰므로 :has로 확장) */
+  .modal-panel:has(.attachment-preview) { max-width: 920px; }
+  .attachment-preview { min-height: 60vh; }
+  .attachment-preview-frame { width: 100%; height: 72vh; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-soft, #f7f8fa); }
+  .attachment-preview-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.7rem; min-height: 60vh; color: var(--ink-soft); text-align: center; }
+  .attachment-preview-loading p { margin: 0; }
+  .attachment-preview-hint { font-size: 0.82rem; color: var(--ink-mute, #8a8f98); }
+  .attachment-preview .spinner {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid var(--border); border-top-color: var(--accent-blue);
+    animation: attachmentPreviewSpin 0.8s linear infinite;
+  }
+  @keyframes attachmentPreviewSpin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .attachment-preview .spinner { animation: none; } }
+  .attachment-preview-fallback { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; min-height: 40vh; text-align: center; color: var(--ink); }
+  .attachment-preview-fallback p { margin: 0; color: var(--ink-soft); }
+  @media (max-width: 640px) {
+    .modal-panel:has(.attachment-preview) { max-width: 100%; }
+    .attachment-preview-frame { height: 68vh; }
+  }
 
   /* ---------- 검토 대기 (review queue) ---------- */
   .review-queue-header {
@@ -11004,13 +11031,84 @@ function attachmentRowHtml(it) {
   const nameHtml = it.downloadUrl
     ? `<a href="${escapeAttr(it.downloadUrl)}" target="_blank" rel="noopener">${escapeHtml(it.originalFilename)} ${newTabIconHtml()}</a>`
     : escapeHtml(it.originalFilename);
+  // [미리보기] — 서버 프록시 미리보기(PDF는 즉시, 변환대상은 변환 API 설정 시). id·downloadUrl이
+  // 있을 때만. 형식 판별/변환 가능여부는 서버가 판단하고, 안 되면 모달이 다운로드로 안내한다.
+  const previewBtn = (it.id && it.downloadUrl)
+    ? `<button type="button" class="attachment-preview-btn" data-id="${escapeAttr(it.id)}" data-name="${escapeAttr(it.originalFilename)}" data-url="${escapeAttr(it.downloadUrl)}">미리보기</button>`
+    : '';
   return `
       <li class="attachment-item">
         <span class="attachment-name">${nameHtml}</span>
         <span class="attachment-meta mono">${escapeHtml((it.fileType || '').toUpperCase())} ${sizeText}</span>
         ${statusBadge}
+        ${previewBtn}
       </li>`;
 }
+
+// wireAttachmentPreview — 첨부 목록의 [미리보기] 버튼을 미리보기 모달에 연결한다
+// (renderAttachments/renderSupportAttachments 공용).
+function wireAttachmentPreview(container) {
+  container.querySelectorAll('.attachment-preview-btn').forEach(btn => {
+    btn.addEventListener('click', () => openAttachmentPreview(btn.dataset.id, btn.dataset.name, btn.dataset.url));
+  });
+}
+
+// openAttachmentPreview — 서버 프록시(/api/attachments/{id}/preview)로 PDF를 받아
+// 모달 안 iframe으로 보여준다. PDF가 아니거나 변환이 안 되면(415/변환 미설정 등) 서버가
+// JSON 코드를 주고, 그때는 "다운로드로 열기" 안내로 폴백한다(기존 다운로드 링크는 유지).
+async function openAttachmentPreview(id, name, downloadUrl) {
+  const safeName = name || '첨부파일';
+  const body = openModal(safeName, `
+    <div class="attachment-preview">
+      <div class="attachment-preview-loading" id="attachment-preview-loading">
+        <div class="spinner"></div>
+        <p>문서를 불러오는 중이에요…</p>
+        <p class="attachment-preview-hint">외부 파일을 서버가 가져와 변환하는 중입니다. 잠시만요.</p>
+      </div>
+    </div>
+  `, { onClose: () => { if (window.__attachmentPreviewURL) { URL.revokeObjectURL(window.__attachmentPreviewURL); window.__attachmentPreviewURL = null; } } });
+
+  const wrap = body.querySelector('.attachment-preview');
+  const fallback = (msg) => {
+    const dl = downloadUrl
+      ? `<a class="btn btn-primary" href="${escapeAttr(downloadUrl)}" target="_blank" rel="noopener">파일 다운로드 ${newTabIconHtml()}</a>`
+      : '';
+    wrap.innerHTML = `<div class="attachment-preview-fallback"><p>${escapeHtml(msg)}</p>${dl}</div>`;
+  };
+
+  try {
+    const res = await fetch('/api/attachments/' + encodeURIComponent(id) + '/preview', { credentials: 'same-origin' });
+    if (!res.ok) {
+      let code = '';
+      try { code = (await res.json()).error || ''; } catch (e) { /* non-json */ }
+      fallback(ATTACHMENT_PREVIEW_MESSAGES[code] || '이 파일은 미리보기를 지원하지 않아요. 다운로드해서 확인해주세요.');
+      return;
+    }
+    const blob = await res.blob();
+    if (window.__attachmentPreviewURL) URL.revokeObjectURL(window.__attachmentPreviewURL);
+    const objUrl = URL.createObjectURL(blob);
+    window.__attachmentPreviewURL = objUrl;
+    // 모달이 이미 닫혔으면(사용자가 로딩 중 X) 렌더하지 않는다.
+    if (!document.getElementById('active-modal-overlay')) { URL.revokeObjectURL(objUrl); window.__attachmentPreviewURL = null; return; }
+    wrap.innerHTML = `<iframe class="attachment-preview-frame" src="${objUrl}" title="${escapeAttr(safeName)}"></iframe>`;
+  } catch (err) {
+    fallback('문서를 불러오지 못했어요. 잠시 후 다시 시도하거나 다운로드해주세요.');
+  }
+}
+
+const ATTACHMENT_PREVIEW_MESSAGES = {
+  unauthorized: '로그인 후 미리보기를 사용할 수 있어요.',
+  not_found: '첨부파일을 찾을 수 없어요.',
+  no_download_url: '이 첨부는 원본 파일 주소가 없어 미리보기를 만들 수 없어요.',
+  too_large: '파일이 너무 커서 미리보기를 만들 수 없어요. 다운로드해서 확인해주세요.',
+  host_not_allowed: '이 파일 출처는 미리보기가 허용되지 않아요. 다운로드해서 확인해주세요.',
+  bad_url: '파일 주소가 올바르지 않아 미리보기를 만들 수 없어요.',
+  blocked_ip: '이 파일 출처는 미리보기가 허용되지 않아요. 다운로드해서 확인해주세요.',
+  unsupported_format: '이 형식은 미리보기를 지원하지 않아요. 다운로드해서 확인해주세요.',
+  conversion_unavailable: 'PDF가 아닌 문서(HWP·워드·엑셀 등)는 아직 미리보기를 준비 중이에요. 다운로드해서 확인해주세요.',
+  conversion_failed: '문서를 PDF로 변환하지 못했어요. 다운로드해서 확인해주세요.',
+  fetch_failed: '원본 파일을 가져오지 못했어요. 잠시 후 다시 시도하거나 다운로드해주세요.',
+};
 
 // renderSupportProgramDetail — B-2. 지원사업 "신청 안내" 탭에 기업마당 공식
 // 데이터(지원대상·사업개요·신청방법·문의처·지원분야)를 표시하고 "사업
@@ -11148,6 +11246,7 @@ function renderSupportAttachments(container, items) {
     .map(g => `<h4 class="support-attachment-group">${escapeHtml(g.label)}</h4><ul class="attachment-list">${g.items.map(attachmentRowHtml).join('')}</ul>`)
     .join('');
   container.appendChild(h(blocks));
+  wireAttachmentPreview(container);
 }
 
 function renderAttachments(container, items) {
@@ -11158,6 +11257,7 @@ function renderAttachments(container, items) {
   }
   const rows = items.map(attachmentRowHtml).join('');
   container.appendChild(h(`<ul class="attachment-list">${rows}</ul>`));
+  wireAttachmentPreview(container);
 }
 
 const CONDITION_CATEGORY_LABELS = { general: '일반' };

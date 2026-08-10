@@ -3,13 +3,14 @@ module biz-platform/collector
 go 1.24
 
 require (
+	github.com/SherClockHolmes/webpush-go v1.4.0
+	github.com/anthropics/anthropic-sdk-go v1.61.0
 	github.com/lib/pq v1.10.9
 	golang.org/x/crypto v0.40.0
+	golang.org/x/sync v0.16.0
 )
 
 require (
-	github.com/SherClockHolmes/webpush-go v1.4.0 // indirect
-	github.com/anthropics/anthropic-sdk-go v1.61.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
@@ -21,5 +22,4 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
-	golang.org/x/sync v0.16.0 // indirect
 )

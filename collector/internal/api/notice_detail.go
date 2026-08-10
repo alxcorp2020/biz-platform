@@ -139,6 +139,7 @@ func parseG2BAmount(v string) *int64 {
 }
 
 type attachmentItem struct {
+	ID               string `json:"id"`
 	OriginalFilename string `json:"originalFilename"`
 	FileType         string `json:"fileType"`
 	FileSizeBytes    *int64 `json:"fileSizeBytes"`
@@ -268,7 +269,7 @@ func (s *Server) fetchSupportProgramDetail(ctx context.Context, noticeID string)
 // and the attachments table already tracks whether the download completed.
 func (s *Server) listAttachments(ctx context.Context, versionID string) ([]attachmentItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT original_filename, COALESCE(file_type, ''), file_size_bytes, COALESCE(download_url, ''), download_status,
+		SELECT id, original_filename, COALESCE(file_type, ''), file_size_bytes, COALESCE(download_url, ''), download_status,
 		       COALESCE(attachment_role, '')
 		FROM attachments
 		WHERE notice_version_id = $1
@@ -282,7 +283,7 @@ func (s *Server) listAttachments(ctx context.Context, versionID string) ([]attac
 	for rows.Next() {
 		var it attachmentItem
 		var size sql.NullInt64
-		if err := rows.Scan(&it.OriginalFilename, &it.FileType, &size, &it.DownloadURL, &it.DownloadStatus, &it.Role); err != nil {
+		if err := rows.Scan(&it.ID, &it.OriginalFilename, &it.FileType, &size, &it.DownloadURL, &it.DownloadStatus, &it.Role); err != nil {
 			continue
 		}
 		if size.Valid {
