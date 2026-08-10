@@ -2626,6 +2626,11 @@
   }
   .profile-tab-btn:hover { color: var(--ink); }
   .profile-tab-btn.is-active { color: var(--navy); border-bottom-color: var(--navy); }
+  /* 모바일: 탭이 많으면(회사정보 5탭) 좌우 스크롤 대신 줄바꿈으로 전부 보이게(IA 재정리 STEP 12) */
+  @media (max-width: 640px) {
+    .profile-tabs { flex-wrap: wrap; overflow-x: visible; gap: 0.2rem 0.4rem; }
+    .profile-tab-btn { padding: 0.5rem 0.7rem; }
+  }
 
   /* 정보가 너무 적어(overallCompleteness<30%) 개별 판정 대신 전부 "확인
      필요"로 묶어 보여줄 때 붙는 안내 — 차단은 아니지만 눈에 띄어야 해서
@@ -3368,6 +3373,7 @@ const SIDEBAR_MENU = [
   { path: '#/pipeline', label: '진행 중 사업', icon: 'pipeline' },
   { path: '#/notifications', label: '알림', icon: 'bell' },
   { path: '#/calendar', label: '캘린더', icon: 'calendar' },
+  { path: '#/me/company', label: '회사정보', icon: 'user' },
   { path: '#/growth', label: '성장분석', icon: 'chart' },
   { path: '#/me/subscription', label: '구독 관리', icon: 'card' },
 ];
@@ -4365,7 +4371,7 @@ async function renderDashboardProfileBanner(slot) {
   slot.innerHTML = `
     <div class="profile-incomplete-banner ${missingRequired ? 'profile-incomplete-banner--urgent' : ''}">
       <span class="profile-incomplete-banner-text">${escapeHtml(text)}</span>
-      <a href="#/me/saved-searches" class="profile-incomplete-banner-cta">맞춤공고 완성하기 →</a>
+      <a href="#/me/company" class="profile-incomplete-banner-cta">회사정보 완성하기 →</a>
     </div>
   `;
 }
@@ -6865,7 +6871,7 @@ function renderGrowthSummaryHtml(g) {
         <div class="stat-highlight-value">${g.overallCompleteness}<span class="stat-highlight-unit">%</span></div>
         <div class="stat-highlight-label">등록할수록 더 많은 공고를 정확하게 판정할 수 있어요</div>
       </div>
-      <a href="#/me/saved-searches" class="official-link">회사정보 보완하기 &rarr;</a>
+      <a href="#/me/company" class="official-link">회사정보 보완하기 &rarr;</a>
       <a href="#/ai-usage" class="official-link">AI 분석 사용내역 &rarr;</a>
     </div>
   `;
@@ -6903,7 +6909,7 @@ function renderCompanyInfoCardHtml(g, gaps) {
     return `
     <div class="detail-card dash-growth-card">
       <p class="license-card-meta">회사정보 등록 <strong>${pct}%</strong> · 필요한 회사정보를 모두 등록하셨습니다.</p>
-      <a href="#/me/saved-searches" class="official-link">회사정보 보기 &rarr;</a>
+      <a href="#/me/company" class="official-link">회사정보 보기 &rarr;</a>
     </div>`;
   }
   const pctHtml = pct != null ? `<p class="license-card-meta dash-company-pct">회사정보 등록 <strong>${pct}%</strong></p>` : '';
@@ -6912,7 +6918,7 @@ function renderCompanyInfoCardHtml(g, gaps) {
       <h3>판정을 더 정확하게 만들 수 있어요</h3>
       <ul class="company-info-gaps">${gapRows}</ul>
       ${pctHtml}
-      <a href="#/me/saved-searches" class="official-link">회사정보 보완하기 &rarr;</a>
+      <a href="#/me/company" class="official-link">회사정보 보완하기 &rarr;</a>
       <a href="#/ai-usage" class="official-link">AI 분석 사용내역 &rarr;</a>
     </div>
   `;
@@ -6981,7 +6987,7 @@ function renderEligibilitySummaryHtml(eg, overallCompleteness) {
       <p class="license-card-meta">활성 공고 ${total}건을 지역·업종·규모 기준으로 자동 분류 (면허·실적 등 세부 자격은 공고 상세에서 확인)</p>
       ${eligibilitySummaryRowsHtml(eg, overallCompleteness)}
       ${!isLowConfidence && eg.insufficientData > 0 && missingLabels.length ? `
-        <p class="license-card-meta">${escapeHtml(missingLabels.join('·'))} 정보가 없어 ${eg.insufficientData}건을 정확하게 판정하지 못했습니다. <a href="#/me/saved-searches">입력하기 &rarr;</a></p>
+        <p class="license-card-meta">${escapeHtml(missingLabels.join('·'))} 정보가 없어 ${eg.insufficientData}건을 정확하게 판정하지 못했습니다. <a href="#/me/company">입력하기 &rarr;</a></p>
       ` : ''}
     </div>
   `;
@@ -7156,10 +7162,24 @@ async function renderPipelineList(container) {
       <h2>진행 중 사업</h2>
       <p class="empty">아직 참여 검토 중인 사업이 없습니다. 공고 상세에서 "참여 검토"를 눌러 시작하세요.</p>
     `));
-    return;
+  } else {
+    // 뷰(리스트/칸반/표)는 자기 컨테이너를 다시 그리므로(renderPipelineViews의
+    // 뷰 전환 재호출), 담당자 관리가 지워지지 않도록 별도 하위 박스에 렌더한다.
+    const viewsBox = document.createElement('div');
+    container.appendChild(viewsBox);
+    renderPipelineViews(viewsBox, items);
   }
-
-  renderPipelineViews(container, items);
+  // 담당자 관리(IA 재정리 2026-08-10) — 담당자는 추천보다 "진행 중 사업 운영"과
+  // 관련이 커 맞춤공고에서 여기로 옮겼다. 자주 여는 기능이 아니라 접힘(details).
+  // renderContactsTab은 (container)만 받는 자족 CRUD라 그대로 재사용(데이터/API 무변경).
+  const contactsWrap = h(`
+    <details class="pipeline-contacts-collapse">
+      <summary>담당자 관리</summary>
+      <div id="pipeline-contacts-section"></div>
+    </details>
+  `);
+  container.appendChild(contactsWrap);
+  renderContactsTab(document.getElementById('pipeline-contacts-section'));
 }
 
 // renderPipelineViews — Phase 3: 리스트/칸반/표 뷰 토글의 공용 껍데기.
@@ -8142,7 +8162,7 @@ async function renderPipelineDetail(container, id) {
       if ((data.items || []).length === 0) {
         const hintEl = document.getElementById('pipeline-no-contact-hint');
         if (hintEl) {
-          hintEl.innerHTML = `<p class="auth-step-hint"><a href="#/me/saved-searches">담당자 관리</a>에서 미리 등록해두면 다음부터 자동으로 채워집니다.</p>`;
+          hintEl.innerHTML = `<p class="auth-step-hint"><a href="#/pipeline">담당자 관리</a>에서 미리 등록해두면 다음부터 자동으로 채워집니다.</p>`;
         }
       }
     }).catch(() => {});
@@ -8295,7 +8315,7 @@ function wireLoadContactButton(container) {
       return;
     }
     if (!items.length) {
-      picker.innerHTML = `<p class="auth-step-hint">등록된 담당자가 없습니다. <a href="#/me/saved-searches">담당자 관리</a>에서 먼저 등록하세요.</p>`;
+      picker.innerHTML = `<p class="auth-step-hint">등록된 담당자가 없습니다. <a href="#/pipeline">담당자 관리</a>에서 먼저 등록하세요.</p>`;
       return;
     }
     openListPickerModal(
@@ -8375,10 +8395,10 @@ function renderPipelineChecklist(container, entryId, items, analysisStatus, noti
     </details>`;
 
   const actionMeta = it => {
-    if (it.status === '갱신필요') return { hint: '등록된 정보가 만료되었습니다. 갱신이 필요합니다.', ctaLabel: '갱신하기', href: '#/me/saved-searches', tone: 'ck-tone-warn' };
+    if (it.status === '갱신필요') return { hint: '등록된 정보가 만료되었습니다. 갱신이 필요합니다.', ctaLabel: '갱신하기', href: '#/me/company', tone: 'ck-tone-warn' };
     if (it.status === '신규작성') return { hint: '이번 공고에서 준비하는 서류입니다.', ctaLabel: noticeId ? '양식 보기' : '준비하기', href: noticeId ? `#/notices/${escapeAttr(noticeId)}` : '#/me/saved-searches', tone: 'ck-tone-form' };
-    if (it.status === '발급필요') return { hint: '아직 등록되지 않았습니다.', ctaLabel: '등록하기', href: '#/me/saved-searches', tone: 'ck-tone-miss' };
-    return { hint: '확인이 필요합니다.', ctaLabel: '확인하기', href: '#/me/saved-searches', tone: 'ck-tone-confirm' }; // 확인필요
+    if (it.status === '발급필요') return { hint: '아직 등록되지 않았습니다.', ctaLabel: '등록하기', href: '#/me/company', tone: 'ck-tone-miss' };
+    return { hint: '확인이 필요합니다.', ctaLabel: '확인하기', href: '#/me/company', tone: 'ck-tone-confirm' }; // 확인필요
   };
 
   const doneHint = it => {
@@ -8986,9 +9006,11 @@ const SAVED_SEARCH_NOTICE_TYPE_OPTIONS = [
 // 이 탭 디스패치에 그대로 꽂는다 — #/me/saved-searches이 쓰던 것과 동일한
 // .profile-tabs 패턴(renderProfile은 이제 사용하지 않음, route()가
 // #/me/saved-searches을 여기로 리다이렉트).
-const SAVED_SEARCHES_TABS = [
-  { key: 'searches', label: '맞춤공고', render: renderSavedSearchesListTab },
-  { key: 'contacts', label: '담당자 관리', render: renderContactsTab },
+// IA 재정리(2026-08-10): 역할 분리. 맞춤공고=추천/참여 결정, 회사정보=판정자료 관리,
+// 담당자=진행 중 사업 운영. 렌더 함수는 전부 (container)만 받는 자족 함수라 새 CRUD/API
+// 없이 위치만 옮긴다(기존 저장 데이터·저장 API 그대로 재사용).
+// COMPANY_INFO_TABS — 별도 회사정보 화면(#/me/company)의 5개 탭.
+const COMPANY_INFO_TABS = [
   { key: 'basic', label: '기업정보', render: renderProfileBasicTab },
   { key: 'financials', label: '재무정보', render: renderFinancialsTab },
   { key: 'trackRecords', label: '수행실적', render: renderTrackRecordsTab },
@@ -9097,11 +9119,61 @@ function renderSavedSearchRecommendations(container, recommendations) {
   wireHomeListNav(container); // 카드 클릭(CTA 외 영역) → ctaHref 상세 이동(재사용)
 }
 
+// renderProfileTabsScreen — .profile-tabs 패턴 공용 껍데기. 회사정보 화면과
+// (필요 시) 다른 다중탭 화면이 같은 UI/이벤트 배선을 재사용한다. 각 탭 render는
+// (container)만 받는 기존 자족 함수라 새로 만들지 않는다.
+function renderProfileTabsScreen(container, tabs, opts) {
+  opts = opts || {};
+  const headerHtml = opts.title ? `<h2>${escapeHtml(opts.title)}</h2>` : '';
+  const introHtml = opts.intro ? `<p class="license-card-meta">${opts.intro}</p>` : '';
+  container.innerHTML = '';
+  container.appendChild(h(`
+    ${headerHtml}
+    ${introHtml}
+    <div class="profile-tabs">
+      ${tabs.map((t, i) => `<button type="button" class="profile-tab-btn${i === 0 ? ' is-active' : ''}" data-tab="${t.key}">${escapeHtml(t.label)}</button>`).join('')}
+    </div>
+    <div id="profile-tabs-content"></div>
+  `));
+  const tabContent = document.getElementById('profile-tabs-content');
+  const tabRenderers = {};
+  tabs.forEach(t => { tabRenderers[t.key] = () => t.render(tabContent); });
+  tabRenderers[tabs[0].key]();
+  container.querySelectorAll('.profile-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.profile-tab-btn').forEach(b => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      tabRenderers[btn.dataset.tab]();
+    });
+  });
+}
+
+// renderCompanyInfo — 회사정보 화면(#/me/company, IA 재정리 2026-08-10). 예전
+// 맞춤공고 화면에 섞여 있던 기업정보/재무/실적/인력/면허·인증 5개 탭을 그대로
+// 옮겨 재사용한다(새 CRUD/API 없음, 저장 데이터 유실 없음). 판정에 쓰이는 회사
+// 프로필 자료를 한 곳에서 관리한다.
+async function renderCompanyInfo(container) {
+  // renderProfileBasicTab 등이 currentProfile 전역을 읽으므로 진입 시 최신화.
+  try {
+    const me = await apiRequest('GET', '/api/me');
+    currentUser = me.user;
+    currentProfile = me.companyProfile;
+    renderHeader();
+  } catch (err) {
+    location.hash = '#/auth/login';
+    return;
+  }
+  renderProfileTabsScreen(container, COMPANY_INFO_TABS, {
+    title: '회사정보',
+    intro: '참여 판정에 쓰이는 회사 자료를 관리합니다. 면허·인증은 공고 참여 판정에 바로 반영됩니다.',
+  });
+}
+
+// renderSavedSearches — 맞춤공고 화면(IA 재정리 2026-08-10). 이제 "추천공고를 보고
+// 참여를 결정하는 화면"에 집중한다: 추천 리스트(판정 그룹/필터) + 추천 조건 설정.
+// 회사정보 관리(기업정보/재무/실적/인력/면허·인증)는 #/me/company로, 담당자 관리는
+// 진행 중 사업으로 분리했다(각 render 함수는 그대로 재사용, 데이터/저장 API 무변경).
 async function renderSavedSearches(container) {
-  // 기업정보 탭(renderProfileBasicTab)이 currentProfile 전역을 직접 읽으므로,
-  // 예전 renderProfile과 동일하게 진입 시 최신 상태로 한 번 갱신한다 —
-  // 다른 화면(예: 프로필 수정 모달)에서 바뀐 값이 여기 들어와도 항상
-  // 최신으로 보이게.
   let me;
   try {
     me = await apiRequest('GET', '/api/me');
@@ -9113,8 +9185,7 @@ async function renderSavedSearches(container) {
   currentProfile = me.companyProfile;
   renderHeader();
 
-  // 추천 공고를 화면 최상단에 두기 위해 대시보드 데이터를 재사용한다(신규 API 없음).
-  // 실패해도 화면 자체는 뜨게 best-effort.
+  // 추천 공고는 대시보드 데이터를 재사용한다(신규 API 없음). best-effort.
   let dashData = null;
   try { dashData = await apiRequest('GET', '/api/dashboard'); } catch (e) { dashData = null; }
   const recommendations = (dashData && dashData.recommendations) || [];
@@ -9126,28 +9197,15 @@ async function renderSavedSearches(container) {
     <details class="ss-profile-collapse">
       <summary>더 정확한 추천을 위해 — 회사정보 등록</summary>
       <div id="profile-completeness-section"></div>
+      <a href="#/me/company" class="official-link">회사정보 관리로 이동 &rarr;</a>
     </details>
-    <h3 class="ss-manage-title">맞춤공고 관리</h3>
-    <div class="profile-tabs">
-      ${SAVED_SEARCHES_TABS.map((t, i) => `<button type="button" class="profile-tab-btn${i === 0 ? ' is-active' : ''}" data-tab="${t.key}">${escapeHtml(t.label)}</button>`).join('')}
-    </div>
-    <div id="saved-searches-tab-content"></div>
+    <h3 class="ss-manage-title">추천 조건 설정</h3>
+    <p class="license-card-meta">아래 조건에 맞는 새 공고를 매일 자동으로 찾아 알려드립니다.</p>
+    <div id="saved-searches-list-section"></div>
   `));
   renderSavedSearchRecommendations(document.getElementById('saved-search-reco-section'), recommendations);
   renderProfileCompletenessCard(document.getElementById('profile-completeness-section'));
-
-  const tabContent = document.getElementById('saved-searches-tab-content');
-  const tabRenderers = {};
-  SAVED_SEARCHES_TABS.forEach(t => { tabRenderers[t.key] = () => t.render(tabContent); });
-  tabRenderers[SAVED_SEARCHES_TABS[0].key]();
-
-  container.querySelectorAll('.profile-tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      container.querySelectorAll('.profile-tab-btn').forEach(b => b.classList.remove('is-active'));
-      btn.classList.add('is-active');
-      tabRenderers[btn.dataset.tab]();
-    });
-  });
+  renderSavedSearchesListTab(document.getElementById('saved-searches-list-section'));
 }
 
 // renderSavedSearchesListTab — 맞춤공고 조건 목록+생성/수정 폼(예전
@@ -10117,7 +10175,7 @@ function renderPipelineReviewButtons(container, noticeId) {
       btn.textContent = '참여할게요';
       if (err.status === 401) { location.hash = '#/auth/login'; return; }
       if (err.status === 400 && err.code === 'company_profile_required') {
-        errEl.innerHTML = '회사 정보를 등록하면 참여할 수 있습니다. <a href="#/me/saved-searches">기업 프로필 등록하기 →</a>';
+        errEl.innerHTML = '회사 정보를 등록하면 참여할 수 있습니다. <a href="#/me/company">기업 프로필 등록하기 →</a>';
       } else if (err.code === 'pipeline_quota_exceeded') {
         const limit = err.data && err.data.limit;
         const base = limit ? '현재 플랜의 파이프라인 등록 한도(' + limit + '건)에 도달했습니다.' : ERROR_MESSAGES.pipeline_quota_exceeded;
@@ -11033,7 +11091,7 @@ function renderParticipationSection(container, score, confidenceTier) {
     container.appendChild(h(`
       <div class="ai-participation-card ai-participation-card--cta">
         <p class="ai-participation-cta-text">회사 정보를 등록하면 AI가 이 공고의 참여 가능성을 분석해 드립니다.</p>
-        <a href="#/me/saved-searches" class="home-cta-primary">회사 정보 등록하기</a>
+        <a href="#/me/company" class="home-cta-primary">회사 정보 등록하기</a>
       </div>
     `));
     return;
@@ -11052,7 +11110,7 @@ function renderParticipationSection(container, score, confidenceTier) {
         // 판정이 애매한 경우에만 "채우면 해결됨" 안내+링크를 붙인다 — 공고 쪽
         // 데이터 공백(notice)은 프로필을 채워도 해결되지 않으므로 보여주지 않는다.
         const hintHtml = c.result === 'insufficient_data' && c.dataGapSide === 'company'
-          ? '<p class="elig-hint">이 정보가 있으면 더 정확히 판정됩니다. <a href="#/me/saved-searches">기업 프로필에서 채우기 &rarr;</a></p>'
+          ? '<p class="elig-hint">이 정보가 있으면 더 정확히 판정됩니다. <a href="#/me/company">기업 프로필에서 채우기 &rarr;</a></p>'
           : '';
         return `
         <li class="elig-item${isNoticeGap ? ' elig-item--notice-gap' : ''}">
@@ -11070,7 +11128,7 @@ function renderParticipationSection(container, score, confidenceTier) {
   // 보여준다 — 공고 쪽 데이터 공백(dataGapSide==='notice')은 프로필을 채워도
   // 해결되지 않으므로 이 링크를 보여주면 잘못된 안내가 된다.
   const nextAction = missing.some(c => c.dataGapSide === 'company')
-    ? '<a href="#/me/saved-searches" class="ai-next-action">회사 정보 보완하기 &rarr;</a>'
+    ? '<a href="#/me/company" class="ai-next-action">회사 정보 보완하기 &rarr;</a>'
     : '';
 
   // 공동수급 검토 서브태그(2026-08-07) — score.grade와 완전히 독립된
@@ -11087,7 +11145,7 @@ function renderParticipationSection(container, score, confidenceTier) {
   const confidenceLabel = isPreciseJudgement ? '정밀 판정' : '기본 판정';
   const confidenceNoticeHtml = isPreciseJudgement
     ? ''
-    : '<p class="ai-minimal-profile-notice">실적·면허·인증 정보를 등록하면 정밀 판정을 받을 수 있습니다. <a href="#/me/saved-searches">지금 등록하기 &rarr;</a></p>';
+    : '<p class="ai-minimal-profile-notice">실적·면허·인증 정보를 등록하면 정밀 판정을 받을 수 있습니다. <a href="#/me/company">지금 등록하기 &rarr;</a></p>';
 
   container.appendChild(h(`
     <div class="ai-participation-card ai-participation-card--${escapeHtml(score.grade)}">
@@ -14168,7 +14226,7 @@ async function renderMySubscription(container) {
     if (err.status === 401) { location.hash = '#/auth/login'; return; }
     container.innerHTML = '';
     if (err.status === 400) {
-      container.appendChild(h('<p class="empty">회사 프로필을 먼저 등록해주세요. <a href="#/me/saved-searches">프로필 등록하기</a></p>'));
+      container.appendChild(h('<p class="empty">회사 프로필을 먼저 등록해주세요. <a href="#/me/company">프로필 등록하기</a></p>'));
       return;
     }
     container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
@@ -14453,7 +14511,7 @@ async function renderGrowthAnalytics(container) {
     if (err.status === 401) { location.hash = '#/auth/login'; return; }
     container.innerHTML = '';
     if (err.status === 400) {
-      container.appendChild(h('<p class="empty">기업 프로필을 먼저 등록해주세요. <a href="#/me/saved-searches">프로필 등록하기</a></p>'));
+      container.appendChild(h('<p class="empty">기업 프로필을 먼저 등록해주세요. <a href="#/me/company">프로필 등록하기</a></p>'));
       return;
     }
     container.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
@@ -16722,7 +16780,9 @@ function route() {
   // 깨지도록 라우트 자체는 남기고 리다이렉트만 한다(renderProfile/
   // renderLicenses는 더 이상 라우트 진입점이 아니지만, 그 안의
   // 렌더 함수들 — renderProfileBasicTab 등 — 은 탭 콘텐츠로 계속 쓰인다).
-  if (path === '#/me/profile' || path === '#/me/licenses') { location.hash = '#/me/saved-searches'; return; }
+  // 옛 회사프로필/면허 URL은 이제 회사정보 화면으로(IA 재정리 2026-08-10, 하위호환).
+  if (path === '#/me/profile' || path === '#/me/licenses') { location.hash = '#/me/company'; return; }
+  if (path === '#/me/company') { renderCompanyInfo(app); return; }
   if (path === '#/me/account') { renderAccountSettings(app); return; }
   // 관심공고(#/me/bookmarks)는 폐지됨(2026-08-08, 참여검토와 기능이 겹쳐 제거) —
   // 옛 링크/북마크는 공고 검색으로 보낸다.
