@@ -8832,7 +8832,7 @@ let noticeListState = null;
 // N+1 아님: strip은 이 배열만 쓰고 공고별 상세 API를 절대 부르지 않는다.
 let searchTopRecoCache = null; // null=미조회, 배열=조회완료(0건 포함)
 
-// renderSearchTopReco — 공고검색 전체 목록 위에 "내 회사에 맞는 입찰공고"를 최대 5건
+// renderSearchTopReco — 공고검색 전체 목록 위에 "내 회사에 맞는 입찰공고"를 최대 6건
 // 노출하는 compact strip(2026-08-11). Dashboard V1 / 맞춤공고 V1은 건드리지 않고,
 // 이미 있는 GET /api/dashboard.recommendations(전부 procurement — scoring.go에서
 // support_program은 gradeNeedsConfirmation이라 추천에서 구조적으로 제외됨)를 재사용한다.
@@ -8899,11 +8899,12 @@ async function renderSearchTopReco(container, noticeType) {
   }
   if (!recs.length) return; // 0건 → section 전체 숨김(전체 공고 heading도 숨김 유지)
 
-  // Tier ASC로 안정정렬(동Tier는 원래 순서=서버 마감순 유지) 후 상위 5건.
+  // Tier ASC로 안정정렬(동Tier는 원래 순서=서버 마감순 유지) 후 상위 6건.
+  // 2열 grid라 6건이면 3행이 꽉 찬다(6=2+2+2). 추천이 6건 미만이면 있는 만큼만(가짜 카드 없음).
   const top = recs
     .map((r, i) => ({ r, i }))
     .sort((a, b) => (recommendationHeroTier(a.r) - recommendationHeroTier(b.r)) || (a.i - b.i))
-    .slice(0, 5)
+    .slice(0, 6)
     .map(x => x.r);
   if (!top.length) return;
 
