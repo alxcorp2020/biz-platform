@@ -9557,9 +9557,13 @@ async function renderSavedSearchesListTab(container, autoEditId) {
   const activeIndustries = new Set(items.filter(i => i.isActive && i.industry).map(i => i.industry));
   const isConflict = i => !i.isActive && !!i.industry && activeIndustries.has(i.industry);
 
+  // 기본 조건이 없을 때: 백엔드가 업종 충돌로 자동 생성을 건너뛴 경우(A안)엔 그 이유를
+  // 정직하게 안내하고 현재 조건을 그대로 쓰게 한다(사용자 데이터 자동 변경 없음).
   const defaultHtml = defaultItem
     ? savedSearchCardHtml(defaultItem, contacts)
-    : '<p class="ss-cond-empty">기본 맞춤조건이 없습니다. 회원가입 온보딩을 완료하면 자동으로 생성됩니다.</p>';
+    : (data.defaultSkippedConflict
+        ? `<div class="ss-cond-card"><div class="ss-cond-conflict"><p>현재 활성 중인 맞춤조건${data.defaultConflictName ? ` ('${escapeHtml(data.defaultConflictName)}')` : ''}이 회사 기본 업종과 같아, 중복 추천을 방지하기 위해 <strong>기본 맞춤조건을 자동 생성하지 않았어요</strong>. 지금 조건을 그대로 사용하시면 돼요.</p></div></div>`
+        : '<p class="ss-cond-empty">기본 맞춤조건이 없어요. 회사정보(지역·업종)를 등록하면 자동으로 만들어져요.</p>');
   const additionalHtml = additional.length
     ? additional.map(i => savedSearchCardHtml(i, contacts, { conflict: isConflict(i) })).join('')
     : '<p class="ss-cond-empty">아직 추가한 맞춤조건이 없어요. 다른 업종의 공고도 받고 싶다면 추가해보세요.</p>';

@@ -101,13 +101,81 @@ func scanSavedSearch(row interface{ Scan(dest ...any) error }) (*savedSearchItem
 	return &it, nil
 }
 
+// ensureDefaultSavedSearch — legacy 계정 정상화(A안, 2026-08-10). origin='onboarding'
+// 기본 조건이 없는 계정에 회사정보(지역/업종)로 기본 조건을 지연 생성한다. 온보딩
+// 자동생성이 신규 가입자에게만 적용돼(기존 계정은 onboarding_completed_at 백필로 제외),
+// 그 이전 계정에는 기본 조건이 없다 — 이를 목록 조회 시 자동으로 메운다.
+//
+// 안전 규칙(A안): 생성 전 기존 "활성" 맞춤조건과 업종이 겹치면(중복 추천 방지) 생성하지
+// 않고 그 사실만 알린다 — 사용자 데이터를 절대 자동 변경/비활성/삭제/승격하지 않는다.
+// 온보딩과 동일 규칙(지역+업종 첫값, origin='onboarding', is_active DB 기본값 true).
+// idempotent: 이미 기본이 있거나 회사정보가 없으면 아무것도 하지 않는다.
+func (s *Server) ensureDefaultSavedSearch(ctx context.Context, userID, region, industry string) (created, skippedConflict bool, conflictName string, err error) {
+	var exists bool
+	if err = s.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM saved_searches WHERE user_id = $1 AND origin = 'onboarding')`, userID).Scan(&exists); err != nil {
+		return false, false, "", err
+	}
+	if exists {
+		return false, false, "", nil // 이미 기본 조건 있음 — 대상 아님
+	}
+	region = strings.TrimSpace(region)
+	industry = strings.TrimSpace(industry)
+	if region == "" && industry == "" {
+		return false, false, "", nil // 회사정보 없음 — 만들 근거 없음(온보딩 미완 등)
+	}
+	// 업종이 있으면 기존 활성 조건과 겹치는지 검사. 아직 자기 자신 row가 없어 제외할 id가
+	// 없으므로 nil-uuid를 넘긴다(""는 uuid 캐스팅 에러 — id != '' 500 방지).
+	if industry != "" {
+		conflictName, err = s.findActiveSavedSearchIndustryConflict(ctx, userID, "00000000-0000-0000-0000-000000000000", industry)
+		if err != nil {
+			return false, false, "", err
+		}
+		if conflictName != "" {
+			return false, true, conflictName, nil // 충돌 → 생성 skip, 사용자 데이터 무변경
+		}
+	}
+	var regionArg, industryArg *string
+	if region != "" {
+		regionArg = &region
+	}
+	if industry != "" {
+		industryArg = &industry
+	}
+	if _, err = s.db.ExecContext(ctx, `
+		INSERT INTO saved_searches (user_id, name, region, industry, alert_enabled, origin)
+		VALUES ($1, '내 기본 조건', $2, $3, true, 'onboarding')`,
+		userID, regionArg, industryArg); err != nil {
+		return false, false, "", err
+	}
+	return true, false, "", nil
+}
+
 func (s *Server) handleListSavedSearches(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
-	rows, err := s.db.QueryContext(r.Context(), savedSearchSelect+` WHERE user_id = $1 ORDER BY created_at ASC`, userID)
+	ctx := r.Context()
+
+	// legacy 정상화(A안): 기본 조건이 없으면 회사정보로 지연 생성(업종 충돌 시 skip+안내).
+	// 실패해도 목록 조회 자체는 계속 진행한다(기존 목록은 그대로 보여준다).
+	var region, industry string
+	if profile, perr := s.getCompanyProfile(r, userID); perr == nil && profile != nil {
+		if profile.Region != nil {
+			region = *profile.Region
+		}
+		if len(profile.Industry) > 0 {
+			industry = profile.Industry[0]
+		}
+	}
+	_, skippedConflict, conflictName, eerr := s.ensureDefaultSavedSearch(ctx, userID, region, industry)
+	if eerr != nil {
+		s.logger.Error("list-saved-searches: ensure default failed", "error", eerr)
+	}
+
+	rows, err := s.db.QueryContext(ctx, savedSearchSelect+` WHERE user_id = $1 ORDER BY created_at ASC`, userID)
 	if err != nil {
 		s.logger.Error("list-saved-searches: query failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
@@ -124,7 +192,13 @@ func (s *Server) handleListSavedSearches(w http.ResponseWriter, r *http.Request)
 		}
 		items = append(items, *it)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	resp := map[string]any{"items": items}
+	if skippedConflict {
+		// 기본 조건이 기존 활성 조건과 업종이 겹쳐 자동 생성하지 않았음을 프론트에 알린다.
+		resp["defaultSkippedConflict"] = true
+		resp["defaultConflictName"] = conflictName
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // savedSearchRequest — keywordsInclude/Exclude는 프론트에서 콤마로 구분한
