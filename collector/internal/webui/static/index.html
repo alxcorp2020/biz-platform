@@ -1219,7 +1219,17 @@
   .dash-automation-collapse[open] > summary::before { content: "▾ "; }
   .dash-automation-collapse .dash-automation-card { margin-top: 0.5rem; }
   /* Phase 1 보정: 가장 먼저 볼 공고 HERO */
-  .dash-hero { margin-top: var(--space-md); background: var(--surface, #fff); border: 1px solid var(--accent-blue); border-radius: 16px; padding: 1.1rem 1.25rem; box-shadow: 0 8px 30px -22px rgba(31,58,95,0.5); }
+  /* (§1 보정) 대시보드 카드/섹션 세로 간격을 부모 gap으로 통일. 자식 개별 margin은
+     제거해 겹침/불균일을 없앤다. 빈 배너 슬롯은 숨겨 유령 gap을 막는다. */
+  .dashboard-stack { display: flex; flex-direction: column; gap: var(--space-lg); }
+  .dashboard-stack > * { margin-top: 0; margin-bottom: 0; }
+  /* .detail-card는 margin-bottom(space-lg)이 더 뒤에 정의돼 위 리셋을 이기므로, gap과
+     이중으로 더해지지 않게 명시도를 높여 다시 0으로(회사정보 카드 아래 64px 방지). */
+  .dashboard-stack > .detail-card { margin-top: 0; margin-bottom: 0; }
+  .dashboard-stack > #dashboard-profile-banner:empty { display: none; }
+  /* 접힘 섹션(자동처리/바로가기)의 상단 구분선·패딩은 이제 gap이 대신하므로 제거(간격 균일) */
+  .dashboard-stack > .dash-automation-collapse, .dashboard-stack > .dash-useful-collapse { border-top: 0; padding-top: 0; margin-top: 0; }
+  .dash-hero { background: var(--surface, #fff); border: 1px solid var(--accent-blue); border-radius: 16px; padding: 1.1rem 1.25rem; box-shadow: 0 8px 30px -22px rgba(31,58,95,0.5); }
   .dash-hero-eyebrow { font-size: 0.75rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-blue); }
   .dash-hero-title { margin: 0.3rem 0 0.4rem; font-size: 1.3rem; font-weight: 800; line-height: 1.3; }
   .dash-hero-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.7rem; color: var(--ink-soft); font-size: 0.92rem; }
@@ -6892,20 +6902,22 @@ function renderDashboard(container, data) {
   else if (todoCount) greetingTitle = `오늘 처리할 일 ${todoCount}건이 있어요`;
   else greetingTitle = '오늘은 급하게 확인할 업무가 없어요';
 
+  // §1 보정: 카드/섹션 사이 세로 간격을 개별 margin이 아니라 부모 컨테이너의 flex gap으로
+  // 통일한다(dash-hero 등 <section>은 하단 margin이 없어 다음 .detail-card와 붙어 보였음).
   container.appendChild(h(`
-    <div class="dash-greeting">
-      <p class="dash-greeting-eyebrow">안녕하세요.</p>
-      <h2 class="dash-greeting-title">${escapeHtml(greetingTitle)}</h2>
+    <div class="dashboard-stack">
+      <div class="dash-greeting">
+        <p class="dash-greeting-eyebrow">안녕하세요.</p>
+        <h2 class="dash-greeting-title">${escapeHtml(greetingTitle)}</h2>
+      </div>
+      <div id="dashboard-profile-banner"></div>
+      ${topPickHtml}
+      ${publicBidFitBannerHtml((currentProfile || {}).publicBidFit)}
+      ${itemsHtml}
+      ${companyInfoHtml}
+      ${automationHtml}
+      ${usefulLinksSectionHtml()}
     </div>
-    <div id="dashboard-profile-banner"></div>
-
-    ${topPickHtml}
-    ${publicBidFitBannerHtml((currentProfile || {}).publicBidFit)}
-    ${itemsHtml}
-
-    ${companyInfoHtml}
-    ${automationHtml}
-    ${usefulLinksSectionHtml()}
   `));
   renderDashboardProfileBanner(document.getElementById('dashboard-profile-banner'));
 
