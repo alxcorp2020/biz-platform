@@ -671,6 +671,18 @@
      한 줄로 보여준다. 스크롤로 다음 페이지를 불러올 때마다(20건 단위)
      renderNoticeListItems가 통째로 다시 그리면서 이 숫자도 같이 갱신됨. */
   .notice-list-counter { font-size: var(--text-caption); font-weight: 700; color: var(--ink-soft); margin-top: 0; margin-bottom: 0.6rem; }
+  /* 공고검색 상단 "내 회사에 맞는 입찰공고" strip(2026-08-11) — 전체 검색폼/목록 위의
+     독립 compact 영역. 목록(.home-list 재사용)은 그대로 두고 헤더만 얹는다. */
+  .search-top-reco { margin-bottom: 1.1rem; }
+  .search-top-reco-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.55rem; }
+  .search-top-reco-titles { min-width: 0; }
+  .search-top-reco-title { margin: 0; font-size: 1rem; }
+  .search-top-reco-sub { margin: 0.15rem 0 0; color: var(--ink-soft); font-size: 0.85rem; }
+  .search-top-reco-all { flex-shrink: 0; white-space: nowrap; font-size: 0.85rem; }
+  @media (max-width: 480px) {
+    .search-top-reco-head { flex-wrap: wrap; }
+    .search-top-reco-all { margin-top: 0.1rem; }
+  }
   /* 공고 검색 결과 목록 — 카드형(2026-08-08 재설계): 한 박스에 촘촘히 쌓지 않고
      각 공고를 독립 카드로 위아래 여백을 둬 보기 쉽게 한다. */
   .notice-list--cards {
@@ -8798,6 +8810,79 @@ const REGION_OPTIONS = [
 // 조건(q/region/industry/sort)과 다르면 새 검색으로 보고 캐시를 버린다.
 let noticeListState = null;
 
+// searchTopRecoCache — 공고검색 상단 "내 회사에 맞는 입찰공고" strip이 재사용하는
+// GET /api/dashboard.recommendations의 세션 캐시(모듈 레벨). 검색/필터/정렬을 바꿀
+// 때마다 renderList가 다시 도는데, 그때마다 /api/dashboard를 새로 부르면 낭비라
+// 한 번 받아두고 재사용한다(추천은 "먼저 볼 힌트"라 세션 내 약간의 staleness 허용).
+// N+1 아님: strip은 이 배열만 쓰고 공고별 상세 API를 절대 부르지 않는다.
+let searchTopRecoCache = null; // null=미조회, 배열=조회완료(0건 포함)
+
+// renderSearchTopReco — 공고검색 전체 목록 위에 "내 회사에 맞는 입찰공고"를 최대 5건
+// 노출하는 compact strip(2026-08-11). Dashboard V1 / 맞춤공고 V1은 건드리지 않고,
+// 이미 있는 GET /api/dashboard.recommendations(전부 procurement — scoring.go에서
+// support_program은 gradeNeedsConfirmation이라 추천에서 구조적으로 제외됨)를 재사용한다.
+// 정렬은 홈 HERO와 동일한 recommendationHeroTier(Tier ASC, 동Tier 마감순 유지)를 그대로
+// 쓴다. 노출 게이트: 로그인+회사프로필 있고, noticeType 필터가 support_program이 아니고,
+// 추천이 1건 이상일 때만. 그 외엔 영역 전체 숨김(거대한 빈 카드 없음). strip은 탐색용이라
+// REVIEW 인라인 질문([보유]/[미보유]/[모름])이나 맞춤조건 관리 UI를 넣지 않는다.
+async function renderSearchTopReco(container, noticeType) {
+  if (!container) return;
+  container.innerHTML = '';
+  // 게이트: 미로그인/프로필 없음 → 숨김. 지원사업 필터 → 숨김(추천 데이터 자체가 없음).
+  if (!currentUser || !currentProfile) return;
+  if (noticeType === 'support_program') return;
+
+  // 추천 데이터는 세션 캐시 재사용(없을 때 1회만 /api/dashboard 조회). 실패는 조용히 숨김.
+  // 실패 시 캐시에 []를 굳히지 않는다 — 부팅 순간의 일시적 401/네트워크 오류가 세션 내내
+  // strip을 숨겨버리지 않도록, 오류면 캐시를 null로 두고 이번에는 숨기기만 한다(다음 진입에 재시도).
+  let recs = searchTopRecoCache;
+  if (recs === null) {
+    try {
+      const data = await apiRequest('GET', '/api/dashboard');
+      recs = (data && data.recommendations) || [];
+      searchTopRecoCache = recs; // 성공(0건 포함)만 캐시 확정
+    } catch (e) {
+      return; // 조회 실패 → 이번엔 숨김, 캐시는 null 유지(다음 renderList에서 재시도)
+    }
+  }
+  if (!recs.length) return; // 0건 → 영역 전체 숨김
+
+  // Tier ASC로 안정정렬(동Tier는 원래 순서=서버 마감순 유지) 후 상위 5건.
+  const top = recs
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => (recommendationHeroTier(a.r) - recommendationHeroTier(b.r)) || (a.i - b.i))
+    .slice(0, 5)
+    .map(x => x.r);
+  if (!top.length) return;
+
+  // CTA 라벨은 Tier별(§11): 분석대기엔 "확인하기"류 금지 — 사용자가 해결할 수 없으므로.
+  const ctaByTier = { 0: '상세 보기', 1: '조건 확인', 2: '조건 확인', 3: '상세 보기', 4: '상세 보기' };
+  const rowsHtml = top.map(it => {
+    const tier = recommendationHeroTier(it);
+    // homeListRowHtml 재사용: ctaHref는 서버가 준 값(#/notices/{id})을 그대로, ctaLabel만 Tier로.
+    const copy = Object.assign({}, it, { ctaLabel: ctaByTier[tier] || '상세 보기' });
+    return homeListRowHtml(copy);
+  }).join('');
+
+  // 제목 회사명: 확실할 때만 "OO회사에 맞는", 아니면 추측 없이 "내 회사에 맞는"(§6/§12).
+  const companyName = (currentProfile && currentProfile.companyName || '').trim();
+  const heading = companyName ? `${escapeHtml(companyName)}에 맞는 입찰공고` : '내 회사에 맞는 입찰공고';
+
+  container.appendChild(h(`
+    <section class="search-top-reco">
+      <div class="search-top-reco-head">
+        <div class="search-top-reco-titles">
+          <h3 class="search-top-reco-title">${heading}</h3>
+          <p class="search-top-reco-sub">회사정보와 맞춤조건을 기준으로 먼저 확인할 입찰공고예요.</p>
+        </div>
+        <a href="#/me/saved-searches" class="official-link search-top-reco-all">맞춤공고 전체보기 &rarr;</a>
+      </div>
+      <div class="home-list search-top-reco-list">${rowsHtml}</div>
+    </section>
+  `));
+  wireHomeListNav(container); // 행 클릭 → ctaHref(#/notices/{id}) 상세 이동(재사용, 새 로직 없음)
+}
+
 // SAVED_SEARCH_ONLY_PARAMS — "맞춤공고"(#/me/saved-searches) 결과보기가
 // #/notices로 넘기는, 화면에는 노출 필드가 없는 추가 필터. 검색 화면
 // 자체를 복잡하게 만들지 않으려 이 필드들의 입력 UI는 따로 안 만들고
@@ -8935,6 +9020,7 @@ function renderList(container) {
   container.innerHTML = '';
   container.appendChild(h(`
     ${savedSearchName ? `<div class="extraction-banner"><span aria-hidden="true">🔖</span> 맞춤공고 "${escapeHtml(savedSearchName)}" 조건 결과입니다 — <a href="#/me/saved-searches">맞춤공고 관리로 돌아가기</a></div>` : ''}
+    <div id="search-top-reco"></div>
     <form class="search-form" id="filter-form">
       <div class="search-bar">
         <div class="search-input-wrap">
@@ -8994,6 +9080,10 @@ function renderList(container) {
     </form>
     <div id="list-body">${skeletonListHtml(6)}</div>
   `));
+
+  // 상단 "내 회사에 맞는 입찰공고" strip — 목록 로드와 병렬(await 안 함)로 채운다.
+  // 게이트/숨김은 renderSearchTopReco 내부에서 처리(미로그인/지원사업/0건 → 영역 숨김).
+  renderSearchTopReco(document.getElementById('search-top-reco'), currentNoticeType);
 
   const filterForm = document.getElementById('filter-form');
   // 예산 입력은 통화 자동포맷(쉼표) — 제출 시 숫자만 뽑아 URL에 넣는다.
