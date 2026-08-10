@@ -1907,7 +1907,13 @@
   .pj-summary { font-size: 0.85rem; color: var(--ink-soft); }
   /* 추천 카드 판정 미니배지(대시보드) — pj-grade 톤 재사용, 크기만 축소 */
   .home-list-judgment { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.25rem; }
-  .pj-mini { font-size: 0.72rem; font-weight: 700; padding: 0.08rem 0.45rem; border-radius: 999px; }
+  .pj-mini { font-size: 0.72rem; font-weight: 700; padding: 0.08rem 0.45rem; border-radius: 999px; white-space: nowrap; }
+  /* 좁은 폭(모바일)에서 추천/할 일 카드 행을 줄바꿈해 제목 열이 side(D-day·CTA)에
+     밀려 0폭으로 붕괴하지 않게 한다(공용 home-list, 대시보드·맞춤공고 동일 적용). */
+  @media (max-width: 480px) {
+    .home-list-row { flex-wrap: wrap; }
+    .home-list-side { width: 100%; justify-content: flex-end; margin-top: 0.35rem; }
+  }
   .home-list-judgment-reasons { font-size: 0.78rem; color: var(--ink-soft); }
   /* 맞춤공고 추천 히어로 */
   .ss-reco-head { display: flex; align-items: baseline; gap: 0.5rem; }
@@ -1925,6 +1931,40 @@
   .ss-profile-collapse[open] > summary::after { content: ' ▴'; }
   .ss-profile-collapse[open] #profile-completeness-section { margin-top: 0.85rem; }
   .ss-manage-title { margin-top: 1.5rem; }
+  /* 맞춤조건 재설계(2026-08-10) — 추천 결과와 조건 관리를 섹션으로 분리 */
+  .ss-section-divider { margin: 2rem 0 1rem; padding-top: 1.5rem; border-top: 2px solid var(--border); }
+  .ss-section-divider-title { margin: 0; font-size: 1.15rem; }
+  .ss-section-divider-desc { margin: 0.2rem 0 0; color: var(--ink-soft); font-size: 0.9rem; }
+  .ss-cond-section { margin-top: 1.25rem; }
+  .ss-cond-section-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+  .ss-cond-section-title { margin: 0 0 0.5rem; font-size: 1rem; color: var(--ink); }
+  .ss-cond-section-head .ss-cond-section-title { margin-bottom: 0; }
+  .ss-cond-section-desc { margin: 0.35rem 0 0.75rem; color: var(--ink-soft); font-size: 0.88rem; }
+  .ss-cond-list { display: flex; flex-direction: column; gap: 0.75rem; }
+  .ss-cond-empty { color: var(--ink-soft); font-size: 0.9rem; padding: 0.5rem 0; }
+  .ss-cond-card { border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); padding: 1rem 1.1rem; box-shadow: var(--shadow-soft); }
+  .ss-cond-card--default { border-color: var(--accent-blue); background: var(--accent-blue-soft, rgba(49,130,246,0.05)); }
+  .ss-cond-card--inactive { opacity: 0.72; }
+  .ss-cond-card--highlight { animation: ssCardPulse 2.2s ease; }
+  @keyframes ssCardPulse { 0%,100% { box-shadow: var(--shadow-soft); } 20% { box-shadow: 0 0 0 3px var(--accent-blue); } }
+  @media (prefers-reduced-motion: reduce) { .ss-cond-card--highlight { animation: none; } }
+  .ss-cond-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
+  .ss-cond-name { font-weight: 700; font-size: 1.02rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  .ss-cond-badges { display: flex; gap: 0.35rem; flex-shrink: 0; }
+  .ss-cond-side-top { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+  .ss-badge { font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 999px; white-space: nowrap; }
+  .ss-badge--primary { background: var(--accent-blue); color: #fff; }
+  .ss-badge--active { background: var(--success-soft, #e3f4eb); color: var(--success, #127a4f); }
+  .ss-badge--ok { background: var(--success-soft, #e3f4eb); color: var(--success, #127a4f); }
+  .ss-badge--muted { background: var(--surface-sunken, #f1f3f5); color: var(--ink-mute, #8a8f98); }
+  .ss-cond-meta { margin-top: 0.4rem; color: var(--ink-soft); font-size: 0.9rem; line-height: 1.5; }
+  .ss-cond-desc { margin: 0.5rem 0 0.75rem; color: var(--ink-soft); font-size: 0.88rem; }
+  .ss-cond-notify { margin-top: 0.35rem; color: var(--ink-mute, #8a8f98); font-size: 0.82rem; }
+  .ss-cond-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; }
+  .ss-cond-more { background: none; border: 1px solid var(--border); border-radius: 8px; width: 2rem; height: 2rem; font-size: 1.1rem; line-height: 1; color: var(--ink-soft); cursor: pointer; flex-shrink: 0; }
+  .ss-cond-more:hover { background: var(--surface-sunken, #f1f3f5); color: var(--ink); }
+  .ss-cond-conflict { margin-top: 0.85rem; padding: 0.75rem 0.85rem; border-radius: 10px; background: var(--warn-soft, #fbf0dc); }
+  .ss-cond-conflict p { margin: 0 0 0.6rem; font-size: 0.88rem; color: var(--ink); line-height: 1.55; }
   /* 진행 중 사업 상세 — 제출완료/종결 상태에서 판정 요약을 접어서 보조화 */
   .pipeline-judgment-collapse { margin: 0.75rem 0; }
   .pipeline-judgment-collapse > summary { cursor: pointer; font-size: 0.9rem; font-weight: 700; color: var(--accent-blue); list-style: none; }
@@ -9453,6 +9493,8 @@ async function renderSavedSearches(container) {
   const recommendations = (dashData && dashData.recommendations) || [];
 
   container.innerHTML = '';
+  // §10/§14: "추천을 보는 것"(오늘의 맞춤공고)과 "추천 기준을 관리하는 것"(내 맞춤조건)을
+  // 명확한 섹션 구분선으로 분리한다.
   container.appendChild(h(`
     <h2>맞춤공고</h2>
     <div id="saved-search-reco-section"></div>
@@ -9461,8 +9503,10 @@ async function renderSavedSearches(container) {
       <div id="profile-completeness-section"></div>
       <a href="#/me/company" class="official-link">회사정보 관리로 이동 &rarr;</a>
     </details>
-    <h3 class="ss-manage-title">추천 조건 설정</h3>
-    <p class="license-card-meta">아래 조건에 맞는 새 공고를 매일 자동으로 찾아 알려드립니다.</p>
+    <div class="ss-section-divider">
+      <h3 class="ss-section-divider-title">내 맞춤조건</h3>
+      <p class="ss-section-divider-desc">AI가 어떤 사업을 찾아볼지 관리해요.</p>
+    </div>
     <div id="saved-searches-list-section"></div>
   `));
   renderSavedSearchRecommendations(document.getElementById('saved-search-reco-section'), recommendations);
@@ -9505,129 +9549,165 @@ async function renderSavedSearchesListTab(container, autoEditId) {
   const contacts = contactsData.items || [];
 
   container.innerHTML = '';
+  // 기본 조건(항상 1개) 먼저, 추가 조건은 그 아래(§15). 정책은 백엔드 그대로.
+  const defaultItem = items.find(isDefaultSavedSearchCard) || null;
+  const additional = items.filter(i => !isDefaultSavedSearchCard(i));
+  // 비활성 추가 조건이 "다른 활성 조건과 같은 업종"이라 활성화가 막히는지(백엔드
+  // findActiveSavedSearchIndustryConflict와 동일한 판단) — 왜 비활성인지 안내에 사용.
+  const activeIndustries = new Set(items.filter(i => i.isActive && i.industry).map(i => i.industry));
+  const isConflict = i => !i.isActive && !!i.industry && activeIndustries.has(i.industry);
+
+  const defaultHtml = defaultItem
+    ? savedSearchCardHtml(defaultItem, contacts)
+    : '<p class="ss-cond-empty">기본 맞춤조건이 없습니다. 회원가입 온보딩을 완료하면 자동으로 생성됩니다.</p>';
+  const additionalHtml = additional.length
+    ? additional.map(i => savedSearchCardHtml(i, contacts, { conflict: isConflict(i) })).join('')
+    : '<p class="ss-cond-empty">아직 추가한 맞춤조건이 없어요. 다른 업종의 공고도 받고 싶다면 추가해보세요.</p>';
+
   container.appendChild(h(`
-    <p class="license-card-meta">검색조건을 저장해두면 새로 등록되는 공고가 매일 아침 이메일로 도착합니다. 알림을 받을 담당자는 "담당자 관리" 탭에서 등록해두면 아래에서 바로 선택할 수 있습니다.</p>
-    <div class="license-toolbar">
-      <button type="button" id="saved-search-add-btn" class="btn btn-primary btn-sm">맞춤공고 만들기</button>
+    <div class="ss-cond-section">
+      <h3 class="ss-cond-section-title">내 기본 맞춤조건</h3>
+      <div class="ss-cond-list">${defaultHtml}</div>
     </div>
-    <div id="saved-search-form-slot"></div>
-    <div class="license-list" id="saved-search-list"></div>
+    <div class="ss-cond-section">
+      <div class="ss-cond-section-head">
+        <h3 class="ss-cond-section-title">추가 맞춤조건</h3>
+        <button type="button" id="saved-search-add-btn" class="btn btn-primary btn-sm">+ 맞춤조건 추가</button>
+      </div>
+      <p class="ss-cond-section-desc">다른 업종의 공고도 받아보고 싶다면 맞춤조건을 추가할 수 있어요. 매일 아침 새 공고가 이메일로 도착합니다.</p>
+      <div id="saved-search-form-slot"></div>
+      <div class="ss-cond-list" id="saved-search-list">${additionalHtml}</div>
+    </div>
   `));
 
-  const listEl = document.getElementById('saved-search-list');
-  if (!items.length) {
-    listEl.appendChild(h('<p class="empty">아직 저장된 맞춤공고 조건이 없습니다. "맞춤공고 만들기"로 시작해보세요.</p>'));
-  } else {
-    items.forEach(item => listEl.appendChild(h(savedSearchCardHtml(item, contacts))));
-  }
-
   const formSlot = document.getElementById('saved-search-form-slot');
+  const byId = idv => items.find(i => i.id === idv);
+  // 공용 액션(기본 카드의 인라인 버튼 + 추가 카드의 ⋮ 오버플로우가 함께 쓴다).
+  const openEdit = idv => { const it = byId(idv); if (it) renderSavedSearchForm(formSlot, it, contacts, () => renderSavedSearchesListTab(container)); };
+  const openDuplicate = idv => {
+    const source = byId(idv); if (!source) return;
+    const existingNames = new Set(items.map(i => i.name));
+    const suggestedName = nextDuplicateNameClientSide(existingNames, source.name + ' 복제');
+    const body = openModal('맞춤조건 복제', `
+      <p class="modal-message">복제한 조건의 이름을 확인하거나 수정해주세요. 복제본은 중복 추천 방지를 위해 <strong>비활성 상태</strong>로 시작해요.</p>
+      <form id="duplicate-name-form" class="profile-form">
+        <label>조건 이름<input type="text" name="name" required value="${escapeAttr(suggestedName)}"></label>
+        <div id="duplicate-name-error" class="error" style="display:none"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="duplicate-name-cancel-btn">취소</button>
+          <button type="submit" class="btn btn-primary">복제</button>
+        </div>
+      </form>
+    `);
+    body.querySelector('#duplicate-name-cancel-btn').addEventListener('click', closeModal);
+    const form = body.querySelector('#duplicate-name-form');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorBox = body.querySelector('#duplicate-name-error');
+      errorBox.style.display = 'none';
+      const submitBtn = form.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      try {
+        const res = await apiRequest('POST', '/api/me/saved-searches/' + encodeURIComponent(idv) + '/duplicate', { name: form.elements['name'].value });
+        closeModal();
+        showToast('맞춤조건을 복제했어요. 같은 업종이라 비활성 상태예요 — 다른 업종으로 바꾸면 활성화할 수 있어요.', 'success');
+        renderSavedSearchesListTab(container, res.id, { focusDuplicate: true }); // 복제본으로 이동
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.style.display = 'block';
+        submitBtn.disabled = false;
+      }
+    });
+  };
+  const confirmDelete = idv => {
+    const it = byId(idv);
+    openConfirmModal({
+      title: '맞춤조건 삭제',
+      message: it ? `'${it.name}' 맞춤조건을 삭제할까요? 이 조건으로 더 이상 새로운 공고를 추천하지 않습니다.` : '이 맞춤조건을 삭제하시겠습니까?',
+      confirmLabel: '삭제',
+      tone: 'danger',
+      onConfirm: async () => {
+        await apiRequest('DELETE', '/api/me/saved-searches/' + encodeURIComponent(idv));
+        renderSavedSearchesListTab(container);
+      },
+    });
+  };
+
   document.getElementById('saved-search-add-btn').addEventListener('click', () => {
     renderSavedSearchForm(formSlot, null, contacts, () => renderSavedSearchesListTab(container));
   });
-  listEl.querySelectorAll('.saved-search-edit-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const item = items.find(i => i.id === btn.dataset.id);
-      renderSavedSearchForm(formSlot, item, contacts, () => renderSavedSearchesListTab(container));
+  // 기본 카드 인라인 버튼(조건 수정/복제) + 업종 변경하기(비활성 사유 해소용).
+  container.querySelectorAll('.saved-search-edit-btn, .saved-search-change-industry-btn').forEach(btn => {
+    btn.addEventListener('click', () => openEdit(btn.dataset.id));
+  });
+  container.querySelectorAll('.saved-search-duplicate-btn').forEach(btn => {
+    btn.addEventListener('click', () => openDuplicate(btn.dataset.id));
+  });
+  // 추가 카드 ⋮ 오버플로우 — 수정/복제/삭제를 접어 버튼 밀도를 낮춘다(§16).
+  container.querySelectorAll('.saved-search-more-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idv = btn.dataset.id;
+      const menu = openDropdown(e.currentTarget, `
+        <button type="button" class="dropdown-menu-item" data-act="edit">수정</button>
+        <button type="button" class="dropdown-menu-item" data-act="duplicate">복제</button>
+        <hr class="dropdown-divider">
+        <button type="button" class="dropdown-menu-item dropdown-menu-item--danger" data-act="delete">삭제</button>
+      `, { align: 'right' });
+      if (!menu) return;
+      menu.querySelectorAll('.dropdown-menu-item').forEach(mi => mi.addEventListener('click', () => {
+        closeActiveDropdown();
+        const act = mi.dataset.act;
+        if (act === 'edit') openEdit(idv);
+        else if (act === 'duplicate') openDuplicate(idv);
+        else if (act === 'delete') confirmDelete(idv);
+      }));
     });
   });
-  listEl.querySelectorAll('.saved-search-duplicate-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const source = items.find(i => i.id === btn.dataset.id);
-      if (!source) return;
-      // nextDuplicateNameClientSide — saved_searches.go의 nextDuplicateName과
-      // 같은 규칙("OO 복제" → 이미 있으면 "복제 2"/"복제 3"...)을 모달
-      // 기본값 미리보기용으로만 재계산한다. 실제 저장 시엔 사용자가
-      // 확인/수정한 값을 서버에 그대로 보내고, 서버는 그 값을 그대로 쓴다
-      // (2026-08-07, "복제 시 이름 확인 모달" 적용).
-      const existingNames = new Set(items.map(i => i.name));
-      const suggestedName = nextDuplicateNameClientSide(existingNames, source.name + ' 복제');
-      const body = openModal('맞춤공고 복제', `
-        <p class="modal-message">복제한 조건의 이름을 확인하거나 수정해주세요.</p>
-        <form id="duplicate-name-form" class="profile-form">
-          <label>조건 이름<input type="text" name="name" required value="${escapeAttr(suggestedName)}"></label>
-          <div id="duplicate-name-error" class="error" style="display:none"></div>
-          <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" id="duplicate-name-cancel-btn">취소</button>
-            <button type="submit" class="btn btn-primary">복제</button>
-          </div>
-        </form>
-      `);
-      body.querySelector('#duplicate-name-cancel-btn').addEventListener('click', closeModal);
-      const form = body.querySelector('#duplicate-name-form');
-      form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const errorBox = body.querySelector('#duplicate-name-error');
-        errorBox.style.display = 'none';
-        const submitBtn = form.querySelector('button[type="submit"]');
-        submitBtn.disabled = true;
-        try {
-          const res = await apiRequest('POST', '/api/me/saved-searches/' + encodeURIComponent(btn.dataset.id) + '/duplicate', { name: form.elements['name'].value });
-          closeModal();
-          renderSavedSearchesListTab(container, res.id);
-        } catch (err) {
-          errorBox.textContent = err.message;
-          errorBox.style.display = 'block';
-          submitBtn.disabled = false;
-        }
-      });
-    });
-  });
-  listEl.querySelectorAll('.saved-search-delete-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      openConfirmModal({
-        title: '조건 삭제',
-        message: '이 맞춤공고 조건을 삭제하시겠습니까?',
-        confirmLabel: '삭제',
-        tone: 'danger',
-        onConfirm: async () => {
-          await apiRequest('DELETE', '/api/me/saved-searches/' + encodeURIComponent(btn.dataset.id));
-          renderSavedSearchesListTab(container);
-        },
-      });
-    });
-  });
-  listEl.querySelectorAll('.saved-search-results-link').forEach(a => {
+  container.querySelectorAll('.saved-search-results-link').forEach(a => {
     a.addEventListener('click', () => { noticeListState = null; }); // 새 조건 결과이므로 무한스크롤 캐시 폐기
   });
-  listEl.querySelectorAll('.saved-search-active-toggle').forEach(toggle => {
+  container.querySelectorAll('.saved-search-active-toggle').forEach(toggle => {
     toggle.addEventListener('change', async () => {
       const nextValue = toggle.checked;
+      const idv = toggle.dataset.id;
       toggle.disabled = true;
       try {
-        await apiRequest('PUT', '/api/me/saved-searches/' + encodeURIComponent(toggle.dataset.id) + '/active', { isActive: nextValue });
+        await apiRequest('PUT', '/api/me/saved-searches/' + encodeURIComponent(idv) + '/active', { isActive: nextValue });
         renderSavedSearchesListTab(container);
       } catch (err) {
         toggle.checked = !nextValue; // 실패 시 원상복구
         toggle.disabled = false;
         if (err.status === 401) { location.hash = '#/auth/login'; return; }
-        // industry_overlap — 업종 중복으로 활성화가 거부된 경우. 조용히
-        // 되돌리기만 하면 왜 안 켜지는지 알 수 없으므로, 겹치는 조건
-        // 이름을 넣은 구체적인 안내를 모달로 보여준다(사용자가 명시적으로
-        // "명확한 에러 메시지"를 요구했다 — 3초 후 사라지는 토스트로는
-        // 부족하다고 판단해 확인 버튼이 있는 모달을 씀).
+        // industry_overlap — 오류가 아니라 "다음 행동을 알려주는 안내"로(§8). 겹치는
+        // 조건 이름 + [업종 변경하기] CTA를 함께 준다.
         if (err.code === 'industry_overlap') {
           const conflictName = err.data && err.data.conflictName;
           const message = conflictName
-            ? `이미 활성화된 다른 맞춤공고와 업종이 겹칩니다 ('${conflictName}'). 중복 추천을 방지하기 위해 업종이 겹치지 않는 조건만 동시에 활성화할 수 있습니다.`
-            : err.message;
-          const body = openModal('활성화할 수 없습니다', `
-            <p class="modal-message">${escapeHtml(message)}</p>
+            ? `'${conflictName}' 조건과 <strong>같은 업종</strong>이에요. 같은 공고가 중복 추천되지 않도록, 업종이 겹치지 않는 조건만 동시에 활성화할 수 있어요.`
+            : escapeHtml(err.message);
+          const body = openModal('아직 활성화할 수 없어요', `
+            <p class="modal-message">${message} 다른 업종으로 변경한 후 활성화해주세요.</p>
             <div class="modal-actions">
-              <button type="button" class="btn btn-primary" id="industry-overlap-ack-btn">확인</button>
+              <button type="button" class="btn btn-secondary" id="industry-overlap-cancel-btn">닫기</button>
+              <button type="button" class="btn btn-primary" id="industry-overlap-change-btn">업종 변경하기</button>
             </div>
           `);
-          body.querySelector('#industry-overlap-ack-btn').addEventListener('click', closeModal);
+          body.querySelector('#industry-overlap-cancel-btn').addEventListener('click', closeModal);
+          body.querySelector('#industry-overlap-change-btn').addEventListener('click', () => { closeModal(); openEdit(idv); });
         }
       }
     });
   });
 
+  // 복제 직후(§20): 복제본 카드로 스크롤 + 잠깐 강조. 카드 자체가 "같은 업종이라 비활성 ·
+  // 업종 변경하기" 안내를 담고 있어, 폼을 바로 열지 않고 사용자가 상황을 먼저 보게 한다.
   if (autoEditId) {
-    const newItem = items.find(i => i.id === autoEditId);
-    if (newItem) {
-      renderSavedSearchForm(formSlot, newItem, contacts, () => renderSavedSearchesListTab(container));
-      formSlot.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const toggle = container.querySelector(`.saved-search-active-toggle[data-id="${autoEditId}"]`);
+    const card = toggle && toggle.closest('.ss-cond-card');
+    if (card) {
+      card.classList.add('ss-cond-card--highlight');
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => card.classList.remove('ss-cond-card--highlight'), 2400);
     }
   }
 }
@@ -9671,76 +9751,80 @@ function savedSearchNotificationSummary(item, contacts) {
 // 폼(regionIndustryCompanySizeFieldsHtml의 isDefault 분기)에만 있다 —
 // 2026-08-07, 목록 화면에 바로 노출돼 있던 걸 편집 화면 안으로 이동.
 
-function savedSearchCardHtml(item, contacts) {
-  const conditionParts = [];
+// savedSearchConditionParts — 카드에 보여줄 조건 요약(지역·업종·유형·금액·키워드).
+function savedSearchConditionParts(item) {
+  const parts = [];
   const noticeTypeLabel = (SAVED_SEARCH_NOTICE_TYPE_OPTIONS.find(o => o.value === (item.noticeType || '')) || {}).label;
-  if (noticeTypeLabel && item.noticeType) conditionParts.push(noticeTypeLabel);
-  if (item.region) conditionParts.push(escapeHtml(item.region));
-  if (item.industry) conditionParts.push(escapeHtml(item.industry));
-  // 기업규모 — 2026-08-07, 검색 필터가 아니라 순전히 기업정보(company_profiles)
-  // 값을 이 카드에도 같이 보여주기 위함(saved_searches에는 companySize
-  // 컬럼 자체가 없다 — 저장 없이 currentProfile을 그대로 읽기만 한다).
-  if (item.origin === 'onboarding' && currentProfile && currentProfile.companySize) {
-    conditionParts.push(escapeHtml(currentProfile.companySize));
-  }
-  if (item.organizationName) conditionParts.push('발주기관: ' + escapeHtml(item.organizationName));
+  if (noticeTypeLabel && item.noticeType) parts.push(noticeTypeLabel);
+  if (item.region) parts.push(escapeHtml(item.region));
+  if (item.industry) parts.push(escapeHtml(item.industry));
+  // 기업규모는 saved_searches에 컬럼이 없어 기본 조건 카드에만 currentProfile 값을 참고 표시.
+  if (item.origin === 'onboarding' && currentProfile && currentProfile.companySize) parts.push(escapeHtml(currentProfile.companySize));
+  if (item.organizationName) parts.push('발주기관: ' + escapeHtml(item.organizationName));
   if (item.budgetMin != null || item.budgetMax != null) {
-    conditionParts.push(`${item.budgetMin != null ? formatBudget(item.budgetMin) : '제한없음'} ~ ${item.budgetMax != null ? formatBudget(item.budgetMax) : '제한없음'}`);
+    parts.push(`${item.budgetMin != null ? formatBudget(item.budgetMin) : '제한없음'} ~ ${item.budgetMax != null ? formatBudget(item.budgetMax) : '제한없음'}`);
   }
-  if (item.keywordsInclude && item.keywordsInclude.length) conditionParts.push('포함: ' + item.keywordsInclude.map(escapeHtml).join(', '));
-  if (item.keywordsExclude && item.keywordsExclude.length) conditionParts.push('제외: ' + item.keywordsExclude.map(escapeHtml).join(', '));
+  if (item.keywordsInclude && item.keywordsInclude.length) parts.push('포함: ' + item.keywordsInclude.map(escapeHtml).join(', '));
+  if (item.keywordsExclude && item.keywordsExclude.length) parts.push('제외: ' + item.keywordsExclude.map(escapeHtml).join(', '));
+  return parts;
+}
 
-  const originBadge = item.origin === 'onboarding'
-    ? '<span class="badge badge--gray" title="가입 시 입력한 지역·업종·기업규모로 자동 생성되었습니다. 지역·업종·기업규모는 기업정보와 값을 공유합니다 — 어느 쪽에서 수정해도 같이 반영됩니다.">온보딩 시 자동 생성됨</span>'
-    : '';
+// savedSearchCardHtml — 맞춤조건 카드(2026-08-10 재설계). 기본 조건(origin='onboarding')과
+// 추가 조건을 시각적으로 구분한다. 정책은 전부 기존 백엔드 그대로(기본=삭제/비활성 불가,
+// 복제본=비활성 시작, 동일 업종 활성화 금지). opts.conflict=이 비활성 카드의 업종이 다른
+// "활성" 조건과 겹쳐 활성화가 막히는 상태(왜 비활성인지 안내 + 업종 변경 CTA).
+function savedSearchCardHtml(item, contacts, opts) {
+  opts = opts || {};
+  const conditionParts = savedSearchConditionParts(item);
+  const metaHtml = `<div class="ss-cond-meta">${conditionParts.length ? conditionParts.join(' · ') : '조건 없음(전체 공고)'}</div>`;
+  const id = escapeAttr(item.id);
 
-  // "내 기본 조건"(origin='onboarding')은 항상 활성 상태로 고정 —
-  // 토글/삭제 버튼을 disabled로 보여주는 게 아니라 아예 렌더링하지 않는다
-  // (2026-08-07 최종 확정). 수정은 계속 가능(지역/업종/기업규모는
-  // 기업정보와 동기화되어 그대로 반영됨). 백엔드도 이 두 액션을 다시
-  // 검증한다(handleDeleteSavedSearch/handleSetSavedSearchActive) — 직접
-  // API 호출로 우회하는 경우까지 막기 위함.
-  const isOnboardingDefault = item.origin === 'onboarding';
+  if (isDefaultSavedSearchCard(item)) {
+    // 기본 조건 — [기본][항상 활성] 비조작 표시, 삭제/토글 없음. 결과 보기·조건 수정·복제만.
+    return `
+      <div class="ss-cond-card ss-cond-card--default">
+        <div class="ss-cond-head">
+          <div class="ss-cond-name">내 기본 맞춤조건</div>
+          <div class="ss-cond-badges"><span class="ss-badge ss-badge--primary">기본</span><span class="ss-badge ss-badge--active">● 항상 활성</span></div>
+        </div>
+        ${metaHtml}
+        <p class="ss-cond-desc">회원가입 때 설정한 사업정보를 기준으로 맞춤공고를 자동으로 찾고 있어요.</p>
+        <div class="ss-cond-actions">
+          <a class="btn btn-secondary btn-sm saved-search-results-link" href="${escapeAttr(savedSearchResultsHash(item))}">결과 보기</a>
+          <button type="button" class="btn btn-secondary btn-sm saved-search-edit-btn" data-id="${id}">조건 수정</button>
+          <button type="button" class="btn btn-secondary btn-sm saved-search-duplicate-btn" data-id="${id}">복제</button>
+        </div>
+      </div>`;
+  }
 
-  const deleteButtonHtml = isOnboardingDefault
-    ? ''
-    : `<button type="button" class="btn btn-secondary btn-sm saved-search-delete-btn" data-id="${escapeAttr(item.id)}">삭제</button>`;
-
-  // 활성/비활성 토글 — "복제" 직후엔 항상 꺼진 상태로 시작(2026-08-07).
-  // 꺼지면 검색 매칭·다이제스트·리마인더·"결과 보기"까지 전부 중단되고
-  // 카드도 흐리게 표시된다. 켜려고 할 때는 서버가 이 사용자 자신의 다른
-  // 활성 조건과 업종이 겹치는지 검사한다(handleSetSavedSearchActive) —
-  // 중복 추천/중복 알림 방지.
-  const activeToggleHtml = isOnboardingDefault
-    ? ''
-    : `
-    <label class="toggle-switch" title="꺼두면 이 조건은 검색 매칭과 알림이 모두 중단됩니다(결과 보기 포함). 켜려면 내 다른 활성 조건과 업종이 겹치지 않아야 합니다.">
-      <input type="checkbox" class="saved-search-active-toggle" data-id="${escapeAttr(item.id)}" ${item.isActive ? 'checked' : ''}>
-      <span class="toggle-switch-track"><span class="toggle-switch-thumb"></span></span>
-      <span class="toggle-switch-label">${item.isActive ? '활성' : '비활성'}</span>
-    </label>`;
-
-  // 결과 보기 — 비활성 상태면 막는다(2026-08-07 수정). <a>는 disabled
-  // 속성이 없어 클릭을 막을 수 없으므로, 비활성일 땐 아예 disabled
-  // <button>으로 바꿔 렌더링한다.
-  const resultsButtonHtml = item.isActive
+  // 추가 조건 — 활성 토글 직접 노출 + 보조 액션(수정/복제/삭제)은 ⋮ 오버플로우로.
+  const alertBadge = item.alertEnabled ? '<span class="ss-badge ss-badge--ok">알림 켜짐</span>' : '<span class="ss-badge ss-badge--muted">알림 꺼짐</span>';
+  const resultsBtn = item.isActive
     ? `<a class="btn btn-secondary btn-sm saved-search-results-link" href="${escapeAttr(savedSearchResultsHash(item))}">결과 보기</a>`
-    : `<button type="button" class="btn btn-secondary btn-sm" disabled title="이 조건은 비활성 상태라 결과 보기를 사용할 수 없습니다. 토글을 켜면 확인할 수 있습니다.">결과 보기</button>`;
-
+    : `<button type="button" class="btn btn-secondary btn-sm" disabled title="비활성 상태라 결과 보기를 사용할 수 없어요. 활성화하면 확인할 수 있어요.">결과 보기</button>`;
+  const conflictHtml = opts.conflict
+    ? `<div class="ss-cond-conflict">
+        <p>다른 활성 맞춤조건과 <strong>같은 업종</strong>이에요. 같은 공고가 중복 추천되지 않도록, <strong>다른 업종으로 변경</strong>해야 활성화할 수 있어요.</p>
+        <button type="button" class="btn btn-primary btn-sm saved-search-change-industry-btn" data-id="${id}">업종 변경하기</button>
+      </div>`
+    : '';
   return `
-    <div class="license-card${item.isActive ? '' : ' license-card--inactive'}">
-      <div class="license-card-main">
-        <div class="license-card-name">${escapeHtml(item.name)} ${item.alertEnabled ? '<span class="badge badge--success">알림 켜짐</span>' : '<span class="badge badge--gray">알림 꺼짐</span>'} ${originBadge}</div>
-        <div class="license-card-meta">${conditionParts.length ? conditionParts.join(' · ') : '조건 없음(전체 공고)'}</div>
-        <div class="license-card-meta">${escapeHtml(savedSearchNotificationSummary(item, contacts))}</div>
+    <div class="ss-cond-card${item.isActive ? '' : ' ss-cond-card--inactive'}">
+      <div class="ss-cond-head">
+        <div class="ss-cond-name">${escapeHtml(item.name)} ${alertBadge}</div>
+        <div class="ss-cond-side-top">
+          <label class="toggle-switch" title="꺼두면 검색 매칭·알림·결과 보기가 모두 중단됩니다. 켜려면 다른 활성 조건과 업종이 겹치지 않아야 해요.">
+            <input type="checkbox" class="saved-search-active-toggle" data-id="${id}" ${item.isActive ? 'checked' : ''}>
+            <span class="toggle-switch-track"><span class="toggle-switch-thumb"></span></span>
+            <span class="toggle-switch-label">${item.isActive ? '활성' : '비활성'}</span>
+          </label>
+          <button type="button" class="ss-cond-more saved-search-more-btn" data-id="${id}" aria-label="더보기">⋮</button>
+        </div>
       </div>
-      <div class="license-card-side">
-        ${activeToggleHtml}
-        ${resultsButtonHtml}
-        <button type="button" class="btn btn-secondary btn-sm saved-search-edit-btn" data-id="${escapeAttr(item.id)}">수정</button>
-        <button type="button" class="btn btn-secondary btn-sm saved-search-duplicate-btn" data-id="${escapeAttr(item.id)}">복제</button>
-        ${deleteButtonHtml}
-      </div>
+      ${metaHtml}
+      <div class="ss-cond-notify">${escapeHtml(savedSearchNotificationSummary(item, contacts))}</div>
+      ${conflictHtml}
+      <div class="ss-cond-actions">${resultsBtn}</div>
     </div>
   `;
 }
