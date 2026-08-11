@@ -1409,6 +1409,10 @@
   .ai-summary-list li { font-size: var(--text-body); color: var(--ink); line-height: 1.6; }
   .ai-summary-list li + li { margin-top: 0.3rem; }
   .ai-summary-meta { margin: 0.9rem 0 0; font-size: var(--text-caption); color: var(--ink-soft); }
+  /* AI 요약 미생성 시 compact 상태(2026-08-11) — 장문 운영설명 대신 짧은 안내 + 원문 CTA */
+  .ai-summary-empty { padding: var(--space-md) 0; }
+  .ai-summary-empty-title { margin: 0 0 0.35rem; font-size: 0.98rem; font-weight: 700; color: var(--ink); }
+  .ai-summary-empty .section-empty { padding: 0; margin: 0 0 0.6rem; }
   .ai-participation-card {
     padding: var(--space-lg);
     border-radius: var(--radius-card);
@@ -1574,6 +1578,33 @@
   .notice-chip { background: var(--surface-sunken, #f1f3f5); border-radius: 999px; padding: 0.12rem 0.6rem; font-size: 0.82rem; color: var(--ink); }
   .notice-license-list { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; line-height: 1.65; }
   .notice-license-list li { margin: 0; }
+  /* 참가조건 탭 3블록(2026-08-11 Phase 1) — 핵심 참가조건 / 입찰 진행정보 / 공고 상세정보.
+     블록 간 넉넉한 세로 여백으로 분리(색·보더 대신 whitespace로 계층). */
+  .cond-essentials {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1.4rem;
+    margin: 1.1rem 0 0; font-size: 0.9rem; color: var(--ink);
+  }
+  .cond-essential { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .cond-essential-label { font-size: 0.78rem; color: var(--ink-soft); }
+  .cond-blocks { display: flex; flex-direction: column; gap: 2.75rem; margin-top: 2.25rem; }
+  .cond-blocks > *:empty { display: none; }
+  .cond-block { margin: 0; }
+  .cond-block-title { margin: 0 0 1rem; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
+  .cond-block .cond-block-title + .cond-block-title { margin-top: 1.75rem; }
+  /* 핵심 참가조건 grid — 카드 없이 label/value 계층만. desktop 2~3열, mobile 1열. */
+  .core-conditions {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 1.25rem 1.5rem; margin: 0;
+  }
+  /* 넓은 화면에선 6개 항목을 3열(2행 균형)로 고정, 태블릿은 auto-fill, 모바일 1열. */
+  @media (min-width: 900px) { .core-conditions { grid-template-columns: repeat(3, 1fr); } }
+  .core-cond-cell { min-width: 0; }
+  .core-cond-label { margin: 0; font-size: 0.8rem; font-weight: 500; color: var(--ink-soft); }
+  .core-cond-value { margin: 0.25rem 0 0; font-size: 1rem; font-weight: 600; color: var(--ink); line-height: 1.45; word-break: break-word; }
+  .core-cond-value--muted { font-weight: 500; color: var(--ink-mute, #8a8f98); }
+  @media (max-width: 560px) {
+    .core-conditions { grid-template-columns: 1fr; gap: 1rem; }
+  }
   /* 입찰 진행정보 타임라인(2026-08-11) — 세로 타임라인 + 현재/다음 단계 강조. frontend-only */
   .bid-timeline { margin: 0 0 1.6rem; }
   .bt-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
@@ -1591,13 +1622,18 @@
   .bt-node:last-child { padding-bottom: 0; }
   .bt-node::before { content: ''; position: absolute; left: 5px; top: 0.5rem; bottom: -0.15rem; width: 2px; background: var(--border); }
   .bt-node:last-child::before { display: none; }
-  .bt-dot { position: absolute; left: 0; top: 0.35rem; width: 12px; height: 12px; border-radius: 50%; background: var(--border); }
+  .bt-dot { position: absolute; left: 0; top: 0.3rem; width: 14px; height: 14px; border-radius: 50%; background: var(--border); display: flex; align-items: center; justify-content: center; }
+  /* 완료 = muted 채움 + 체크 / 현재 = blue + 링 / 예정 = 회색 테두리 */
+  .bt-node--past .bt-dot { background: var(--ink-soft); }
+  .bt-node--future .bt-dot { background: var(--surface); border: 2px solid var(--border); }
   .bt-node--next .bt-dot { background: var(--accent-blue); box-shadow: 0 0 0 3px var(--accent-blue-soft, rgba(49,130,246,0.15)); }
+  .bt-check { display: block; }
   .bt-node-label { font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-  .bt-node--past .bt-node-label, .bt-node--past .bt-node-time { color: var(--ink-mute, #8a8f98); font-weight: 600; }
+  .bt-node--past .bt-node-label, .bt-node--past .bt-node-date, .bt-node--past .bt-node-clock { color: var(--ink-mute, #8a8f98); font-weight: 600; }
   .bt-node--next .bt-node-label { color: var(--accent-blue); font-weight: 800; }
   .bt-node-tag { font-size: 0.7rem; font-weight: 700; color: var(--accent-blue); background: var(--accent-blue-soft, rgba(49,130,246,0.1)); border-radius: 6px; padding: 0.05rem 0.4rem; }
-  .bt-node-time { font-size: 0.9rem; color: var(--ink-soft); margin-top: 0.1rem; }
+  .bt-node-date { font-size: 0.9rem; color: var(--ink); margin-top: 0.2rem; }
+  .bt-node-clock { font-size: 0.85rem; color: var(--ink-soft); margin-top: 0.05rem; }
   .bt-node-place { font-size: 0.82rem; color: var(--ink-soft); margin-top: 0.1rem; word-break: break-word; }
   /* #assignee-section(파이프라인 상세, assigneeSectionHtml)은 .profile-form의
      직속 자식이 아니라 그 안에 감싸인 <div>라 .profile-form의 gap이 안쪽
@@ -1927,6 +1963,9 @@
     font-size: 0.9rem;
   }
   .official-link:hover { text-decoration: underline; }
+  /* HERO 링크 묶음(2026-08-11) — 원문/보고서를 한 줄 gap으로, 좁으면 줄바꿈. */
+  .detail-hero-links { display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; margin-top: 1rem; }
+  .detail-hero-links .official-link { margin-top: 0; }
   .new-tab-icon { width: 0.85em; height: 0.85em; margin-left: 0.3em; vertical-align: -0.05em; flex-shrink: 0; }
 
   /* 지원사업 "신청 안내" 탭(B-2) — 사업개요/CTA/역할별 첨부 그룹 */
@@ -2317,27 +2356,41 @@
   }
   .restriction-label { color: var(--ink-soft); font-weight: 600; margin-right: 0.5rem; }
   .restriction-value { color: var(--ink); }
-  .attachment-list { list-style: none; margin: 0 0 2rem; padding: 0; border-top: 1px solid var(--border); }
+  .attachment-list { list-style: none; margin: 0 0 2rem; padding: 0; }
   .attachment-item {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.75rem 0;
+    gap: 1rem;
+    padding: 0.7rem 0;
     border-bottom: 1px solid var(--border);
-    flex-wrap: wrap;
   }
-  .attachment-name { font-size: 0.9rem; color: var(--ink); }
+  .attachment-item:last-child { border-bottom: none; }
+  /* 파일명이 가장 넓게 — 남는 폭 전부 차지. 돋보기는 파일명 바로 옆(줄바꿈해도 떨어지지 않게). */
+  .attachment-name {
+    flex: 1 1 auto; min-width: 0; font-size: 0.9rem; color: var(--ink);
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: nowrap;
+  }
+  .attachment-name > a { flex: 1 1 auto; min-width: 0; word-break: break-all; }
   .attachment-name a { color: var(--accent-blue); text-decoration: none; font-weight: 500; }
   .attachment-name a:hover { text-decoration: underline; }
-  .attachment-meta { font-size: 0.78rem; color: var(--ink-soft); white-space: nowrap; }
-  /* 첨부 미리보기(2026-08-11) — [미리보기] 버튼 + 모달 PDF 뷰어 */
+  /* 크기 → 형식 순으로 오른쪽 정렬. 형식이 맨 오른쪽. */
+  .attachment-file-meta { flex-shrink: 0; display: flex; align-items: center; gap: 0.9rem; white-space: nowrap; }
+  .attachment-size { font-size: 0.78rem; color: var(--ink-soft); }
+  .attachment-type { font-size: 0.72rem; font-weight: 700; color: var(--ink-soft); min-width: 3rem; text-align: right; }
+  /* 첨부 미리보기(2026-08-11) — 돋보기 아이콘 버튼 + 모달 PDF 뷰어 */
   .attachment-preview-btn {
-    flex-shrink: 0; font-size: 0.8rem; font-weight: 700; color: var(--accent-blue);
-    background: var(--accent-blue-soft, rgba(49,130,246,0.08)); border: 1px solid transparent;
-    border-radius: 8px; padding: 0.28rem 0.7rem; cursor: pointer;
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    width: 1.7rem; height: 1.7rem; color: var(--accent-blue);
+    background: none; border: 1px solid transparent; border-radius: 8px; cursor: pointer; padding: 0;
   }
-  .attachment-preview-btn:hover { border-color: var(--accent-blue); }
+  .attachment-preview-btn:hover { background: var(--accent-blue-soft, rgba(49,130,246,0.08)); border-color: var(--accent-blue); }
+  .attachment-preview-icon { display: block; }
+  @media (max-width: 560px) {
+    /* 좁은 화면 — 파일명 줄과 메타 줄을 세로로 쌓아 정렬 깨짐/오버플로 방지. */
+    .attachment-item { flex-direction: column; align-items: flex-start; gap: 0.35rem; }
+    .attachment-file-meta { gap: 0.75rem; }
+    .attachment-type { text-align: left; min-width: 0; }
+  }
   /* 미리보기 모달은 문서를 넓게 보여준다(openModal이 .modal-panel 하나만 쓰므로 :has로 확장) */
   .modal-panel:has(.attachment-preview) { max-width: 920px; }
   .attachment-preview { min-height: 60vh; }
@@ -3723,6 +3776,36 @@ function formatDateTime(iso) {
   if (isNaN(d)) return '-';
   const pad = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// 한국어 일시 표시(2026-08-11, Phase 1 UI). 기존 KST 수정 로직/DB 변환은 절대 건드리지
+// 않는다 — formatDateTime과 동일하게 브라우저 로컬(KST) 필드만 읽어 표시 형식만 바꾼다.
+// formatKoreanDate  → "2026년 08월 11일(화)"
+// formatKoreanTime  → "오후 2시 07분"(시 앞자리는 안 채우고, 분은 두 자리)
+// formatKoreanDateTime → 위 둘을 한 줄로 결합
+const KOREAN_WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+function formatKoreanDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d)) return '-';
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}년 ${pad(d.getMonth() + 1)}월 ${pad(d.getDate())}일(${KOREAN_WEEKDAYS[d.getDay()]})`;
+}
+function formatKoreanTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const h = d.getHours();
+  const ampm = h < 12 ? '오전' : '오후';
+  let h12 = h % 12;
+  if (h12 === 0) h12 = 12;
+  return `${ampm} ${h12}시 ${String(d.getMinutes()).padStart(2, '0')}분`;
+}
+function formatKoreanDateTime(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d)) return '-';
+  return `${formatKoreanDate(iso)} ${formatKoreanTime(iso)}`;
 }
 
 function formatFileSize(bytes) {
@@ -10531,11 +10614,14 @@ function renderDetail(container, id) {
       // applicationStartAt/departmentName은 상세 DTO에 없어 현재 보유 필드만
       // 쓰고, 신청 시작일·지원대상·신청서류 등은 원문 공고 링크로 안내한다.
       const isSupport = n.noticeType === 'support_program';
-      const activeTab = isSupport ? 'conditions' : 'summary';
+      // 입찰공고 탭 순서(2026-08-11 Phase 1): 참가조건 → 판정 → 제출서류 → 낙찰정보 → 변경이력 → 요약.
+      // 기본 진입은 "참가조건"(실무자가 가장 먼저 봐야 할 화면). 요약은 마지막으로 강등 —
+      // AI 요약이 없다고 첫 화면이 안내문 하나로 끝나던 구조를 없앤다.
+      const activeTab = 'conditions';
       const tabBtn = (tab, label) => `<button type="button" class="detail-tab${activeTab === tab ? ' is-active' : ''}" role="tab" aria-selected="${activeTab === tab}" data-tab="${tab}">${label}</button>`;
       const tabsHtml = isSupport
         ? tabBtn('conditions', '신청 안내') + tabBtn('summary', '요약') + tabBtn('documents', '첨부·서류') + tabBtn('changes', '변경이력')
-        : tabBtn('summary', '요약') + tabBtn('participation', '판정') + tabBtn('conditions', '참가조건') + tabBtn('documents', '제출서류') + tabBtn('award-history', '낙찰이력') + tabBtn('changes', '변경이력');
+        : tabBtn('conditions', '참가조건') + tabBtn('participation', '판정') + tabBtn('documents', '제출서류') + tabBtn('award-history', '낙찰정보') + tabBtn('changes', '변경이력') + tabBtn('summary', '요약');
       const panelHidden = (tab) => activeTab === tab ? '' : 'hidden';
 
       body.className = '';
@@ -10549,8 +10635,10 @@ function renderDetail(container, id) {
             </div>
           </div>
           <div id="pipeline-review-action"></div>
-          ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 ${newTabIconHtml()}</a>` : ''}
-          ${isSupport ? '' : `<a class="official-link" href="#/notices/${escapeAttr(n.id)}/report">참여판단 보고서 보기 &rarr;</a>`}
+          <div class="detail-hero-links">
+            ${n.officialUrl ? `<a class="official-link" href="${escapeAttr(n.officialUrl)}" target="_blank" rel="noopener">원문 공고 보기 ${newTabIconHtml()}</a>` : ''}
+            ${isSupport ? '' : `<a class="official-link" href="#/notices/${escapeAttr(n.id)}/report">참여판단 보고서 보기 &rarr;</a>`}
+          </div>
           <p class="detail-sub notice-data-trust">${trustLine}</p>
         </div>
 
@@ -10576,26 +10664,32 @@ function renderDetail(container, id) {
           <div id="support-detail-section"></div>
           <div id="support-conditions-section"></div>
           ` : `
-          <dl class="detail-meta">
-            <div><dt>발주기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
-            <div><dt>지역</dt><dd>${escapeHtml(n.region || '-')}</dd></div>
-            <div><dt>업종</dt><dd>${escapeHtml(n.industry || '-')}</dd></div>
-            <div><dt>상태</dt><dd>${statusBadgeHtml(n.status)}</dd></div>
-            <div><dt>마감일</dt><dd>${ddayBadgeHtml(n.applicationEndAt, 'dday-badge--inline')}<span class="mono">${formatDate(n.applicationEndAt)}</span></dd></div>
-            <div><dt>예산</dt><dd class="mono">${formatBudget(n.budgetAmount)}</dd></div>
-            <div><dt>버전</dt><dd class="mono">v${n.currentVersion}</dd></div>
-          </dl>`}
-          <div ${isSupport ? 'hidden' : ''}>
+          <div class="cond-essentials">
+            <span class="cond-essential">${statusBadgeHtml(n.status)}</span>
+            <span class="cond-essential"><span class="cond-essential-label">마감</span>${ddayBadgeHtml(n.applicationEndAt, 'dday-badge--inline')}<span class="mono">${formatKoreanDate(n.applicationEndAt)}</span></span>
+            <span class="cond-essential"><span class="cond-essential-label">예산</span><span class="mono">${formatBudget(n.budgetAmount)}</span></span>
+          </div>`}
+          <div ${isSupport ? 'hidden' : ''} class="cond-blocks">
+            <section class="cond-block">
+              <h3 class="cond-block-title">핵심 참가조건</h3>
+              <div id="core-conditions-section"></div>
+            </section>
             <div id="bid-timeline-section"></div>
-            <h3>공고 상세정보</h3>
-            <div id="notice-detail-info-section"></div>
-            <h3>적격심사 계산기</h3>
-            <div id="bid-calculator-section"></div>
-            ${extractionBannerHtml}
-            <h3>참가자격 요건</h3>
-            <div id="eligibility-conditions-section"></div>
-            <h3>면허·인증 요건 확인</h3>
-            <div id="license-requirement-match-section"></div>
+            <section class="cond-block">
+              <h3 class="cond-block-title">공고 상세정보</h3>
+              <div id="notice-detail-info-section"></div>
+            </section>
+            <section class="cond-block">
+              <h3 class="cond-block-title">적격심사 계산기</h3>
+              <div id="bid-calculator-section"></div>
+            </section>
+            <section class="cond-block">
+              ${extractionBannerHtml}
+              <h3 class="cond-block-title">참가자격 요건</h3>
+              <div id="eligibility-conditions-section"></div>
+              <h3 class="cond-block-title">면허·인증 요건 확인</h3>
+              <div id="license-requirement-match-section"></div>
+            </section>
           </div>
         </div>
         <div class="detail-tab-panel" role="tabpanel" data-tab-panel="documents" hidden>
@@ -10619,7 +10713,7 @@ function renderDetail(container, id) {
                 <thead><tr><th>항목</th><th>이전 값</th><th>변경 값</th><th>중요도</th><th>일시</th></tr></thead>
                 <tbody>${changeRows}</tbody>
               </table></div>`
-            : '<p class="empty">변경 이력이 없습니다.</p>'}
+            : '<p class="section-empty">현재 수집된 공고 정보에서 확인된 변경사항이 없습니다. 나라장터 공식 변경공고 이력과는 다를 수 있어, 원문 공고를 함께 확인해주세요.</p>'}
           <div id="change-impact-section"></div>
         </div>
       `));
@@ -10630,6 +10724,7 @@ function renderDetail(container, id) {
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.confidenceTier);
       renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
       renderBidTimeline(document.getElementById('bid-timeline-section'), data.detail, n);
+      renderCoreConditions(document.getElementById('core-conditions-section'), data.detail, data.participationRegions, data.licenseLimits, n);
       renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail, data.participationRegions, data.licenseLimits);
       renderBidCalculator(document.getElementById('bid-calculator-section'), data.detail);
       if (isSupport) {
@@ -11018,17 +11113,22 @@ function renderBidTimeline(container, detail, notice) {
   else if (detail.rebidAllowed === false) badges.push('재입찰 불허');
   const badgeHtml = badges.map(b => `<span class="bt-badge">${b}</span>`).join('');
 
+  // 단계 상태: 완료(past·muted+체크) / 현재=다음 예정(next·blue) / 예정(future·gray).
+  // 위험/마감초과 같은 실제 위험이 아닌 일반 단계엔 red를 쓰지 않는다.
+  const checkIcon = '<svg class="bt-check" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
   const nodesHtml = nodes.map((nd, i) => {
     let cls = 'bt-node';
     let tag = '';
+    let dotInner = '';
     if (i === nextIdx) { cls += ' bt-node--next'; tag = '<span class="bt-node-tag">다음 일정</span>'; }
-    else if (nd.ms < nowMs) { cls += ' bt-node--past'; }
+    else if (nd.ms < nowMs) { cls += ' bt-node--past'; dotInner = checkIcon; }
     else { cls += ' bt-node--future'; }
     return `<li class="${cls}">
-      <span class="bt-dot"></span>
+      <span class="bt-dot">${dotInner}</span>
       <div class="bt-node-body">
         <div class="bt-node-label">${esc(nd.label)}${tag}</div>
-        <div class="bt-node-time mono">${formatDateTime(nd.iso)}</div>
+        <div class="bt-node-date">${formatKoreanDate(nd.iso)}</div>
+        <div class="bt-node-clock">${formatKoreanTime(nd.iso)}</div>
         ${nd.place ? `<div class="bt-node-place">${esc(nd.place)}</div>` : ''}
       </div>
     </li>`;
@@ -11046,6 +11146,46 @@ function renderBidTimeline(container, detail, notice) {
   `));
 }
 
+// renderCoreConditions — 참가조건 탭 최상단 "핵심 참가조건"(2026-08-11 Phase 1). 실무자가
+// 5초 안에 판단할 수 있게 지역·업종·면허·공동수급·국제입찰·재입찰 6개만 grid로 보여준다.
+// 값은 전부 기존 DTO(detail) + Phase C 공식 보강(participationRegions/licenseLimits)에서 오고,
+// 값이 없으면 "확인 필요"로 표시할 뿐 지어내지 않는다. 카드로 만들지 않고 label/value 계층만 준다.
+function renderCoreConditions(container, detail, participationRegions, licenseLimits, notice) {
+  if (!container) return;
+  container.innerHTML = '';
+  const esc = escapeHtml;
+  const d = detail || {};
+  const regions = Array.isArray(participationRegions) ? participationRegions : [];
+  const licenses = Array.isArray(licenseLimits) ? licenseLimits : [];
+  const ynLabel = (b, yes, no) => b === true ? yes : b === false ? no : null;
+
+  // 지역: 공식 참가가능지역(Phase C) 우선, 없으면 공고 지역.
+  const regionVal = regions.length ? regions.map(esc).join(' · ')
+    : (notice && notice.region ? esc(notice.region) : null);
+  const industryVal = (notice && notice.industry) ? esc(notice.industry) : null;
+  const licenseVal = licenses.length ? licenses.map(l => esc(l.name)).join(', ') : null;
+  const jointVal = d.jointContractMethod ? esc(d.jointContractMethod) : null;
+  const intlVal = ynLabel(d.internationalBid, '대상', '비대상');
+  const rebidVal = ynLabel(d.rebidAllowed, '허용', '불허');
+
+  // [라벨, 값(null이면 '확인 필요'), 공식배지여부]
+  const items = [
+    ['지역', regionVal, regions.length > 0],
+    ['업종', industryVal, false],
+    ['면허·자격', licenseVal, licenses.length > 0],
+    ['공동수급', jointVal, false],
+    ['국제입찰', intlVal, false],
+    ['재입찰', rebidVal, false],
+  ];
+  const cells = items.map(([label, val, official]) => `
+    <div class="core-cond-cell">
+      <dt class="core-cond-label">${esc(label)}${official ? ' <span class="detail-source-badge">공식</span>' : ''}</dt>
+      <dd class="core-cond-value${val ? '' : ' core-cond-value--muted'}">${val || '확인 필요'}</dd>
+    </div>`).join('');
+
+  container.appendChild(h(`<dl class="core-conditions">${cells}</dl>`));
+}
+
 // renderNoticeDetailInfo — 공고 상세정보를 나라장터 정보구조에 가깝게 그룹별로 보여준다
 // (Phase B, 2026-08-11). 모든 값은 나라장터 공식 API(raw_content)에서 온 것이고, 값이 없는
 // 행/그룹은 아예 만들지 않는다(빈 행 금지). 참가가능지역·허용업종/면허·기초금액은 Phase C.
@@ -11059,7 +11199,7 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
   const licenses = Array.isArray(licenseLimits) ? licenseLimits : [];
   const esc = escapeHtml;
   const won = v => `<span class="mono">${formatBudget(v)}</span>`;
-  const dt = v => `<span class="mono">${formatDateTime(v)}</span>`;
+  const dt = v => `<span>${formatKoreanDateTime(v)}</span>`;
   const has = v => v !== null && v !== undefined && v !== '';
 
   const noticeNoVal = has(detail.noticeNo)
@@ -11092,16 +11232,14 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
   const ynLabel = (b, yes, no) => b === true ? yes : b === false ? no : null;
 
   // [그룹명, [[라벨, 값(null이면 생략)], ...]]
+  // 그룹 배치(2026-08-11 Phase 1) — 기본/기관/입찰·낙찰/가격/참가자격. 입찰방식·계약방법·
+  // 국제입찰·재입찰은 [입찰·낙찰정보]로, 예정가격 결정방법·예비가격 개수는 [가격정보]로 이관.
   const groups = [
     ['기본정보', [
       ['공고번호', noticeNoVal],
       ['공고종류', has(detail.noticeKind) ? esc(detail.noticeKind) : null],
       ['용역구분', has(detail.serviceDivision) ? esc(detail.serviceDivision) : null],
       ['게시일시', has(detail.publishedAt) ? dt(detail.publishedAt) : null],
-      ['입찰방식', has(detail.bidMethod) ? esc(detail.bidMethod) : null],
-      ['계약방법', has(detail.contractMethod) ? esc(detail.contractMethod) : null],
-      ['국제입찰', ynLabel(detail.internationalBid, '대상', '비대상')],
-      ['재입찰 허용', ynLabel(detail.rebidAllowed, '허용', '불허')],
       ['참조번호', has(detail.referenceNo) ? esc(detail.referenceNo) : null],
       ['통합공고번호', has(detail.unifiedNoticeNo) ? esc(detail.unifiedNoticeNo) : null],
     ]],
@@ -11112,10 +11250,12 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
       ['이메일', officerEmailVal],
     ]],
     ['입찰·낙찰정보', [
+      ['입찰방식', has(detail.bidMethod) ? esc(detail.bidMethod) : null],
+      ['계약방법', has(detail.contractMethod) ? esc(detail.contractMethod) : null],
       ['낙찰방법', awardVal],
       ['낙찰하한율', has(detail.awardLowerLimitRate) ? `<span class="mono">${esc(detail.awardLowerLimitRate)}%</span>` : null],
-      ['예정가격 결정방법', has(detail.prearrangedPriceMethod) ? esc(detail.prearrangedPriceMethod) : null],
-      ['예비가격 개수', priceCountVal],
+      ['국제입찰', ynLabel(detail.internationalBid, '대상', '비대상')],
+      ['재입찰', ynLabel(detail.rebidAllowed, '허용', '불허')],
       ['공동수급', has(detail.jointContractMethod) ? esc(detail.jointContractMethod) : null],
       ['개찰장소', has(detail.openingPlace) ? esc(detail.openingPlace) : null],
     ]],
@@ -11124,6 +11264,8 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
       ['추정가격', detail.estimatedPrice != null ? won(detail.estimatedPrice) : null],
       ['부가가치세', detail.vat != null ? won(detail.vat) : null],
       ['입찰참가수수료', detail.participationFee != null ? won(detail.participationFee) : null],
+      ['예정가격 결정방법', has(detail.prearrangedPriceMethod) ? esc(detail.prearrangedPriceMethod) : null],
+      ['예비가격 개수', priceCountVal],
     ]],
     // [일정] 그룹은 상단 "입찰 진행정보" 타임라인으로 이관(중복 제거). 데이터(DTO)는 그대로 유지.
   ];
@@ -11234,24 +11376,48 @@ function renderBidCalculator(container, detail) {
 // 공용. downloadUrl 없으면 파일명만(죽은 링크 안 만듦).
 function attachmentRowHtml(it) {
   const sizeText = formatFileSize(it.fileSizeBytes);
+  const typeText = escapeHtml((it.fileType || '').toUpperCase());
   const statusBadge = it.downloadStatus !== 'completed'
     ? `<span class="status-badge status-badge--muted">${escapeHtml(it.downloadStatus)}</span>`
     : '';
   const nameHtml = it.downloadUrl
     ? `<a href="${escapeAttr(it.downloadUrl)}" target="_blank" rel="noopener">${escapeHtml(it.originalFilename)} ${newTabIconHtml()}</a>`
     : escapeHtml(it.originalFilename);
-  // [미리보기] — 서버 프록시 미리보기(PDF는 즉시, 변환대상은 변환 API 설정 시). id·downloadUrl이
-  // 있을 때만. 형식 판별/변환 가능여부는 서버가 판단하고, 안 되면 모달이 다운로드로 안내한다.
-  const previewBtn = (it.id && it.downloadUrl)
-    ? `<button type="button" class="attachment-preview-btn" data-id="${escapeAttr(it.id)}" data-name="${escapeAttr(it.originalFilename)}" data-url="${escapeAttr(it.downloadUrl)}">미리보기</button>`
+  // 미리보기 돋보기 아이콘 — 파일명 바로 옆(2026-08-11 Phase 1, 큰 [미리보기] 버튼 대체).
+  // 서버 프록시 미리보기(PDF는 즉시, 변환대상은 변환 API 설정 시). id·downloadUrl이 있고,
+  // 서버가 미리보기를 시도할 수 있는 문서 형식(PDF/HWP/HWPX/DOC/DOCX/XLS/XLSX)일 때만 노출한다
+  // — ZIP·이미지 등 지원 불가 형식엔 돋보기를 붙이지 않는다(변환 가능여부 최종 판단은 서버).
+  const previewBtn = (it.id && it.downloadUrl && isPreviewableAttachment(it))
+    ? `<button type="button" class="attachment-preview-btn" data-id="${escapeAttr(it.id)}" data-name="${escapeAttr(it.originalFilename)}" data-url="${escapeAttr(it.downloadUrl)}" aria-label="미리보기" title="미리보기">${searchIconHtml()}</button>`
     : '';
+  // 파일명이 가장 넓고(왼쪽), 크기→형식 순으로 오른쪽 정렬. 형식은 맨 오른쪽.
   return `
       <li class="attachment-item">
-        <span class="attachment-name">${nameHtml}</span>
-        <span class="attachment-meta mono">${escapeHtml((it.fileType || '').toUpperCase())} ${sizeText}</span>
-        ${statusBadge}
-        ${previewBtn}
+        <span class="attachment-name">${nameHtml}${previewBtn}</span>
+        <span class="attachment-file-meta">
+          ${statusBadge}
+          ${sizeText ? `<span class="attachment-size mono">${sizeText}</span>` : ''}
+          ${typeText ? `<span class="attachment-type">${typeText}</span>` : ''}
+        </span>
       </li>`;
+}
+
+// isPreviewableAttachment — 서버 미리보기(PDF 변환)를 시도할 수 있는 문서 형식인지.
+// 확장자/파일형식 기준 대략 판별(최종 변환 가능여부는 서버가 판단, 안 되면 다운로드 폴백).
+const PREVIEWABLE_ATTACHMENT_EXTS = new Set(['pdf', 'hwp', 'hwpx', 'doc', 'docx', 'xls', 'xlsx']);
+function isPreviewableAttachment(it) {
+  let ext = (it.fileType || '').toLowerCase().replace(/^\./, '');
+  if (!PREVIEWABLE_ATTACHMENT_EXTS.has(ext)) {
+    const name = it.originalFilename || '';
+    const dot = name.lastIndexOf('.');
+    if (dot >= 0) ext = name.slice(dot + 1).toLowerCase();
+  }
+  return PREVIEWABLE_ATTACHMENT_EXTS.has(ext);
+}
+
+// searchIconHtml — 미리보기용 돋보기 SVG(팔레트 통일: 흰/회/파랑, 이모지 미사용).
+function searchIconHtml() {
+  return '<svg class="attachment-preview-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
 }
 
 // wireAttachmentPreview — 첨부 목록의 [미리보기] 버튼을 미리보기 모달에 연결한다
@@ -11752,11 +11918,14 @@ function renderAISummary(container, summary, officialUrl) {
   container.innerHTML = '';
   if (!summary || !summary.lines || !summary.lines.length) {
     const linkHtml = officialUrl
-      ? `<a href="${escapeAttr(officialUrl)}" target="_blank" rel="noopener" class="official-link">지금 확인하기 ${newTabIconHtml()}</a>`
+      ? `<a href="${escapeAttr(officialUrl)}" target="_blank" rel="noopener" class="official-link">원문 확인 ${newTabIconHtml()}</a>`
       : '';
     container.appendChild(h(`
-      <p class="section-empty">이 공고는 아직 AI 요약이 준비되지 않았습니다. 서비스 운영진이 주기적으로 생성하고 있어 정확한 시점을 약속드리기 어렵습니다 — 그동안 원문을 직접 확인해보세요.</p>
-      ${linkHtml}
+      <div class="ai-summary-empty">
+        <p class="ai-summary-empty-title">AI 요약 준비 중</p>
+        <p class="section-empty">현재 공고 원문은 바로 확인할 수 있습니다.</p>
+        ${linkHtml}
+      </div>
     `));
     return;
   }
@@ -12022,23 +12191,16 @@ const AWARD_HISTORY_MIN_SAMPLE = 5;
 function renderAwardHistory(container, history, hasCompetitiveOverlap) {
   container.innerHTML = '';
   if (!history || history.count === 0) {
-    container.appendChild(h('<p class="empty">아직 수집된 낙찰 이력이 없습니다.</p>'));
-    return;
-  }
-  if (history.count < AWARD_HISTORY_MIN_SAMPLE) {
-    container.appendChild(h(`<p class="empty">낙찰이력 데이터가 아직 부족합니다 (현재 ${history.count}건, 최소 ${AWARD_HISTORY_MIN_SAMPLE}건 필요).</p>`));
+    container.appendChild(h('<p class="section-empty">이 발주기관의 낙찰정보는 아직 수집되지 않았습니다.</p>'));
     return;
   }
 
-  const avgParts = [];
-  avgParts.push(history.averageRate != null
-    ? `평균 낙찰률 ${history.averageRate.toFixed(1)}% (표본 ${history.count}건 기준, 신뢰도 참고용)`
-    : '평균 낙찰률 정보 없음');
-  if (history.averageParticipants != null) avgParts.push(`평균 참가업체 수 ${history.averageParticipants.toFixed(1)}개사`);
-  const overlapNote = hasCompetitiveOverlap
-    ? '<p class="ai-minimal-profile-notice">우리 회사의 수행실적과 겹치는 발주기관·분야입니다 — 경쟁 강도 참고.</p>'
-    : '';
-  const rows = history.items.map(it => `
+  // "원천데이터 표시"와 "통계분석 최소표본"을 분리한다(2026-08-11 Phase 1).
+  // 개별 낙찰건(items)은 1건이라도 그대로 보여주고, 평균·빈도·추이 같은 통계
+  // 분석만 최소표본(AWARD_HISTORY_MIN_SAMPLE) 이상일 때 붙인다. 1건 있는데
+  // "부족"으로 전부 숨기던 기존 gate 제거. backend/DTO는 변경하지 않는다.
+  const enoughForStats = history.count >= AWARD_HISTORY_MIN_SAMPLE;
+  const rows = (history.items || []).map(it => `
     <tr>
       <td>${escapeHtml(it.title || '-')}</td>
       <td>${escapeHtml(it.winnerName || '-')}</td>
@@ -12048,6 +12210,32 @@ function renderAwardHistory(container, history, hasCompetitiveOverlap) {
       <td class="mono">${escapeHtml(it.openedAt || '-')}</td>
     </tr>
   `).join('');
+
+  const itemsTable = `
+    <p class="detail-group-title">확인된 낙찰정보 ${history.count}건${history.items && history.items.length < history.count ? ` <span class="detail-sub">(최근 ${history.items.length}건 표시)</span>` : ''}</p>
+    <div class="table-scroll"><table>
+      <thead><tr><th>공고명</th><th>낙찰자</th><th>낙찰금액</th><th>낙찰률</th><th>참가업체수</th><th>개찰일</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+
+  // 표본이 최소기준 미만이면 통계 없이 개별건 + "더 필요" 안내만.
+  if (!enoughForStats) {
+    container.appendChild(h(`
+      ${itemsTable}
+      <p class="section-empty">비교 분석(평균 낙찰률·경쟁 강도 등)에는 데이터가 더 필요합니다 — 현재 ${history.count}건 / 권장 ${AWARD_HISTORY_MIN_SAMPLE}건 이상.</p>
+    `));
+    return;
+  }
+
+  // ── 여기부터는 표본 충분(통계 분석) ──
+  const avgParts = [];
+  avgParts.push(history.averageRate != null
+    ? `평균 낙찰률 ${history.averageRate.toFixed(1)}% (표본 ${history.count}건 기준, 신뢰도 참고용)`
+    : '평균 낙찰률 정보 없음');
+  if (history.averageParticipants != null) avgParts.push(`평균 참가업체 수 ${history.averageParticipants.toFixed(1)}개사`);
+  const overlapNote = hasCompetitiveOverlap
+    ? '<p class="ai-minimal-profile-notice">우리 회사의 수행실적과 겹치는 발주기관·분야입니다 — 경쟁 강도 참고.</p>'
+    : '';
 
   // 자주 낙찰받는 업체 — 경쟁사 파악용. 1건짜리만 있으면(다들 한 번씩만
   // 이겼다는 뜻) "반복 낙찰"이라는 정보 자체가 없는 것이므로 표시하지 않는다.
@@ -12077,14 +12265,11 @@ function renderAwardHistory(container, history, hasCompetitiveOverlap) {
   }
 
   container.appendChild(h(`
-    <p class="license-card-meta">최근 ${history.items.length}건 표시 (전체 ${history.count}건) · ${escapeHtml(avgParts.join(' · '))}</p>
+    <p class="license-card-meta">${escapeHtml(avgParts.join(' · '))}</p>
     ${overlapNote}
     ${frequentWinnersHtml}
     ${trendHtml}
-    <div class="table-scroll"><table>
-      <thead><tr><th>공고명</th><th>낙찰자</th><th>낙찰금액</th><th>낙찰률</th><th>참가업체수</th><th>개찰일</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>
+    ${itemsTable}
   `));
 }
 
