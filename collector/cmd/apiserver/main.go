@@ -276,7 +276,17 @@ func startBackgroundNoticeEnrichment(srv *api.Server, logger *slog.Logger) {
 		logger.Warn("G2B_SERVICE_KEY is not set; notice enrichment(참가가능지역/허용면허) disabled")
 		return
 	}
-	enricher := g2b.NewEnrichmentClient(key)
+	// 백필 가속 노브(환경변수, 미설정 시 기존과 동일한 보수값). g2b 실제 일일쿼터를 확인한
+	// 뒤에만 상향할 것 — perDay를 안 올리고 batch/interval만 바꿔도 일일 상한은 그대로다.
+	perSecond := envFloatDefault("NOTICE_ENRICHMENT_PER_SECOND", 1)
+	dailyLimit := envIntDefault("NOTICE_ENRICHMENT_DAILY_LIMIT", 1000)
+	intervalMin := envIntDefault("NOTICE_ENRICHMENT_INTERVAL_MINUTES", 15)
+	if intervalMin < 1 {
+		intervalMin = 15
+	}
+	enricher := g2b.NewEnrichmentClientWithLimits(key, perSecond, dailyLimit)
+	logger.Info("notice enrichment configured",
+		"perSecond", perSecond, "dailyLimit", dailyLimit, "intervalMin", intervalMin)
 	go func() {
 		ctx := context.Background()
 		runOnce := func() {
@@ -287,12 +297,31 @@ func startBackgroundNoticeEnrichment(srv *api.Server, logger *slog.Logger) {
 			}
 		}
 		runOnce()
-		ticker := time.NewTicker(15 * time.Minute)
+		ticker := time.NewTicker(time.Duration(intervalMin) * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
 			runOnce()
 		}
 	}()
+}
+
+// envIntDefault/envFloatDefault — 환경변수 정수/실수 파싱(미설정·이상값이면 기본값).
+func envIntDefault(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+func envFloatDefault(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return def
 }
 
 // startBackgroundDocumentExtraction runs api.Server.RunDocumentExtraction

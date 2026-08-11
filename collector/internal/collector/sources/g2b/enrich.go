@@ -51,12 +51,32 @@ type EnrichmentClient struct {
 	BaseURL    string // 기본 baseURL. 테스트에서 모의 서버로 교체 가능.
 }
 
-// NewEnrichmentClient — serviceKey는 g2b.New와 동일한 발급 키.
+// 기본 레이트리밋(보수적) — g2b/data.go.kr 실제 일일쿼터 확인 전 안전값.
+// 공고당 2콜(지역+면허)이라 dailyLimit 1000 = 하루 약 500공고가 실질 상한.
+const (
+	defaultEnrichPerSecond = 1.0
+	defaultEnrichDailyCap  = 1000
+)
+
+// NewEnrichmentClient — serviceKey는 g2b.New와 동일한 발급 키. 기본 레이트리밋 사용.
 func NewEnrichmentClient(serviceKey string) *EnrichmentClient {
+	return NewEnrichmentClientWithLimits(serviceKey, defaultEnrichPerSecond, defaultEnrichDailyCap)
+}
+
+// NewEnrichmentClientWithLimits — 레이트리밋을 지정해 생성한다(백필 가속 튜닝용). 백필 시
+// g2b 실제 일일쿼터 범위 안에서 perSecond/perDay를 올리면 처리량이 늘어난다. 0 이하 값은
+// 기본값으로 폴백해 잘못된 설정으로 레이트리밋이 사실상 무력화되는 것을 막는다.
+func NewEnrichmentClientWithLimits(serviceKey string, perSecond float64, perDay int) *EnrichmentClient {
+	if perSecond <= 0 {
+		perSecond = defaultEnrichPerSecond
+	}
+	if perDay <= 0 {
+		perDay = defaultEnrichDailyCap
+	}
 	return &EnrichmentClient{
 		ServiceKey: serviceKey,
 		HTTPClient: &http.Client{Timeout: 15 * time.Second},
-		RateLimit:  common.NewRateLimiter(1, 1000),
+		RateLimit:  common.NewRateLimiter(perSecond, perDay),
 		BaseURL:    baseURL,
 	}
 }

@@ -10,11 +10,25 @@ package api
 import (
 	"context"
 	"database/sql"
+	"os"
+	"strconv"
 
 	"biz-platform/collector/internal/collector/sources/g2b"
 )
 
-const enrichmentBatchSize = 20 // 1 사이클당 최대 공고 수(공고당 2콜 → 40콜/사이클)
+const defaultEnrichmentBatchSize = 20 // 1 사이클당 기본 최대 공고 수(공고당 2콜 → 40콜/사이클)
+
+// enrichmentBatchSize — 1 사이클당 처리 공고 수. 환경변수 NOTICE_ENRICHMENT_BATCH_SIZE로
+// 재정의(백필 가속용, 미설정/이상값이면 기본 20). 실제 처리량은 EnrichmentClient의 일일
+// 레이트리밋 캡에도 걸리므로, batch만 올리고 perDay를 안 올리면 하루 상한은 그대로다.
+func enrichmentBatchSize() int {
+	if v := os.Getenv("NOTICE_ENRICHMENT_BATCH_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultEnrichmentBatchSize
+}
 
 // noticeEnricher — g2b.EnrichmentClient가 구현. 테스트에서 목으로 교체 가능.
 type noticeEnricher interface {
@@ -44,7 +58,7 @@ func (s *Server) RunNoticeEnrichment(ctx context.Context, enricher noticeEnriche
 		  AND n.notice_type = 'procurement'
 		  AND nv.enrichment_status IS NULL
 		ORDER BY nv.collected_at DESC NULLS LAST
-		LIMIT $1`, enrichmentBatchSize)
+		LIMIT $1`, enrichmentBatchSize())
 	if err != nil {
 		return 0, err
 	}
