@@ -1564,6 +1564,10 @@
   .detail-group-title { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--ink); }
   .detail-group .detail-meta { margin-top: 0.6rem; padding-top: 0; border-top: none; }
   .detail-source-note { margin: 0.6rem 0 0; font-size: 0.82rem; color: var(--ink-mute, #8a8f98); }
+  /* 담당자 개인정보 마스킹 — (?) 안내 + [공개] 버튼 인라인 배치 */
+  .officer-controls { display: inline-flex; align-items: center; gap: 0.35rem; margin-left: 0.4rem; }
+  .officer-controls .officer-reveal-btn { padding: 0.1rem 0.55rem; font-size: 0.78rem; }
+  .officer-maskable { letter-spacing: 0.02em; }
   /* #assignee-section(파이프라인 상세, assigneeSectionHtml)은 .profile-form의
      직속 자식이 아니라 그 안에 감싸인 <div>라 .profile-form의 gap이 안쪽
      label들 사이에는 적용되지 않는다 — 그 자체도 flex column으로 만들어야
@@ -10945,8 +10949,20 @@ function renderNoticeDetailInfo(container, detail) {
   const awardVal = has(detail.awardMethod)
     ? esc(detail.awardMethod) + (has(detail.awardMethodDetail) ? `<span class="detail-sub">${esc(detail.awardMethodDetail)}</span>` : '')
     : null;
+  // 담당자 개인정보 마스킹 — 서버가 표시값(officerName/Phone/Email)을 이미 마스킹/원본으로 내려준다.
+  // officerMasked면 (?) 안내, officerCanReveal(참여검토 시작)이면 [공개] 버튼을 띄우고 클릭 시
+  // data-full(원본)로 즉시 전환한다(페이지 이동 없음). 마스킹 안 됐으면(운영자) 그대로 표시.
+  const maskSpan = (v, full) => `<span class="officer-maskable" data-full="${escapeAttr(full || '')}">${esc(v)}</span>`;
+  const officerControls = detail.officerMasked
+    ? `<span class="officer-controls">${tooltipIconHtml('?', '개인정보보호를 위해 담당자 정보는 일부만 표시됩니다. 참여를 검토 중인 공고는 전체 정보를 확인할 수 있습니다.', '담당자 정보 마스킹 안내', '')}${detail.officerCanReveal ? '<button type="button" class="btn btn-secondary btn-sm officer-reveal-btn" data-officer-reveal>공개</button>' : ''}</span>`
+    : '';
   const officerVal = has(detail.officerName)
-    ? esc(detail.officerName) + (has(detail.officerPhone) ? ` <span class="mono">${esc(detail.officerPhone)}</span>` : '')
+    ? (detail.officerMasked
+        ? `${maskSpan(detail.officerName, detail.officerFullName)}${has(detail.officerPhone) ? ' ' + maskSpan(detail.officerPhone, detail.officerFullPhone) : ''}${officerControls}`
+        : esc(detail.officerName) + (has(detail.officerPhone) ? ` <span class="mono">${esc(detail.officerPhone)}</span>` : ''))
+    : null;
+  const officerEmailVal = has(detail.officerEmail)
+    ? (detail.officerMasked ? maskSpan(detail.officerEmail, detail.officerFullEmail) : esc(detail.officerEmail))
     : null;
   const priceCountVal = (detail.priceDrawCount != null || detail.priceTotalCount != null)
     ? `<span class="mono">추첨 ${detail.priceDrawCount != null ? detail.priceDrawCount : '-'} / 전체 ${detail.priceTotalCount != null ? detail.priceTotalCount : '-'}</span>`
@@ -10974,7 +10990,7 @@ function renderNoticeDetailInfo(container, detail) {
       ['공고기관', has(detail.noticeInstitution) ? esc(detail.noticeInstitution) : null],
       ['수요기관', has(detail.demandInstitution) ? esc(detail.demandInstitution) : null],
       ['담당자', officerVal],
-      ['이메일', has(detail.officerEmail) ? esc(detail.officerEmail) : null],
+      ['이메일', officerEmailVal],
     ]],
     ['입찰·낙찰정보', [
       ['낙찰방법', awardVal],
@@ -11019,6 +11035,19 @@ function renderNoticeDetailInfo(container, detail) {
     <p class="detail-source-caption">아래 값은 나라장터 공식 API 기준입니다.</p>
     <div class="detail-info-groups">${body || '<p class="section-empty">표시할 상세 정보가 없습니다.</p>'}</div>
   `));
+
+  // [공개] — 참여검토 시작 사용자에게만 노출. 클릭 시 마스킹 span을 원본(data-full)으로 즉시
+  // 전환하고 안내(?)·버튼을 없앤다(페이지 이동 없이 같은 화면에서 전환).
+  const revealBtn = container.querySelector('[data-officer-reveal]');
+  if (revealBtn) {
+    revealBtn.addEventListener('click', () => {
+      container.querySelectorAll('.officer-maskable').forEach(sp => {
+        if (sp.dataset.full) { sp.textContent = sp.dataset.full; sp.classList.remove('officer-maskable'); }
+      });
+      const controls = container.querySelector('.officer-controls');
+      if (controls) controls.remove();
+    });
+  }
 }
 
 // renderBidCalculator — 적격심사 참고용 계산기(2026-08-06). AI/서버 호출

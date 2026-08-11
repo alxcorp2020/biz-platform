@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -99,6 +100,88 @@ type noticeRawDetail struct {
 	BriefingPlace          string     `json:"briefingPlace"`
 	ParticipationFee       *int64     `json:"participationFee"`
 	BidGuaranteeRequired   *bool      `json:"bidGuaranteeRequired"`
+	// 담당자 개인정보 마스킹(2026-08-11). OfficerName/Phone/Email에는 "표시용" 값(마스킹 또는
+	// 원본)을 담는다. OfficerMasked=true면 마스킹된 상태. OfficerCanReveal=true면(참여검토 시작한
+	// 사용자) 프론트에 [공개] 버튼을 띄우고 OfficerFull*로 즉시 원본 전환한다. system_admin은
+	// 마스킹 없이(OfficerMasked=false) 원본을 그대로 받는다. 미인증/미참여자는 Full* 미전송.
+	OfficerMasked    bool   `json:"officerMasked"`
+	OfficerCanReveal bool   `json:"officerCanReveal"`
+	OfficerFullName  string `json:"officerFullName,omitempty"`
+	OfficerFullPhone string `json:"officerFullPhone,omitempty"`
+	OfficerFullEmail string `json:"officerFullEmail,omitempty"`
+}
+
+// ---------- 담당자 개인정보 마스킹 ----------
+
+// maskOfficerName — 성만 노출, 나머지 *. "홍길동"→"홍**", 1자 이하/빈값은 그대로.
+func maskOfficerName(s string) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) <= 1 {
+		return string(r)
+	}
+	return string(r[0]) + strings.Repeat("*", len(r)-1)
+}
+
+// maskOfficerPhone — 국번(첫 그룹)만 노출, 나머지 그룹은 자릿수만큼 *.
+// "062-1234-5678"→"062-****-****". 하이픈 없으면 앞 3자리만 노출.
+func maskOfficerPhone(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if strings.Contains(s, "-") {
+		parts := strings.Split(s, "-")
+		for i := 1; i < len(parts); i++ {
+			parts[i] = strings.Repeat("*", len([]rune(parts[i])))
+		}
+		return strings.Join(parts, "-")
+	}
+	r := []rune(s)
+	if len(r) <= 3 {
+		return s
+	}
+	return string(r[:3]) + strings.Repeat("*", len(r)-3)
+}
+
+// maskOfficerEmail — @ 앞부분(local) 앞 2글자만 노출, 나머지 local은 *. 도메인은 그대로.
+// "test@example.com"→"te**@example.com". local 2자 이하/@ 없으면 그대로.
+func maskOfficerEmail(s string) string {
+	s = strings.TrimSpace(s)
+	at := strings.Index(s, "@")
+	if at <= 0 {
+		return s
+	}
+	local := []rune(s[:at])
+	domain := s[at:]
+	if len(local) <= 2 {
+		return string(local) + domain
+	}
+	return string(local[:2]) + strings.Repeat("*", len(local)-2) + domain
+}
+
+// applyOfficerMasking — 요청자 권한에 따라 담당자 정보를 마스킹한다.
+//   - system_admin: 마스킹 없음(원본 그대로).
+//   - 그 외: 마스킹. 이 공고에 파이프라인이 있으면(참여검토 시작) [공개]용 Full* 값도 함께 준다.
+func applyOfficerMasking(d *noticeRawDetail, isAdmin, hasPipeline bool) {
+	if d == nil {
+		return
+	}
+	if isAdmin {
+		d.OfficerMasked = false
+		d.OfficerCanReveal = false
+		return
+	}
+	fullName, fullPhone, fullEmail := d.OfficerName, d.OfficerPhone, d.OfficerEmail
+	d.OfficerName = maskOfficerName(fullName)
+	d.OfficerPhone = maskOfficerPhone(fullPhone)
+	d.OfficerEmail = maskOfficerEmail(fullEmail)
+	d.OfficerMasked = true
+	if hasPipeline {
+		d.OfficerCanReveal = true
+		d.OfficerFullName = fullName
+		d.OfficerFullPhone = fullPhone
+		d.OfficerFullEmail = fullEmail
+	}
 }
 
 // fetchNoticeRawDetail loads and parses the raw g2b JSON for a notice

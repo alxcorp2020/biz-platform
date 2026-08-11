@@ -885,6 +885,18 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 담당자 개인정보 마스킹 — system_admin은 원본, 그 외는 마스킹(이 공고에 파이프라인이
+	// 있으면 [공개]용 원본도 함께). 권한/파이프라인 존재는 위에서 이미 계산한 값을 재사용.
+	if rawDetail != nil {
+		isAdmin := false
+		if loggedIn {
+			if role, rerr := s.userRole(r.Context(), userID); rerr == nil && role == "system_admin" {
+				isAdmin = true
+			}
+		}
+		applyOfficerMasking(rawDetail, isAdmin, existingPipelineEntryID != nil)
+	}
+
 	// supportDetail — B-2. 지원사업(support_program)일 때만 공식 데이터를 얹는다.
 	// 입찰 공고는 support_program_details 행이 없어 nil(응답에서 null).
 	var supportDetail *supportDetailDTO
