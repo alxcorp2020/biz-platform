@@ -149,6 +149,7 @@ func main() {
 	startBackgroundDeadlineSchedule(srv, logger)
 	startBackgroundResultLookup(srv, logger)
 	startBackgroundDocumentExtraction(srv, logger)
+	startBackgroundNoticeEnrichment(srv, logger)
 
 	logger.Info("api server starting", "port", port)
 	if err := http.ListenAndServe(":"+port, srv.Routes()); err != nil {
@@ -258,6 +259,35 @@ func startBackgroundResultLookup(srv *api.Server, logger *slog.Logger) {
 		}
 		runOnce()
 		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			runOnce()
+		}
+	}()
+}
+
+// startBackgroundNoticeEnrichment runs api.Server.RunNoticeEnrichment on a
+// 15-minute ticker (Phase C, 2026-08-11) — 미보강 현재 버전에 참가가능지역/허용면허를
+// 공식 오퍼레이션으로 증분 보강한다(1 사이클당 소량만 → 일일 쿼터 보호). G2B_SERVICE_KEY
+// 미설정이면 보강 자체를 비활성화한다(다른 g2b 기능과 동일한 graceful degrade).
+func startBackgroundNoticeEnrichment(srv *api.Server, logger *slog.Logger) {
+	key := os.Getenv("G2B_SERVICE_KEY")
+	if key == "" {
+		logger.Warn("G2B_SERVICE_KEY is not set; notice enrichment(참가가능지역/허용면허) disabled")
+		return
+	}
+	enricher := g2b.NewEnrichmentClient(key)
+	go func() {
+		ctx := context.Background()
+		runOnce := func() {
+			if n, err := srv.RunNoticeEnrichment(ctx, enricher); err != nil {
+				logger.Error("notice enrichment batch failed", "error", err)
+			} else if n > 0 {
+				logger.Info("notice enrichment batch completed", "processed", n)
+			}
+		}
+		runOnce()
+		ticker := time.NewTicker(15 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
 			runOnce()

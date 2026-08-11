@@ -301,6 +301,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureSavedSearchIsActiveColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate saved_searches.is_active column: %w", err)
 	}
+	if err := ensureNoticeEnrichmentTables(ctx, db); err != nil {
+		return fmt.Errorf("migrate notice enrichment tables: %w", err)
+	}
 	return nil
 }
 
@@ -1168,6 +1171,42 @@ func ensureAISummaryColumns(ctx context.Context, db *sql.DB) error {
 		ALTER TABLE notice_versions ADD COLUMN IF NOT EXISTS ai_summary_lines TEXT[];
 		ALTER TABLE notice_versions ADD COLUMN IF NOT EXISTS ai_summary_model TEXT;
 		ALTER TABLE notice_versions ADD COLUMN IF NOT EXISTS ai_summary_generated_at TIMESTAMPTZ;
+	`)
+	return err
+}
+
+// ensureNoticeEnrichmentTables — Phase C(2026-08-11). 나라장터 추가 공식 오퍼레이션
+// (참가가능지역 getBidPblancListInfoPrtcptPsblRgn, 허용업종/면허 getBidPblancListInfoLicenseLimit)
+// 결과를 1:N 정규화 테이블로 저장한다(eligibility_conditions와 같은 notice_version_id FK 패턴).
+// notice_versions.enrichment_status/enriched_at로 이미 보강된 버전을 재조회하지 않는다(증분).
+// CREATE/ADD IF NOT EXISTS로 멱등.
+func ensureNoticeEnrichmentTables(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS notice_participation_regions (
+			id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			notice_version_id  UUID NOT NULL REFERENCES notice_versions(id),
+			region_name        TEXT NOT NULL,
+			business_division  TEXT,
+			sort_no            INTEGER,
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_notice_participation_regions_version ON notice_participation_regions(notice_version_id);
+
+		CREATE TABLE IF NOT EXISTS notice_license_limits (
+			id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			notice_version_id     UUID NOT NULL REFERENCES notice_versions(id),
+			license_name          TEXT NOT NULL,
+			permitted_industries  TEXT,
+			industry_field        TEXT,
+			limit_group_no        TEXT,
+			business_division     TEXT,
+			sort_no               INTEGER,
+			created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_notice_license_limits_version ON notice_license_limits(notice_version_id);
+
+		ALTER TABLE notice_versions ADD COLUMN IF NOT EXISTS enrichment_status TEXT;
+		ALTER TABLE notice_versions ADD COLUMN IF NOT EXISTS enriched_at TIMESTAMPTZ;
 	`)
 	return err
 }

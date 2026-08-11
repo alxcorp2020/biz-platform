@@ -1568,6 +1568,12 @@
   .officer-controls { display: inline-flex; align-items: center; gap: 0.35rem; margin-left: 0.4rem; }
   .officer-controls .officer-reveal-btn { padding: 0.1rem 0.55rem; font-size: 0.78rem; }
   .officer-maskable { letter-spacing: 0.02em; }
+  /* Phase C — 참가가능지역/허용면허(공식 API 보강) + [공식] 배지 */
+  .detail-source-badge { display: inline-block; margin-left: 0.3rem; font-size: 0.68rem; font-weight: 700; color: var(--accent-blue); background: var(--accent-blue-soft, rgba(49,130,246,0.08)); border-radius: 6px; padding: 0.05rem 0.35rem; vertical-align: middle; }
+  .detail-meta dd .notice-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+  .notice-chip { background: var(--surface-sunken, #f1f3f5); border-radius: 999px; padding: 0.12rem 0.6rem; font-size: 0.82rem; color: var(--ink); }
+  .notice-license-list { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; line-height: 1.65; }
+  .notice-license-list li { margin: 0; }
   /* #assignee-section(파이프라인 상세, assigneeSectionHtml)은 .profile-form의
      직속 자식이 아니라 그 안에 감싸인 <div>라 .profile-form의 gap이 안쪽
      label들 사이에는 적용되지 않는다 — 그 자체도 flex column으로 만들어야
@@ -10597,7 +10603,7 @@ function renderDetail(container, id) {
       });
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.confidenceTier);
       renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
-      renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail);
+      renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail, data.participationRegions, data.licenseLimits);
       renderBidCalculator(document.getElementById('bid-calculator-section'), data.detail);
       if (isSupport) {
         // B-2: 지원사업 공식 데이터(지원대상·사업개요·신청방법·문의처·지원분야) +
@@ -10932,12 +10938,14 @@ async function renderNoticeReport(container, id) {
 // renderNoticeDetailInfo — 공고 상세정보를 나라장터 정보구조에 가깝게 그룹별로 보여준다
 // (Phase B, 2026-08-11). 모든 값은 나라장터 공식 API(raw_content)에서 온 것이고, 값이 없는
 // 행/그룹은 아예 만들지 않는다(빈 행 금지). 참가가능지역·허용업종/면허·기초금액은 Phase C.
-function renderNoticeDetailInfo(container, detail) {
+function renderNoticeDetailInfo(container, detail, participationRegions, licenseLimits) {
   container.innerHTML = '';
   if (!detail) {
     container.appendChild(h('<p class="section-empty">원문 상세 데이터를 확인할 수 없습니다.</p>'));
     return;
   }
+  const regions = Array.isArray(participationRegions) ? participationRegions : [];
+  const licenses = Array.isArray(licenseLimits) ? licenseLimits : [];
   const esc = escapeHtml;
   const won = v => `<span class="mono">${formatBudget(v)}</span>`;
   const dt = v => `<span class="mono">${formatDateTime(v)}</span>`;
@@ -11016,20 +11024,32 @@ function renderNoticeDetailInfo(container, detail) {
     ]],
   ];
 
-  // 참가자격 그룹(Phase B: 제한 플래그만 — 참가가능지역/허용업종 목록은 Phase C).
-  const qualRows = [];
-  const industryText = ynLabel(detail.industryRestricted, '있음', '없음');
-  if (industryText) qualRows.push(['업종제한', industryText]);
-  if (has(detail.regionRestrictionBasis)) qualRows.push(['지역제한', `있음 (판단기준: ${esc(detail.regionRestrictionBasis)})`]);
-
   const groupHtml = (title, rows, extra) => {
     const dl = rows.filter(([, v]) => v != null).map(([label, v]) => `<div><dt>${esc(label)}</dt><dd>${v}</dd></div>`).join('');
     if (!dl) return '';
     return `<div class="detail-group"><h4 class="detail-group-title">${esc(title)}</h4><dl class="detail-meta">${dl}</dl>${extra || ''}</div>`;
   };
 
-  const body = groups.map(([t, r]) => groupHtml(t, r)).join('')
-    + groupHtml('참가자격', qualRows, '<p class="detail-source-note">참가가능지역·허용업종/면허 상세는 준비 중입니다(원문 공고 확인 필요).</p>');
+  // 참가자격 그룹 — 제한 플래그 + Phase C 공식 보강(참가가능지역/허용면허). 공식 API 값엔 [공식] 배지.
+  const officialBadge = '<span class="detail-source-badge">공식</span>';
+  const qualRowsHtml = [];
+  const industryText = ynLabel(detail.industryRestricted, '있음', '없음');
+  if (industryText) qualRowsHtml.push(`<div><dt>업종제한</dt><dd>${industryText}</dd></div>`);
+  if (has(detail.regionRestrictionBasis)) qualRowsHtml.push(`<div><dt>지역제한</dt><dd>있음 (판단기준: ${esc(detail.regionRestrictionBasis)})</dd></div>`);
+  if (regions.length) {
+    qualRowsHtml.push(`<div><dt>참가가능지역 ${officialBadge}</dt><dd><div class="notice-chips">${regions.map(r => `<span class="notice-chip">${esc(r)}</span>`).join('')}</div></dd></div>`);
+  }
+  if (licenses.length) {
+    qualRowsHtml.push(`<div><dt>허용업종·면허 ${officialBadge}</dt><dd><ul class="notice-license-list">${licenses.map(l => `<li>${esc(l.name)}${has(l.groupNo) ? ` <span class="detail-sub">그룹 ${esc(l.groupNo)}</span>` : ''}</li>`).join('')}</ul></dd></div>`);
+  }
+  let qualGroup = '';
+  if (qualRowsHtml.length) {
+    const note = (regions.length === 0 && licenses.length === 0)
+      ? '<p class="detail-source-note">참가가능지역·허용업종/면허는 아직 확인되지 않았습니다(원문 공고 확인 필요).</p>' : '';
+    qualGroup = `<div class="detail-group"><h4 class="detail-group-title">참가자격</h4><dl class="detail-meta">${qualRowsHtml.join('')}</dl>${note}</div>`;
+  }
+
+  const body = groups.map(([t, r]) => groupHtml(t, r)).join('') + qualGroup;
 
   container.appendChild(h(`
     <p class="detail-source-caption">아래 값은 나라장터 공식 API 기준입니다.</p>

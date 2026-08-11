@@ -794,6 +794,8 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	documentAnalysisStatus := ""
 	var rawDetail *noticeRawDetail
 	var aiSummary *noticeAISummary
+	participationRegions := []string{}
+	licenseLimits := []licenseLimitItem{}
 	versionID, err := s.currentVersionID(r.Context(), id, it.CurrentVersion)
 	if err != nil {
 		s.logger.Error("get notice: current version lookup failed", "error", err)
@@ -832,6 +834,15 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		aiSummary, err = s.fetchNoticeAISummary(r.Context(), versionID)
 		if err != nil {
 			s.logger.Error("fetch notice AI summary failed", "error", err)
+		}
+		// Phase C — 공식 오퍼레이션 보강분(참가가능지역/허용면허). 미보강이면 빈 목록.
+		participationRegions, err = s.listParticipationRegions(r.Context(), versionID)
+		if err != nil {
+			s.logger.Error("list participation regions failed", "error", err)
+		}
+		licenseLimits, err = s.listLicenseLimits(r.Context(), versionID)
+		if err != nil {
+			s.logger.Error("list license limits failed", "error", err)
 		}
 	}
 
@@ -934,6 +945,8 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"organizationAwardHistory": awardHistory,
 		"hasCompetitiveOverlap":    hasCompetitiveOverlap,
 		"existingPipelineEntryId":  existingPipelineEntryID,
+		"participationRegions":     participationRegions,
+		"licenseLimits":            licenseLimits,
 	})
 }
 
