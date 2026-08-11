@@ -1444,6 +1444,10 @@
     border: none; box-shadow: none; background: none; padding: 0; margin: 0;
   }
   #section-participation #ai-participation-section:not(:empty) { margin-top: 2rem; }
+  /* 참여판정 "다음 행동" — 카드/보더 없이 제목+설명+버튼만(중복 조건목록 제거). */
+  .pj-next-action { margin: 0; }
+  .pj-next-title { margin: 0 0 0.35rem; font-size: var(--dtl-group); font-weight: 600; color: var(--ink); }
+  .pj-next-desc { margin: 0 0 0.7rem; font-size: var(--dtl-body); color: var(--ink-soft); line-height: 1.55; }
 
   /* ---------- AI 참여 분석 (공고 상세 첫 화면) ---------- */
   .ai-section-title { margin: 0 0 1rem; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
@@ -10806,8 +10810,6 @@ function renderDetail(container, id) {
               ${sectionHeadHtml('shield-check', '참가자격 요건')}
               ${extractionBannerHtml}
               <div id="eligibility-conditions-section"></div>
-              <h4 class="cond-subgroup-title">면허·인증 요건 확인</h4>
-              <div id="license-requirement-match-section"></div>
             </section>
             <section class="cond-block cond-block--tool">
               ${sectionHeadHtml('calculator', '적격심사 계산기', { right: '<span class="badge-soft">자체 참고용</span>' })}
@@ -10898,7 +10900,7 @@ function renderDetail(container, id) {
         renderRequiredDocuments(document.getElementById('required-documents-section'), data.requiredDocuments || [], id, data.documentReadiness, data.documentAnalysisStatus, n.officialUrl);
       }
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || [], data.documentAnalysisStatus, n.officialUrl);
-      renderLicenseRequirementMatches(document.getElementById('license-requirement-match-section'), data.licenseMatches || [], data.documentAnalysisStatus, n.officialUrl);
+      // 면허·인증 요건 확인(회사 보유 여부=적합성)은 참여판정 영역에서만 표시한다(참가조건 중복 제거, 2026-08-12).
       renderAwardHistory(document.getElementById('award-history-section'), data.organizationAwardHistory, data.hasCompetitiveOverlap);
       renderPipelineReviewAction(document.getElementById('pipeline-review-action'), id, data.existingPipelineEntryId);
       wireDetailTabs(body);
@@ -12294,70 +12296,21 @@ function renderParticipationSection(container, score, confidenceTier) {
     return;
   }
 
-  const gradeLabel = GRADE_LABELS[score.grade] || score.grade;
-  const missing = score.categories.filter(c => c.result !== 'met');
-  // dataGapSide === 'notice'는 공고 자체에 데이터가 없는 경우(사용자가 고칠 수
-  // 없음 — g2b 수집 데이터의 구조적 한계)라 "자료 부족"이 아니라 "정보 없음"으로
-  // 구분해서 보여준다. 'company'는 기업 프로필을 채우면 해결되는 경우다.
-  const missingHtml = missing.length
-    ? `<ul class="ai-missing-list">${missing.map(c => {
-        const isNoticeGap = c.dataGapSide === 'notice';
-        const resultLabel = isNoticeGap ? '정보 없음' : eligResultHtml(c.result);
-        // 동적 질문 힌트(최소 버전): 회사 쪽 정보 공백(dataGapSide==='company')이라
-        // 판정이 애매한 경우에만 "채우면 해결됨" 안내+링크를 붙인다 — 공고 쪽
-        // 데이터 공백(notice)은 프로필을 채워도 해결되지 않으므로 보여주지 않는다.
-        const hintHtml = c.result === 'insufficient_data' && c.dataGapSide === 'company'
-          ? '<p class="elig-hint">이 정보가 있으면 더 정확히 판정됩니다. <a href="#/me/company">기업 프로필에서 채우기 &rarr;</a></p>'
-          : '';
-        return `
-        <li class="elig-item${isNoticeGap ? ' elig-item--notice-gap' : ''}">
-          <div class="elig-head">
-            <span class="elig-category">${eligCategoryHtml(c.category)}</span>
-            <span class="elig-result elig-result--${escapeHtml(c.result)}">${resultLabel}</span>
-          </div>
-          <p class="elig-reason">${escapeHtml(c.reason)}</p>
-          ${hintHtml}
-        </li>`;
-      }).join('')}</ul>`
-    : '<p class="ai-missing-empty">확인된 조건이 모두 충족되었습니다.</p>';
-
-  // "회사 정보 보완하기"는 기업 프로필을 채우면 실제로 해결되는 경우에만
-  // 보여준다 — 공고 쪽 데이터 공백(dataGapSide==='notice')은 프로필을 채워도
-  // 해결되지 않으므로 이 링크를 보여주면 잘못된 안내가 된다.
-  const nextAction = missing.some(c => c.dataGapSide === 'company')
-    ? '<a href="#/me/company" class="ai-next-action">회사 정보 보완하기 &rarr;</a>'
-    : '';
-
-  // 공동수급 검토 서브태그(2026-08-07) — score.grade와 완전히 독립된
-  // 실적 규모 신호. jointVentureReason은 실적 미등록 시 중립 안내로도
-  // 채워지므로 배지(jointVentureRecommended) 유무와 무관하게 항상 보여준다.
-  const jointVentureBadgeHtml = score.jointVentureRecommended
-    ? '<span class="ai-bucket-badge badge--warn">공동수급 검토 권장</span>'
-    : '';
-
-  // 신뢰도 표시(2026-08-07, 판정엔진 확장 2단계) — "간이 판정" 문구를
-  // 대체한다. 기본 판정(지역/업종/기업규모만)과 정밀 판정(실적/면허/인증
-  // 데이터까지 반영)을 구분해 사용자가 정보를 더 채울 동기를 준다.
+  // 최종 판정과 조건별 결과는 renderParticipationJudgment(참여판정 조건 목록)에서 이미 1회 표시한다.
+  // 여기서는 중복 없이 "다음 행동"(회사 정보 보완 → 판정 정확도 향상)만 보여준다(2026-08-12 IA 정리).
   const isPreciseJudgement = confidenceTier === 'precise';
-  const confidenceLabel = isPreciseJudgement ? '정밀 판정' : '기본 판정';
-  const confidenceNoticeHtml = isPreciseJudgement
-    ? ''
-    : '<p class="ai-minimal-profile-notice">실적·면허·인증 정보를 등록하면 정밀 판정을 받을 수 있습니다. <a href="#/me/company">지금 등록하기 &rarr;</a></p>';
-
+  const hasCompanyGap = score.categories.some(c => c.result === 'insufficient_data' && c.dataGapSide === 'company');
+  if (isPreciseJudgement && !hasCompanyGap) {
+    return; // 더 채울 회사 정보가 없으면 안내를 띄우지 않는다(빈 CTA 제거)
+  }
+  const desc = !isPreciseJudgement
+    ? '실적·면허·인증 정보를 등록하면 판정을 더 정확하게 할 수 있어요.'
+    : '부족한 회사 정보를 등록하면 판정을 더 정확하게 할 수 있어요.';
   container.appendChild(h(`
-    <div class="ai-participation-card ai-participation-card--${escapeHtml(score.grade)}">
-      <div class="ai-participation-head">
-        ${gradeBadgeHtml(score.grade, gradeLabel)}
-        ${jointVentureBadgeHtml}
-        <span class="ai-participation-score">${escapeHtml(confidenceLabel)} · ${score.totalCount}개 중 ${score.metCount}개 충족</span>
-      </div>
-      ${score.gradeReason ? `<p class="ai-grade-reason">${escapeHtml(score.gradeReason)}</p>` : ''}
-      ${score.jointVentureReason ? `<p class="ai-grade-reason">${escapeHtml(score.jointVentureReason)}</p>` : ''}
-      ${confidenceNoticeHtml}
-      <p class="ai-participation-subtitle">부족한 조건</p>
-      ${missingHtml}
-      ${nextAction}
-      <p class="ai-disclaimer">⚠ 등록된 회사 정보와 공고 정보만으로 계산한 참고용 분석입니다. 최종 참여 여부는 원문 공고를 직접 확인한 후 결정하세요.</p>
+    <div class="pj-next-action">
+      <p class="pj-next-title">다음 행동</p>
+      <p class="pj-next-desc">${desc}</p>
+      <a href="#/me/company" class="btn btn-secondary btn-sm">회사 정보 등록</a>
     </div>
   `));
 }
