@@ -414,15 +414,23 @@ func (s *Source) Normalize(ctx context.Context, doc collector.RawDocument) (coll
 	return n, nil
 }
 
+// kstLocation — 나라장터 API 일시는 타임존 표기 없는 KST 벽시계다("2026-08-14 10:00:00" =
+// 한국시간 오전 10시). 예전엔 time.Local로 파싱해서, 운영 서버 TZ가 UTC면 그 값을 UTC 10시로
+// 잘못 해석해 저장 instant가 +9시간(=KST 19시) 어긋났다. 서버 TZ와 무관하게 항상 KST로
+// 해석하려고 고정 오프셋 +9(한국은 1988년 이후 서머타임 없음 → 모든 공고에 정확)를 쓴다.
+// time.LoadLocation("Asia/Seoul")을 안 쓰는 이유: 운영 이미지(distroless)에 tzdata가 없어
+// 로드가 실패하면 UTC로 폴백돼 버그가 되살아난다. FixedZone은 tzdata 의존이 없다.
+var kstLocation = time.FixedZone("KST", 9*60*60)
+
 // parseG2BTime — g2b 일시 파싱. 실측상 초까지 오는 값('...:00')과 분까지만 오는
-// 값('...HH:MM')이 섞여 있어 두 형식을 모두 시도한다(KST=time.Local).
+// 값('...HH:MM')이 섞여 있어 두 형식을 모두 시도한다. 항상 KST(고정 +9)로 해석한다.
 func parseG2BTime(v string) (time.Time, error) {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return time.Time{}, fmt.Errorf("empty timestamp")
 	}
-	if t, err := time.ParseInLocation("2006-01-02 15:04:05", v, time.Local); err == nil {
+	if t, err := time.ParseInLocation("2006-01-02 15:04:05", v, kstLocation); err == nil {
 		return t, nil
 	}
-	return time.ParseInLocation("2006-01-02 15:04", v, time.Local)
+	return time.ParseInLocation("2006-01-02 15:04", v, kstLocation)
 }

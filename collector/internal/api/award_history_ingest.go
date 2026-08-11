@@ -145,10 +145,13 @@ func (s *Server) handleRunAwardHistoryIngestion(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, map[string]any{"status": "completed", "recordsWritten": written})
 }
 
+// parseScsbidTime — 낙찰이력(ScsbidInfoService)도 나라장터 KST 벽시계라 항상 KST로 해석한다
+// (kstLocation()은 pipeline_deadline_scheduler.go에 정의 — 같은 api 패키지). 예전 time.Local
+// 파싱은 운영(UTC)에서 개찰/낙찰 시각을 +9시간 어긋나게 저장했다.
 func parseScsbidTime(v string) (time.Time, error) {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return time.Time{}, strconv.ErrSyntax
 	}
-	return time.ParseInLocation("2006-01-02 15:04:05", v, time.Local)
+	return time.ParseInLocation("2006-01-02 15:04:05", v, kstLocation())
 }

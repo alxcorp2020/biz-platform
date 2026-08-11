@@ -114,13 +114,16 @@ func ynToBool(v string) *bool {
 
 // parseG2BDateTime tries both observed g2b timestamp layouts — most fields
 // carry seconds ("2006-01-02 15:04:05"), but bidQlfctRgstDt has been
-// observed without them ("2006-01-02 15:04").
+// observed without them ("2006-01-02 15:04"). 나라장터 일시는 타임존 표기 없는 KST 벽시계라
+// 항상 KST로 해석한다(kstLocation() = Asia/Seoul, 실패 시 FixedZone +9 — distroless tzdata
+// 없음 대비). 예전 time.Local 파싱은 운영(UTC)에서 +9시간 어긋났다. 이 함수는 raw_content를
+// 요청마다 재파싱하므로, 여기만 고쳐도 기존 공고 상세 시각이 백필 없이 즉시 정상화된다.
 func parseG2BDateTime(v string) *time.Time {
 	if v == "" {
 		return nil
 	}
 	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02 15:04"} {
-		if t, err := time.ParseInLocation(layout, v, time.Local); err == nil {
+		if t, err := time.ParseInLocation(layout, v, kstLocation()); err == nil {
 			return &t
 		}
 	}
