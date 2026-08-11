@@ -1564,10 +1564,13 @@
   /* 공고 상세정보 그룹(Phase B, 2026-08-11) — 나라장터 정보구조에 가깝게 그룹화.
      그룹 제목이 구분을 주므로 그룹 내부 .detail-meta의 상단 보더/마진은 제거한다. */
   .detail-source-caption { margin: 0.75rem 0 0; font-size: 0.8rem; color: var(--ink-mute, #8a8f98); }
-  .detail-info-groups { display: flex; flex-direction: column; gap: 1.2rem; margin-top: 0.6rem; }
-  .detail-group-title { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--ink); }
-  .detail-group .detail-meta { margin-top: 0.6rem; padding-top: 0; border-top: none; }
+  /* 그룹 간 여백을 넓혀 DB dump 느낌을 줄인다(색·보더 대신 spacing 계층). */
+  .detail-info-groups { display: flex; flex-direction: column; gap: 2rem; margin-top: 1rem; }
+  .detail-group-title { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
+  .detail-group .detail-meta { margin-top: 0.9rem; padding-top: 0; border-top: none; }
   .detail-source-note { margin: 0.6rem 0 0; font-size: 0.82rem; color: var(--ink-mute, #8a8f98); }
+  /* 데이터 상태(수집 전/확인 필요) — "정보 없음"이 아니라 상태임을 나타내는 중립 회색. */
+  .detail-data-status { color: var(--ink-mute, #8a8f98); font-size: 0.9rem; }
   /* 담당자 개인정보 마스킹 — (?) 안내 + [공개] 버튼 인라인 배치 */
   .officer-controls { display: inline-flex; align-items: center; gap: 0.35rem; margin-left: 0.4rem; }
   .officer-controls .officer-reveal-btn { padding: 0.1rem 0.55rem; font-size: 0.78rem; }
@@ -1589,6 +1592,11 @@
   .cond-blocks { display: flex; flex-direction: column; gap: 2.75rem; margin-top: 2.25rem; }
   .cond-blocks > *:empty { display: none; }
   .cond-block { margin: 0; }
+  /* 적격심사 계산기 = 우리 자체 도구 → 나라장터 데이터와 subtle 배경으로 분리(거대 카드 금지). */
+  .cond-block--tool { background: var(--surface-soft); border-radius: var(--radius-card); padding: 1.5rem 1.5rem 1.75rem; }
+  .cond-block--tool .cond-block-title { margin-bottom: 0.4rem; }
+  .cond-tool-note { margin: 0 0 1.1rem; font-size: 0.82rem; color: var(--ink-soft); }
+  @media (max-width: 560px) { .cond-block--tool { padding: 1.2rem 1.1rem 1.4rem; } }
   .cond-block-title { margin: 0 0 1rem; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
   .cond-block .cond-block-title + .cond-block-title { margin-top: 1.75rem; }
   /* 핵심 참가조건 grid — 카드 없이 label/value 계층만. desktop 2~3열, mobile 1열. */
@@ -1600,13 +1608,15 @@
   @media (min-width: 900px) { .core-conditions { grid-template-columns: repeat(3, 1fr); } }
   .core-cond-cell { min-width: 0; }
   .core-cond-label { margin: 0; font-size: 0.8rem; font-weight: 500; color: var(--ink-soft); }
-  .core-cond-value { margin: 0.25rem 0 0; font-size: 1rem; font-weight: 600; color: var(--ink); line-height: 1.45; word-break: break-word; }
-  .core-cond-value--muted { font-weight: 500; color: var(--ink-mute, #8a8f98); }
+  .core-cond-value { margin: 0.4rem 0 0; font-size: 1.05rem; font-weight: 600; color: var(--ink); line-height: 1.45; word-break: break-word; }
+  /* "확인 필요"만 amber(semantic review)로 제한적 사용 — 일반 값은 neutral 검정. */
+  .core-cond-value--muted { font-weight: 600; color: var(--warn); }
   @media (max-width: 560px) {
     .core-conditions { grid-template-columns: 1fr; gap: 1rem; }
   }
   /* 입찰 진행정보 타임라인(2026-08-11) — 세로 타임라인 + 현재/다음 단계 강조. frontend-only */
-  .bid-timeline { margin: 0 0 1.6rem; }
+  /* desktop에서 좌측에 몰리지 않게 적당히 넓혀 날짜를 오른쪽에 정렬(모바일은 100%). */
+  .bid-timeline { margin: 0 0 1.6rem; max-width: 680px; }
   .bt-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
   .bt-title { margin: 0; }
   .bt-stage { flex-shrink: 0; font-size: 0.82rem; font-weight: 700; padding: 0.2rem 0.7rem; border-radius: 999px; white-space: nowrap; }
@@ -1632,8 +1642,12 @@
   .bt-node--past .bt-node-label, .bt-node--past .bt-node-date, .bt-node--past .bt-node-clock { color: var(--ink-mute, #8a8f98); font-weight: 600; }
   .bt-node--next .bt-node-label { color: var(--accent-blue); font-weight: 800; }
   .bt-node-tag { font-size: 0.7rem; font-weight: 700; color: var(--accent-blue); background: var(--accent-blue-soft, rgba(49,130,246,0.1)); border-radius: 6px; padding: 0.05rem 0.4rem; }
-  .bt-node-date { font-size: 0.9rem; color: var(--ink); margin-top: 0.2rem; }
-  .bt-node-clock { font-size: 0.85rem; color: var(--ink-soft); margin-top: 0.05rem; }
+  /* desktop: 라벨은 왼쪽, 날짜·시간은 같은 줄 오른쪽으로 밀어 가로 폭을 활용(3줄 세로 쏠림 방지). */
+  .bt-node-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 1.5rem; justify-content: space-between; }
+  .bt-node-when { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.55rem; }
+  .bt-node-date { font-size: 0.9rem; color: var(--ink); }
+  .bt-node-clock { font-size: 0.9rem; color: var(--ink-soft); }
+  @media (max-width: 560px) { .bt-node-main { justify-content: flex-start; } }
   .bt-node-place { font-size: 0.82rem; color: var(--ink-soft); margin-top: 0.1rem; word-break: break-word; }
   /* #assignee-section(파이프라인 상세, assigneeSectionHtml)은 .profile-form의
      직속 자식이 아니라 그 안에 감싸인 <div>라 .profile-form의 gap이 안쪽
@@ -2118,10 +2132,11 @@
   .cond-list { display: flex; flex-direction: column; gap: 0.6rem; }
   .cond-row { display: flex; gap: 0.6rem; align-items: flex-start; }
   .cond-icon { flex-shrink: 0; width: 1.4rem; height: 1.4rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.85rem; color: #fff; }
-  .cond--pass .cond-icon { background: #1e7e34; }
-  .cond--review .cond-icon { background: #d08a00; }
-  .cond--fail .cond-icon { background: #c62828; }
-  .cond--unknown .cond-icon { background: #9aa0a6; }
+  /* semantic palette 통일(2026-08-11): green=pass / amber=review / red=fail / gray=unknown */
+  .cond--pass .cond-icon { background: var(--success); }
+  .cond--review .cond-icon { background: var(--warn); }
+  .cond--fail .cond-icon { background: var(--danger); }
+  .cond--unknown .cond-icon { background: var(--ink-soft); }
   .cond-head-line { display: flex; align-items: center; gap: 0.4rem; }
   .cond-soft { font-size: 0.7rem; font-weight: 700; color: var(--ink-soft); background: var(--surface-sunken, #f1f3f5); padding: 0.05rem 0.35rem; border-radius: 4px; }
   .cond-reason { font-size: 0.88rem; color: var(--ink-soft); line-height: 1.5; margin-top: 0.1rem; }
@@ -2507,6 +2522,10 @@
     transform: translateX(calc(-50% + var(--tip-shift, 0px)));
     width: max-content;
     max-width: min(260px, calc(100vw - 32px));
+    /* 상위 .status-badge 등에서 상속되는 white-space:nowrap을 끊어 max-width 안에서 줄바꿈되게
+       한다 — 안 그러면 긴 툴팁 텍스트가 260px box를 넘겨 모바일 가로 오버플로를 만든다. */
+    white-space: normal;
+    overflow-wrap: break-word;
     background: var(--navy-deep);
     color: #fff;
     font-size: 0.78rem;
@@ -10679,8 +10698,9 @@ function renderDetail(container, id) {
               <h3 class="cond-block-title">공고 상세정보</h3>
               <div id="notice-detail-info-section"></div>
             </section>
-            <section class="cond-block">
+            <section class="cond-block cond-block--tool">
               <h3 class="cond-block-title">적격심사 계산기</h3>
+              <p class="cond-tool-note">나라장터 원본정보가 아닌 공공마인드 자체 참고용 계산 도구입니다.</p>
               <div id="bid-calculator-section"></div>
             </section>
             <section class="cond-block">
@@ -11126,9 +11146,10 @@ function renderBidTimeline(container, detail, notice) {
     return `<li class="${cls}">
       <span class="bt-dot">${dotInner}</span>
       <div class="bt-node-body">
-        <div class="bt-node-label">${esc(nd.label)}${tag}</div>
-        <div class="bt-node-date">${formatKoreanDate(nd.iso)}</div>
-        <div class="bt-node-clock">${formatKoreanTime(nd.iso)}</div>
+        <div class="bt-node-main">
+          <div class="bt-node-label">${esc(nd.label)}${tag}</div>
+          <div class="bt-node-when"><span class="bt-node-date">${formatKoreanDate(nd.iso)}</span><span class="bt-node-clock">${formatKoreanTime(nd.iso)}</span></div>
+        </div>
         ${nd.place ? `<div class="bt-node-place">${esc(nd.place)}</div>` : ''}
       </div>
     </li>`;
@@ -11278,22 +11299,23 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
 
   // 참가자격 그룹 — 제한 플래그 + Phase C 공식 보강(참가가능지역/허용면허). 공식 API 값엔 [공식] 배지.
   const officialBadge = '<span class="detail-source-badge">공식</span>';
+  // 데이터 "없음"과 "미수집"을 구분 — 공식 참가가능지역/면허 API 결과가 없으면 "정보 없음"이 아니라
+  // "수집 전 / 확인 필요"로 상태를 정확히 표시한다(값을 지어내지 않는다). 지역제한/업종제한 플래그
+  // 판단 로직은 이번 UI 패스에서 변경하지 않는다(공식지역 우선순위 이슈는 BUG로 별도 보고).
+  const statusVal = (t) => `<span class="detail-data-status">${esc(t)}</span>`;
   const qualRowsHtml = [];
   const industryText = ynLabel(detail.industryRestricted, '있음', '없음');
   if (industryText) qualRowsHtml.push(`<div><dt>업종제한</dt><dd>${industryText}</dd></div>`);
-  if (has(detail.regionRestrictionBasis)) qualRowsHtml.push(`<div><dt>지역제한</dt><dd>있음 (판단기준: ${esc(detail.regionRestrictionBasis)})</dd></div>`);
-  if (regions.length) {
-    qualRowsHtml.push(`<div><dt>참가가능지역 ${officialBadge}</dt><dd><div class="notice-chips">${regions.map(r => `<span class="notice-chip">${esc(r)}</span>`).join('')}</div></dd></div>`);
-  }
-  if (licenses.length) {
-    qualRowsHtml.push(`<div><dt>허용업종·면허 ${officialBadge}</dt><dd><ul class="notice-license-list">${licenses.map(l => `<li>${esc(l.name)}${has(l.groupNo) ? ` <span class="detail-sub">그룹 ${esc(l.groupNo)}</span>` : ''}</li>`).join('')}</ul></dd></div>`);
-  }
-  let qualGroup = '';
-  if (qualRowsHtml.length) {
-    const note = (regions.length === 0 && licenses.length === 0)
-      ? '<p class="detail-source-note">참가가능지역·허용업종/면허는 아직 확인되지 않았습니다(원문 공고 확인 필요).</p>' : '';
-    qualGroup = `<div class="detail-group"><h4 class="detail-group-title">참가자격</h4><dl class="detail-meta">${qualRowsHtml.join('')}</dl>${note}</div>`;
-  }
+  if (has(detail.regionRestrictionBasis)) qualRowsHtml.push(`<div><dt>지역제한</dt><dd>있음 <span class="detail-sub">판단기준: ${esc(detail.regionRestrictionBasis)}</span></dd></div>`);
+  // 참가가능지역 — 공식 API 값 우선, 없으면 "수집 전" 상태.
+  qualRowsHtml.push(regions.length
+    ? `<div><dt>참가가능지역 ${officialBadge}</dt><dd><div class="notice-chips">${regions.map(r => `<span class="notice-chip">${esc(r)}</span>`).join('')}</div></dd></div>`
+    : `<div><dt>참가가능지역</dt><dd>${statusVal('공식 참가가능지역 정보 수집 전')}</dd></div>`);
+  // 허용업종·면허 — 공식 API 값 우선, 없으면 "확인 필요" 상태.
+  qualRowsHtml.push(licenses.length
+    ? `<div><dt>허용업종·면허 ${officialBadge}</dt><dd><ul class="notice-license-list">${licenses.map(l => `<li>${esc(l.name)}${has(l.groupNo) ? ` <span class="detail-sub">그룹 ${esc(l.groupNo)}</span>` : ''}</li>`).join('')}</ul></dd></div>`
+    : `<div><dt>허용업종·면허</dt><dd>${statusVal('면허·자격 세부조건 확인 필요')}</dd></div>`);
+  const qualGroup = `<div class="detail-group"><h4 class="detail-group-title">참가자격</h4><dl class="detail-meta">${qualRowsHtml.join('')}</dl></div>`;
 
   const body = groups.map(([t, r]) => groupHtml(t, r)).join('') + qualGroup;
 
