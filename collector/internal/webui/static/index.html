@@ -1574,6 +1574,31 @@
   .notice-chip { background: var(--surface-sunken, #f1f3f5); border-radius: 999px; padding: 0.12rem 0.6rem; font-size: 0.82rem; color: var(--ink); }
   .notice-license-list { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; line-height: 1.65; }
   .notice-license-list li { margin: 0; }
+  /* 입찰 진행정보 타임라인(2026-08-11) — 세로 타임라인 + 현재/다음 단계 강조. frontend-only */
+  .bid-timeline { margin: 0 0 1.6rem; }
+  .bt-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+  .bt-title { margin: 0; }
+  .bt-stage { flex-shrink: 0; font-size: 0.82rem; font-weight: 700; padding: 0.2rem 0.7rem; border-radius: 999px; white-space: nowrap; }
+  .bt-stage.bts--active { background: var(--accent-blue); color: #fff; }
+  .bt-stage.bts--warn { background: var(--warn-soft, #fbf0dc); color: var(--warn, #9a6a00); }
+  .bt-stage.bts--done { background: var(--success-soft, #e3f4eb); color: var(--success, #127a4f); }
+  .bt-stage.bts--fail { background: var(--danger-soft, #fdecea); color: var(--danger, #c0392b); }
+  .bt-stage.bts--muted { background: var(--surface-sunken, #f1f3f5); color: var(--ink-soft); }
+  .bt-badges { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.7rem 0 0; }
+  .bt-badge { font-size: 0.78rem; font-weight: 600; padding: 0.15rem 0.6rem; border-radius: 999px; background: var(--surface-sunken, #f1f3f5); color: var(--ink); }
+  .bt-list { list-style: none; margin: 1.1rem 0 0; padding: 0; }
+  .bt-node { position: relative; padding: 0 0 1.15rem 1.6rem; }
+  .bt-node:last-child { padding-bottom: 0; }
+  .bt-node::before { content: ''; position: absolute; left: 5px; top: 0.5rem; bottom: -0.15rem; width: 2px; background: var(--border); }
+  .bt-node:last-child::before { display: none; }
+  .bt-dot { position: absolute; left: 0; top: 0.35rem; width: 12px; height: 12px; border-radius: 50%; background: var(--border); }
+  .bt-node--next .bt-dot { background: var(--accent-blue); box-shadow: 0 0 0 3px var(--accent-blue-soft, rgba(49,130,246,0.15)); }
+  .bt-node-label { font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  .bt-node--past .bt-node-label, .bt-node--past .bt-node-time { color: var(--ink-mute, #8a8f98); font-weight: 600; }
+  .bt-node--next .bt-node-label { color: var(--accent-blue); font-weight: 800; }
+  .bt-node-tag { font-size: 0.7rem; font-weight: 700; color: var(--accent-blue); background: var(--accent-blue-soft, rgba(49,130,246,0.1)); border-radius: 6px; padding: 0.05rem 0.4rem; }
+  .bt-node-time { font-size: 0.9rem; color: var(--ink-soft); margin-top: 0.1rem; }
+  .bt-node-place { font-size: 0.82rem; color: var(--ink-soft); margin-top: 0.1rem; word-break: break-word; }
   /* #assignee-section(파이프라인 상세, assigneeSectionHtml)은 .profile-form의
      직속 자식이 아니라 그 안에 감싸인 <div>라 .profile-form의 gap이 안쪽
      label들 사이에는 적용되지 않는다 — 그 자체도 flex column으로 만들어야
@@ -10561,6 +10586,7 @@ function renderDetail(container, id) {
             <div><dt>버전</dt><dd class="mono">v${n.currentVersion}</dd></div>
           </dl>`}
           <div ${isSupport ? 'hidden' : ''}>
+            <div id="bid-timeline-section"></div>
             <h3>공고 상세정보</h3>
             <div id="notice-detail-info-section"></div>
             <h3>적격심사 계산기</h3>
@@ -10603,6 +10629,7 @@ function renderDetail(container, id) {
       });
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.confidenceTier);
       renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
+      renderBidTimeline(document.getElementById('bid-timeline-section'), data.detail, n);
       renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail, data.participationRegions, data.licenseLimits);
       renderBidCalculator(document.getElementById('bid-calculator-section'), data.detail);
       if (isSupport) {
@@ -10935,6 +10962,90 @@ async function renderNoticeReport(container, id) {
 // 지역제한은 이 데이터 소스(목록조회 API)에 판단기준 텍스트만 있고 구체적인
 // 지역명 목록 자체가 없어, 표로 꾸미지 않고 있는 그대로(판단기준 문구 또는
 // "확인 불가")를 보여준다 — 없는 데이터를 있는 것처럼 표로 만들지 않는다.
+// bidTimelineStage — 공식 일정 + 현재시각만으로 입찰 진행단계를 deterministic 계산(AI 없음).
+// 취소/재공고 status가 최우선, 그다음 시각 비교. 필요한 일정(제출시작/마감)이 없으면 계산 보류.
+// 없는 날짜는 추정하지 않는다.
+function bidTimelineStage(detail, status, nowMs) {
+  if (status === 'cancelled') return { key: 'cancelled', label: '취소됨', tone: 'fail' };
+  if (status === 'reannounced') return { key: 'reannounced', label: '재공고', tone: 'warn' };
+  const ms = v => { const t = v ? Date.parse(v) : NaN; return isNaN(t) ? null : t; };
+  const S = ms(detail.applicationStartAt), E = ms(detail.applicationEndAt), O = ms(detail.bidOpeningAt);
+  if (S == null || E == null) return { key: 'unknown', label: '일정 확인 필요', tone: 'muted' };
+  if (nowMs < S) return { key: 'before', label: '접수 준비', tone: 'muted' };
+  if (nowMs < E) return { key: 'receiving', label: '입찰서 접수중', tone: 'active' };
+  if (O != null && nowMs < O) return { key: 'awaiting', label: '개찰 대기', tone: 'warn' };
+  if (O != null && nowMs >= O) return { key: 'opened', label: '개찰 완료', tone: 'done' };
+  return { key: 'closed', label: '제출 마감', tone: 'muted' };
+}
+
+// renderBidTimeline — 공고 상세 "입찰 진행정보" 세로 타임라인 + 현재 단계 강조(2026-08-11).
+// 기존 Detail DTO 값만 사용(신규 API/DB/계산 데이터 없음). 값 없는 단계는 렌더하지 않는다.
+function renderBidTimeline(container, detail, notice) {
+  if (!container) return;
+  container.innerHTML = '';
+  if (!detail) return;
+  const esc = escapeHtml;
+  const nowMs = Date.now();
+  const status = notice && notice.status;
+
+  // 단계 노드 — 값 있는 것만, 시각순 정렬.
+  const nodes = [];
+  const add = (label, iso, place) => { const t = iso ? Date.parse(iso) : NaN; if (!isNaN(t)) nodes.push({ label, iso, ms: t, place: place || '' }); };
+  add('공고 게시', detail.publishedAt);
+  add('입찰서 제출 시작', detail.applicationStartAt);
+  add('현장설명회', detail.briefingAt, detail.briefingPlace);
+  add('참가자격 등록 마감', detail.qualificationDeadlineAt);
+  add('입찰서 제출 마감', detail.applicationEndAt);
+  add('개찰', detail.bidOpeningAt, detail.openingPlace);
+  // 재입찰 개찰 — 실제로 존재하고 개찰과 다른 시각일 때만(같은 값이면 개찰과 중복이라 숨김,
+  // 재입찰 허용이라는 이유만으로 가짜 단계를 만들지 않는다).
+  if (detail.rebidOpeningAt && !isNaN(Date.parse(detail.rebidOpeningAt)) && detail.rebidOpeningAt !== detail.bidOpeningAt) {
+    add('재입찰 개찰', detail.rebidOpeningAt);
+  }
+  if (!nodes.length) return; // 표시할 일정이 전혀 없으면 섹션 숨김
+  nodes.sort((a, b) => a.ms - b.ms);
+
+  // 다음 예정 노드(가장 이른 미래) 하나만 "다음 일정"으로 강조.
+  const nextIdx = nodes.findIndex(nd => nd.ms >= nowMs);
+
+  const stage = bidTimelineStage(detail, status, nowMs);
+  const stageToneCls = { active: 'bts--active', warn: 'bts--warn', done: 'bts--done', fail: 'bts--fail', muted: 'bts--muted' }[stage.tone] || 'bts--muted';
+
+  const badges = [];
+  if (detail.bidMethod) badges.push(esc(detail.bidMethod));
+  if (detail.jointContractMethod) badges.push(esc(detail.jointContractMethod));
+  if (detail.rebidAllowed === true) badges.push('재입찰 허용');
+  else if (detail.rebidAllowed === false) badges.push('재입찰 불허');
+  const badgeHtml = badges.map(b => `<span class="bt-badge">${b}</span>`).join('');
+
+  const nodesHtml = nodes.map((nd, i) => {
+    let cls = 'bt-node';
+    let tag = '';
+    if (i === nextIdx) { cls += ' bt-node--next'; tag = '<span class="bt-node-tag">다음 일정</span>'; }
+    else if (nd.ms < nowMs) { cls += ' bt-node--past'; }
+    else { cls += ' bt-node--future'; }
+    return `<li class="${cls}">
+      <span class="bt-dot"></span>
+      <div class="bt-node-body">
+        <div class="bt-node-label">${esc(nd.label)}${tag}</div>
+        <div class="bt-node-time mono">${formatDateTime(nd.iso)}</div>
+        ${nd.place ? `<div class="bt-node-place">${esc(nd.place)}</div>` : ''}
+      </div>
+    </li>`;
+  }).join('');
+
+  container.appendChild(h(`
+    <section class="bid-timeline">
+      <div class="bt-head">
+        <h3 class="bt-title">입찰 진행정보</h3>
+        <span class="bt-stage ${stageToneCls}">${esc(stage.label)}</span>
+      </div>
+      ${badgeHtml ? `<div class="bt-badges">${badgeHtml}</div>` : ''}
+      <ul class="bt-list">${nodesHtml}</ul>
+    </section>
+  `));
+}
+
 // renderNoticeDetailInfo — 공고 상세정보를 나라장터 정보구조에 가깝게 그룹별로 보여준다
 // (Phase B, 2026-08-11). 모든 값은 나라장터 공식 API(raw_content)에서 온 것이고, 값이 없는
 // 행/그룹은 아예 만들지 않는다(빈 행 금지). 참가가능지역·허용업종/면허·기초금액은 Phase C.
@@ -11014,14 +11125,7 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
       ['부가가치세', detail.vat != null ? won(detail.vat) : null],
       ['입찰참가수수료', detail.participationFee != null ? won(detail.participationFee) : null],
     ]],
-    ['일정', [
-      ['입찰참가자격등록 마감', has(detail.qualificationDeadlineAt) ? dt(detail.qualificationDeadlineAt) : null],
-      ['입찰서 제출 시작', has(detail.applicationStartAt) ? dt(detail.applicationStartAt) : null],
-      ['입찰서 제출 마감', has(detail.applicationEndAt) ? dt(detail.applicationEndAt) : null],
-      ['개찰일시', has(detail.bidOpeningAt) ? dt(detail.bidOpeningAt) : null],
-      ['재입찰 개찰일시', has(detail.rebidOpeningAt) ? dt(detail.rebidOpeningAt) : null],
-      ['설명회', briefingVal],
-    ]],
+    // [일정] 그룹은 상단 "입찰 진행정보" 타임라인으로 이관(중복 제거). 데이터(DTO)는 그대로 유지.
   ];
 
   const groupHtml = (title, rows, extra) => {
