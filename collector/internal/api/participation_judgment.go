@@ -36,14 +36,19 @@ func (s *Server) buildJudgmentForNotice(ctx context.Context, noticeID, profileID
 	if err != nil || noticeType != "procurement" {
 		return nil
 	}
-	score := scoreNoticeForCompany(noticeScoringInput{
-		NoticeType: noticeType, Region: region, Industry: industry, BudgetAmount: budget,
-		IndustryRestricted: nullBoolPtr(industryRestricted),
-	}, company)
 	versionID, err := s.currentVersionID(ctx, noticeID, currentVersion)
 	if err != nil {
 		return nil
 	}
+	auths, err := s.regionAuthoritiesByVersions(ctx, []string{versionID})
+	if err != nil {
+		return nil
+	}
+	score := scoreNoticeForCompany(noticeScoringInput{
+		NoticeType: noticeType, Region: region, Industry: industry, BudgetAmount: budget,
+		IndustryRestricted: nullBoolPtr(industryRestricted),
+		OfficialRegions:    auths[versionID].OfficialRegions, RegionEnriched: auths[versionID].Enriched,
+	}, company)
 	reqDocs, err := s.listRequiredDocuments(ctx, versionID, profileID)
 	if err != nil {
 		reqDocs = nil

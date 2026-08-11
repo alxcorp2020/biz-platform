@@ -192,21 +192,27 @@ func (s *Server) computeReportSummary(
 
 	// 신규 추천공고: 기간 내 수집된 공고 중 리포트 생성 시점 기준 recommended.
 	noticeRows, err := s.db.QueryContext(ctx, `
-		SELECT notice_type, region, industry, budget_amount, industry_restricted FROM notices
-		WHERE first_collected_at >= $1 AND first_collected_at < $2`,
+		SELECT n.notice_type, n.region, n.industry, n.budget_amount, n.industry_restricted,
+		       nv.enrichment_status,
+		       COALESCE((SELECT array_agg(pr.region_name ORDER BY pr.sort_no) FROM notice_participation_regions pr WHERE pr.notice_version_id = nv.id), '{}')
+		FROM notices n
+		JOIN notice_versions nv ON nv.notice_id = n.id AND nv.version_number = n.current_version
+		WHERE n.first_collected_at >= $1 AND n.first_collected_at < $2`,
 		periodStart, periodEndExclusive)
 	if err != nil {
 		s.logger.Error("report: new-recommended notices query failed", "error", err)
 	} else {
 		for noticeRows.Next() {
 			var noticeType string
-			var region, industry sql.NullString
+			var region, industry, enrichStatus sql.NullString
 			var budget sql.NullInt64
 			var industryRestricted sql.NullBool
-			if err := noticeRows.Scan(&noticeType, &region, &industry, &budget, &industryRestricted); err != nil {
+			var officialRegions pq.StringArray
+			if err := noticeRows.Scan(&noticeType, &region, &industry, &budget, &industryRestricted, &enrichStatus, &officialRegions); err != nil {
 				continue
 			}
-			score := scoreNoticeForCompany(noticeScoringInput{NoticeType: noticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)}, company)
+			score := scoreNoticeForCompany(noticeScoringInput{NoticeType: noticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted),
+				OfficialRegions: []string(officialRegions), RegionEnriched: regionEnrichedFromStatus(enrichStatus)}, company)
 			if score.Grade == gradeRecommended {
 				summary.NewRecommendedCount++
 			}

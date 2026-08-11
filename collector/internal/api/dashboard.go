@@ -211,11 +211,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	noticeRows, err := s.db.QueryContext(ctx, `
-		SELECT id, notice_type, title, organization_name, region, industry, budget_amount, application_end_at, industry_restricted
-		FROM notices
-		WHERE status NOT IN ('closed','cancelled')
-		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
-		ORDER BY application_end_at ASC NULLS LAST
+		SELECT n.id, n.notice_type, n.title, n.organization_name, n.region, n.industry, n.budget_amount, n.application_end_at, n.industry_restricted,
+		       nv.enrichment_status,
+		       COALESCE((SELECT array_agg(pr.region_name ORDER BY pr.sort_no) FROM notice_participation_regions pr WHERE pr.notice_version_id = nv.id), '{}')
+		FROM notices n
+		JOIN notice_versions nv ON nv.notice_id = n.id AND nv.version_number = n.current_version
+		WHERE n.status NOT IN ('closed','cancelled')
+		  AND (n.application_end_at IS NULL OR n.application_end_at >= CURRENT_DATE)
+		ORDER BY n.application_end_at ASC NULLS LAST
 		LIMIT `+itoa(dashboardNoticeScanLimit))
 	if err != nil {
 		s.logger.Error("dashboard: notices query failed", "error", err)
@@ -227,18 +230,20 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	recScores := map[string]participationScore{} // 추천된 공고의 3요소 판정 결과(judgment 재사용용)
 	for noticeRows.Next() {
 		var id, title, noticeType string
-		var org, noticeRegion, noticeIndustry sql.NullString
+		var org, noticeRegion, noticeIndustry, enrichStatus sql.NullString
 		var budget sql.NullInt64
 		var deadline sql.NullTime
 		var industryRestricted sql.NullBool
-		if err := noticeRows.Scan(&id, &noticeType, &title, &org, &noticeRegion, &noticeIndustry, &budget, &deadline, &industryRestricted); err != nil {
+		var officialRegions pq.StringArray
+		if err := noticeRows.Scan(&id, &noticeType, &title, &org, &noticeRegion, &noticeIndustry, &budget, &deadline, &industryRestricted, &enrichStatus, &officialRegions); err != nil {
 			continue
 		}
 		if pipelinedNoticeIDs[id] {
 			continue // 이미 파이프라인에 있음 — 위에서 이미 처리됨
 		}
 		score := scoreNoticeForCompany(
-			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)},
+			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted),
+				OfficialRegions: []string(officialRegions), RegionEnriched: regionEnrichedFromStatus(enrichStatus)},
 			company,
 		)
 		if score.Grade != gradeRecommended {
@@ -440,9 +445,13 @@ func (s *Server) computeEligibilityBucketSummary(ctx context.Context, company co
 	missingCounts := map[string]int{}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT notice_type, region, industry, budget_amount, industry_restricted FROM notices
-		WHERE status NOT IN ('closed','cancelled')
-		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
+		SELECT n.notice_type, n.region, n.industry, n.budget_amount, n.industry_restricted,
+		       nv.enrichment_status,
+		       COALESCE((SELECT array_agg(pr.region_name ORDER BY pr.sort_no) FROM notice_participation_regions pr WHERE pr.notice_version_id = nv.id), '{}')
+		FROM notices n
+		JOIN notice_versions nv ON nv.notice_id = n.id AND nv.version_number = n.current_version
+		WHERE n.status NOT IN ('closed','cancelled')
+		  AND (n.application_end_at IS NULL OR n.application_end_at >= CURRENT_DATE)
 		LIMIT `+itoa(dashboardNoticeScanLimit))
 	if err != nil {
 		return summary, err
@@ -451,14 +460,16 @@ func (s *Server) computeEligibilityBucketSummary(ctx context.Context, company co
 
 	for rows.Next() {
 		var noticeType string
-		var noticeRegion, noticeIndustry sql.NullString
+		var noticeRegion, noticeIndustry, enrichStatus sql.NullString
 		var budget sql.NullInt64
 		var industryRestricted sql.NullBool
-		if err := rows.Scan(&noticeType, &noticeRegion, &noticeIndustry, &budget, &industryRestricted); err != nil {
+		var officialRegions pq.StringArray
+		if err := rows.Scan(&noticeType, &noticeRegion, &noticeIndustry, &budget, &industryRestricted, &enrichStatus, &officialRegions); err != nil {
 			continue
 		}
 		score := scoreNoticeForCompany(
-			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)},
+			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted),
+				OfficialRegions: []string(officialRegions), RegionEnriched: regionEnrichedFromStatus(enrichStatus)},
 			company,
 		)
 
@@ -813,9 +824,12 @@ func (s *Server) computeAutomationSummary(ctx context.Context, company companySc
 	summary := automationSummary{SavedMinutesAssumption: fmt.Sprintf("공고 1건당 검토 %d분 가정", dashboardAssumedMinutesPerNotice)}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, notice_type, region, industry, budget_amount, industry_restricted
-		FROM notices
-		WHERE created_at >= date_trunc('month', now())
+		SELECT n.id, n.notice_type, n.region, n.industry, n.budget_amount, n.industry_restricted,
+		       nv.enrichment_status,
+		       COALESCE((SELECT array_agg(pr.region_name ORDER BY pr.sort_no) FROM notice_participation_regions pr WHERE pr.notice_version_id = nv.id), '{}')
+		FROM notices n
+		JOIN notice_versions nv ON nv.notice_id = n.id AND nv.version_number = n.current_version
+		WHERE n.created_at >= date_trunc('month', now())
 		LIMIT `+itoa(dashboardNoticeScanLimit))
 	if err != nil {
 		return summary, err
@@ -823,15 +837,17 @@ func (s *Server) computeAutomationSummary(ctx context.Context, company companySc
 	var noticeIDs []string
 	for rows.Next() {
 		var id, noticeType string
-		var region, industry sql.NullString
+		var region, industry, enrichStatus sql.NullString
 		var budget sql.NullInt64
 		var industryRestricted sql.NullBool
-		if err := rows.Scan(&id, &noticeType, &region, &industry, &budget, &industryRestricted); err != nil {
+		var officialRegions pq.StringArray
+		if err := rows.Scan(&id, &noticeType, &region, &industry, &budget, &industryRestricted, &enrichStatus, &officialRegions); err != nil {
 			continue
 		}
 		noticeIDs = append(noticeIDs, id)
 		score := scoreNoticeForCompany(
-			noticeScoringInput{NoticeType: noticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)}, company,
+			noticeScoringInput{NoticeType: noticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted),
+				OfficialRegions: []string(officialRegions), RegionEnriched: regionEnrichedFromStatus(enrichStatus)}, company,
 		)
 		if score.Grade == gradeRecommended {
 			summary.NarrowedCount++

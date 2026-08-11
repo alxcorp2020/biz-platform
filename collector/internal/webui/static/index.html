@@ -10744,8 +10744,8 @@ function renderDetail(container, id) {
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.confidenceTier);
       renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
       renderBidTimeline(document.getElementById('bid-timeline-section'), data.detail, n);
-      renderCoreConditions(document.getElementById('core-conditions-section'), data.detail, data.participationRegions, data.licenseLimits, n);
-      renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail, data.participationRegions, data.licenseLimits);
+      renderCoreConditions(document.getElementById('core-conditions-section'), data.detail, data.participationRegions, data.licenseLimits, n, data.participationRegionStatus);
+      renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail, data.participationRegions, data.licenseLimits, data.participationRegionStatus);
       renderBidCalculator(document.getElementById('bid-calculator-section'), data.detail);
       if (isSupport) {
         // B-2: 지원사업 공식 데이터(지원대상·사업개요·신청방법·문의처·지원분야) +
@@ -11171,7 +11171,7 @@ function renderBidTimeline(container, detail, notice) {
 // 5초 안에 판단할 수 있게 지역·업종·면허·공동수급·국제입찰·재입찰 6개만 grid로 보여준다.
 // 값은 전부 기존 DTO(detail) + Phase C 공식 보강(participationRegions/licenseLimits)에서 오고,
 // 값이 없으면 "확인 필요"로 표시할 뿐 지어내지 않는다. 카드로 만들지 않고 label/value 계층만 준다.
-function renderCoreConditions(container, detail, participationRegions, licenseLimits, notice) {
+function renderCoreConditions(container, detail, participationRegions, licenseLimits, notice, participationRegionStatus) {
   if (!container) return;
   container.innerHTML = '';
   const esc = escapeHtml;
@@ -11180,9 +11180,15 @@ function renderCoreConditions(container, detail, participationRegions, licenseLi
   const licenses = Array.isArray(licenseLimits) ? licenseLimits : [];
   const ynLabel = (b, yes, no) => b === true ? yes : b === false ? no : null;
 
-  // 지역: 공식 참가가능지역(Phase C) 우선, 없으면 공고 지역.
-  const regionVal = regions.length ? regions.map(esc).join(' · ')
-    : (notice && notice.region ? esc(notice.region) : null);
+  // 지역: 공식 참가가능지역(authoritative)만 확정값으로 표시한다. 추론값(notices.region)은
+  // 신뢰할 수 없어 확정처럼 쓰지 않는다 — 미수집(unknown)이면 '확인 필요'로 둔다.
+  //   restricted    → 공식 제한지역 목록
+  //   confirmed_all → 전국(공식 확인)
+  //   unknown       → 확인 필요(값 null)
+  const regionStatus = participationRegionStatus || (regions.length ? 'restricted' : 'unknown');
+  let regionVal = null, regionOfficial = false;
+  if (regions.length) { regionVal = regions.map(esc).join(' · '); regionOfficial = true; }
+  else if (regionStatus === 'confirmed_all') { regionVal = '전국'; regionOfficial = true; }
   const industryVal = (notice && notice.industry) ? esc(notice.industry) : null;
   const licenseVal = licenses.length ? licenses.map(l => esc(l.name)).join(', ') : null;
   const jointVal = d.jointContractMethod ? esc(d.jointContractMethod) : null;
@@ -11191,7 +11197,7 @@ function renderCoreConditions(container, detail, participationRegions, licenseLi
 
   // [라벨, 값(null이면 '확인 필요'), 공식배지여부]
   const items = [
-    ['지역', regionVal, regions.length > 0],
+    ['지역', regionVal, regionOfficial],
     ['업종', industryVal, false],
     ['면허·자격', licenseVal, licenses.length > 0],
     ['공동수급', jointVal, false],
@@ -11210,7 +11216,7 @@ function renderCoreConditions(container, detail, participationRegions, licenseLi
 // renderNoticeDetailInfo — 공고 상세정보를 나라장터 정보구조에 가깝게 그룹별로 보여준다
 // (Phase B, 2026-08-11). 모든 값은 나라장터 공식 API(raw_content)에서 온 것이고, 값이 없는
 // 행/그룹은 아예 만들지 않는다(빈 행 금지). 참가가능지역·허용업종/면허·기초금액은 Phase C.
-function renderNoticeDetailInfo(container, detail, participationRegions, licenseLimits) {
+function renderNoticeDetailInfo(container, detail, participationRegions, licenseLimits, participationRegionStatus) {
   container.innerHTML = '';
   if (!detail) {
     container.appendChild(h('<p class="section-empty">원문 상세 데이터를 확인할 수 없습니다.</p>'));
@@ -11307,10 +11313,15 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
   const industryText = ynLabel(detail.industryRestricted, '있음', '없음');
   if (industryText) qualRowsHtml.push(`<div><dt>업종제한</dt><dd>${industryText}</dd></div>`);
   if (has(detail.regionRestrictionBasis)) qualRowsHtml.push(`<div><dt>지역제한</dt><dd>있음 <span class="detail-sub">판단기준: ${esc(detail.regionRestrictionBasis)}</span></dd></div>`);
-  // 참가가능지역 — 공식 API 값 우선, 없으면 "수집 전" 상태.
-  qualRowsHtml.push(regions.length
-    ? `<div><dt>참가가능지역 ${officialBadge}</dt><dd><div class="notice-chips">${regions.map(r => `<span class="notice-chip">${esc(r)}</span>`).join('')}</div></dd></div>`
-    : `<div><dt>참가가능지역</dt><dd>${statusVal('공식 참가가능지역 정보 수집 전')}</dd></div>`);
+  // 참가가능지역 — 공식 API가 authoritative. restricted=목록, confirmed_all=전국(공식확인), unknown=수집 전.
+  const regionStatus = participationRegionStatus || (regions.length ? 'restricted' : 'unknown');
+  if (regions.length) {
+    qualRowsHtml.push(`<div><dt>참가가능지역 ${officialBadge}</dt><dd><div class="notice-chips">${regions.map(r => `<span class="notice-chip">${esc(r)}</span>`).join('')}</div></dd></div>`);
+  } else if (regionStatus === 'confirmed_all') {
+    qualRowsHtml.push(`<div><dt>참가가능지역 ${officialBadge}</dt><dd>전국 <span class="detail-sub">지역제한 없음(공식 확인)</span></dd></div>`);
+  } else {
+    qualRowsHtml.push(`<div><dt>참가가능지역</dt><dd>${statusVal('공식 참가가능지역 정보 수집 전')}</dd></div>`);
+  }
   // 허용업종·면허 — 공식 API 값 우선, 없으면 "확인 필요" 상태.
   qualRowsHtml.push(licenses.length
     ? `<div><dt>허용업종·면허 ${officialBadge}</dt><dd><ul class="notice-license-list">${licenses.map(l => `<li>${esc(l.name)}${has(l.groupNo) ? ` <span class="detail-sub">그룹 ${esc(l.groupNo)}</span>` : ''}</li>`).join('')}</ul></dd></div>`

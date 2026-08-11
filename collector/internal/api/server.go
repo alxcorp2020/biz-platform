@@ -469,6 +469,8 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 		       n.application_end_at, n.budget_amount, n.official_url, n.current_version,
 		       (nb.id IS NOT NULL) AS is_bookmarked, n.region_restricted, n.industry_restricted,
 		       EXISTS(SELECT 1 FROM notice_changes nc WHERE nc.notice_id = n.id AND nc.created_at >= now() - interval '7 days') AS recently_changed,
+		       (SELECT nv.enrichment_status FROM notice_versions nv WHERE nv.notice_id = n.id AND nv.version_number = n.current_version) AS enrichment_status,
+		       COALESCE((SELECT array_agg(pr.region_name ORDER BY pr.sort_no) FROM notice_participation_regions pr JOIN notice_versions nv2 ON nv2.id = pr.notice_version_id WHERE nv2.notice_id = n.id AND nv2.version_number = n.current_version), '{}') AS official_regions,
 		       COUNT(*) OVER() AS total_count
 		FROM notices n
 		LEFT JOIN notice_bookmarks nb ON nb.notice_id = n.id AND nb.user_id = ` + addArg(sql.NullString{String: userID, Valid: loggedIn}) + `
@@ -588,14 +590,15 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 	total := 0
 	for rows.Next() {
 		var it noticeListItem
-		var org, region, industry, officialURL sql.NullString
+		var org, region, industry, officialURL, enrichStatus sql.NullString
 		var budget sql.NullInt64
 		var deadline sql.NullTime
 		var regionRestricted, industryRestricted sql.NullBool
+		var officialRegions pq.StringArray
 		var totalCount int
 		if err := rows.Scan(&it.ID, &it.NoticeType, &it.Title, &org, &region, &industry, &it.Status,
 			&deadline, &budget, &officialURL, &it.CurrentVersion, &it.IsBookmarked, &regionRestricted, &industryRestricted,
-			&it.RecentlyChanged, &totalCount); err != nil {
+			&it.RecentlyChanged, &enrichStatus, &officialRegions, &totalCount); err != nil {
 			s.logger.Error("scan notice row failed", "error", err)
 			continue
 		}
@@ -614,7 +617,8 @@ func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
 			it.ApplicationEndAt = &deadline.Time
 		}
 		if scoringCompany != nil {
-			score := scoreNoticeForCompany(noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)}, *scoringCompany)
+			score := scoreNoticeForCompany(noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted),
+				OfficialRegions: []string(officialRegions), RegionEnriched: regionEnrichedFromStatus(enrichStatus)}, *scoringCompany)
 			it.Grade = score.Grade
 			it.GradeReason = score.GradeReason
 			it.JointVentureRecommended = score.JointVentureRecommended
@@ -771,8 +775,13 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 				Region: companyRegion, Industry: []string(companyIndustry), Size: companySize,
 				TrackRecordMaxAmount: trackRecordMax,
 			}
+			regionAuths, raErr := s.regionAuthoritiesByNoticeIDs(r.Context(), []string{id})
+			if raErr != nil {
+				s.logger.Error("get notice: region authority lookup failed", "error", raErr)
+			}
 			computed := scoreNoticeForCompany(
-				noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)},
+				noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted),
+					OfficialRegions: regionAuths[id].OfficialRegions, RegionEnriched: regionAuths[id].Enriched},
 				company,
 			)
 			score = &computed
@@ -796,6 +805,11 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	var aiSummary *noticeAISummary
 	participationRegions := []string{}
 	licenseLimits := []licenseLimitItem{}
+	// participationRegionStatus — 지역 데이터 상태(2026-08-11 authoritative source):
+	//   restricted   : 공식 참가가능지역 제한이 있음(그 목록 표시)
+	//   confirmed_all: enrichment 완료 + 제한 없음 → 전국 확정(공식 확인)
+	//   unknown      : 아직 공식 지역 미수집 → 추론값(notices.region)을 확정처럼 표시하지 않는다
+	participationRegionStatus := "unknown"
 	versionID, err := s.currentVersionID(r.Context(), id, it.CurrentVersion)
 	if err != nil {
 		s.logger.Error("get notice: current version lookup failed", "error", err)
@@ -844,12 +858,21 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error("list license limits failed", "error", err)
 		}
+		if len(participationRegions) > 0 {
+			participationRegionStatus = "restricted"
+		} else if auths, aerr := s.regionAuthoritiesByVersions(r.Context(), []string{versionID}); aerr != nil {
+			s.logger.Error("get notice: region authority lookup failed", "error", aerr)
+		} else if auths[versionID].Enriched {
+			participationRegionStatus = "confirmed_all"
+		}
 	}
 
 	var impact *changeImpact
 	if score != nil && versionID != "" {
+		impactAuths, _ := s.regionAuthoritiesByVersions(r.Context(), []string{versionID})
 		impact, err = s.computeLatestChangeImpact(r.Context(), versionID,
-			noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)}, company, *score)
+			noticeScoringInput{NoticeType: it.NoticeType, Region: region, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted),
+				OfficialRegions: impactAuths[versionID].OfficialRegions, RegionEnriched: impactAuths[versionID].Enriched}, company, *score)
 		if err != nil {
 			s.logger.Error("compute change impact failed", "error", err)
 			impact = nil
@@ -946,6 +969,7 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		"hasCompetitiveOverlap":    hasCompetitiveOverlap,
 		"existingPipelineEntryId":  existingPipelineEntryID,
 		"participationRegions":     participationRegions,
+		"participationRegionStatus": participationRegionStatus,
 		"licenseLimits":            licenseLimits,
 	})
 }

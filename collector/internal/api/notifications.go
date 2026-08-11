@@ -414,6 +414,8 @@ type digestNoticeRow struct {
 	budget                sql.NullInt64
 	deadline              sql.NullTime
 	industryRestricted    sql.NullBool
+	officialRegions       []string // 공식 참가가능지역(authoritative)
+	regionEnriched        bool     // 공식 지역 enrichment 확정 실행 여부
 }
 
 // digestOrDash returns "-" for an unset nullable string — 다이제스트
@@ -581,10 +583,13 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 	}
 
 	noticeRows, err := s.db.QueryContext(ctx, `
-		SELECT id, notice_type, title, organization_name, region, industry, budget_amount, application_end_at, industry_restricted
-		FROM notices
-		WHERE status NOT IN ('closed','cancelled')
-		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
+		SELECT n.id, n.notice_type, n.title, n.organization_name, n.region, n.industry, n.budget_amount, n.application_end_at, n.industry_restricted,
+		       nv.enrichment_status,
+		       COALESCE((SELECT array_agg(pr.region_name ORDER BY pr.sort_no) FROM notice_participation_regions pr WHERE pr.notice_version_id = nv.id), '{}')
+		FROM notices n
+		JOIN notice_versions nv ON nv.notice_id = n.id AND nv.version_number = n.current_version
+		WHERE n.status NOT IN ('closed','cancelled')
+		  AND (n.application_end_at IS NULL OR n.application_end_at >= CURRENT_DATE)
 		LIMIT `+itoa(dashboardNoticeScanLimit))
 	if err != nil {
 		return err
@@ -592,9 +597,13 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 	var notices []digestNoticeRow
 	for noticeRows.Next() {
 		var n digestNoticeRow
-		if err := noticeRows.Scan(&n.id, &n.noticeType, &n.title, &n.org, &n.region, &n.industry, &n.budget, &n.deadline, &n.industryRestricted); err != nil {
+		var enrichStatus sql.NullString
+		var officialRegions pq.StringArray
+		if err := noticeRows.Scan(&n.id, &n.noticeType, &n.title, &n.org, &n.region, &n.industry, &n.budget, &n.deadline, &n.industryRestricted, &enrichStatus, &officialRegions); err != nil {
 			continue
 		}
+		n.officialRegions = []string(officialRegions)
+		n.regionEnriched = regionEnrichedFromStatus(enrichStatus)
 		notices = append(notices, n)
 	}
 	if err := noticeRows.Err(); err != nil {
@@ -627,7 +636,8 @@ func (s *Server) sendRecommendationDigest(ctx context.Context) error {
 				continue
 			}
 			score := scoreNoticeForCompany(
-				noticeScoringInput{NoticeType: n.noticeType, Region: n.region, Industry: n.industry, BudgetAmount: n.budget, IndustryRestricted: nullBoolPtr(n.industryRestricted)}, company,
+				noticeScoringInput{NoticeType: n.noticeType, Region: n.region, Industry: n.industry, BudgetAmount: n.budget, IndustryRestricted: nullBoolPtr(n.industryRestricted),
+					OfficialRegions: n.officialRegions, RegionEnriched: n.regionEnriched}, company,
 			)
 			if score.Grade != gradeRecommended {
 				continue

@@ -919,7 +919,12 @@ func (s *Server) attachPipelineGrades(ctx context.Context, profile *companyProfi
 		noticeIDs[i] = it.NoticeID
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, notice_type, region, industry, budget_amount, industry_restricted FROM notices WHERE id = ANY($1)`,
+		`SELECT n.id, n.notice_type, n.region, n.industry, n.budget_amount, n.industry_restricted,
+		        nv.enrichment_status,
+		        COALESCE((SELECT array_agg(pr.region_name ORDER BY pr.sort_no) FROM notice_participation_regions pr WHERE pr.notice_version_id = nv.id), '{}')
+		 FROM notices n
+		 JOIN notice_versions nv ON nv.notice_id = n.id AND nv.version_number = n.current_version
+		 WHERE n.id = ANY($1)`,
 		pq.Array(noticeIDs),
 	)
 	if err != nil {
@@ -931,13 +936,15 @@ func (s *Server) attachPipelineGrades(ctx context.Context, profile *companyProfi
 	notices := make(map[string]noticeScoringInput, len(items))
 	for rows.Next() {
 		var id, noticeType string
-		var noticeRegion, industry sql.NullString
+		var noticeRegion, industry, enrichStatus sql.NullString
 		var budget sql.NullInt64
 		var industryRestricted sql.NullBool
-		if err := rows.Scan(&id, &noticeType, &noticeRegion, &industry, &budget, &industryRestricted); err != nil {
+		var officialRegions pq.StringArray
+		if err := rows.Scan(&id, &noticeType, &noticeRegion, &industry, &budget, &industryRestricted, &enrichStatus, &officialRegions); err != nil {
 			continue
 		}
-		notices[id] = noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)}
+		notices[id] = noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: industry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted),
+			OfficialRegions: []string(officialRegions), RegionEnriched: regionEnrichedFromStatus(enrichStatus)}
 	}
 
 	for i := range items {

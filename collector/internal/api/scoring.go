@@ -26,6 +26,11 @@ type noticeScoringInput struct {
 	// 소스 등)이라 기존 그룹 매칭으로 폴백. 채우는 건 각 로드 지점의 선택이므로
 	// (옵셔널) 지정 안 하면 자연히 nil = 기존 동작.
 	IndustryRestricted *bool
+	// OfficialRegions/RegionEnriched — 공식 참가가능지역 authoritative 데이터(2026-08-11).
+	// 각 호출부가 regionAuthoritiesByNoticeIDs/ByVersions로 배치 로드해 채운다. 지정 안 하면
+	// (nil/false) = enrichment 미실행으로 취급 → 추론 region만으로 전국 PASS를 만들지 않는다.
+	OfficialRegions []string
+	RegionEnriched  bool
 }
 
 type companyScoringInput struct {
@@ -111,7 +116,9 @@ func scoreNoticeForCompany(notice noticeScoringInput, company companyScoringInpu
 	if notice.NoticeType == noticeTypeSupportProgram {
 		return supportProgramScore()
 	}
-	regionResult, regionReason, regionGapSide := scoreRegion(notice.Region, company.Region)
+	regionResult, regionReason, regionGapSide := scoreRegion(
+		regionAuthority{OfficialRegions: notice.OfficialRegions, Enriched: notice.RegionEnriched},
+		notice.Region, company.Region)
 	industryResult, industryReason, industryGapSide := scoreIndustry(notice.Industry, company.Industry, notice.IndustryRestricted)
 	budgetResult, budgetReason, budgetGapSide := scoreBudgetSize(notice.BudgetAmount, company.Size)
 

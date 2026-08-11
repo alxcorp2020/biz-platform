@@ -272,30 +272,176 @@ func overallResult(items []eligibilityItem) string {
 	return "met"
 }
 
-// scoreRegion is the pure decision logic behind evaluateRegion — no DB
-// access, safe to call in a loop (dashboard scans hundreds of notices).
-// scoreRegion의 세 번째 리턴값(dataGapSide)은 insufficient_data일 때 어느 쪽에
-// 정보가 없는지 구분한다: "notice"는 공고 자체에 지역 데이터가 없는 경우(g2b
-// 수집 데이터의 구조적 한계 — 사용자가 고칠 수 없음), "company"는 기업 프로필에
-// 지역이 없는 경우(사용자가 "내 프로필"에서 채워 넣으면 해결됨). 이 구분이 없으면
-// 프론트가 "회사 정보 보완하기"를 모든 자료 부족 상황에 잘못 안내하게 된다.
-func scoreRegion(noticeRegion, companyRegion sql.NullString) (result, reason, dataGapSide string) {
-	switch {
-	case !noticeRegion.Valid || noticeRegion.String == "":
-		return "insufficient_data", "공고에 지역 정보가 없어 지역 조건을 판정할 수 없습니다.", "notice"
-	case noticeRegion.String == regionNationwide:
-		return "met", "공고가 전국 대상이라 지역 제한이 없습니다.", ""
-	case !companyRegion.Valid || companyRegion.String == "":
-		return "insufficient_data", "기업 프로필에 지역 정보가 없어 판정할 수 없습니다.", "company"
-	case noticeRegion.String == companyRegion.String:
-		return "met", fmt.Sprintf("공고 지역(%s)과 기업 지역이 일치합니다.", noticeRegion.String), ""
-	default:
-		return "not_met", fmt.Sprintf("공고 지역(%s)이 기업 지역(%s)과 다릅니다.", noticeRegion.String, companyRegion.String), ""
+// regionAuthority — 공고의 "지역 제한" 권위 데이터(2026-08-11 authoritative source 전환).
+// 공식 참가가능지역 API(getBidPblancListInfoPrtcptPsblRgn) 결과가 authoritative이고,
+// notices.region(수집기가 bidPrtcptLmtYn Y/N로 추론한 값)은 신뢰할 수 없어 판정 단정에 쓰지
+// 않는다 — 공식 데이터가 없을 때 "지역 정보 자체가 없음(notice-gap)"과 구분하는 용도로만 남긴다.
+//
+//	OfficialRegions: 공식 참가가능지역 목록(비어있으면 없음)
+//	Enriched:        공식 지역 enrichment가 확정 실행됨(notice_versions.enrichment_status ∈ {completed, not_found})
+//	                 — false면 미실행/불명확(error·NULL)이라 "전국"으로 단정하지 않는다.
+type regionAuthority struct {
+	OfficialRegions []string
+	Enriched        bool
+}
+
+// regionEnrichedFromStatus — enrichment_status가 지역 판정을 확정할 수 있는 상태인지.
+// completed(지역 또는 면허 조회됨)/not_found(제한 없음 확정) = 확정 실행. error·NULL = 미실행/불명확.
+func regionEnrichedFromStatus(status sql.NullString) bool {
+	return status.Valid && (status.String == "completed" || status.String == "not_found")
+}
+
+const (
+	regionMatchFull     = "full"     // 회사 지역이 허용지역에 확실히 포함 → met
+	regionMatchProvince = "province" // 같은 도지만 허용지역이 더 좁음(시군) → REVIEW(단정 금지)
+	regionMatchNone     = "none"     // 지역 무관 → not_met
+)
+
+// scoreRegion — 공식 참가가능지역을 authoritative source로 지역 조건을 판정한다(2026-08-11).
+//
+//	(1) 공식 참가가능지역이 있으면 → 회사 지역과 대조(포함=met, 같은 도 좁은지역=REVIEW, 무관=not_met)
+//	(2) enrichment 완료 + 제한지역 없음 → 전국 확정(met)
+//	(3) enrichment 미실행/불명확 → 추론값(notices.region)만으로 전국 PASS 단정 금지 → insufficient_data
+//
+// inferredRegion(notices.region)은 (3)에서 "공고에 지역 정보 자체가 없음(notice-gap)"과 구분하는
+// 데만 쓴다. dataGapSide: "notice"=공고 쪽 데이터 공백(사용자가 못 고침), "company"=기업 프로필 공백.
+func scoreRegion(auth regionAuthority, inferredRegion, companyRegion sql.NullString) (result, reason, dataGapSide string) {
+	if len(auth.OfficialRegions) > 0 {
+		if !companyRegion.Valid || strings.TrimSpace(companyRegion.String) == "" {
+			return "insufficient_data", "기업 프로필에 지역 정보가 없어 지역 조건을 판정할 수 없습니다.", "company"
+		}
+		switch matchCompanyRegion(auth.OfficialRegions, companyRegion.String) {
+		case regionMatchFull:
+			return "met", fmt.Sprintf("공고 참가가능지역에 기업 지역(%s)이 포함됩니다.", strings.TrimSpace(companyRegion.String)), ""
+		case regionMatchProvince:
+			return "needs_confirmation", fmt.Sprintf("공고 참가가능지역(%s)이 기업 지역(%s)보다 좁아 실제 소재지 확인이 필요합니다.", strings.Join(auth.OfficialRegions, ", "), strings.TrimSpace(companyRegion.String)), ""
+		default:
+			return "not_met", fmt.Sprintf("공고 참가가능지역(%s)에 기업 지역(%s)이 포함되지 않습니다.", strings.Join(auth.OfficialRegions, ", "), strings.TrimSpace(companyRegion.String)), ""
+		}
 	}
+	if auth.Enriched {
+		return "met", "공고에 참가가능지역 제한이 없어 전국 대상입니다(공식 확인).", ""
+	}
+	// (3) 공식 enrichment 미실행 — 추론값만으로 전국 PASS를 단정하지 않는다.
+	if !inferredRegion.Valid || inferredRegion.String == "" {
+		return "insufficient_data", "공고에 지역 정보가 없어 지역 조건을 판정할 수 없습니다.", "notice"
+	}
+	return "insufficient_data", "공식 참가가능지역 정보가 아직 확인되지 않아 지역 조건을 단정할 수 없습니다. 원문 공고를 확인해주세요.", "notice"
+}
+
+// matchCompanyRegion — 회사 지역이 공식 참가가능지역 목록에 부합하는지(full/province/none).
+// 공식 지역은 시도("경상남도","부산광역시") 또는 시군("경상남도 함양군") 단위가 섞여 온다.
+//   - 정확 일치 또는 회사가 허용 도 안의 더 좁은 지역(회사="경남 함양군", 허용="경상남도") → full(met)
+//   - 같은 도지만 허용지역이 더 좁은 시군(회사="경상남도", 허용="경상남도 함양군") → province(REVIEW):
+//     회사가 그 시군 소재인지 알 수 없어 단정하지 않는다(모르면 REVIEW 원칙)
+//   - 도 자체가 겹치지 않음 → none(not_met)
+func matchCompanyRegion(official []string, company string) string {
+	c := strings.TrimSpace(company)
+	if c == "" {
+		return regionMatchNone
+	}
+	cProv := regionProvinceToken(c)
+	provinceOverlap := false
+	for _, o := range official {
+		o = strings.TrimSpace(o)
+		if o == "" {
+			continue
+		}
+		if o == c || strings.HasPrefix(c, o+" ") {
+			return regionMatchFull
+		}
+		if strings.HasPrefix(o, c+" ") || regionProvinceToken(o) == cProv {
+			provinceOverlap = true
+		}
+	}
+	if provinceOverlap {
+		return regionMatchProvince
+	}
+	return regionMatchNone
+}
+
+// regionProvinceToken — 지역 문자열의 시도(첫 공백 이전) 부분만 반환.
+func regionProvinceToken(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, ' '); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// regionAuthoritiesByVersions — 여러 현재버전의 공식 참가가능지역 + enrichment 실행여부를
+// 한 번에 로드한다(공고별 개별 조회 N+1 방지 — dashboard/추천 등 루프 호출부용).
+func (s *Server) regionAuthoritiesByVersions(ctx context.Context, versionIDs []string) (map[string]regionAuthority, error) {
+	out := make(map[string]regionAuthority, len(versionIDs))
+	if len(versionIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT nv.id, nv.enrichment_status,
+		       COALESCE(array_agg(pr.region_name ORDER BY pr.sort_no) FILTER (WHERE pr.region_name IS NOT NULL), '{}')
+		FROM notice_versions nv
+		LEFT JOIN notice_participation_regions pr ON pr.notice_version_id = nv.id
+		WHERE nv.id = ANY($1)
+		GROUP BY nv.id, nv.enrichment_status`, pq.Array(versionIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var status sql.NullString
+		var regions pq.StringArray
+		if err := rows.Scan(&id, &status, &regions); err != nil {
+			return nil, err
+		}
+		out[id] = regionAuthority{
+			OfficialRegions: []string(regions),
+			Enriched:        regionEnrichedFromStatus(status),
+		}
+	}
+	return out, rows.Err()
+}
+
+// regionAuthoritiesByNoticeIDs — 여러 공고(현재버전)의 지역 권위 데이터를 공고ID 키로 로드.
+// notice_versions를 조인하지 않는 스캔(대시보드 추천 등)이 공고ID만으로 쓸 수 있게 한다.
+func (s *Server) regionAuthoritiesByNoticeIDs(ctx context.Context, noticeIDs []string) (map[string]regionAuthority, error) {
+	out := make(map[string]regionAuthority, len(noticeIDs))
+	if len(noticeIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT n.id, nv.enrichment_status,
+		       COALESCE(array_agg(pr.region_name ORDER BY pr.sort_no) FILTER (WHERE pr.region_name IS NOT NULL), '{}')
+		FROM notices n
+		JOIN notice_versions nv ON nv.notice_id = n.id AND nv.version_number = n.current_version
+		LEFT JOIN notice_participation_regions pr ON pr.notice_version_id = nv.id
+		WHERE n.id = ANY($1)
+		GROUP BY n.id, nv.enrichment_status`, pq.Array(noticeIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var status sql.NullString
+		var regions pq.StringArray
+		if err := rows.Scan(&id, &status, &regions); err != nil {
+			return nil, err
+		}
+		out[id] = regionAuthority{
+			OfficialRegions: []string(regions),
+			Enriched:        regionEnrichedFromStatus(status),
+		}
+	}
+	return out, rows.Err()
 }
 
 func (s *Server) evaluateRegion(ctx context.Context, versionID, profileID string, noticeRegion, companyRegion sql.NullString) (eligibilityItem, error) {
-	result, reason, _ := scoreRegion(noticeRegion, companyRegion)
+	auths, err := s.regionAuthoritiesByVersions(ctx, []string{versionID})
+	if err != nil {
+		return eligibilityItem{}, err
+	}
+	result, reason, _ := scoreRegion(auths[versionID], noticeRegion, companyRegion)
 
 	conditionID, err := s.findOrCreateAutoCondition(ctx, versionID,
 		"지역", "auto:region", "eq", nsOrEmpty(noticeRegion),

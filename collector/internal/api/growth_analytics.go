@@ -237,9 +237,13 @@ func (s *Server) fetchGradeDistribution(ctx context.Context, profile *companyPro
 // 매번 재계산이 아니라 실제 시계열이 되게 한다(growthTrendPoint 참고).
 func (s *Server) gradeDistributionForCompany(ctx context.Context, company companyScoringInput) ([]gradeDistributionItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT notice_type, region, industry, budget_amount, industry_restricted FROM notices
-		WHERE status NOT IN ('closed','cancelled')
-		  AND (application_end_at IS NULL OR application_end_at >= CURRENT_DATE)
+		SELECT n.notice_type, n.region, n.industry, n.budget_amount, n.industry_restricted,
+		       nv.enrichment_status,
+		       COALESCE((SELECT array_agg(pr.region_name ORDER BY pr.sort_no) FROM notice_participation_regions pr WHERE pr.notice_version_id = nv.id), '{}')
+		FROM notices n
+		JOIN notice_versions nv ON nv.notice_id = n.id AND nv.version_number = n.current_version
+		WHERE n.status NOT IN ('closed','cancelled')
+		  AND (n.application_end_at IS NULL OR n.application_end_at >= CURRENT_DATE)
 		LIMIT `+itoa(dashboardNoticeScanLimit))
 	if err != nil {
 		return nil, err
@@ -249,14 +253,16 @@ func (s *Server) gradeDistributionForCompany(ctx context.Context, company compan
 	counts := map[string]int{}
 	for rows.Next() {
 		var noticeType string
-		var noticeRegion, noticeIndustry sql.NullString
+		var noticeRegion, noticeIndustry, enrichStatus sql.NullString
 		var budget sql.NullInt64
 		var industryRestricted sql.NullBool
-		if err := rows.Scan(&noticeType, &noticeRegion, &noticeIndustry, &budget, &industryRestricted); err != nil {
+		var officialRegions pq.StringArray
+		if err := rows.Scan(&noticeType, &noticeRegion, &noticeIndustry, &budget, &industryRestricted, &enrichStatus, &officialRegions); err != nil {
 			continue
 		}
 		score := scoreNoticeForCompany(
-			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted)},
+			noticeScoringInput{NoticeType: noticeType, Region: noticeRegion, Industry: noticeIndustry, BudgetAmount: budget, IndustryRestricted: nullBoolPtr(industryRestricted),
+				OfficialRegions: []string(officialRegions), RegionEnriched: regionEnrichedFromStatus(enrichStatus)},
 			company,
 		)
 		counts[score.Grade]++
