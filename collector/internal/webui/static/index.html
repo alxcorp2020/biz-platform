@@ -58,6 +58,13 @@
     --text-body: 0.95rem;
     --text-caption: 0.8rem;
 
+    /* 공고 상세 V3 타이포 4단계(2026-08-11) — 상세화면 font-size는 이 4개만 쓴다.
+       TYPE1 페이지제목(공고명) / TYPE2 섹션제목 / TYPE3 그룹제목·중요값 / TYPE4 본문·라벨. */
+    --dtl-page: 1.4rem;
+    --dtl-section: 1.1rem;
+    --dtl-group: 0.95rem;
+    --dtl-body: 0.875rem;
+
     --space-xs: 0.5rem;
     --space-sm: 0.75rem;
     --space-md: 1.25rem;
@@ -1395,6 +1402,46 @@
   .detail-tab.is-active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); font-weight: 700; }
   .detail-tab-panel[hidden] { display: none; }
 
+  /* ---------- 공고 상세 V3: 단일 스크롤 + sticky anchor navigation (2026-08-11) ---------- */
+  /* sticky nav — 기존 탭 스타일 재사용, 콘텐츠 교체 대신 해당 섹션으로 스크롤 이동. */
+  .detail-nav {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 0.15rem; overflow-x: auto; white-space: nowrap;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    margin: 1.25rem 0 0; scrollbar-width: none;
+  }
+  .detail-nav::-webkit-scrollbar { display: none; }
+  .detail-nav-item {
+    flex: 0 0 auto; padding: 0.75rem 0.85rem; background: none; border: none;
+    border-bottom: 2px solid transparent; cursor: pointer; text-decoration: none;
+    font-size: 0.92rem; color: var(--ink-soft); font-weight: 500;
+    display: inline-flex; align-items: baseline; gap: 0.35rem;
+  }
+  .detail-nav-item:hover { color: var(--ink); }
+  .detail-nav-item.is-active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); font-weight: 700; }
+  .detail-nav-num { font-size: 0.72rem; font-weight: 700; color: var(--ink-mute, #98a0ac); font-variant-numeric: tabular-nums; }
+  .detail-nav-item.is-active .detail-nav-num { color: var(--accent-blue); }
+
+  /* 섹션 스크롤 흐름 — 큰 카드 없이 whitespace + 아주 연한 divider로 구분. */
+  /* overflow-x: clip — 판정/상세 등 항상 렌더되는 섹션의 glossary 툴팁(hidden 상태 absolute)이
+     우측으로 넘쳐 가로 스크롤을 만드는 것을 차단(세로는 visible, sticky nav는 flow 밖이라 무영향). */
+  .detail-flow { display: flex; flex-direction: column; margin-top: 2.5rem; overflow-x: clip; }
+  .detail-section { scroll-margin-top: 72px; }              /* sticky nav 높이만큼 offset(제목 안 가리게) */
+  .detail-section + .detail-section { margin-top: 3.5rem; padding-top: 3.5rem; border-top: 1px solid var(--border); }
+  .detail-section-head { display: flex; align-items: flex-start; gap: 0.6rem; margin: 0 0 1.5rem; }
+  .detail-section-num { flex-shrink: 0; font-size: 0.78rem; font-weight: 700; color: var(--ink-mute, #98a0ac); font-variant-numeric: tabular-nums; margin-top: 0.32rem; }
+  .detail-section-icon { flex-shrink: 0; width: 1.3rem; height: 1.3rem; color: var(--ink-soft); margin-top: 0.15rem; }
+  .detail-section-heading { flex: 1 1 auto; min-width: 0; }
+  .detail-section-title { margin: 0; padding: 0; border: none; font-size: var(--dtl-section); font-weight: 700; color: var(--ink); letter-spacing: -0.01em; line-height: 1.35; }
+  .detail-section-sub { margin: 0.35rem 0 0; font-size: var(--dtl-body); color: var(--ink-soft); line-height: 1.55; }
+  @media (max-width: 768px) {
+    .detail-flow { margin-top: 1.75rem; }
+    .detail-section { scroll-margin-top: 60px; }
+    .detail-section + .detail-section { margin-top: 2.5rem; padding-top: 2.5rem; }
+    .detail-section-head { margin-bottom: 1.2rem; }
+    .detail-nav-item { padding: 0.65rem 0.7rem; font-size: 0.88rem; }
+  }
+
   /* ---------- AI 참여 분석 (공고 상세 첫 화면) ---------- */
   .ai-section-title { margin: 0 0 1rem; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
   .ai-summary-card {
@@ -1488,7 +1535,7 @@
   }
   .detail-card h2 {
     margin: 0.3rem 0 0;
-    font-size: 1.4rem;
+    font-size: var(--dtl-page);
     font-weight: 700;
     line-height: 1.4;
     color: var(--ink);
@@ -1566,7 +1613,7 @@
   .detail-source-caption { margin: 0.75rem 0 0; font-size: 0.8rem; color: var(--ink-mute, #8a8f98); }
   /* 그룹 간 여백을 넓혀 DB dump 느낌을 줄인다(색·보더 대신 spacing 계층). */
   .detail-info-groups { display: flex; flex-direction: column; gap: 2.25rem; margin-top: 1.1rem; }
-  .detail-group-title { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
+  .detail-group-title { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: var(--dtl-group); font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
   .detail-group-icon { display: inline-flex; width: 1rem; height: 1rem; color: var(--ink-mute, #98a0ac); flex-shrink: 0; }
   .detail-group .detail-meta { margin-top: 1rem; padding-top: 0; border-top: none; }
   .detail-group .detail-meta dd { line-height: 1.5; }
@@ -1597,18 +1644,17 @@
   .cond-essential-sep { width: 1px; height: 0.95rem; background: var(--border); flex-shrink: 0; }
   @media (max-width: 560px) { .cond-essential-sep { display: none; } .cond-essentials { gap: 0.5rem 1.2rem; } }
   /* ── 섹션 공통 스페이싱: 넉넉한 세로 여백 + 빈 블록 숨김 ── */
-  .cond-blocks { display: flex; flex-direction: column; gap: 3.25rem; margin-top: 2.25rem; }
+  .cond-blocks { display: flex; flex-direction: column; gap: 2.5rem; margin-top: 0; }
   .cond-blocks > *:empty { display: none; }
   .cond-block { margin: 0; }
   @media (max-width: 560px) { .cond-blocks { gap: 2.1rem; margin-top: 1.75rem; } }
   /* ── 공통 섹션 헤더: neutral 아이콘 + 제목 + subtitle ── */
-  .section-head { display: flex; align-items: flex-start; gap: 0.6rem; margin: 0 0 1.4rem; }
-  .section-head-icon { flex-shrink: 0; width: 1.25rem; height: 1.25rem; color: var(--ink-soft); margin-top: 0.15rem; }
+  .section-head { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0 0 1.1rem; }
+  .section-head-icon { flex-shrink: 0; width: 1.05rem; height: 1.05rem; color: var(--ink-mute, #98a0ac); margin-top: 0.1rem; }
   .section-head-text { flex: 1 1 auto; min-width: 0; }
-  .section-head-title { margin: 0; padding: 0; border: none; font-size: 1.15rem; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; line-height: 1.35; }
+  .section-head-title { margin: 0; padding: 0; border: none; font-size: var(--dtl-group); font-weight: 600; color: var(--ink); letter-spacing: -0.01em; line-height: 1.35; }
   .section-head-sub { margin: 0.4rem 0 0; font-size: 0.85rem; color: var(--ink-soft); line-height: 1.55; }
   .section-head-right { flex-shrink: 0; margin-left: auto; }
-  @media (max-width: 560px) { .section-head { margin-bottom: 1.1rem; } .section-head-title { font-size: 1.08rem; } }
   /* ── 적격심사 계산기 = 자체 도구 → subtle 배경 panel(유일하게 허용된 background 구분) ── */
   .cond-block--tool { background: var(--surface-soft); border-radius: var(--radius-card); padding: 1.5rem 1.5rem 1.75rem; }
   .cond-tool-note { margin: 0 0 1.1rem; font-size: 0.82rem; color: var(--ink-soft); }
@@ -1618,7 +1664,7 @@
     background: var(--surface-soft); border: 1px solid var(--border); border-radius: 999px; padding: 0.15rem 0.6rem; white-space: nowrap; }
   .cond-block--tool .badge-soft { background: var(--surface); }
   /* 참가자격 하위 그룹 제목(면허·인증 요건 확인) */
-  .cond-subgroup-title { margin: 2rem 0 1rem; font-size: 0.98rem; font-weight: 700; color: var(--ink); }
+  .cond-subgroup-title { margin: 2rem 0 1rem; font-size: var(--dtl-group); font-weight: 600; color: var(--ink); }
   /* 데이터 상태 표시(분석 중/확인 필요/첨부 없음) — badge + 설명 + 원문 링크(카드/보더 없음) */
   .data-status { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; padding: 0.2rem 0 0.5rem; }
   .data-status-badge { display: inline-block; font-size: 0.74rem; font-weight: 700; border-radius: 999px; padding: 0.16rem 0.6rem; }
@@ -3982,6 +4028,24 @@ function sectionHeadHtml(iconName, title, opts) {
       <div class="section-head-text"><h3 class="section-head-title">${escapeHtml(title)}</h3>${sub}</div>
       ${right}
     </div>`;
+}
+
+// detailSectionHtml — 공고 상세 V3 단일 스크롤의 앵커 섹션(2026-08-11). 상단 sticky nav가 여기로
+// smooth scroll하고, scroll-margin-top으로 제목이 nav 뒤에 가리지 않게 한다. bodyHtml은 이미
+// 안전하게 조립된 HTML(각 render 함수가 채울 컨테이너 div 포함)을 그대로 받는다.
+function detailSectionHtml(id, num, iconName, title, subtitle, bodyHtml) {
+  const sub = subtitle ? `<p class="detail-section-sub">${escapeHtml(subtitle)}</p>` : '';
+  return `<section class="detail-section" id="section-${id}" data-section="${id}" tabindex="-1" aria-labelledby="section-${id}-title">
+      <header class="detail-section-head">
+        <span class="detail-section-num" aria-hidden="true">${escapeHtml(num)}</span>
+        <span class="detail-section-icon" aria-hidden="true">${outlineIcon(iconName)}</span>
+        <div class="detail-section-heading">
+          <h2 class="detail-section-title" id="section-${id}-title">${escapeHtml(title)}</h2>
+          ${sub}
+        </div>
+      </header>
+      <div class="detail-section-body">${bodyHtml}</div>
+    </section>`;
 }
 
 let tooltipCounter = 0;
@@ -10700,15 +10764,91 @@ function renderDetail(container, id) {
       // applicationStartAt/departmentName은 상세 DTO에 없어 현재 보유 필드만
       // 쓰고, 신청 시작일·지원대상·신청서류 등은 원문 공고 링크로 안내한다.
       const isSupport = n.noticeType === 'support_program';
-      // 입찰공고 탭 순서(2026-08-11 Phase 1): 참가조건 → 판정 → 제출서류 → 낙찰정보 → 변경이력 → 요약.
-      // 기본 진입은 "참가조건"(실무자가 가장 먼저 봐야 할 화면). 요약은 마지막으로 강등 —
-      // AI 요약이 없다고 첫 화면이 안내문 하나로 끝나던 구조를 없앤다.
-      const activeTab = 'conditions';
-      const tabBtn = (tab, label) => `<button type="button" class="detail-tab${activeTab === tab ? ' is-active' : ''}" role="tab" aria-selected="${activeTab === tab}" data-tab="${tab}">${label}</button>`;
-      const tabsHtml = isSupport
-        ? tabBtn('conditions', '신청 안내') + tabBtn('summary', '요약') + tabBtn('documents', '첨부·서류') + tabBtn('changes', '변경이력')
-        : tabBtn('conditions', '참가조건') + tabBtn('participation', '판정') + tabBtn('documents', '제출서류') + tabBtn('award-history', '낙찰정보') + tabBtn('changes', '변경이력') + tabBtn('summary', '요약');
-      const panelHidden = (tab) => activeTab === tab ? '' : 'hidden';
+      // V3(2026-08-11): 탭형 → 단일 스크롤 상세 + sticky anchor nav. 콘텐츠를 모두 한 페이지에
+      // 연속 렌더하고, 상단 nav 클릭은 콘텐츠 교체가 아니라 해당 섹션으로 smooth scroll한다.
+      // 기존 render 함수/데이터/컨테이너 id를 그대로 재사용(추가 API 호출 없음).
+      // ── 참가조건 섹션 본문(핵심조건 → 진행정보 → 상세정보 → 참가자격 → 계산기) ──
+      const condBody = isSupport ? `
+          <dl class="detail-meta">
+            <div><dt>소관기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
+            <div><dt>지원분야</dt><dd>${escapeHtml(n.industry || '-')}</dd></div>
+            <div><dt>신청 마감</dt><dd>${ddayBadgeHtml(n.applicationEndAt, 'dday-badge--inline')}<span class="mono">${formatDate(n.applicationEndAt)}</span></dd></div>
+            <div><dt>상태</dt><dd>${statusBadgeHtml(n.status)}</dd></div>
+            <div><dt>공고 게시</dt><dd class="mono">${n.publishedAt ? formatDate(n.publishedAt) : '-'}</dd></div>
+          </dl>
+          <div id="support-detail-section"></div>
+          <div id="support-conditions-section"></div>
+        ` : `
+          <div class="cond-essentials">
+            <span class="cond-essential cond-essential--status">${statusBadgeHtml(n.status)}</span>
+            <span class="cond-essential-sep" aria-hidden="true"></span>
+            <span class="cond-essential"><span class="cond-essential-label">마감</span>${ddayBadgeHtml(n.applicationEndAt, 'dday-badge--inline')}<span class="cond-essential-val">${formatKoreanDate(n.applicationEndAt)}</span></span>
+            <span class="cond-essential-sep" aria-hidden="true"></span>
+            <span class="cond-essential"><span class="cond-essential-label">예산</span><span class="cond-essential-val">${formatBudget(n.budgetAmount)}</span></span>
+          </div>
+          <div class="cond-blocks">
+            <section class="cond-block">
+              ${sectionHeadHtml('clipboard-check', '핵심 참가조건')}
+              <div id="core-conditions-section"></div>
+            </section>
+            <div id="bid-timeline-section" class="cond-block"></div>
+            <section class="cond-block">
+              ${sectionHeadHtml('file-text', '공고 상세정보')}
+              <div id="notice-detail-info-section"></div>
+            </section>
+            <section class="cond-block">
+              ${sectionHeadHtml('shield-check', '참가자격 요건')}
+              ${extractionBannerHtml}
+              <div id="eligibility-conditions-section"></div>
+              <h4 class="cond-subgroup-title">면허·인증 요건 확인</h4>
+              <div id="license-requirement-match-section"></div>
+            </section>
+            <section class="cond-block cond-block--tool">
+              ${sectionHeadHtml('calculator', '적격심사 계산기', { right: '<span class="badge-soft">참고 도구</span>' })}
+              <div id="bid-calculator-section"></div>
+            </section>
+          </div>
+        `;
+      // ── 제출서류 섹션 본문 ──
+      const docBody = isSupport ? `
+          <div id="attachments-section"></div>
+        ` : `
+          ${extractionBannerHtml}
+          <div id="required-documents-section"></div>
+          <h4 class="cond-subgroup-title">첨부파일</h4>
+          <div id="attachments-section"></div>
+        `;
+      // ── 변경이력 섹션 본문 ──
+      const changesBody = `
+          ${changeRows
+            ? `<div class="table-scroll"><table>
+                <thead><tr><th>항목</th><th>이전 값</th><th>변경 값</th><th>중요도</th><th>일시</th></tr></thead>
+                <tbody>${changeRows}</tbody>
+              </table></div>`
+            : '<p class="section-empty">현재 수집된 공고 정보에서 확인된 변경사항이 없습니다. 나라장터 공식 변경공고 이력과는 다를 수 있어, 원문 공고를 함께 확인해주세요.</p>'}
+          <div id="change-impact-section"></div>`;
+      // ── AI 요약 섹션 본문 ──
+      const summaryBody = `${isSupport ? '<p class="detail-sub">이 지원사업의 핵심 안내는 위 "신청 안내"와 원문 공고를 확인해주세요.</p>' : ''}<div id="ai-summary-section"></div>`;
+      // ── 섹션 정의(순서=업무 흐름). 지원사업은 판정/낙찰 제외. [id, 번호, 아이콘, 제목, subtitle, 본문] ──
+      const sectionDefs = isSupport
+        ? [
+            ['conditions', '01', 'clipboard-check', '신청 안내', '', condBody],
+            ['documents', '02', 'file-text', '첨부·서류', '', docBody],
+            ['changes', '03', 'repeat', '변경이력', '', changesBody],
+            ['summary', '04', 'info', '요약', '', summaryBody],
+          ]
+        : [
+            ['conditions', '01', 'clipboard-check', '참가조건', '이 공고에 참여할 수 있는지 먼저 확인하세요.', condBody],
+            ['participation', '02', 'shield-check', '참여판정', '등록된 회사정보와 공고 조건을 비교한 결과입니다.', '<div id="participation-judgment-section"></div><div id="ai-participation-section"></div>'],
+            ['documents', '03', 'file-text', '제출서류', '공고 참여 시 확인해야 할 서류와 첨부파일입니다.', docBody],
+            ['awards', '04', 'award', '낙찰정보', '같은 발주기관의 과거 낙찰 결과입니다.', '<div id="award-history-section"></div>'],
+            ['changes', '05', 'repeat', '변경이력', '공고가 정정·재게시되며 바뀐 내용입니다.', changesBody],
+            ['summary', '06', 'info', 'AI 요약', '핵심 내용을 AI가 요약했습니다.', summaryBody],
+          ];
+      const navHtml = sectionDefs.map(([id, num, , label], i) =>
+        `<a class="detail-nav-item${i === 0 ? ' is-active' : ''}" href="#section-${id}" data-section="${id}" aria-current="${i === 0 ? 'true' : 'false'}"><span class="detail-nav-num" aria-hidden="true">${num}</span>${escapeHtml(label)}</a>`
+      ).join('');
+      const sectionsHtml = sectionDefs.map(([id, num, icon, title, sub, bodyHtml]) => detailSectionHtml(id, num, icon, title, sub, bodyHtml)).join('');
 
       body.className = '';
       body.innerHTML = '';
@@ -10728,82 +10868,8 @@ function renderDetail(container, id) {
           <p class="detail-sub notice-data-trust">${trustLine}</p>
         </div>
 
-        <div class="detail-tabs" role="tablist">${tabsHtml}</div>
-
-        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="summary" ${panelHidden('summary')}>
-          ${isSupport ? '<p class="detail-sub">이 지원사업의 핵심 안내는 "신청 안내" 탭과 원문 공고를 확인해주세요.</p>' : ''}
-          <div id="ai-summary-section"></div>
-        </div>
-        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="participation" hidden>
-          <div id="participation-judgment-section"></div>
-          <div id="ai-participation-section"></div>
-        </div>
-        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="conditions" ${panelHidden('conditions')}>
-          ${isSupport ? `
-          <dl class="detail-meta">
-            <div><dt>소관기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
-            <div><dt>지원분야</dt><dd>${escapeHtml(n.industry || '-')}</dd></div>
-            <div><dt>신청 마감</dt><dd>${ddayBadgeHtml(n.applicationEndAt, 'dday-badge--inline')}<span class="mono">${formatDate(n.applicationEndAt)}</span></dd></div>
-            <div><dt>상태</dt><dd>${statusBadgeHtml(n.status)}</dd></div>
-            <div><dt>공고 게시</dt><dd class="mono">${n.publishedAt ? formatDate(n.publishedAt) : '-'}</dd></div>
-          </dl>
-          <div id="support-detail-section"></div>
-          <div id="support-conditions-section"></div>
-          ` : `
-          <div class="cond-essentials">
-            <span class="cond-essential cond-essential--status">${statusBadgeHtml(n.status)}</span>
-            <span class="cond-essential-sep" aria-hidden="true"></span>
-            <span class="cond-essential"><span class="cond-essential-label">마감</span>${ddayBadgeHtml(n.applicationEndAt, 'dday-badge--inline')}<span class="cond-essential-val">${formatKoreanDate(n.applicationEndAt)}</span></span>
-            <span class="cond-essential-sep" aria-hidden="true"></span>
-            <span class="cond-essential"><span class="cond-essential-label">예산</span><span class="cond-essential-val">${formatBudget(n.budgetAmount)}</span></span>
-          </div>`}
-          <div ${isSupport ? 'hidden' : ''} class="cond-blocks">
-            <section class="cond-block">
-              ${sectionHeadHtml('clipboard-check', '핵심 참가조건', { subtitle: '이 공고에 참여하려면 먼저 확인해야 할 핵심 조건입니다.' })}
-              <div id="core-conditions-section"></div>
-            </section>
-            <div id="bid-timeline-section" class="cond-block"></div>
-            <section class="cond-block">
-              ${sectionHeadHtml('file-text', '공고 상세정보', { subtitle: '나라장터 공식 API 기준 원문 상세입니다.' })}
-              <div id="notice-detail-info-section"></div>
-            </section>
-            <section class="cond-block cond-block--tool">
-              ${sectionHeadHtml('calculator', '적격심사 계산기', { right: '<span class="badge-soft">자체 참고용</span>' })}
-              <div id="bid-calculator-section"></div>
-            </section>
-            <section class="cond-block">
-              ${sectionHeadHtml('shield-check', '참가자격 요건', { subtitle: '첨부 공고문에서 추출한 참가자격·제출서류·면허 조건입니다.' })}
-              ${extractionBannerHtml}
-              <div id="eligibility-conditions-section"></div>
-              <h4 class="cond-subgroup-title">면허·인증 요건 확인</h4>
-              <div id="license-requirement-match-section"></div>
-            </section>
-          </div>
-        </div>
-        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="documents" hidden>
-          ${isSupport ? `
-          <h3>공고문·첨부자료</h3>
-          <div id="attachments-section"></div>
-          ` : `
-          ${extractionBannerHtml}
-          <h3>제출서류</h3>
-          <div id="required-documents-section"></div>
-          <h3>첨부파일</h3>
-          <div id="attachments-section"></div>
-          `}
-        </div>
-        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="award-history" hidden>
-          <div id="award-history-section"></div>
-        </div>
-        <div class="detail-tab-panel" role="tabpanel" data-tab-panel="changes" hidden>
-          ${changeRows
-            ? `<div class="table-scroll"><table>
-                <thead><tr><th>항목</th><th>이전 값</th><th>변경 값</th><th>중요도</th><th>일시</th></tr></thead>
-                <tbody>${changeRows}</tbody>
-              </table></div>`
-            : '<p class="section-empty">현재 수집된 공고 정보에서 확인된 변경사항이 없습니다. 나라장터 공식 변경공고 이력과는 다를 수 있어, 원문 공고를 함께 확인해주세요.</p>'}
-          <div id="change-impact-section"></div>
-        </div>
+        <nav class="detail-nav" role="navigation" aria-label="공고 상세 섹션 이동">${navHtml}</nav>
+        <div class="detail-flow">${sectionsHtml}</div>
       `));
       renderAISummary(document.getElementById('ai-summary-section'), data.aiSummary, n.officialUrl);
       renderParticipationJudgment(document.getElementById('participation-judgment-section'), data.participationJudgment, {
@@ -10841,21 +10907,53 @@ function renderDetail(container, id) {
 // 패널 안의 서브 렌더 함수(renderAISummary 등)는 컨테이너 id만 보고
 // DOM 어디에 있는지 신경 안 쓰므로, 이 함수는 순수하게 탭 버튼 클릭 →
 // 해당 패널만 보이기(hidden 토글) + 스크롤 위치 초기화만 담당한다.
+// wireDetailTabs — V3(2026-08-11): 탭 콘텐츠 교체 → sticky anchor nav. nav 클릭 시 해당 섹션으로
+// smooth scroll하고, 사용자가 직접 스크롤할 땐 IntersectionObserver로 현재 섹션을 active로 갱신(scroll
+// spy). 모든 섹션은 항상 렌더돼 있으므로 show/hide가 없다. prefers-reduced-motion 시 즉시 이동.
 function wireDetailTabs(body) {
-  const tabs = body.querySelectorAll('.detail-tab');
-  const panels = body.querySelectorAll('.detail-tab-panel');
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const target = tab.dataset.tab;
-      tabs.forEach(t => {
-        const active = t === tab;
-        t.classList.toggle('is-active', active);
-        t.setAttribute('aria-selected', active ? 'true' : 'false');
-      });
-      panels.forEach(p => { p.hidden = p.dataset.tabPanel !== target; });
-      window.scrollTo(0, 0);
+  const nav = body.querySelector('.detail-nav');
+  if (!nav) return;
+  const items = [...nav.querySelectorAll('.detail-nav-item')];
+  const sections = items.map(a => body.querySelector('#section-' + a.dataset.section)).filter(Boolean);
+  let navLock = 0; // 클릭 스크롤 중 scroll spy가 덮어쓰지 않게 하는 시간 잠금
+
+  const setActive = (id) => {
+    items.forEach(a => {
+      const on = a.dataset.section === id;
+      a.classList.toggle('is-active', on);
+      a.setAttribute('aria-current', on ? 'true' : 'false');
+    });
+  };
+
+  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  items.forEach(a => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const sec = body.querySelector('#section-' + a.dataset.section);
+      if (!sec) return;
+      setActive(a.dataset.section);
+      navLock = Date.now();
+      sec.scrollIntoView({ behavior: prefersReduced ? 'auto' : 'smooth', block: 'start' });
+      // 활성 nav 항목이 가로 스크롤 밖이면 보이게(모바일)
+      a.scrollIntoView({ block: 'nearest', inline: 'center' });
     });
   });
+
+  // scroll spy — sticky nav 아래 상단 밴드에 들어온 섹션을 active로.
+  if ('IntersectionObserver' in window && sections.length) {
+    const io = new IntersectionObserver((entries) => {
+      if (Date.now() - navLock < 700) return; // 클릭 스크롤 애니메이션 중엔 무시
+      const visible = entries.filter(en => en.isIntersecting)
+        .sort((x, y) => x.boundingClientRect.top - y.boundingClientRect.top);
+      if (visible.length) setActive(visible[0].target.dataset.section);
+    }, { rootMargin: '-100px 0px -62% 0px', threshold: 0 });
+    sections.forEach(s => io.observe(s));
+    // HERO만 보이는 최상단에선 어떤 섹션도 active 밴드에 없어 stale해질 수 있어, 첫 섹션으로 고정.
+    window.addEventListener('scroll', () => {
+      if (Date.now() - navLock < 700) return;
+      if (sections[0].getBoundingClientRect().top > 140) setActive(sections[0].dataset.section);
+    }, { passive: true });
+  }
 }
 
 // renderPipelineReviewAction — 원클릭 참여검토(Phase 1)의 공고 상세 상단
@@ -11288,6 +11386,7 @@ function renderCoreConditions(container, detail, participationRegions, licenseLi
 // (Phase B, 2026-08-11). 모든 값은 나라장터 공식 API(raw_content)에서 온 것이고, 값이 없는
 // 행/그룹은 아예 만들지 않는다(빈 행 금지). 참가가능지역·허용업종/면허·기초금액은 Phase C.
 function renderNoticeDetailInfo(container, detail, participationRegions, licenseLimits, participationRegionStatus) {
+  if (!container) return;
   container.innerHTML = '';
   if (!detail) {
     container.appendChild(h('<p class="section-empty">원문 상세 데이터를 확인할 수 없습니다.</p>'));
@@ -11429,6 +11528,7 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
 // 발주기관마다 세부기준(등급/신인도 등)이 달라 이 계산만으로 확정할 수
 // 없으므로 "참고용" 문구를 반드시 함께 보여준다.
 function renderBidCalculator(container, detail) {
+  if (!container) return;
   container.innerHTML = '';
   const lowerLimitRate = detail && detail.awardLowerLimitRate ? parseFloat(detail.awardLowerLimitRate) : null;
   const estimatedPrice = detail && detail.estimatedPrice != null ? detail.estimatedPrice : null;
@@ -11788,6 +11888,7 @@ function documentAnalysisEmptyHtml(status, officialUrl, objectPhrase) {
 // 없다는 사실을 숨기지 않고 그대로 보여준다 — 섹션을 숨기면 이 기능이
 // 있는지조차 모르게 되므로, 안내 문구로 상태를 알린다.
 function renderEligibilityConditions(container, items, analysisStatus, officialUrl) {
+  if (!container) return;
   container.innerHTML = '';
   if (!items.length) {
     container.appendChild(h(documentAnalysisEmptyHtml(analysisStatus, officialUrl, '참가자격 요건을')));
@@ -11815,6 +11916,7 @@ function renderEligibilityConditions(container, items, analysisStatus, officialU
 // 보여준다(전부 required_documents/eligibility_conditions를 만드는
 // 같은 파이프라인에서 나온 값이라 상태를 공유해도 정확하다).
 function renderLicenseRequirementMatches(container, items, analysisStatus, officialUrl) {
+  if (!container) return;
   container.innerHTML = '';
   if (!items.length) {
     container.appendChild(h(documentAnalysisEmptyHtml(analysisStatus, officialUrl, '면허·인증 요건을')));
@@ -12170,6 +12272,7 @@ function renderParticipationJudgment(container, j, opts) {
 // 이 섹션으로 통합되어 제거되었다. AI는 "가능/불가능"을 단정하지 않고
 // "추천/확인 필요/비추천"으로만 표현한다(최종 결정은 사용자 몫).
 function renderParticipationSection(container, score, confidenceTier) {
+  if (!container) return;
   container.innerHTML = '';
 
   if (!currentUser) {
@@ -12298,6 +12401,7 @@ function renderChangeImpact(container, impact) {
 const AWARD_HISTORY_MIN_SAMPLE = 5;
 
 function renderAwardHistory(container, history, hasCompetitiveOverlap) {
+  if (!container) return;
   container.innerHTML = '';
   if (!history || history.count === 0) {
     container.appendChild(h('<p class="section-empty">이 발주기관의 낙찰정보는 아직 수집되지 않았습니다.</p>'));
