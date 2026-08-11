@@ -1557,6 +1557,13 @@
       border-bottom: none;
     }
   }
+  /* 공고 상세정보 그룹(Phase B, 2026-08-11) — 나라장터 정보구조에 가깝게 그룹화.
+     그룹 제목이 구분을 주므로 그룹 내부 .detail-meta의 상단 보더/마진은 제거한다. */
+  .detail-source-caption { margin: 0.75rem 0 0; font-size: 0.8rem; color: var(--ink-mute, #8a8f98); }
+  .detail-info-groups { display: flex; flex-direction: column; gap: 1.2rem; margin-top: 0.6rem; }
+  .detail-group-title { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--ink); }
+  .detail-group .detail-meta { margin-top: 0.6rem; padding-top: 0; border-top: none; }
+  .detail-source-note { margin: 0.6rem 0 0; font-size: 0.82rem; color: var(--ink-mute, #8a8f98); }
   /* #assignee-section(파이프라인 상세, assigneeSectionHtml)은 .profile-form의
      직속 자식이 아니라 그 안에 감싸인 <div>라 .profile-form의 gap이 안쪽
      label들 사이에는 적용되지 않는다 — 그 자체도 flex column으로 만들어야
@@ -10918,50 +10925,99 @@ async function renderNoticeReport(container, id) {
 // 지역제한은 이 데이터 소스(목록조회 API)에 판단기준 텍스트만 있고 구체적인
 // 지역명 목록 자체가 없어, 표로 꾸미지 않고 있는 그대로(판단기준 문구 또는
 // "확인 불가")를 보여준다 — 없는 데이터를 있는 것처럼 표로 만들지 않는다.
+// renderNoticeDetailInfo — 공고 상세정보를 나라장터 정보구조에 가깝게 그룹별로 보여준다
+// (Phase B, 2026-08-11). 모든 값은 나라장터 공식 API(raw_content)에서 온 것이고, 값이 없는
+// 행/그룹은 아예 만들지 않는다(빈 행 금지). 참가가능지역·허용업종/면허·기초금액은 Phase C.
 function renderNoticeDetailInfo(container, detail) {
   container.innerHTML = '';
   if (!detail) {
     container.appendChild(h('<p class="section-empty">원문 상세 데이터를 확인할 수 없습니다.</p>'));
     return;
   }
-  const rows = [];
-  if (detail.noticeKind) rows.push(['공고종류', escapeHtml(detail.noticeKind)]);
-  if (detail.contractMethod) rows.push(['계약방법', escapeHtml(detail.contractMethod)]);
-  if (detail.awardMethod) {
-    let v = escapeHtml(detail.awardMethod);
-    if (detail.awardMethodDetail) v += `<span class="detail-sub">${escapeHtml(detail.awardMethodDetail)}</span>`;
-    rows.push(['낙찰방법', v]);
-  }
-  if (detail.awardLowerLimitRate) rows.push(['낙찰하한율', `<span class="mono">${escapeHtml(detail.awardLowerLimitRate)}%</span>`]);
-  if (detail.rebidAllowed !== null && detail.rebidAllowed !== undefined) {
-    rows.push(['재입찰 허용', detail.rebidAllowed ? '허용' : '불허']);
-  }
-  if (detail.estimatedPrice != null) rows.push(['추정가격', `<span class="mono">${formatBudget(detail.estimatedPrice)}</span>`]);
-  if (detail.vat != null) rows.push(['부가가치세', `<span class="mono">${formatBudget(detail.vat)}</span>`]);
-  if (detail.officerName) {
-    let v = escapeHtml(detail.officerName);
-    if (detail.officerPhone) v += ` <span class="mono">${escapeHtml(detail.officerPhone)}</span>`;
-    rows.push(['담당자', v]);
-  }
-  if (detail.qualificationDeadlineAt) rows.push(['입찰참가자격등록 마감', `<span class="mono">${formatDateTime(detail.qualificationDeadlineAt)}</span>`]);
-  if (detail.applicationStartAt) rows.push(['입찰서 제출 시작', `<span class="mono">${formatDateTime(detail.applicationStartAt)}</span>`]);
-  if (detail.applicationEndAt) rows.push(['입찰서 제출 마감', `<span class="mono">${formatDateTime(detail.applicationEndAt)}</span>`]);
-  if (detail.bidOpeningAt) rows.push(['개찰일시', `<span class="mono">${formatDateTime(detail.bidOpeningAt)}</span>`]);
+  const esc = escapeHtml;
+  const won = v => `<span class="mono">${formatBudget(v)}</span>`;
+  const dt = v => `<span class="mono">${formatDateTime(v)}</span>`;
+  const has = v => v !== null && v !== undefined && v !== '';
 
-  const dl = rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${value}</dd></div>`).join('');
+  const noticeNoVal = has(detail.noticeNo)
+    ? esc(detail.noticeNo) + (has(detail.noticeOrd) ? ` <span class="detail-sub">차수 ${esc(detail.noticeOrd)}</span>` : '')
+    : null;
+  const awardVal = has(detail.awardMethod)
+    ? esc(detail.awardMethod) + (has(detail.awardMethodDetail) ? `<span class="detail-sub">${esc(detail.awardMethodDetail)}</span>` : '')
+    : null;
+  const officerVal = has(detail.officerName)
+    ? esc(detail.officerName) + (has(detail.officerPhone) ? ` <span class="mono">${esc(detail.officerPhone)}</span>` : '')
+    : null;
+  const priceCountVal = (detail.priceDrawCount != null || detail.priceTotalCount != null)
+    ? `<span class="mono">추첨 ${detail.priceDrawCount != null ? detail.priceDrawCount : '-'} / 전체 ${detail.priceTotalCount != null ? detail.priceTotalCount : '-'}</span>`
+    : null;
+  const briefingVal = has(detail.briefingAt)
+    ? dt(detail.briefingAt) + (has(detail.briefingPlace) ? ` <span class="detail-sub">${esc(detail.briefingPlace)}</span>` : '')
+    : (has(detail.briefingPlace) ? esc(detail.briefingPlace) : null);
+  const ynLabel = (b, yes, no) => b === true ? yes : b === false ? no : null;
 
-  const industryText = detail.industryRestricted === true ? '있음'
-    : detail.industryRestricted === false ? '없음' : '정보 없음';
-  const regionText = detail.regionRestrictionBasis
-    ? `있음 (판단기준: ${escapeHtml(detail.regionRestrictionBasis)})`
-    : '이 데이터만으로는 확인 불가 — 원문 공고 확인 필요';
+  // [그룹명, [[라벨, 값(null이면 생략)], ...]]
+  const groups = [
+    ['기본정보', [
+      ['공고번호', noticeNoVal],
+      ['공고종류', has(detail.noticeKind) ? esc(detail.noticeKind) : null],
+      ['용역구분', has(detail.serviceDivision) ? esc(detail.serviceDivision) : null],
+      ['게시일시', has(detail.publishedAt) ? dt(detail.publishedAt) : null],
+      ['입찰방식', has(detail.bidMethod) ? esc(detail.bidMethod) : null],
+      ['계약방법', has(detail.contractMethod) ? esc(detail.contractMethod) : null],
+      ['국제입찰', ynLabel(detail.internationalBid, '대상', '비대상')],
+      ['재입찰 허용', ynLabel(detail.rebidAllowed, '허용', '불허')],
+      ['참조번호', has(detail.referenceNo) ? esc(detail.referenceNo) : null],
+      ['통합공고번호', has(detail.unifiedNoticeNo) ? esc(detail.unifiedNoticeNo) : null],
+    ]],
+    ['기관정보', [
+      ['공고기관', has(detail.noticeInstitution) ? esc(detail.noticeInstitution) : null],
+      ['수요기관', has(detail.demandInstitution) ? esc(detail.demandInstitution) : null],
+      ['담당자', officerVal],
+      ['이메일', has(detail.officerEmail) ? esc(detail.officerEmail) : null],
+    ]],
+    ['입찰·낙찰정보', [
+      ['낙찰방법', awardVal],
+      ['낙찰하한율', has(detail.awardLowerLimitRate) ? `<span class="mono">${esc(detail.awardLowerLimitRate)}%</span>` : null],
+      ['예정가격 결정방법', has(detail.prearrangedPriceMethod) ? esc(detail.prearrangedPriceMethod) : null],
+      ['예비가격 개수', priceCountVal],
+      ['공동수급', has(detail.jointContractMethod) ? esc(detail.jointContractMethod) : null],
+      ['개찰장소', has(detail.openingPlace) ? esc(detail.openingPlace) : null],
+    ]],
+    ['가격정보', [
+      ['배정예산', detail.assignedBudget != null ? won(detail.assignedBudget) : null],
+      ['추정가격', detail.estimatedPrice != null ? won(detail.estimatedPrice) : null],
+      ['부가가치세', detail.vat != null ? won(detail.vat) : null],
+      ['입찰참가수수료', detail.participationFee != null ? won(detail.participationFee) : null],
+    ]],
+    ['일정', [
+      ['입찰참가자격등록 마감', has(detail.qualificationDeadlineAt) ? dt(detail.qualificationDeadlineAt) : null],
+      ['입찰서 제출 시작', has(detail.applicationStartAt) ? dt(detail.applicationStartAt) : null],
+      ['입찰서 제출 마감', has(detail.applicationEndAt) ? dt(detail.applicationEndAt) : null],
+      ['개찰일시', has(detail.bidOpeningAt) ? dt(detail.bidOpeningAt) : null],
+      ['재입찰 개찰일시', has(detail.rebidOpeningAt) ? dt(detail.rebidOpeningAt) : null],
+      ['설명회', briefingVal],
+    ]],
+  ];
+
+  // 참가자격 그룹(Phase B: 제한 플래그만 — 참가가능지역/허용업종 목록은 Phase C).
+  const qualRows = [];
+  const industryText = ynLabel(detail.industryRestricted, '있음', '없음');
+  if (industryText) qualRows.push(['업종제한', industryText]);
+  if (has(detail.regionRestrictionBasis)) qualRows.push(['지역제한', `있음 (판단기준: ${esc(detail.regionRestrictionBasis)})`]);
+
+  const groupHtml = (title, rows, extra) => {
+    const dl = rows.filter(([, v]) => v != null).map(([label, v]) => `<div><dt>${esc(label)}</dt><dd>${v}</dd></div>`).join('');
+    if (!dl) return '';
+    return `<div class="detail-group"><h4 class="detail-group-title">${esc(title)}</h4><dl class="detail-meta">${dl}</dl>${extra || ''}</div>`;
+  };
+
+  const body = groups.map(([t, r]) => groupHtml(t, r)).join('')
+    + groupHtml('참가자격', qualRows, '<p class="detail-source-note">참가가능지역·허용업종/면허 상세는 준비 중입니다(원문 공고 확인 필요).</p>');
 
   container.appendChild(h(`
-    <dl class="detail-meta">${dl}</dl>
-    <div class="restriction-summary">
-      <div><span class="restriction-label">업종제한</span><span class="restriction-value">${industryText}</span></div>
-      <div><span class="restriction-label">지역제한</span><span class="restriction-value">${regionText}</span></div>
-    </div>
+    <p class="detail-source-caption">아래 값은 나라장터 공식 API 기준입니다.</p>
+    <div class="detail-info-groups">${body || '<p class="section-empty">표시할 상세 정보가 없습니다.</p>'}</div>
   `));
 }
 

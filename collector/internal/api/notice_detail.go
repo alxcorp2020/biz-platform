@@ -33,6 +33,30 @@ type g2bRawFields struct {
 	NtceInsttOfclTelNo       string `json:"ntceInsttOfclTelNo"`
 	IndstrytyLmtYn           string `json:"indstrytyLmtYn"`
 	RgnLmtBidLocplcJdgmBssNm string `json:"rgnLmtBidLocplcJdgmBssNm"`
+	// Phase B(2026-08-11) — raw_content에 이미 있었으나 그동안 안 읽던 필드. 새 API 호출 없음.
+	// 필드 의미는 실측 응답으로 확인된 것만(추측 금지). 값 없으면 프론트가 행을 안 만든다.
+	BidNtceNo             string `json:"bidNtceNo"`             // 입찰공고번호
+	BidNtceOrd            string `json:"bidNtceOrd"`            // 차수
+	RefNo                 string `json:"refNo"`                 // 참조번호
+	UntyNtceNo            string `json:"untyNtceNo"`            // 통합공고번호
+	SrvceDivNm            string `json:"srvceDivNm"`            // 용역구분(일반용역 등)
+	BidNtceDt             string `json:"bidNtceDt"`             // 공고 게시일시(초 단위)
+	BidMethdNm            string `json:"bidMethdNm"`            // 입찰방식(전자입찰 등)
+	IntrbidYn             string `json:"intrbidYn"`             // 국제입찰 여부 Y/N
+	PrearngPrceDcsnMthdNm string `json:"prearngPrceDcsnMthdNm"` // 예정가격 결정방법(복수예가 등)
+	DrwtPrdprcNum         string `json:"drwtPrdprcNum"`         // 예정가격 추첨 개수
+	TotPrdprcNum          string `json:"totPrdprcNum"`          // 예비가격 전체 개수
+	CmmnSpldmdMethdNm     string `json:"cmmnSpldmdMethdNm"`     // 공동수급 방식(불허 등)
+	OpengPlce             string `json:"opengPlce"`             // 개찰 장소
+	RbidOpengDt           string `json:"rbidOpengDt"`           // 재입찰 개찰일시
+	AsignBdgtAmt          string `json:"asignBdgtAmt"`          // 배정예산액
+	DminsttNm             string `json:"dminsttNm"`             // 수요기관명
+	NtceInsttNm           string `json:"ntceInsttNm"`           // 공고기관명
+	NtceInsttOfclEmailAdrs string `json:"ntceInsttOfclEmailAdrs"` // 공고기관 담당자 이메일
+	DcmtgOprtnDt          string `json:"dcmtgOprtnDt"`          // 설명회 일시
+	DcmtgOprtnPlce        string `json:"dcmtgOprtnPlce"`        // 설명회 장소
+	BidPrtcptFee          string `json:"bidPrtcptFee"`          // 입찰참가수수료(원)
+	BidGrntymnyPaymntYn   string `json:"bidGrntymnyPaymntYn"`   // 입찰보증금 납부 여부 Y/N
 }
 
 type noticeRawDetail struct {
@@ -52,6 +76,29 @@ type noticeRawDetail struct {
 	OfficerPhone            string     `json:"officerPhone"`
 	IndustryRestricted      *bool      `json:"industryRestricted"`
 	RegionRestrictionBasis  string     `json:"regionRestrictionBasis"`
+	// Phase B — raw_content에서 살린 추가 필드(새 API 호출 없음). 값 없으면 nil/빈문자열.
+	NoticeNo               string     `json:"noticeNo"`
+	NoticeOrd              string     `json:"noticeOrd"`
+	ReferenceNo            string     `json:"referenceNo"`
+	UnifiedNoticeNo        string     `json:"unifiedNoticeNo"`
+	ServiceDivision        string     `json:"serviceDivision"`
+	PublishedAt            *time.Time `json:"publishedAt"`
+	BidMethod              string     `json:"bidMethod"`
+	InternationalBid       *bool      `json:"internationalBid"`
+	PrearrangedPriceMethod string     `json:"prearrangedPriceMethod"`
+	PriceDrawCount         *int64     `json:"priceDrawCount"`
+	PriceTotalCount        *int64     `json:"priceTotalCount"`
+	JointContractMethod    string     `json:"jointContractMethod"`
+	OpeningPlace           string     `json:"openingPlace"`
+	RebidOpeningAt         *time.Time `json:"rebidOpeningAt"`
+	AssignedBudget         *int64     `json:"assignedBudget"`
+	DemandInstitution      string     `json:"demandInstitution"`
+	NoticeInstitution      string     `json:"noticeInstitution"`
+	OfficerEmail           string     `json:"officerEmail"`
+	BriefingAt             *time.Time `json:"briefingAt"`
+	BriefingPlace          string     `json:"briefingPlace"`
+	ParticipationFee       *int64     `json:"participationFee"`
+	BidGuaranteeRequired   *bool      `json:"bidGuaranteeRequired"`
 }
 
 // fetchNoticeRawDetail loads and parses the raw g2b JSON for a notice
@@ -96,6 +143,29 @@ func (s *Server) fetchNoticeRawDetail(ctx context.Context, versionID string) (*n
 		OfficerPhone:            f.NtceInsttOfclTelNo,
 		IndustryRestricted:      ynToBool(f.IndstrytyLmtYn),
 		RegionRestrictionBasis:  f.RgnLmtBidLocplcJdgmBssNm,
+		// Phase B 추가 매핑 — 시각은 parseG2BDateTime(KST 고정), 금액/개수는 parseG2BAmount.
+		NoticeNo:               f.BidNtceNo,
+		NoticeOrd:              f.BidNtceOrd,
+		ReferenceNo:            f.RefNo,
+		UnifiedNoticeNo:        f.UntyNtceNo,
+		ServiceDivision:        f.SrvceDivNm,
+		PublishedAt:            parseG2BDateTime(f.BidNtceDt),
+		BidMethod:              f.BidMethdNm,
+		InternationalBid:       ynToBool(f.IntrbidYn),
+		PrearrangedPriceMethod: f.PrearngPrceDcsnMthdNm,
+		PriceDrawCount:         parseG2BAmount(f.DrwtPrdprcNum),
+		PriceTotalCount:        parseG2BAmount(f.TotPrdprcNum),
+		JointContractMethod:    f.CmmnSpldmdMethdNm,
+		OpeningPlace:           f.OpengPlce,
+		RebidOpeningAt:         parseG2BDateTime(f.RbidOpengDt),
+		AssignedBudget:         parseG2BAmount(f.AsignBdgtAmt),
+		DemandInstitution:      f.DminsttNm,
+		NoticeInstitution:      f.NtceInsttNm,
+		OfficerEmail:           f.NtceInsttOfclEmailAdrs,
+		BriefingAt:             parseG2BDateTime(f.DcmtgOprtnDt),
+		BriefingPlace:          f.DcmtgOprtnPlce,
+		ParticipationFee:       parseG2BAmount(f.BidPrtcptFee),
+		BidGuaranteeRequired:   ynToBool(f.BidGrntymnyPaymntYn),
 	}, nil
 }
 
