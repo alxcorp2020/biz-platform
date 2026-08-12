@@ -1346,6 +1346,39 @@
   .dash-useful-collapse[open] .dash-useful-summary::after { content: ' ▴'; }
   .dash-useful-collapse[open] .useful-links-grid { margin-top: var(--space-md); }
 
+  /* ===== 대시보드 Redesign V2 (2026-08-12) — 회색 캔버스 위 흰 카드로 그룹 통일(상세와 동일 시스템).
+     .dashboard-stack 스코프라 다른 화면에 영향 없음. ===== */
+  .dashboard-stack { gap: 1rem; }
+  /* 인사말은 카드가 아니라 캔버스 헤더 — 톤 정리(파랑 eyebrow→회색), 제목 확대. */
+  .dashboard-stack > .dash-greeting { margin: 0.5rem 0 0.25rem; }
+  .dash-greeting-eyebrow { color: var(--ink-mute); font-weight: 600; font-size: 0.875rem; }
+  .dash-greeting-title { font-size: 1.5rem; font-weight: 700; line-height: 1.35; letter-spacing: -0.02em; margin: 0.25rem 0 0; }
+  /* 주요 블록 전부 흰 surface 카드로: HERO/오늘 할 일/회사정보/자동처리/바로가기. */
+  .dashboard-stack > .dash-hero,
+  .dashboard-stack > .dash-block,
+  .dashboard-stack > .detail-card,
+  .dashboard-stack > .dash-automation-collapse,
+  .dashboard-stack > .dash-useful-collapse {
+    background: var(--surface); border: none; border-radius: 20px;
+    padding: 1.75rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  /* HERO: 파란 테두리·강한 그림자 제거 → 담백한 흰 카드. 제목 강조. */
+  .dashboard-stack > .dash-hero { border: none; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  .dash-hero-title { font-size: 1.375rem; margin: 0.35rem 0 0.5rem; }
+  /* 카드 안 섹션 제목(오늘 할 일 등) — 전역 h3 밑줄/하단보더 제거. */
+  .dashboard-stack h3 { border: none; padding-bottom: 0; }
+  .dashboard-stack .dash-block-head { margin-bottom: 1rem; }
+  .dashboard-stack > .dash-automation-collapse > summary,
+  .dashboard-stack > .dash-useful-collapse > summary { padding: 0; }
+  @media (max-width: 768px) {
+    .dashboard-stack > .dash-hero,
+    .dashboard-stack > .dash-block,
+    .dashboard-stack > .detail-card,
+    .dashboard-stack > .dash-automation-collapse,
+    .dashboard-stack > .dash-useful-collapse { padding: 1.25rem; border-radius: 16px; }
+    .dash-greeting-title { font-size: 1.3rem; }
+  }
+
   /* ---------- 대시보드 "유용한 사이트 바로가기"(2026-08-07) ----------
      2열 카드 그리드(기업신용평가/입찰인증서) + 외부 링크 모음 드롭다운
      5개. 카드는 .license-card/.dash-tile과 같은 흰 배경+옅은 그림자
