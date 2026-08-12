@@ -74,6 +74,21 @@
     --radius-card: 20px;
     --shadow-soft: 0 2px 8px rgba(0,0,0,0.04);
     --sidebar-width: 240px;
+
+    /* ── Toss 계열 시각 정리 토큰(CSS ONLY, 2026-08-12) — 기존 색/토큰을 재사용하는
+       의미별칭 + spacing/radius 스케일. 색은 기존 flip-aware 변수를 가리켜 다크모드 자동 대응. ── */
+    --text-primary: var(--ink);
+    --text-secondary: var(--ink-soft);
+    --ink-mute: #8B95A1;                 /* tertiary — 기존 코드의 fallback 값 정식화 */
+    --text-tertiary: var(--ink-mute);
+    --blue: var(--accent-blue);
+    --blue-hover: var(--accent-blue-deep);
+    --surface-muted: var(--surface-soft);
+    --border-soft: #F1F3F5;
+    --nav-bg: rgba(255,255,255,0.96);    /* sticky anchor nav 글래스 배경(light) */
+    --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px; --radius-xl: 20px;
+    --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px; --space-5: 20px;
+    --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px; --space-16: 64px;
     color-scheme: light;
   }
 
@@ -101,6 +116,10 @@
     --warn: #E0A43A;
     --danger: #E5634F;
     --shadow-soft: 0 2px 8px rgba(0,0,0,0.45);
+    /* Toss 정리 토큰 다크 대응(의미별칭은 flip 변수를 가리켜 자동, 리터럴 색만 여기서 재정의) */
+    --ink-mute: #98A0AC;
+    --border-soft: #232A33;
+    --nav-bg: rgba(17,20,25,0.92);
     color-scheme: dark;
   }
 
@@ -1406,26 +1425,26 @@
   /* sticky nav — 기존 탭 스타일 재사용, 콘텐츠 교체 대신 해당 섹션으로 스크롤 이동. */
   .detail-nav {
     position: sticky; top: 0; z-index: 20;
-    display: flex; gap: 0.15rem; overflow-x: auto; white-space: nowrap;
-    background: var(--surface); border-bottom: 1px solid var(--border);
-    margin: 1.25rem 0 0; scrollbar-width: none;
+    display: flex; gap: 0.4rem; overflow-x: auto; white-space: nowrap;
+    background: var(--nav-bg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); margin: 1.25rem 0 0; scrollbar-width: none;
   }
   .detail-nav::-webkit-scrollbar { display: none; }
   .detail-nav-item {
-    flex: 0 0 auto; padding: 0.75rem 0.85rem; background: none; border: none;
+    flex: 0 0 auto; padding: 0.9rem 0.6rem; background: none; border: none;
     border-bottom: 2px solid transparent; cursor: pointer; text-decoration: none;
-    font-size: 0.92rem; color: var(--ink-soft); font-weight: 500;
+    font-size: 0.875rem; color: var(--text-secondary); font-weight: 500;
     display: inline-flex; align-items: baseline; gap: 0.35rem;
   }
   .detail-nav-item:hover { color: var(--ink); }
-  .detail-nav-item.is-active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); font-weight: 700; }
+  .detail-nav-item.is-active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); font-weight: 600; }
 
   /* 섹션 스크롤 흐름 — 큰 카드 없이 whitespace + 섹션 사이 아주 연한 divider 하나로만 구분. */
   /* overflow-x: clip — 판정/상세 등 항상 렌더되는 섹션의 glossary 툴팁(hidden 상태 absolute)이
      우측으로 넘쳐 가로 스크롤을 만드는 것을 차단(세로는 visible, sticky nav는 flow 밖이라 무영향). */
   .detail-flow { display: flex; flex-direction: column; margin-top: 2.5rem; overflow-x: clip; }
-  .detail-section { scroll-margin-top: 72px; }              /* sticky nav 높이만큼 offset(제목 안 가리게) */
-  .detail-section + .detail-section { margin-top: 2.25rem; padding-top: 2.25rem; border-top: 1px solid var(--border); }
+  .detail-section { scroll-margin-top: 64px; }              /* sticky nav 높이만큼 offset(제목 안 가리게) */
+  .detail-section + .detail-section { margin-top: 0; padding-top: 4rem; border-top: 1px solid var(--border-soft); }
   .detail-section-head { display: flex; align-items: flex-start; gap: 0.55rem; margin: 0 0 1.5rem; }
   .detail-section-icon { flex-shrink: 0; width: 1.2rem; height: 1.2rem; color: var(--ink-soft); margin-top: 0.2rem; }
   .detail-section-heading { flex: 1 1 auto; min-width: 0; }
@@ -1433,10 +1452,10 @@
   .detail-section-sub { margin: 0.4rem 0 0; font-size: var(--dtl-body); color: var(--ink-soft); line-height: 1.55; }
   @media (max-width: 768px) {
     .detail-flow { margin-top: 1.75rem; }
-    .detail-section { scroll-margin-top: 60px; }
-    .detail-section + .detail-section { margin-top: 1.6rem; padding-top: 1.6rem; }
+    .detail-section { scroll-margin-top: 52px; }
+    .detail-section + .detail-section { margin-top: 0; padding-top: 3rem; }
     .detail-section-head { margin-bottom: 1.2rem; }
-    .detail-nav-item { padding: 0.65rem 0.7rem; font-size: 0.88rem; }
+    .detail-nav-item { padding: 0.75rem 0.6rem; font-size: 0.875rem; }
   }
   /* 참여판정 섹션 — 큰 색상 box 2개 대신 섹션 안에서 flat하게(카드 chrome 제거, 데이터/구조 유지). */
   #section-participation .participation-judgment,
@@ -1619,10 +1638,10 @@
      그룹 제목이 구분을 주므로 그룹 내부 .detail-meta의 상단 보더/마진은 제거한다. */
   .detail-source-caption { margin: 0.75rem 0 0; font-size: 0.8rem; color: var(--ink-mute, #8a8f98); }
   /* 그룹 간 여백을 넓혀 DB dump 느낌을 줄인다(색·보더 대신 spacing 계층). */
-  .detail-info-groups { display: flex; flex-direction: column; gap: 2.25rem; margin-top: 1.1rem; }
+  .detail-info-groups { display: flex; flex-direction: column; gap: 2.5rem; margin-top: 1.1rem; }
   .detail-group-title { margin: 0; font-size: var(--dtl-group); font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
   .detail-group-icon { display: inline-flex; width: 1rem; height: 1rem; color: var(--ink-mute, #98a0ac); flex-shrink: 0; }
-  .detail-group .detail-meta { margin-top: 1rem; padding-top: 0; border-top: none; }
+  .detail-group .detail-meta { margin-top: 1.25rem; padding-top: 0; border-top: none; gap: 1.75rem 3rem; }
   .detail-group .detail-meta dt { font-size: 0.8rem; }
   .detail-group .detail-meta dd { font-size: var(--dtl-body); line-height: 1.5; }
   .detail-source-note { margin: 0.6rem 0 0; font-size: 0.82rem; color: var(--ink-mute, #8a8f98); }
@@ -1663,7 +1682,7 @@
   .section-head-sub { margin: 0.4rem 0 0; font-size: var(--dtl-body); color: var(--ink-soft); line-height: 1.55; }
   .section-head-right { flex-shrink: 0; margin-left: auto; }
   /* ── 적격심사 계산기 = 자체 도구 → subtle 배경 panel(유일하게 허용된 background 구분) ── */
-  .cond-block--tool { background: var(--surface-soft); border-radius: 14px; padding: 1.25rem 1.35rem 1.4rem; }
+  .cond-block--tool { background: var(--surface-muted); border-radius: var(--radius-lg); padding: 1.5rem; }
   .cond-tool-note { margin: 0 0 1.1rem; font-size: 0.82rem; color: var(--ink-soft); }
   @media (max-width: 560px) { .cond-block--tool { padding: 1.1rem 1rem 1.2rem; } }
   /* 계산기 — 큰 warning box 대신 작은 info text 1줄, 컴팩트 폼 */
@@ -1687,7 +1706,7 @@
   /* ── 핵심 참가조건 grid — label(작고 연함) / value(크고 진함) 2단계 위계, 카드·아이콘 없음 ── */
   .core-conditions {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-    gap: 1.75rem; margin: 0;
+    gap: 2rem 3rem; margin: 0;
   }
   @media (min-width: 900px) { .core-conditions { grid-template-columns: repeat(3, 1fr); } }
   .core-cond-cell { min-width: 0; }
@@ -2460,8 +2479,9 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-    padding: 0.7rem 0;
-    border-bottom: 1px solid var(--border);
+    min-height: 3.25rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border-soft);
   }
   .attachment-item:last-child { border-bottom: none; }
   /* 파일명이 가장 넓게 — 남는 폭 전부 차지. 돋보기는 파일명 바로 옆(줄바꿈해도 떨어지지 않게). */
