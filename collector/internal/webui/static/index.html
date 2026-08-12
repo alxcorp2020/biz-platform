@@ -739,9 +739,11 @@
   }
   .notice-list--cards > .row-card,
   .notice-list--cards > .row-card:last-child {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius-card); box-shadow: var(--shadow-soft);
+    background: var(--surface); border: none;
+    border-radius: 16px; box-shadow: var(--shadow-soft);
+    padding: 1.25rem 1.35rem;
   }
+  .notice-list--cards > .row-card:hover { background: var(--surface); box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
   /* 무한스크롤 20건 묶음 구분 표기 — "──── 20건 / 전체 106건 표시 중 ────"
      처럼 텍스트 양옆으로 가로줄이 채운다(카드 사이 여백 안에 자연스럽게 놓임). */
   .notice-list-batch-divider {
