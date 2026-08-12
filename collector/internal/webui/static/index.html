@@ -2242,8 +2242,16 @@
   }
 
   /* 참여판정 조건 카드(유료화 1단계, 2026-08-09) — 조건별 PASS/REVIEW/FAIL/UNKNOWN */
-  .participation-judgment .pj-head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .participation-judgment .pj-head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
   .pj-grade { font-size: 1rem; font-weight: 800; padding: 0.25rem 0.7rem; border-radius: 999px; }
+  /* 판정 요약 — 토스식 count pill(자동확인/확인필요/미충족/정보부족). 0인 항목은 흐리게. */
+  .pj-counts { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1.3rem; }
+  .pj-count { font-size: 0.8rem; font-weight: 700; padding: 0.26rem 0.62rem; border-radius: 999px; white-space: nowrap; }
+  .pj-count--pass { background: #e6f4ea; color: #1e7e34; }
+  .pj-count--review { background: #fff4e5; color: #b26a00; }
+  .pj-count--fail { background: #fdecea; color: #b3261e; }
+  .pj-count--unknown { background: var(--surface-sunken, #f1f3f5); color: var(--ink-soft); }
+  .pj-count.is-zero { background: var(--surface-sunken, #f1f3f5); color: var(--ink-mute, #8a8f98); opacity: 0.55; }
   .pj-grade--ready { background: #e6f4ea; color: #1e7e34; }
   .pj-grade--review { background: #fff4e5; color: #b26a00; }
   .pj-grade--fail { background: #fdecea; color: #b3261e; }
@@ -2359,7 +2367,10 @@
   .cond--review .cond-icon { background: #fff4e5; color: #b26a00; }
   .cond--fail .cond-icon { background: #fdecea; color: #b3261e; }
   .cond--unknown .cond-icon { background: var(--surface-sunken, #f1f3f5); color: var(--ink-soft); }
-  .participation-judgment .cond-list { gap: 0.9rem; }
+  /* 토스식 리스트 — 카드/보더 대신 hairline divider로 조건 행을 분리(차분한 위계). */
+  .participation-judgment .cond-list { gap: 0; }
+  .participation-judgment .cond-row { padding: 0.95rem 0; border-top: 1px solid var(--border-soft); }
+  .participation-judgment .cond-row:first-child { border-top: none; padding-top: 0.2rem; }
   .cond-head-line { display: flex; align-items: center; gap: 0.4rem; }
   .cond-soft { font-size: 0.7rem; font-weight: 700; color: var(--ink-soft); background: var(--surface-sunken, #f1f3f5); padding: 0.05rem 0.35rem; border-radius: 4px; }
   .cond-reason { font-size: 0.88rem; color: var(--ink-soft); line-height: 1.5; margin-top: 0.1rem; }
@@ -2375,6 +2386,11 @@
     .cond--review .cond-icon { background: #3a2c12; color: #f0b866; }
     .cond--fail .cond-icon { background: #3a1a17; color: #f2a099; }
     .cond--unknown .cond-icon { background: #22272e; color: var(--ink-soft); }
+    .pj-count--pass { background: #16351f; color: #7ee2a0; }
+    .pj-count--review { background: #3a2c12; color: #f0b866; }
+    .pj-count--fail { background: #3a1a17; color: #f2a099; }
+    .pj-count--unknown { background: #22272e; color: var(--ink-soft); }
+    .pj-count.is-zero { background: #22272e; color: var(--ink-mute, #8a8f98); }
   }
   .support-summary { margin-top: 1.25rem; }
   .support-summary p { white-space: pre-line; color: var(--ink-soft); line-height: 1.6; }
@@ -11144,7 +11160,7 @@ function renderAlreadyInPipeline(container, noticeId, entryId) {
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="notice-action-bar">
-      <a href="#/pipeline/${escapeAttr(entryId)}" class="pipeline-review-btn" style="text-decoration:none;display:inline-block">진행 중 &middot; 워크스페이스로 이동 &rarr;</a>
+      <a href="#/pipeline/${escapeAttr(entryId)}" class="pipeline-review-btn" style="text-decoration:none">진행 중 &middot; 워크스페이스로 이동 &rarr;</a>
       <button type="button" id="notice-cancel-review-btn" class="btn btn-secondary btn-sm pipeline-cancel-btn">참여 취소</button>
       <button type="button" id="share-notice-btn" class="btn btn-secondary btn-sm">담당자에게 전달</button>
     </div>
@@ -12391,7 +12407,12 @@ function renderParticipationJudgment(container, j, opts) {
     <div class="detail-card participation-judgment">
       <div class="pj-head">
         <span class="pj-grade ${tone}">${escapeHtml(j.gradeLabel || '')}</span>
-        <span class="pj-summary">자동확인 ${j.passCount} · 확인필요 ${j.reviewCount} · 미충족 ${j.failCount} · 정보부족 ${j.unknownCount}</span>
+      </div>
+      <div class="pj-counts">
+        <span class="pj-count pj-count--pass${j.passCount ? '' : ' is-zero'}">자동확인 ${j.passCount}</span>
+        <span class="pj-count pj-count--review${j.reviewCount ? '' : ' is-zero'}">확인필요 ${j.reviewCount}</span>
+        <span class="pj-count pj-count--fail${j.failCount ? '' : ' is-zero'}">미충족 ${j.failCount}</span>
+        <span class="pj-count pj-count--unknown${j.unknownCount ? '' : ' is-zero'}">정보부족 ${j.unknownCount}</span>
       </div>
       <div class="cond-list">${rows}</div>
       ${questionsHtml}
