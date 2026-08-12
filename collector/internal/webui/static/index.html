@@ -1779,7 +1779,8 @@
   /* ── 상단 summary row: 상태 | 마감 | 예산 (구분자로 그룹 분리, 모바일 wrap) ── */
   .cond-essentials {
     display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem;
-    margin: 1.2rem 0 0; font-size: var(--dtl-body); color: var(--ink);
+    margin: 0.5rem 0 1.75rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-soft);
+    font-size: var(--dtl-body); color: var(--ink);
   }
   .cond-essential { display: inline-flex; align-items: center; gap: 0.45rem; }
   .cond-essential-label { font-size: 0.8rem; color: var(--ink-soft); }
@@ -1885,7 +1886,8 @@
   /* 원클릭 참여검토(Phase 1) 상단 액션 3종(참여 검토 시작/제외/담당자에게
      전달) — 좁은 화면에서는 줄바꿈되어 세로로 쌓인다. */
   .notice-action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-top: 1rem; }
-  .notice-action-bar .pipeline-review-btn { margin-top: 0; }
+  .notice-action-bar .pipeline-review-btn,
+  .notice-action-bar .pipeline-cancel-btn { margin-top: 0; }
   /* 목록 "담김 ✓" 상태 — 채움형으로 담긴 걸 명확히, hover 시 빨강으로 "누르면 취소" 암시 */
   .notice-row-pipeline-btn--active { background: var(--success); border-color: var(--success); color: #fff; }
   .notice-row-pipeline-btn--active:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
@@ -2350,12 +2352,14 @@
   .prep-rest-lbl { font-size: 0.78rem; font-weight: 700; color: var(--ink-mute, #8a8f98); text-transform: uppercase; letter-spacing: 0.04em; }
   .cond-list { display: flex; flex-direction: column; gap: 0.6rem; }
   .cond-row { display: flex; gap: 0.6rem; align-items: flex-start; }
-  .cond-icon { flex-shrink: 0; width: 1.4rem; height: 1.4rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.85rem; color: #fff; }
-  /* semantic palette 통일(2026-08-11): green=pass / amber=review / red=fail / gray=unknown */
-  .cond--pass .cond-icon { background: var(--success); }
-  .cond--review .cond-icon { background: var(--warn); }
-  .cond--fail .cond-icon { background: var(--danger); }
-  .cond--unknown .cond-icon { background: var(--ink-soft); }
+  .cond-icon { flex-shrink: 0; width: 1.5rem; height: 1.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.8rem; margin-top: 0.05rem; }
+  /* semantic palette 통일(2026-08-13): pj-grade 배지와 동일한 soft 톤(연한 배경 + 컬러 글리프)으로
+     정돈 — 솔리드 원(흰 글자)보다 차분하고, 판정 배지·조건 아이콘이 한 색 체계로 읽힘. */
+  .cond--pass .cond-icon { background: #e6f4ea; color: #1e7e34; }
+  .cond--review .cond-icon { background: #fff4e5; color: #b26a00; }
+  .cond--fail .cond-icon { background: #fdecea; color: #b3261e; }
+  .cond--unknown .cond-icon { background: var(--surface-sunken, #f1f3f5); color: var(--ink-soft); }
+  .participation-judgment .cond-list { gap: 0.9rem; }
   .cond-head-line { display: flex; align-items: center; gap: 0.4rem; }
   .cond-soft { font-size: 0.7rem; font-weight: 700; color: var(--ink-soft); background: var(--surface-sunken, #f1f3f5); padding: 0.05rem 0.35rem; border-radius: 4px; }
   .cond-reason { font-size: 0.88rem; color: var(--ink-soft); line-height: 1.5; margin-top: 0.1rem; }
@@ -2367,6 +2371,10 @@
     .pj-grade--ready { background: #16351f; color: #7ee2a0; }
     .pj-grade--review { background: #3a2c12; color: #f0b866; }
     .pj-grade--fail { background: #3a1a17; color: #f2a099; }
+    .cond--pass .cond-icon { background: #16351f; color: #7ee2a0; }
+    .cond--review .cond-icon { background: #3a2c12; color: #f0b866; }
+    .cond--fail .cond-icon { background: #3a1a17; color: #f2a099; }
+    .cond--unknown .cond-icon { background: #22272e; color: var(--ink-soft); }
   }
   .support-summary { margin-top: 1.25rem; }
   .support-summary p { white-space: pre-line; color: var(--ink-soft); line-height: 1.6; }
