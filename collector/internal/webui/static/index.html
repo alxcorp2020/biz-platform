@@ -1423,40 +1423,85 @@
 
   /* ---------- 공고 상세 V3: 단일 스크롤 + sticky anchor navigation (2026-08-11) ---------- */
   /* sticky nav — 기존 탭 스타일 재사용, 콘텐츠 교체 대신 해당 섹션으로 스크롤 이동. */
+  /* Redesign V2(2026-08-12): 회색 캔버스 위 흰 surface. nav는 캔버스에 얹힌 가벼운 글래스 바(테두리 box 없음). */
   .detail-nav {
     position: sticky; top: 0; z-index: 20;
-    display: flex; gap: 0.4rem; overflow-x: auto; white-space: nowrap;
-    background: var(--nav-bg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    border-bottom: 1px solid var(--border); margin: 1.25rem 0 0; scrollbar-width: none;
+    display: flex; gap: 1.75rem; overflow-x: auto; white-space: nowrap;
+    background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-soft); margin: 0 0 1.25rem; scrollbar-width: none;
   }
   .detail-nav::-webkit-scrollbar { display: none; }
   .detail-nav-item {
-    flex: 0 0 auto; padding: 0.9rem 0.6rem; background: none; border: none;
+    flex: 0 0 auto; padding: 1.1rem 0; background: none; border: none;
     border-bottom: 2px solid transparent; cursor: pointer; text-decoration: none;
-    font-size: 0.875rem; color: var(--text-secondary); font-weight: 500;
+    font-size: 0.9375rem; color: var(--text-tertiary); font-weight: 500;
     display: inline-flex; align-items: baseline; gap: 0.35rem;
   }
   .detail-nav-item:hover { color: var(--ink); }
   .detail-nav-item.is-active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); font-weight: 600; }
 
-  /* 섹션 스크롤 흐름 — 큰 카드 없이 whitespace + 섹션 사이 아주 연한 divider 하나로만 구분. */
-  /* overflow-x: clip — 판정/상세 등 항상 렌더되는 섹션의 glossary 툴팁(hidden 상태 absolute)이
-     우측으로 넘쳐 가로 스크롤을 만드는 것을 차단(세로는 visible, sticky nav는 flow 밖이라 무영향). */
-  .detail-flow { display: flex; flex-direction: column; margin-top: 2.5rem; overflow-x: clip; }
-  .detail-section { scroll-margin-top: 64px; }              /* sticky nav 높이만큼 offset(제목 안 가리게) */
-  .detail-section + .detail-section { margin-top: 0; padding-top: 4rem; border-top: 1px solid var(--border-soft); }
-  .detail-section-head { display: flex; align-items: flex-start; gap: 0.55rem; margin: 0 0 1.5rem; }
-  .detail-section-icon { flex-shrink: 0; width: 1.2rem; height: 1.2rem; color: var(--ink-soft); margin-top: 0.2rem; }
-  .detail-section-heading { flex: 1 1 auto; min-width: 0; }
-  .detail-section-title { margin: 0; padding: 0; border: none; font-size: var(--dtl-section); font-weight: 700; color: var(--ink); letter-spacing: -0.01em; line-height: 1.35; }
-  .detail-section-sub { margin: 0.4rem 0 0; font-size: var(--dtl-body); color: var(--ink-soft); line-height: 1.55; }
-  @media (max-width: 768px) {
-    .detail-flow { margin-top: 1.75rem; }
-    .detail-section { scroll-margin-top: 52px; }
-    .detail-section + .detail-section { margin-top: 0; padding-top: 3rem; }
-    .detail-section-head { margin-bottom: 1.2rem; }
-    .detail-nav-item { padding: 0.75rem 0.6rem; font-size: 0.875rem; }
+  /* 섹션 = 흰 정보 surface(회색 캔버스 위). 각 섹션이 하나의 카드로 그룹화되고, 섹션 사이는 캔버스 간격으로 분리.
+     overflow-x: clip — glossary 툴팁(absolute)이 우측으로 넘쳐 가로 스크롤 만드는 것 차단. */
+  .detail-flow { display: flex; flex-direction: column; gap: 1.25rem; margin-top: 0; overflow-x: clip; }
+  .detail-section {
+    background: var(--surface); border-radius: 20px; padding: 2rem 2rem 2.25rem;
+    scroll-margin-top: 84px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
   }
+  .detail-section + .detail-section { margin-top: 0; padding-top: 2rem; border-top: none; }
+  .detail-section-head { display: flex; align-items: flex-start; gap: 0.6rem; margin: 0 0 1.75rem; }
+  .detail-section-icon { flex-shrink: 0; width: 1.25rem; height: 1.25rem; color: var(--ink-soft); margin-top: 0.15rem; }
+  .detail-section-heading { flex: 1 1 auto; min-width: 0; }
+  .detail-section-title { margin: 0; padding: 0; border: none; font-size: var(--dtl-section); font-weight: 700; color: var(--ink); letter-spacing: -0.01em; line-height: 1.45; }
+  .detail-section-sub { margin: 0.375rem 0 0; font-size: var(--dtl-body); color: var(--ink-soft); line-height: 1.6; }
+  @media (max-width: 768px) {
+    .detail-flow { gap: 0.875rem; margin-top: 0; }
+    .detail-section { padding: 1.25rem; border-radius: 16px; scroll-margin-top: 64px; }
+    .detail-section + .detail-section { padding-top: 1.25rem; }
+    .detail-section-head { margin-bottom: 1.25rem; }
+    .detail-nav-item { padding: 0.9rem 0; font-size: 0.9375rem; }
+  }
+
+  /* ===== 입찰/지원공고 상세 Visual Redesign V2 (2026-08-12, CSS ONLY) =====
+     #detail-body(=renderDetail 전용 루트)에만 스코프해 전역 .btn/.profile-form/.detail-card(대시보드 공용)를
+     건드리지 않는다. 연한 회색 캔버스 + 흰 정보 surface 대비, 타이포 확대(토큰 재정의), 상세 전용 버튼/입력. */
+  main:has(#detail-body) { background: var(--bg-soft); }
+  /* 상세 화면만 타이포 한 단계 확대: page 24 / section 20 / group·value 16 (본문/라벨은 유지) */
+  #detail-body { --dtl-page: 1.5rem; --dtl-section: 1.25rem; --dtl-group: 1rem; }
+
+  /* HERO도 흰 surface. 공고명 강조 + 내부 간격 재조정(공고명↔CTA 24, CTA↔링크/메타 16). */
+  #detail-body .detail-card {
+    border: none; border-radius: 24px; padding: 2rem; margin-bottom: 1.25rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  #detail-body .detail-card h2 { font-size: var(--dtl-page); line-height: 1.4; letter-spacing: -0.02em; margin-top: 0.5rem; }
+  #detail-body .detail-eyebrow { font-size: 0.8125rem; font-weight: 500; color: var(--ink-soft); }
+  #detail-body #pipeline-review-action { margin-top: 1.5rem; }
+  #detail-body .detail-hero-links { margin-top: 1rem; }
+  #detail-body .notice-data-trust { margin-top: 1rem; }
+
+  /* 공고 상세정보/그룹 value 가독성 확대(16px, line 1.6) */
+  #detail-body .detail-group .detail-meta dd { font-size: var(--dtl-group); line-height: 1.6; }
+
+  /* HERO 액션 버튼 — 상세 전용 재디자인(전역 .btn 불변). primary=service blue, secondary=neutral fill(테두리 강조 X). */
+  #detail-body .notice-action-bar .pipeline-review-btn {
+    height: 48px; padding: 0 20px; border-radius: 12px; font-size: 0.9375rem; font-weight: 600;
+    display: inline-flex; align-items: center; margin-top: 0;
+  }
+  #detail-body .notice-action-bar .btn {
+    height: 48px; padding: 0 18px; border-radius: 12px; font-size: 0.9375rem; font-weight: 600;
+  }
+  #detail-body .notice-action-bar .btn-secondary { background: var(--surface-soft); border-color: transparent; color: var(--ink); }
+  #detail-body .notice-action-bar .btn-secondary:hover { background: var(--border-soft); border-color: transparent; }
+
+  /* 적격심사 계산기 입력 — 상세 전용(전역 form selector 불변) */
+  #detail-body #bid-calculator-form input[type="text"] {
+    height: 48px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border);
+  }
+
+  /* 제출서류 파일 row — 넉넉하게(min 64px), preview 아이콘 조금 크게 */
+  #detail-body .attachment-item { min-height: 64px; padding: 1rem 0; border-bottom-color: var(--border-soft); }
+  #detail-body .attachment-preview-btn { width: 2.25rem; height: 2.25rem; }
+
   /* 참여판정 섹션 — 큰 색상 box 2개 대신 섹션 안에서 flat하게(카드 chrome 제거, 데이터/구조 유지). */
   #section-participation .participation-judgment,
   #section-participation .ai-participation-card {
@@ -1638,10 +1683,10 @@
      그룹 제목이 구분을 주므로 그룹 내부 .detail-meta의 상단 보더/마진은 제거한다. */
   .detail-source-caption { margin: 0.75rem 0 0; font-size: 0.8rem; color: var(--ink-mute, #8a8f98); }
   /* 그룹 간 여백을 넓혀 DB dump 느낌을 줄인다(색·보더 대신 spacing 계층). */
-  .detail-info-groups { display: flex; flex-direction: column; gap: 2.5rem; margin-top: 1.1rem; }
+  .detail-info-groups { display: flex; flex-direction: column; gap: 3rem; margin-top: 1.1rem; }
   .detail-group-title { margin: 0; font-size: var(--dtl-group); font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
   .detail-group-icon { display: inline-flex; width: 1rem; height: 1rem; color: var(--ink-mute, #98a0ac); flex-shrink: 0; }
-  .detail-group .detail-meta { margin-top: 1.25rem; padding-top: 0; border-top: none; gap: 1.75rem 3rem; }
+  .detail-group .detail-meta { margin-top: 1.25rem; padding-top: 0; border-top: none; gap: 2rem 3.5rem; }
   .detail-group .detail-meta dt { font-size: 0.8rem; }
   .detail-group .detail-meta dd { font-size: var(--dtl-body); line-height: 1.5; }
   .detail-source-note { margin: 0.6rem 0 0; font-size: 0.82rem; color: var(--ink-mute, #8a8f98); }
@@ -1671,7 +1716,7 @@
   .cond-essential-sep { width: 1px; height: 0.95rem; background: var(--border); flex-shrink: 0; }
   @media (max-width: 560px) { .cond-essential-sep { display: none; } .cond-essentials { gap: 0.5rem 1.2rem; } }
   /* ── 섹션 공통 스페이싱: 넉넉한 세로 여백 + 빈 블록 숨김 ── */
-  .cond-blocks { display: flex; flex-direction: column; gap: 2.5rem; margin-top: 0; }
+  .cond-blocks { display: flex; flex-direction: column; gap: 2.75rem; margin-top: 0; }
   .cond-blocks > *:empty { display: none; }
   .cond-block { margin: 0; }
   @media (max-width: 560px) { .cond-blocks { gap: 2.1rem; margin-top: 1.75rem; } }
@@ -1682,7 +1727,7 @@
   .section-head-sub { margin: 0.4rem 0 0; font-size: var(--dtl-body); color: var(--ink-soft); line-height: 1.55; }
   .section-head-right { flex-shrink: 0; margin-left: auto; }
   /* ── 적격심사 계산기 = 자체 도구 → subtle 배경 panel(유일하게 허용된 background 구분) ── */
-  .cond-block--tool { background: var(--surface-muted); border-radius: var(--radius-lg); padding: 1.5rem; }
+  .cond-block--tool { background: var(--surface-muted); border-radius: var(--radius-lg); padding: 1.75rem; }
   .cond-tool-note { margin: 0 0 1.1rem; font-size: 0.82rem; color: var(--ink-soft); }
   @media (max-width: 560px) { .cond-block--tool { padding: 1.1rem 1rem 1.2rem; } }
   /* 계산기 — 큰 warning box 대신 작은 info text 1줄, 컴팩트 폼 */
@@ -1706,7 +1751,7 @@
   /* ── 핵심 참가조건 grid — label(작고 연함) / value(크고 진함) 2단계 위계, 카드·아이콘 없음 ── */
   .core-conditions {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-    gap: 2rem 3rem; margin: 0;
+    gap: 2.25rem 3.5rem; margin: 0;
   }
   @media (min-width: 900px) { .core-conditions { grid-template-columns: repeat(3, 1fr); } }
   .core-cond-cell { min-width: 0; }
@@ -1731,7 +1776,7 @@
   .bt-badges { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.7rem 0 0; }
   .bt-badge { font-size: 0.78rem; font-weight: 600; padding: 0.15rem 0.6rem; border-radius: 999px; background: var(--surface-sunken, #f1f3f5); color: var(--ink); }
   .bt-list { list-style: none; margin: 1.1rem 0 0; padding: 0; }
-  .bt-node { position: relative; padding: 0 0 1.15rem 1.6rem; }
+  .bt-node { position: relative; padding: 0 0 1.6rem 1.85rem; }
   .bt-node:last-child { padding-bottom: 0; }
   .bt-node::before { content: ''; position: absolute; left: 5px; top: 0.5rem; bottom: -0.15rem; width: 2px; background: var(--border); }
   .bt-node:last-child::before { display: none; }
