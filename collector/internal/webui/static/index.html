@@ -867,6 +867,21 @@
     padding-top: 1.25rem;
     border-top: 1px solid var(--border);
   }
+  /* 상세 스켈레톤 — 재설계 레이아웃(회색 캔버스 + HERO 카드 + anchor nav + 흰 섹션 카드)에 맞춤.
+     HERO는 .detail-card를 재사용(실제와 동일 surface), 섹션은 .skeleton-section-card로 흰 카드 mimic. */
+  .skeleton-cta-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1.5rem; }
+  .skeleton-cta { width: 96px; height: 44px; border-radius: 12px; }
+  .skeleton-cta--primary { width: 132px; }
+  .skeleton-nav { display: flex; gap: 1.75rem; padding: 0.4rem 0 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border-soft); overflow: hidden; }
+  .skeleton-nav-pill { width: 54px; height: 15px; border-radius: 6px; flex-shrink: 0; }
+  .skeleton-flow { display: flex; flex-direction: column; gap: 1.25rem; }
+  .skeleton-section-card { background: var(--surface); border-radius: 20px; padding: 2rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  .skeleton-line--sec-title { width: 32%; height: 1.15rem; margin-bottom: 1.75rem; }
+  .skeleton-section-card .skeleton-meta-grid { margin-top: 0; padding-top: 0; border-top: none; gap: 2rem 3.5rem; }
+  @media (max-width: 768px) {
+    .skeleton-section-card { padding: 1.25rem; border-radius: 16px; }
+    .skeleton-nav { gap: 1.25rem; }
+  }
 
   /* ---------- Home / AI 대시보드 ---------- */
   .home-hero {
@@ -4240,11 +4255,28 @@ function skeletonListHtml(count) {
 
 function skeletonDetailHtml() {
   const cell = '<span class="skeleton-block skeleton-line skeleton-line--meta-cell"></span>';
+  const navPill = '<span class="skeleton-block skeleton-nav-pill"></span>';
+  // 재설계 상세 레이아웃과 동일한 뼈대: HERO 흰 카드 → anchor nav → 흰 섹션 카드 3장(회색 캔버스 위).
+  const sectionCard = (rows) => `
+    <div class="skeleton-section-card">
+      <span class="skeleton-block skeleton-line skeleton-line--sec-title"></span>
+      <div class="skeleton-meta-grid">${cell.repeat(rows)}</div>
+    </div>`;
   return `
     <div class="detail-card skeleton-card">
       <span class="skeleton-block skeleton-line skeleton-line--eyebrow"></span>
       <span class="skeleton-block skeleton-line skeleton-line--headline"></span>
-      <div class="skeleton-meta-grid">${cell.repeat(7)}</div>
+      <div class="skeleton-cta-row">
+        <span class="skeleton-block skeleton-cta skeleton-cta--primary"></span>
+        <span class="skeleton-block skeleton-cta"></span>
+        <span class="skeleton-block skeleton-cta"></span>
+      </div>
+    </div>
+    <div class="skeleton-nav">${navPill.repeat(6)}</div>
+    <div class="skeleton-flow">
+      ${sectionCard(6)}
+      ${sectionCard(4)}
+      ${sectionCard(3)}
     </div>`;
 }
 
