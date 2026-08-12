@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"os"
 	"strconv"
+	"time"
 
 	"biz-platform/collector/internal/collector/sources/g2b"
 )
@@ -191,4 +192,67 @@ func (s *Server) listLicenseLimits(ctx context.Context, versionID string) ([]lic
 		out = append(out, it)
 	}
 	return out, nil
+}
+
+// TriggerNoticeEnrichmentOnView — 상세 조회 시 그 공고(procurement)가 아직 미보강이면 즉시
+// 비동기로 참가가능지역/허용면허를 보강한다. 배경 sweep(15분 증분)이 아직 못 온 공고라도
+// "사용자가 방금 연 공고"를 우선 채워 다음 로드에서 입찰자격이 보이게 한다.
+//   - 응답을 지연시키지 않도록 완전 비동기(fire-and-forget), 같은 공고 중복 실행은 in-flight 맵으로 차단.
+//   - 배경 sweep과 동일한 EnrichmentClient(rate-limit/일일쿼터 공유)를 써서 쿼터를 초과하지 않는다.
+//   - 실패해도 status를 'error'로 확정하지 않는다(배경 sweep이 나중에 정식 재시도하도록 NULL 유지).
+func (s *Server) TriggerNoticeEnrichmentOnView(noticeID string) {
+	if s.noticeEnricher == nil || noticeID == "" {
+		return
+	}
+	s.enrichInflightMu.Lock()
+	if s.enrichInflight == nil {
+		s.enrichInflight = make(map[string]bool)
+	}
+	if s.enrichInflight[noticeID] {
+		s.enrichInflightMu.Unlock()
+		return
+	}
+	s.enrichInflight[noticeID] = true
+	s.enrichInflightMu.Unlock()
+
+	go func() {
+		defer func() {
+			s.enrichInflightMu.Lock()
+			delete(s.enrichInflight, noticeID)
+			s.enrichInflightMu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		var versionID, bidNtceNo, bidNtceOrd string
+		var status sql.NullString
+		err := s.db.QueryRowContext(ctx, `
+			SELECT nv.id, nv.enrichment_status, n.external_notice_id,
+			       COALESCE(rd.raw_content::jsonb->>'bidNtceOrd', '')
+			FROM notice_versions nv
+			JOIN notices n ON n.id = nv.notice_id
+			JOIN raw_documents rd ON rd.id = nv.raw_document_id
+			WHERE nv.notice_id = $1 AND nv.is_current = true AND n.notice_type = 'procurement'`,
+			noticeID).Scan(&versionID, &status, &bidNtceNo, &bidNtceOrd)
+		if err != nil {
+			return // 지원사업이거나 원본 없음 → on-view 보강 대상 아님
+		}
+		if status.Valid && status.String != "" {
+			return // 이미 completed/not_found/error → 재보강 안 함
+		}
+		if bidNtceNo == "" {
+			return
+		}
+		regions, rerr := s.noticeEnricher.FetchParticipationRegions(ctx, bidNtceNo, bidNtceOrd)
+		licenses, lerr := s.noticeEnricher.FetchLicenseLimits(ctx, bidNtceNo, bidNtceOrd)
+		if rerr != nil || lerr != nil {
+			s.logger.Warn("on-view enrichment fetch failed", "bidNtceNo", bidNtceNo, "regionErr", rerr, "licenseErr", lerr)
+			return // status 유지(NULL) → 배경 sweep이 정식 재시도
+		}
+		if err := s.saveEnrichment(ctx, versionID, regions, licenses); err != nil {
+			s.logger.Error("on-view enrichment save failed", "bidNtceNo", bidNtceNo, "error", err)
+			return
+		}
+		s.logger.Info("on-view enrichment completed", "noticeID", noticeID, "regions", len(regions), "licenses", len(licenses))
+	}()
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -66,7 +67,18 @@ type Server struct {
 	// Configured()가 false일 뿐 — oauth_login.go의 핸들러가 이 맵에서
 	// r.PathValue("provider")로 찾아 바로 404/동작 여부를 판단한다).
 	oauthProviders map[string]oauth.Client
+	// noticeEnricher — 상세 조회 시 미보강 공고(procurement)를 즉시 비동기 보강하는 on-demand
+	// 트리거용. 배경 sweep(startBackgroundNoticeEnrichment)과 같은 EnrichmentClient를 공유해
+	// rate-limit/일일쿼터를 함께 지킨다. nil(키 미설정)이면 on-view 트리거는 no-op.
+	// enrichInflight — 같은 공고를 동시에 중복 보강하지 않도록 진행 중 notice_id를 표시(뮤텍스 보호).
+	noticeEnricher   noticeEnricher
+	enrichInflight   map[string]bool
+	enrichInflightMu sync.Mutex
 }
+
+// SetNoticeEnricher — 배경 보강 티커와 동일한 enricher를 상세 on-view 트리거에도 공유시킨다
+// (cmd/apiserver에서 호출). 미호출이면 on-view 보강은 비활성.
+func (s *Server) SetNoticeEnricher(e noticeEnricher) { s.noticeEnricher = e }
 
 func New(db *sql.DB, logger *slog.Logger, sessionSecret []byte, attachmentDir string, anthropicClient *anthropic.Client, notifyClient *notify.Client, smsNotifyClient *notify.SMSClient, tossClient *billing.TossClient, tossClientKey string, appBaseURL string, scsbidSource *scsbid.Source, vapidPublicKey, vapidPrivateKey, vapidSubject string, googleOAuth, naverOAuth, kakaoOAuth oauth.Client) *Server {
 	if logger == nil {
@@ -738,6 +750,10 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 		it.LastVerifiedAt = &lastVerifiedAt.Time
 	}
 	it.SourceName = sourceName.String
+
+	// on-view 보강 트리거(비동기, 응답 지연 없음) — 이 공고가 미보강 procurement면 참가가능지역/
+	// 허용면허(입찰자격)를 즉시 채워 다음 로드에서 보이게 한다. 지원사업/이미보강/키미설정이면 no-op.
+	s.TriggerNoticeEnrichmentOnView(id)
 
 	changes, err := s.listChanges(r.Context(), id)
 	if err != nil {

@@ -285,6 +285,8 @@ func startBackgroundNoticeEnrichment(srv *api.Server, logger *slog.Logger) {
 		intervalMin = 15
 	}
 	enricher := g2b.NewEnrichmentClientWithLimits(key, perSecond, dailyLimit)
+	// 상세 on-view 트리거도 같은 enricher(rate-limit/쿼터 공유)를 쓰게 한다 — 사용자가 연 공고를 우선 보강.
+	srv.SetNoticeEnricher(enricher)
 	logger.Info("notice enrichment configured",
 		"perSecond", perSecond, "dailyLimit", dailyLimit, "intervalMin", intervalMin)
 	go func() {
