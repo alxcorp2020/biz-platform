@@ -1570,9 +1570,12 @@
   #section-participation .ai-participation-card {
     border: none; box-shadow: none; background: none; padding: 0; margin: 0;
   }
-  #section-participation #ai-participation-section:not(:empty) { margin-top: 2rem; }
-  /* 참여판정 "다음 행동" — 카드/보더 없이 제목+설명+버튼만(중복 조건목록 제거). */
+  #section-participation #ai-participation-section:not(:empty) { margin-top: 1.25rem; }
+  /* 참여판정 "다음 행동" — 판정과 한 카드로 묶이는 통합 푸터 패널(연한 블루) + 블루 CTA. */
   .pj-next-action { margin: 0; }
+  #section-participation .pj-next-action { background: #eff5ff; border-radius: 14px; padding: 1.15rem 1.2rem; }
+  #section-participation .pj-next-action .btn { height: 42px; padding: 0 18px; background: var(--accent-blue); color: #fff; border-color: transparent; }
+  #section-participation .pj-next-action .btn:hover { background: var(--accent-blue-deep); }
   .pj-next-title { margin: 0 0 0.35rem; font-size: var(--dtl-group); font-weight: 600; color: var(--ink); }
   .pj-next-desc { margin: 0 0 0.7rem; font-size: var(--dtl-body); color: var(--ink-soft); line-height: 1.55; }
 
@@ -2242,16 +2245,20 @@
   }
 
   /* 참여판정 조건 카드(유료화 1단계, 2026-08-09) — 조건별 PASS/REVIEW/FAIL/UNKNOWN */
-  .participation-judgment .pj-head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
+  /* 판정 verdict — 토스식 상태 헤드라인(컬러 dot + 문장). 배지보다 차분하고 명확. */
+  .participation-judgment .pj-head { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
+  /* 파란 톤 통일(2026-08-13, 사용자 요청) — verdict는 grade 무관 브랜드 블루로. */
+  .pj-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--accent-blue); }
+  .pj-verdict { font-size: 1.125rem; font-weight: 700; letter-spacing: -0.01em; color: var(--accent-blue-deep); }
   .pj-grade { font-size: 1rem; font-weight: 800; padding: 0.25rem 0.7rem; border-radius: 999px; }
   /* 판정 요약 — 토스식 count pill(자동확인/확인필요/미충족/정보부족). 0인 항목은 흐리게. */
   .pj-counts { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1.3rem; }
   .pj-count { font-size: 0.8rem; font-weight: 700; padding: 0.26rem 0.62rem; border-radius: 999px; white-space: nowrap; }
-  .pj-count--pass { background: #e6f4ea; color: #1e7e34; }
-  .pj-count--review { background: #fff4e5; color: #b26a00; }
-  .pj-count--fail { background: #fdecea; color: #b3261e; }
-  .pj-count--unknown { background: var(--surface-sunken, #f1f3f5); color: var(--ink-soft); }
-  .pj-count.is-zero { background: var(--surface-sunken, #f1f3f5); color: var(--ink-mute, #8a8f98); opacity: 0.55; }
+  .pj-count--pass { background: #dce9fd; color: #1b64da; }
+  .pj-count--review { background: #e8f1fe; color: #3182f6; }
+  .pj-count--fail { background: #d2e0f5; color: #123a7a; }
+  .pj-count--unknown { background: #eef1f6; color: #7c8aa5; }
+  .pj-count.is-zero { background: #eef1f6; color: #aab4c2; opacity: 0.7; }
   .pj-grade--ready { background: #e6f4ea; color: #1e7e34; }
   .pj-grade--review { background: #fff4e5; color: #b26a00; }
   .pj-grade--fail { background: #fdecea; color: #b3261e; }
@@ -2367,10 +2374,19 @@
   .cond--review .cond-icon { background: #fff4e5; color: #b26a00; }
   .cond--fail .cond-icon { background: #fdecea; color: #b3261e; }
   .cond--unknown .cond-icon { background: var(--surface-sunken, #f1f3f5); color: var(--ink-soft); }
-  /* 토스식 리스트 — 카드/보더 대신 hairline divider로 조건 행을 분리(차분한 위계). */
+  /* 토스식 리스트 — 카드/보더 대신 hairline divider + 우측 상태칩(통과/확인 필요/정보 부족/미충족).
+     좌: 조건명·근거 / 우: 한눈에 스캔되는 상태칩. */
   .participation-judgment .cond-list { gap: 0; }
-  .participation-judgment .cond-row { padding: 0.95rem 0; border-top: 1px solid var(--border-soft); }
-  .participation-judgment .cond-row:first-child { border-top: none; padding-top: 0.2rem; }
+  .participation-judgment .cond-row { display: flex; align-items: flex-start; gap: 0.9rem; padding: 1.05rem 0; border-top: 1px solid var(--border-soft); }
+  .participation-judgment .cond-row:first-child { border-top: none; padding-top: 0.35rem; }
+  .participation-judgment .cond-main { flex: 1 1 auto; min-width: 0; }
+  .participation-judgment .cond-head-line strong { font-size: 0.98rem; font-weight: 600; color: var(--ink); }
+  .participation-judgment .cond-reason { font-size: 0.875rem; color: var(--ink-soft); line-height: 1.6; margin-top: 0.3rem; }
+  .cond-status { flex-shrink: 0; font-size: 0.75rem; font-weight: 700; padding: 0.28rem 0.62rem; border-radius: 999px; white-space: nowrap; line-height: 1; }
+  .cond--pass .cond-status { background: #dce9fd; color: #1b64da; }
+  .cond--review .cond-status { background: #e8f1fe; color: #3182f6; }
+  .cond--fail .cond-status { background: #d2e0f5; color: #123a7a; }
+  .cond--unknown .cond-status { background: #eef1f6; color: #7c8aa5; }
   .cond-head-line { display: flex; align-items: center; gap: 0.4rem; }
   .cond-soft { font-size: 0.7rem; font-weight: 700; color: var(--ink-soft); background: var(--surface-sunken, #f1f3f5); padding: 0.05rem 0.35rem; border-radius: 4px; }
   .cond-reason { font-size: 0.88rem; color: var(--ink-soft); line-height: 1.5; margin-top: 0.1rem; }
@@ -2386,11 +2402,17 @@
     .cond--review .cond-icon { background: #3a2c12; color: #f0b866; }
     .cond--fail .cond-icon { background: #3a1a17; color: #f2a099; }
     .cond--unknown .cond-icon { background: #22272e; color: var(--ink-soft); }
-    .pj-count--pass { background: #16351f; color: #7ee2a0; }
-    .pj-count--review { background: #3a2c12; color: #f0b866; }
-    .pj-count--fail { background: #3a1a17; color: #f2a099; }
+    .pj-count--pass { background: #14315e; color: #9dc0ff; }
+    .pj-count--review { background: #172a4d; color: #7db0ff; }
+    .pj-count--fail { background: #1a2740; color: #8ba8dd; }
     .pj-count--unknown { background: #22272e; color: var(--ink-soft); }
     .pj-count.is-zero { background: #22272e; color: var(--ink-mute, #8a8f98); }
+    .cond--pass .cond-status { background: #14315e; color: #9dc0ff; }
+    .cond--review .cond-status { background: #172a4d; color: #7db0ff; }
+    .cond--fail .cond-status { background: #1a2740; color: #8ba8dd; }
+    .cond--unknown .cond-status { background: #22272e; color: var(--ink-mute, #8a8f98); }
+    .pj-verdict { color: #7db0ff; }
+    #section-participation .pj-next-action { background: #17233a; }
   }
   .support-summary { margin-top: 1.25rem; }
   .support-summary p { white-space: pre-line; color: var(--ink-soft); line-height: 1.6; }
@@ -12331,10 +12353,10 @@ function renderAISummary(container, summary, officialUrl) {
 // PARTICIPATION_COND_META — 조건 결과별 아이콘/색. PASS ✓ / REVIEW ! /
 // FAIL ✕ / UNKNOWN ?. 근거 기반 판정이라 "왜"를 항상 함께 보여준다.
 const PARTICIPATION_COND_META = {
-  PASS:    { icon: '✓', cls: 'cond--pass' },
-  REVIEW:  { icon: '!', cls: 'cond--review' },
-  FAIL:    { icon: '✕', cls: 'cond--fail' },
-  UNKNOWN: { icon: '?', cls: 'cond--unknown' },
+  PASS:    { icon: '✓', cls: 'cond--pass', label: '통과' },
+  REVIEW:  { icon: '!', cls: 'cond--review', label: '확인 필요' },
+  FAIL:    { icon: '✕', cls: 'cond--fail', label: '미충족' },
+  UNKNOWN: { icon: '?', cls: 'cond--unknown', label: '정보 부족' },
 };
 const PARTICIPATION_GRADE_TONE = { ready: 'pj-grade--ready', needsReview: 'pj-grade--review', notRecommended: 'pj-grade--fail' };
 
@@ -12363,12 +12385,12 @@ function renderParticipationJudgment(container, j, opts) {
       .filter(Boolean).map(escapeHtml).join(' · ');
     return `
       <div class="cond-row ${meta.cls}">
-        <span class="cond-icon">${meta.icon}</span>
-        <div class="cond-body">
+        <div class="cond-main">
           <div class="cond-head-line"><strong>${escapeHtml(c.conditionType)}</strong>${soft}</div>
           <div class="cond-reason">${escapeHtml(c.reason || '')}</div>
           ${evidence ? `<div class="cond-evidence">${evidence}</div>` : ''}
         </div>
+        <span class="cond-status">${meta.label}</span>
       </div>`;
   }).join('');
   // 사용자 질문형 해소(§2~§7): REVIEW 면허/인증 조건 중 "아직 회사 정보에 답이
@@ -12406,7 +12428,7 @@ function renderParticipationJudgment(container, j, opts) {
   container.appendChild(h(`
     <div class="detail-card participation-judgment">
       <div class="pj-head">
-        <span class="pj-grade ${tone}">${escapeHtml(j.gradeLabel || '')}</span>
+        <span class="pj-dot" aria-hidden="true"></span><span class="pj-verdict">${escapeHtml(j.gradeLabel || '')}</span>
       </div>
       <div class="pj-counts">
         <span class="pj-count pj-count--pass${j.passCount ? '' : ' is-zero'}">자동확인 ${j.passCount}</span>
