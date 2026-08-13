@@ -2391,29 +2391,26 @@
   .cond-soft { font-size: 0.7rem; font-weight: 700; color: var(--ink-soft); background: var(--surface-sunken, #f1f3f5); padding: 0.05rem 0.35rem; border-radius: 4px; }
   .cond-reason { font-size: 0.88rem; color: var(--ink-soft); line-height: 1.5; margin-top: 0.1rem; }
   .cond-evidence { font-size: 0.78rem; color: var(--ink-mute, #8a8f98); margin-top: 0.15rem; }
-  @media (prefers-color-scheme: dark) {
-    .cond-badge--high { background: #16351f; color: #7ee2a0; }
-    .cond-badge--medium { background: #3a2c12; color: #f0b866; }
-    .cond-badge--low { background: #3a1a17; color: #f2a099; }
-    .pj-grade--ready { background: #16351f; color: #7ee2a0; }
-    .pj-grade--review { background: #3a2c12; color: #f0b866; }
-    .pj-grade--fail { background: #3a1a17; color: #f2a099; }
-    .cond--pass .cond-icon { background: #16351f; color: #7ee2a0; }
-    .cond--review .cond-icon { background: #3a2c12; color: #f0b866; }
-    .cond--fail .cond-icon { background: #3a1a17; color: #f2a099; }
-    .cond--unknown .cond-icon { background: #22272e; color: var(--ink-soft); }
-    .pj-count--pass { background: #14315e; color: #9dc0ff; }
-    .pj-count--review { background: #172a4d; color: #7db0ff; }
-    .pj-count--fail { background: #1a2740; color: #8ba8dd; }
-    .pj-count--unknown { background: #22272e; color: var(--ink-soft); }
-    .pj-count.is-zero { background: #22272e; color: var(--ink-mute, #8a8f98); }
-    .cond--pass .cond-status { background: #14315e; color: #9dc0ff; }
-    .cond--review .cond-status { background: #172a4d; color: #7db0ff; }
-    .cond--fail .cond-status { background: #1a2740; color: #8ba8dd; }
-    .cond--unknown .cond-status { background: #22272e; color: var(--ink-mute, #8a8f98); }
-    .pj-verdict { color: #7db0ff; }
-    #section-participation .pj-next-action { background: #17233a; }
-  }
+  /* 다크 = 앱 토글(:root[data-theme="dark"])만 사용. OS(prefers-color-scheme)는 이 앱의
+     테마와 무관하므로 쓰지 않는다 — 라이트 강제 상태(OS만 다크)에서 다크값이 새어나와
+     주변 라이트 UI와 어긋나던 문제 수정(2026-08-13). */
+  :root[data-theme="dark"] .cond-badge--high { background: #16351f; color: #7ee2a0; }
+  :root[data-theme="dark"] .cond-badge--medium { background: #3a2c12; color: #f0b866; }
+  :root[data-theme="dark"] .cond-badge--low { background: #3a1a17; color: #f2a099; }
+  :root[data-theme="dark"] .pj-grade--ready { background: #16351f; color: #7ee2a0; }
+  :root[data-theme="dark"] .pj-grade--review { background: #3a2c12; color: #f0b866; }
+  :root[data-theme="dark"] .pj-grade--fail { background: #3a1a17; color: #f2a099; }
+  :root[data-theme="dark"] .pj-count--pass { background: #14315e; color: #9dc0ff; }
+  :root[data-theme="dark"] .pj-count--review { background: #172a4d; color: #7db0ff; }
+  :root[data-theme="dark"] .pj-count--fail { background: #1a2740; color: #8ba8dd; }
+  :root[data-theme="dark"] .pj-count--unknown { background: #22272e; color: var(--ink-soft); }
+  :root[data-theme="dark"] .pj-count.is-zero { background: #22272e; color: var(--ink-mute, #8a8f98); }
+  :root[data-theme="dark"] .cond--pass .cond-status { background: #14315e; color: #9dc0ff; }
+  :root[data-theme="dark"] .cond--review .cond-status { background: #172a4d; color: #7db0ff; }
+  :root[data-theme="dark"] .cond--fail .cond-status { background: #1a2740; color: #8ba8dd; }
+  :root[data-theme="dark"] .cond--unknown .cond-status { background: #22272e; color: var(--ink-mute, #8a8f98); }
+  :root[data-theme="dark"] .pj-verdict { color: #7db0ff; }
+  :root[data-theme="dark"] #section-participation .pj-next-action { background: #17233a; }
   .support-summary { margin-top: 1.25rem; }
   .support-summary p { white-space: pre-line; color: var(--ink-soft); line-height: 1.6; }
   .support-cta { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1.25rem; }
