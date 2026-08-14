@@ -1361,13 +1361,19 @@
   .dashv2-block-tag { font-size: 0.72rem; font-weight: 700; color: var(--accent-blue); background: var(--accent-blue-soft, rgba(49,130,246,0.1)); padding: 0.12rem 0.5rem; border-radius: 999px; white-space: nowrap; }
   .dashv2-block-impact { margin-top: 0.3rem; font-size: 0.875rem; color: var(--ink-soft); line-height: 1.5; }
   .dashv2-block-cta { flex-shrink: 0; font-size: 0.9rem; font-weight: 600; color: var(--accent-blue); text-decoration: none; white-space: nowrap; }
-  /* 딥링크 focus 하이라이트 — 링 + 은은한 배경 틴트로 "여기에 입력" 위치를 확실히 안내 */
-  .profile-focus-flash { animation: profileFocusFlash 2.4s ease; border-radius: 10px; }
-  @keyframes profileFocusFlash {
-    0% { box-shadow: 0 0 0 0 rgba(49,130,246,0); background: transparent; }
-    18%, 62% { box-shadow: 0 0 0 4px var(--accent-blue-soft, rgba(49,130,246,0.4)); background: var(--accent-blue-soft, rgba(49,130,246,0.07)); }
-    100% { box-shadow: 0 0 0 0 rgba(49,130,246,0); background: transparent; }
+  /* 딥링크 강조 — 모달 없이 그 자리에서 반짝이는 모션으로 "여기예요" 안내(반복 펄스 3회) */
+  .profile-focus-flash { position: relative; border-radius: 10px; animation: profileFocusPulse 1.1s ease-in-out 3; }
+  @keyframes profileFocusPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(49,130,246,0); background: transparent; }
+    50% { box-shadow: 0 0 0 4px var(--accent-blue-soft, rgba(49,130,246,0.38)); background: var(--accent-blue-soft, rgba(49,130,246,0.09)); }
   }
+  /* "여기 등록" 블링크 배지 */
+  .profile-focus-cue { display: inline-block; margin-left: 0.5rem; font-size: 0.68rem; font-weight: 700; color: #fff; background: var(--accent-blue); border-radius: 999px; padding: 0.1rem 0.5rem; vertical-align: middle; animation: profileCueBlink 0.85s ease-in-out infinite; }
+  @keyframes profileCueBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  /* 읽기전용 요약행일 때 "정보 수정" 버튼도 펄스(입력은 여기서 연다는 신호) */
+  .profile-edit-pulse { animation: profileEditPulse 0.95s ease-in-out 4; }
+  @keyframes profileEditPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(49,130,246,0); } 50% { box-shadow: 0 0 0 5px var(--accent-blue-soft, rgba(49,130,246,0.3)); } }
+  @media (prefers-reduced-motion: reduce) { .profile-focus-flash, .profile-focus-cue, .profile-edit-pulse { animation: none; } .profile-focus-flash { box-shadow: 0 0 0 3px var(--accent-blue-soft, rgba(49,130,246,0.35)); } }
   @media (max-width: 480px) {
     .dashboard-v2 { gap: 2.1rem; }
     .dashv2-hero-headline { font-size: 1.5rem; }
@@ -10193,12 +10199,25 @@ function renderProfileTabsScreen(container, tabs, opts) {
 // async일 수 있음) 잠깐 폴링하다 나타나면 스크롤+하이라이트한다. 못 찾으면 조용히 포기
 // (탭 이동만으로도 딥링크의 핵심 목적은 달성). 판정/저장 로직과 무관한 순수 UI 보조.
 function scrollToProfileFocus(scope, focusKey, tries) {
-  tries = tries == null ? 15 : tries;
-  const el = scope.querySelector(`[data-focus="${CSS.escape(focusKey)}"]`);
+  tries = tries == null ? 20 : tries;
+  const sel = (window.CSS && CSS.escape) ? CSS.escape(focusKey) : focusKey;
+  const el = scope.querySelector('[data-focus="' + sel + '"]');
   if (el) {
+    // 모달을 열지 않고 "여기예요"만 그 자리에서 강조한다(2026-08-14): 반짝이는 하이라이트 +
+    // 큐 배지 + (읽기전용 요약 행이면) "정보 수정" 버튼 펄스. 실제 입력은 사용자가 버튼으로 연다.
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     el.classList.add('profile-focus-flash');
-    setTimeout(() => el.classList.remove('profile-focus-flash'), 2000);
+    setTimeout(() => el.classList.remove('profile-focus-flash'), 4300);
+    const cueHost = el.querySelector('.profile-summary-label') || el.querySelector('h3') || el;
+    if (cueHost && !cueHost.querySelector('.profile-focus-cue')) {
+      const cue = h('<span class="profile-focus-cue" aria-hidden="true">여기 등록</span>');
+      cueHost.appendChild(cue);
+      setTimeout(() => cue.remove(), 5200);
+    }
+    if (el.classList.contains('profile-summary-row')) {
+      const editBtn = scope.querySelector('#profile-edit-btn') || document.getElementById('profile-edit-btn');
+      if (editBtn) { editBtn.classList.add('profile-edit-pulse'); setTimeout(() => editBtn.classList.remove('profile-edit-pulse'), 4500); }
+    }
     return;
   }
   if (tries > 0) setTimeout(() => scrollToProfileFocus(scope, focusKey, tries - 1), 100);
@@ -14141,12 +14160,14 @@ function renderProfileSummaryCard(container) {
   const p = currentProfile || {};
   const fmtMoney = (v) => (v == null ? '-' : `${Number(v).toLocaleString()}원`);
   const fmtList = (v) => ((v || []).length ? v.join(', ') : '-');
+  // 3번째 요소=딥링크 focus 키(있으면 그 행에 data-focus 부착 → 대시보드에서 "등록하기"로
+  // 오면 해당 행을 반짝이는 하이라이트로 강조한다). 판정에 쓰이는 항목만 부여.
   const rows = [
     ['업태', fmtList(p.businessType)],
-    ['지역', p.region || '-'],
-    ['업종', fmtList(p.industry)],
+    ['지역', p.region || '-', 'region'],
+    ['업종', fmtList(p.industry), 'industry'],
     ['업력', p.businessAgeYears != null ? `${p.businessAgeYears}년` : '-'],
-    ['기업 규모', p.companySize || '-'],
+    ['기업 규모', p.companySize || '-', 'companySize'],
     ['사업자 대표전화번호', p.phoneNumber || '-'],
     ['매출액', fmtMoney(p.revenueAmount)],
     ['직원 수', p.employeeCount != null ? `${p.employeeCount}명` : '-'],
@@ -14154,15 +14175,15 @@ function renderProfileSummaryCard(container) {
     ['신용등급', p.creditRating || '-'],
     ['보유 면허', fmtList(p.licenses)],
     ['보유 인증', fmtList(p.certifications)],
-    ['직접생산확인', p.directProductionCert ? '보유' : '-'],
+    ['직접생산확인', p.directProductionCert ? '보유' : '-', 'directProduction'],
   ];
   const isOwner = p.role === 'owner';
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="detail-card">
       <div class="profile-summary-list">
-        ${rows.map(([label, value]) => `
-          <div class="profile-summary-row">
+        ${rows.map(([label, value, focusKey]) => `
+          <div class="profile-summary-row"${focusKey ? ` data-focus="${focusKey}"` : ''}>
             <span class="profile-summary-label">${escapeHtml(label)}</span>
             <span class="profile-summary-value">${escapeHtml(value)}</span>
           </div>
@@ -14175,12 +14196,6 @@ function renderProfileSummaryCard(container) {
   `));
   if (isOwner) {
     document.getElementById('profile-edit-btn').addEventListener('click', () => openProfileEditModal(container));
-    // 딥링크(대시보드 "판정 막는 정보" → 등록하기)로 도착했으면 해당 입력칸을 바로 편집
-    // 모달로 열어 "어디를 어떻게 입력"하는지 즉시 보여준다(2026-08-14 대시보드 V2 후속).
-    const focus = consumeDeepLinkFocus();
-    if (['region', 'industry', 'companySize', 'directProduction'].includes(focus)) {
-      openProfileEditModal(container, focus);
-    }
   }
 }
 
@@ -14188,7 +14203,7 @@ function renderProfileSummaryCard(container) {
 // 쪼갠 모달 폼. 필드는 전부 같은 <form> 안에 있고 wizard-step으로 보이는
 // 것만 CSS로 바꾸므로(display:none), FormData는 어느 단계에 있든 항상
 // 전체 값을 담는다 — 기존 제출 로직을 그대로 재사용할 수 있는 이유.
-function openProfileEditModal(summaryContainer, focusField) {
+function openProfileEditModal(summaryContainer) {
   const stepLabels = ['기본 정보', '재무·실적정보', '면허·인증'];
   const bodyHtml = `
     <div id="wizard-step-indicator" class="wizard-step-indicator"></div>
@@ -14263,26 +14278,6 @@ function openProfileEditModal(summaryContainer, focusField) {
   prevBtn.addEventListener('click', () => { wizardStep -= 1; updateWizardStep(); });
   nextBtn.addEventListener('click', () => { wizardStep += 1; updateWizardStep(); });
   updateWizardStep();
-
-  // 딥링크 focus(§10) — 대상 필드가 속한 step으로 이동 후 그 입력칸으로 스크롤+포커스+하이라이트.
-  // region/industry/companySize=step0, directProduction=step2. 판정/저장 로직과 무관한 UI 안내.
-  if (focusField) {
-    const FIELD_STEP = { region: 0, industry: 0, companySize: 0, directProduction: 2 };
-    const targetStep = FIELD_STEP[focusField];
-    if (targetStep != null) { wizardStep = targetStep; updateWizardStep(); }
-    setTimeout(() => {
-      let el = null;
-      if (focusField === 'industry') el = document.getElementById('profile-modal-industry-picker');
-      else if (focusField === 'directProduction') el = form.querySelector('input[name="directProductionCert"]');
-      else el = form.querySelector('[name="' + focusField + '"]');
-      if (!el) return;
-      const flashTarget = el.closest('label') || el.closest('.field-group') || el;
-      flashTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      flashTarget.classList.add('profile-focus-flash');
-      setTimeout(() => flashTarget.classList.remove('profile-focus-flash'), 2200);
-      if (typeof el.focus === 'function' && el.tagName !== 'DIV') { try { el.focus({ preventScroll: true }); } catch (e) { /* noop */ } }
-    }, 200);
-  }
 
   const employeeCountFileInput = document.getElementById('employee-count-file-input');
   const employeeCountConfirmSlot = document.getElementById('employee-count-confirm-slot');
