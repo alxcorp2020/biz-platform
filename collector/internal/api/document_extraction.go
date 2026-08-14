@@ -260,6 +260,104 @@ func buildEligibilityRuleRows(sections []extractedSection) []eligibilityRuleRow 
 	return rows
 }
 
+// ── 수행실적 참가요건 규칙 추출(STEP 2-C, 2026-08-15) ─────────────────────
+// 실제 공고는 "실적"이라는 단어를 대부분 ①평가배점 ②제출서류 ③개인정보
+// 수집 boilerplate에서 쓴다(로컬 실데이터 12건 실측 확인) — 참가 "필수"
+// 실적요건은 극소수다. 그래서 아무 실적 문구나 category='실적' 참가요건으로
+// 만들지 않고, 참가자격(eligibilityKeywords) 섹션 안에서 ①평가/서류 문맥이
+// 아니고 ②정량 임계(금액 또는 "최근 N년")가 명확한 줄만 구조화한다. 임계가
+// 없는 모호한 실적(예: "유사실적 제출")은 여기서 만들지 않고 제출서류 경로
+// (required_documents "실적" → Resolver가 TRACK_RECORD로 분류)에 맡긴다(§4/§21).
+type trackRecordRuleRow struct {
+	conditionName  string
+	sourceText     string
+	operator       string
+	thresholdValue string
+	unit           string
+	reviewStatus   string
+}
+
+// 실적이 참가필수가 아니라 평가배점/제출서류/개인정보 문맥일 때 그 줄을 참가요건으로
+// 만들지 않도록 거르는 토큰(§3/§22 오판 방지 — FALSE 참가요건 방지가 최우선).
+var trackRecordExcludeTokens = []string{"평가", "배점", "가점", "우대", "심사", "점수", "제출", "증빙", "서류", "첨부", "붙임", "신용", "납세", "개인정보", "수집", "제공", "동의"}
+
+// 금액 파서: "1억원 이상 / 5천만원 이상 / 50,000,000원 이상 / 3억원 초과". 단위는
+// 구조화된 unit 필드로만 넘겨 이후 판정기가 환산한다(source_text로 재환산 금지 — STEP
+// 2-B 이중환산 버그 재발 방지). 복합금액(1억 5천만원)·외화(만불)는 과소·오파싱 위험이
+// 있어 구조화하지 않고 UNKNOWN으로 둔다(§4/§6/§8).
+var trackRecordAmountRe = regexp.MustCompile(`([0-9][0-9,]*)\s*(억|천만|백만|만)?\s*원\s*(이상|이하|초과|미만)?`)
+var trackRecordCompoundRe = regexp.MustCompile(`억\s*[0-9]`)
+var foreignCurrencyRe = regexp.MustCompile(`불|달러|USD|\$`)
+
+func parseTrackRecordAmount(line string) (op, thr, unit string, ok bool) {
+	if foreignCurrencyRe.MatchString(line) {
+		return "", "", "", false // 외화는 원 비교 불가 → 구조화하지 않음
+	}
+	m := trackRecordAmountRe.FindStringSubmatch(line)
+	if m == nil {
+		return "", "", "", false
+	}
+	digits := strings.ReplaceAll(m[1], ",", "")
+	if digits == "" {
+		return "", "", "", false
+	}
+	unitWord := m[2]
+	// 복합금액(1억 5천만원 등)은 정규식이 뒷단위(5천만원)만 잡아 과소파싱하므로,
+	// 줄에 "억+숫자"가 있으면 금액을 구조화하지 않는다(§4/§6/§8).
+	if trackRecordCompoundRe.MatchString(line) {
+		return "", "", "", false
+	}
+	switch m[3] {
+	case "이상":
+		op = ">="
+	case "초과":
+		op = ">"
+	case "이하":
+		op = "<="
+	case "미만":
+		op = "<"
+	default:
+		op = ">=" // 참가 실적요건은 통상 하한(이상)
+	}
+	return op, digits, unitWord + "원", true
+}
+
+// buildTrackRecordRuleRows — 참가자격 섹션에서 참가필수 실적요건(정량 임계 명확)만 추출.
+func buildTrackRecordRuleRows(sections []extractedSection) []trackRecordRuleRow {
+	var rows []trackRecordRuleRow
+	for _, sec := range sections {
+		for _, raw := range strings.Split(sec.anchorText+"\n"+sec.sectionText, "\n") {
+			line := strings.TrimSpace(raw)
+			if line == "" || !strings.Contains(line, "실적") {
+				continue
+			}
+			if containsAnyToken(line, trackRecordExcludeTokens) {
+				continue // 평가/서류/개인정보 문맥 → 참가요건 아님(§22)
+			}
+			// 배점표 구간(예 "50억원 이상 10억원 미만") 오탐 방지 — 단일 하한이 아니라
+			// 점수 구간이므로 참가요건이 아니다. "이상"과 "미만/이하"가 한 줄에 함께
+			// 있으면 배점표로 보고 건너뛴다(§22 실측 리스크 대응).
+			if strings.Contains(line, "이상") && (strings.Contains(line, "미만") || strings.Contains(line, "이하")) {
+				continue
+			}
+			op, thr, unit, hasAmount := parseTrackRecordAmount(line)
+			hasYears := recentYearsRe.MatchString(line)
+			if !hasAmount && !hasYears {
+				continue // 정량 임계 없는 모호한 실적은 구조화하지 않음(§4/§21)
+			}
+			rows = append(rows, trackRecordRuleRow{
+				conditionName:  truncateRunes(line, 200),
+				sourceText:     truncateRunes(line, 500),
+				operator:       op,
+				thresholdValue: thr,
+				unit:           unit,
+				reviewStatus:   reviewStatusForRule(sec.hasTableNearby),
+			})
+		}
+	}
+	return rows
+}
+
 type documentRuleRow struct {
 	documentName string
 	sourceText   string
@@ -317,10 +415,15 @@ func (s *Server) processAttachmentForRuleExtraction(ctx context.Context, tx *sql
 		return 0, 0, err
 	}
 
-	eligRows := buildEligibilityRuleRows(extractSectionsFromText(text, eligibilityKeywords))
+	eligSections := extractSectionsFromText(text, eligibilityKeywords)
+	eligRows := buildEligibilityRuleRows(eligSections)
+	trackRows := buildTrackRecordRuleRows(eligSections)
 	docRows := buildRequiredDocumentRuleRows(extractSectionsFromText(text, documentKeywords))
 
-	if _, err := tx.ExecContext(ctx, `DELETE FROM eligibility_conditions WHERE source_attachment_id = $1 AND category = 'general'`, attachmentID); err != nil {
+	// 이 첨부의 규칙기반 general/실적 행을 지우고 다시 넣는다(멱등). 실적 category도
+	// 이 첨부가 만든 것만 지운다 — g2b 구조화필드 auto 조건(source_attachment_id=NULL)은
+	// 건드리지 않는다.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM eligibility_conditions WHERE source_attachment_id = $1 AND category IN ('general','실적')`, attachmentID); err != nil {
 		return 0, 0, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM required_documents WHERE source_attachment_id = $1`, attachmentID); err != nil {
@@ -337,6 +440,20 @@ func (s *Server) processAttachmentForRuleExtraction(ctx context.Context, tx *sql
 			return 0, 0, err
 		}
 	}
+	for _, r := range trackRows {
+		var thr interface{}
+		if r.thresholdValue != "" {
+			thr = r.thresholdValue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO eligibility_conditions
+				(notice_version_id, category, condition_name, operator, threshold_value, unit, source_text, source_attachment_id, confidence, review_status, extraction_method)
+			VALUES ($1,'실적',$2,$3,$4,$5,$6,$7,$8,$9,'rule')`,
+			noticeVersionID, r.conditionName, r.operator, thr, r.unit, r.sourceText, attachmentID, ruleExtractionConfidence, r.reviewStatus,
+		); err != nil {
+			return 0, 0, err
+		}
+	}
 	for _, r := range docRows {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO required_documents
@@ -347,7 +464,7 @@ func (s *Server) processAttachmentForRuleExtraction(ctx context.Context, tx *sql
 			return 0, 0, err
 		}
 	}
-	return len(eligRows), len(docRows), nil
+	return len(eligRows) + len(trackRows), len(docRows), nil
 }
 
 // runRuleBasedDocumentExtraction scans attachments whose text is ready but
