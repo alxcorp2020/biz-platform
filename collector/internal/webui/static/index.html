@@ -2978,6 +2978,12 @@
   .required-mark { color: var(--danger); margin-left: 0.2rem; }
   .field-group { display: flex; flex-direction: column; gap: 0.5rem; }
   .field-group-label { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); }
+  /* 기업 프로필 수정 모달(wizard) 간격 — .profile-form의 gap은 wizard-step div 사이에만
+     적용돼 step 내부 필드(라벨+입력)가 서로 붙어 보였다. step 내부 필드 세로 여백을 넉넉히
+     주고(토스), 라벨↔입력 간격도 살짝 키워 겹침 없이 명확히 그룹핑한다(2026-08-14). */
+  .profile-form .wizard-step { display: flex; flex-direction: column; gap: 1.6rem; }
+  #profile-form label { gap: 0.5rem; }
+  #profile-form .field-group { gap: 0.5rem; }
   .otp-phone-row, .otp-code-row { display: flex; gap: 0.5rem; }
   .otp-phone-row input, .otp-code-row input { flex: 1; min-width: 0; }
   .otp-phone-row button, .otp-code-row button { flex-shrink: 0; white-space: nowrap; }
@@ -13569,7 +13575,8 @@ const COMPANY_SIZE_OPTIONS = ['소상공인', '소기업', '중기업', '중견�
 
 function fillProfileForm(form, profile) {
   if (!profile) return;
-  form.businessType.value = (profile.businessType || []).join(', ');
+  const businessTypeMount = form.querySelector('#profile-modal-businesstype-picker');
+  if (businessTypeMount) renderKeywordTagInput(businessTypeMount, profile.businessType, 'include');
   form.region.value = profile.region || '';
   const industryPickerMount = form.querySelector('#profile-modal-industry-picker');
   if (industryPickerMount) attachIndustryPicker(industryPickerMount, profile.industry, 'industry');
@@ -14220,8 +14227,16 @@ function openProfileEditModal(summaryContainer) {
     <div id="wizard-step-indicator" class="wizard-step-indicator"></div>
     <form id="profile-form" class="profile-form">
       <div class="wizard-step" data-step="0">
-        <label>업태 (쉼표로 구분, 겸업 시 여러 개 등록 가능)<input type="text" name="businessType"></label>
-        <label>지역<input type="text" name="region"></label>
+        <div class="field-group">
+          <span class="field-group-label">업태 (겸업 시 여러 개 등록 가능)</span>
+          <div id="profile-modal-businesstype-picker" class="tag-input"></div>
+        </div>
+        <label>지역
+          <select name="region" class="select-input">
+            <option value="">선택 안 함</option>
+            ${REGION_OPTIONS.map(r => `<option value="${escapeAttr(r)}">${escapeHtml(r)}</option>`).join('')}
+          </select>
+        </label>
         <div class="field-group">
           <span class="field-group-label">업종 (겸업 시 여러 개 선택 가능 — 하나라도 일치하면 적합 판정)</span>
           <div id="profile-modal-industry-picker"></div>
@@ -14335,8 +14350,9 @@ function openProfileEditModal(summaryContainer) {
       errorBox.style.display = 'block';
       return;
     }
+    const businessTypeMount = form.querySelector('#profile-modal-businesstype-picker');
     const payload = {
-      businessType: toList(fd.get('businessType')),
+      businessType: businessTypeMount ? getTagInputValues(businessTypeMount) : toList(fd.get('businessType')),
       region: fd.get('region') || null,
       industry: fd.getAll('industry'),
       foundingDate: foundingDateVal,
