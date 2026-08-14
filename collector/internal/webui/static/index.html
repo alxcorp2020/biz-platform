@@ -2482,6 +2482,9 @@
   .cond-soft { font-size: 0.7rem; font-weight: 700; color: var(--ink-soft); background: var(--surface-sunken, #f1f3f5); padding: 0.05rem 0.35rem; border-radius: 4px; }
   .cond-reason { font-size: 0.88rem; color: var(--ink-soft); line-height: 1.5; margin-top: 0.1rem; }
   .cond-evidence { font-size: 0.78rem; color: var(--ink-mute, #8a8f98); margin-top: 0.15rem; }
+  /* STEP 2 §6 — PASS 조건에 "등록된 회사정보로 확인" 자동사용 메시지 */
+  .cond-auto-note { margin-top: 0.25rem; font-size: 0.8rem; font-weight: 600; color: #1e7e34; }
+  :root[data-theme="dark"] .cond-auto-note { color: #7ee2a0; }
   /* 다크 = 앱 토글(:root[data-theme="dark"])만 사용. OS(prefers-color-scheme)는 이 앱의
      테마와 무관하므로 쓰지 않는다 — 라이트 강제 상태(OS만 다크)에서 다크값이 새어나와
      주변 라이트 UI와 어긋나던 문제 수정(2026-08-13). */
@@ -12534,6 +12537,17 @@ const PARTICIPATION_GRADE_TONE = { ready: 'pj-grade--ready', needsReview: 'pj-gr
 // renderParticipationJudgment — 조건별 판정 + (REVIEW 면허/인증에 한해) 사용자
 // 질문형 해소 블록. opts.refetch가 있으면 답변 저장 후 판정을 다시 받아 이 컨테이너를
 // 그 자리에서 재렌더한다(새로고침 없이 확인필요 개수 즉시 감소, §6/§7).
+// PJ_CONDITION_TERM — STEP 2 초보자 용어(UI 표시 라벨 + 짧은 설명). 내부 conditionType/
+// DB enum/API는 그대로 두고 화면 문구만 초보자 친화적으로 바꾼다(§4/§5). 매핑 없는
+// conditionType(지역/업종/기업규모 등)은 원래 문구를 그대로 쓴다.
+const PJ_CONDITION_TERM = {
+  '면허': { label: '사업 수행 자격·면허', desc: '특정 공사·용역을 수행하기 위해 등록한 자격입니다. (예: 정보통신공사업, 전기공사업)' },
+  '인증': { label: '기업·기술 인증', desc: '회사나 제품·기술이 특정 기준을 충족했다는 인증 또는 확인입니다.' },
+  '직접생산확인': { label: '직접생산확인증명서', desc: '특정 제품·서비스를 우리 회사가 직접 생산할 수 있음을 확인받은 증명입니다. 모든 공고에 필요하진 않으며, 이 공고에서 확인이 필요한 경우에만 안내합니다.' },
+  '수행실적': { label: '완료한 사업 실적', desc: '이전에 실제 수행·납품·완료한 사업입니다.' },
+  '필수 면허·자격': { label: '사업 수행 자격·면허', desc: '이 공고 참여에 필요한 자격·면허입니다. 공고문 분석이 끝나면 구체적으로 안내합니다.' },
+};
+
 function renderParticipationJudgment(container, j, opts) {
   if (!container) return;
   opts = opts || {};
@@ -12550,11 +12564,18 @@ function renderParticipationJudgment(container, j, opts) {
     const soft = c.severity === 'SOFT' ? '<span class="cond-soft">우대</span>' : '';
     const evidence = [c.requirementText ? `공고 요구: ${c.requirementText}` : '', c.companyEvidence ? `회사 보유: ${c.companyEvidence}` : '']
       .filter(Boolean).map(escapeHtml).join(' · ');
+    // STEP 2 초보자 용어(UI 표시만, 내부 conditionType/DB enum 불변) + 짧은 설명 tooltip.
+    const term = PJ_CONDITION_TERM[c.conditionType];
+    const displayType = term ? term.label : c.conditionType;
+    const help = term ? tooltipIconHtml('?', term.desc, term.label, '') : '';
+    // §6: PASS이고 회사 보유 근거가 있으면 "등록된 회사정보로 확인" 자동사용 메시지.
+    const autoNote = (c.result === 'PASS' && c.companyEvidence) ? '<div class="cond-auto-note">✅ 등록된 회사정보로 확인했습니다.</div>' : '';
     return `
       <div class="cond-row ${meta.cls}">
         <div class="cond-main">
-          <div class="cond-head-line"><strong>${escapeHtml(c.conditionType)}</strong>${soft}</div>
+          <div class="cond-head-line"><strong>${escapeHtml(displayType)}</strong>${help}${soft}</div>
           <div class="cond-reason">${escapeHtml(c.reason || '')}</div>
+          ${autoNote}
           ${evidence ? `<div class="cond-evidence">${evidence}</div>` : ''}
         </div>
         <span class="cond-status">${meta.label}</span>
@@ -12584,9 +12605,9 @@ function renderParticipationJudgment(container, j, opts) {
           <div class="pj-question-req"><strong>${escapeHtml(q.condType)}</strong> — 공고에서 "${escapeHtml(q.name)}"을(를) 요구합니다.</div>
           <div class="pj-question-ask">회사에서 해당 ${escapeHtml(kindWord[q.kind] || '항목')}${objJosa(kindWord[q.kind] || '항목')} 보유하고 있나요?</div>
           <div class="pj-question-btns">
-            <button type="button" class="pj-answer-btn pj-answer-btn--yes" data-answer="보유">보유</button>
-            <button type="button" class="pj-answer-btn" data-answer="미보유">미보유</button>
-            <button type="button" class="pj-answer-btn pj-answer-btn--skip" data-answer="모름">잘 모르겠음</button>
+            <button type="button" class="pj-answer-btn pj-answer-btn--yes" data-answer="보유">있어요</button>
+            <button type="button" class="pj-answer-btn" data-answer="미보유">없어요</button>
+            <button type="button" class="pj-answer-btn pj-answer-btn--skip" data-answer="모름">잘 모르겠어요</button>
           </div>
         </div>
       `).join('')}
