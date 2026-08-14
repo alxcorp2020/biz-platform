@@ -1275,9 +1275,13 @@
   .dash-auto-num { font-size: 1.6rem; font-weight: 800; color: var(--navy, #1f3a5f); line-height: 1.1; }
   .dash-auto-lbl { font-size: 0.85rem; color: var(--ink-soft); margin-top: 0.15rem; }
   .dash-auto-caveat { color: var(--ink-mute, #8a8f98); }
-  @media (prefers-color-scheme: dark) {
-    .dash-auto-num { color: #cfe0ff; }
-  }
+  /* 소비자 효과(절감시간)를 헤드라인으로 — 500/21건은 그 근거로 아래 배치(2026-08-14) */
+  .dash-auto-benefit { margin: 0.55rem 0 0.1rem; font-size: 1.05rem; font-weight: 600; color: var(--ink); }
+  .dash-auto-benefit strong { color: var(--accent-blue); font-weight: 800; }
+  .dash-auto-benefit-sub { color: var(--ink-soft); font-size: 0.82rem; font-weight: 400; }
+  /* 다크는 앱 토글(:root[data-theme="dark"]) 기준. prefers-color-scheme(OS)로 두면
+     OS 다크 + 앱 라이트에서 밝은 파랑이 흰 카드 위로 새어나와 숫자가 연하게 보인다(2026-08-14 수정). */
+  :root[data-theme="dark"] .dash-auto-num { color: #cfe0ff; }
   /* Phase 1: 오늘 확인할 항목(분류 요약) */
   .dash-today-card { margin-top: var(--space-md); }
   .dash-today-head { display: flex; align-items: baseline; gap: 0.6rem; }
@@ -1290,7 +1294,7 @@
   .dash-today-list li:hover .dash-today-n { color: var(--accent-blue); }
   .dash-today-lbl { flex: 1; font-weight: 600; }
   .dash-today-arw { color: var(--ink-mute, #8a8f98); font-size: 1.2rem; }
-  @media (prefers-color-scheme: dark) { .dash-today-n { color: #cfe0ff; } }
+  :root[data-theme="dark"] .dash-today-n { color: #cfe0ff; }
   /* Phase 1: 대시보드 섹션 블록(가장 먼저 볼 공고 / 오늘 할 일) */
   .dash-block { margin-top: var(--space-lg); }
   .dash-block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.6rem; }
@@ -7738,12 +7742,13 @@ function renderAutomationSummaryHtml(a) {
   const hours = Math.round(a.estimatedSavedMinutes / 60 * 10) / 10;
   return `
     <div class="detail-card dash-automation-card">
-      <h3>이번 달 자동 처리</h3>
+      <h3>AI가 이번 달 대신 일했어요</h3>
+      <p class="dash-auto-benefit">덜어드린 검토 시간 <strong>약 ${hours}시간</strong> <span class="dash-auto-benefit-sub">(추정)</span></p>
       <div class="dash-auto-stats">
         <div class="dash-auto-stat"><span class="dash-auto-num">${a.analyzedCount}건</span><span class="dash-auto-lbl">공고 분석</span></div>
         <div class="dash-auto-stat"><span class="dash-auto-num">${a.changesTrackedCount}건</span><span class="dash-auto-lbl">변경사항 추적</span></div>
       </div>
-      <p class="license-card-meta dash-auto-caveat">예상 절감시간 약 <strong>${hours}시간</strong> (추정) · ${escapeHtml(a.savedMinutesAssumption)} · 이번 달 분석 표본 최대 500건 기준</p>
+      <p class="license-card-meta dash-auto-caveat">${escapeHtml(a.savedMinutesAssumption)} · 이번 달 분석 표본 최대 500건 기준</p>
     </div>
   `;
 }
