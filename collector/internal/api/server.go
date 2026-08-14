@@ -437,12 +437,16 @@ func computeKeywordMatchReason(matchKeywords []string, title string) string {
 // 그대로 ORDER BY에 꽂지 않고(SQL 인젝션 방지) 허용된 값만 고정 SQL로
 // 매핑한다. status는 진행중(open)인 공고를 먼저 보여주고, 그 안에서는
 // 최신순으로 정렬한다.
+// 각 정렬 끝에 고유 tiebreaker(n.id DESC)를 붙인다 — 이게 없으면 published_at 등
+// 정렬키가 같은(특히 지원사업의 NULL/동일 배치) 동점 행들의 순서가 OFFSET/LIMIT마다
+// 달라져(실행계획 변화) 무한스크롤 페이지가 겹치고 같은 공고가 2~4개씩 중복 노출됐다
+// (2026-08-14 수정). n.id는 유일하므로 전순서가 결정적 → 페이지 겹침/누락 제거.
 var noticeListSortOrderBy = map[string]string{
-	"new":      "n.published_at DESC NULLS LAST",
-	"deadline": "n.application_end_at ASC NULLS LAST",
-	"budget":   "n.budget_amount DESC NULLS LAST",
-	"name":     "n.title ASC",
-	"status":   "(CASE WHEN n.status = 'open' THEN 0 ELSE 1 END) ASC, n.published_at DESC NULLS LAST",
+	"new":      "n.published_at DESC NULLS LAST, n.id DESC",
+	"deadline": "n.application_end_at ASC NULLS LAST, n.id DESC",
+	"budget":   "n.budget_amount DESC NULLS LAST, n.id DESC",
+	"name":     "n.title ASC, n.id DESC",
+	"status":   "(CASE WHEN n.status = 'open' THEN 0 ELSE 1 END) ASC, n.published_at DESC NULLS LAST, n.id DESC",
 }
 
 func (s *Server) handleListNotices(w http.ResponseWriter, r *http.Request) {
