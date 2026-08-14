@@ -146,6 +146,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	reviewPendingCount, unassignedCount, needsDocumentCount, deadlineSoonCount := 0, 0, 0, 0
 	priorityItems := []dashboardPriorityItem{}
 	recommendationItems := []dashboardPriorityItem{}
+	// A(참여 후보 사업규모): 스캔 범위 내 recommended 공고의 예산 합계. 스캔이
+	// 전체 열린 공고를 다 못 봤으면(scanTruncated) 이 합계는 부분집합이라
+	// 프론트가 "전체 사업규모"로 표시하지 않는다(아래 scanTruncated 참고).
+	var recommendedBudgetTotal int64
 	closeSoonCutoff := time.Now().AddDate(0, 0, dashboardPriorityCloseSoonDays)
 
 	for _, pr := range pipelineEntries {
@@ -269,6 +273,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		if budget.Valid {
 			amt := budget.Int64
 			item.BudgetAmount = &amt
+			recommendedBudgetTotal += budget.Int64
 		}
 		// 추천공고는 "오늘 해야 할 일"(내가 담은 검토건·마감·인증만료 등 실제 작업)과
 		// 분리해 별도 "오늘의 추천 공고" 섹션으로 내려준다(2026-08-08) — 신규 계정에서
@@ -395,10 +400,33 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// documentRequirementGaps — Phase UX-02(2026-08-04). eligibilitySummary와
 	// 별개로, 실적/인증/직접생산확인처럼 판정 로직이 없는 카테고리의 "부족한
 	// 정보 안내"를 실제 수치로 낸다(computeDocumentRequirementGaps 주석 참고).
+	// ⚠️ 이건 "요구 서류가 있는 공고 수"(빈도 proxy)라 "회사정보 부족으로 판정
+	// 보류된 공고 수"와 다르다 — 온보딩 카드 큐 호환용으로 유지하되, 대시보드
+	// "판정을 막고 있는 정보"는 아래 participationGaps(실 company-gap)를 쓴다.
 	documentRequirementGaps, err := s.computeDocumentRequirementGaps(ctx, profileID)
 	if err != nil {
 		s.logger.Error("dashboard: document requirement gaps failed", "error", err)
 	}
+
+	// participationGaps — Phase 1 C(2026-08-15). 면허/인증/직접생산/실적을 실제
+	// 참여판정 규칙과 동일 로직으로 대조해 "회사측 정보부족으로 판정 보류된 공고
+	// 수"만 센다(요구빈도 proxy 아님). 지역/업종/기업규모도 함께 집계해 단일 근거.
+	participationGaps, err := s.computeParticipationGapCounts(ctx, profileID, company)
+	if err != nil {
+		s.logger.Error("dashboard: participation gap counts failed", "error", err)
+	}
+
+	// A: 열린 공고 총수 > 스캔 한도면 recommended 스캔이 부분집합 → 사업규모 합계를
+	// 전체로 표시하면 안 되므로 scanTruncated로 알린다(프론트가 합계 KPI를 숨김).
+	var openNoticeCount int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM notices n
+		WHERE n.status NOT IN ('closed','cancelled')
+		  AND (n.application_end_at IS NULL OR n.application_end_at >= CURRENT_DATE)`).Scan(&openNoticeCount); err != nil {
+		s.logger.Error("dashboard: open notice count failed", "error", err)
+		openNoticeCount = dashboardNoticeScanLimit + 1 // 알 수 없으면 보수적으로 truncated 취급
+	}
+	scanTruncated := openNoticeCount > dashboardNoticeScanLimit
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"hasProfile": true,
@@ -411,14 +439,19 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			"aiAnalysisUsedCount": aiUsed,
 			"aiAnalysisLimit":     aiLimit, // -1 = 무제한, 0 = 이 플랜에서 이용 불가(Free)
 		},
-		"priorityItems":     priorityItems,
-		"recommendations":   recommendationItems,
-		"automationSummary": automation,
+		// A(참여 후보 사업규모): recommendedBudgetTotal은 "스캔 범위 내 recommended
+		// 공고 예산 합계". scanTruncated=true면 부분집합이라 프론트가 표시하지 않는다.
+		"recommendedBudgetTotal": recommendedBudgetTotal,
+		"scanTruncated":          scanTruncated,
+		"priorityItems":          priorityItems,
+		"recommendations":        recommendationItems,
+		"automationSummary":      automation,
 		"growthSummary": map[string]int{
 			"overallCompleteness": completeness.OverallCompleteness,
 		},
 		"eligibilitySummary":      eligibilitySummary,
 		"documentRequirementGaps": documentRequirementGaps,
+		"participationGaps":       participationGaps,
 	})
 }
 
