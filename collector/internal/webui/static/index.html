@@ -1361,9 +1361,13 @@
   .dashv2-block-tag { font-size: 0.72rem; font-weight: 700; color: var(--accent-blue); background: var(--accent-blue-soft, rgba(49,130,246,0.1)); padding: 0.12rem 0.5rem; border-radius: 999px; white-space: nowrap; }
   .dashv2-block-impact { margin-top: 0.3rem; font-size: 0.875rem; color: var(--ink-soft); line-height: 1.5; }
   .dashv2-block-cta { flex-shrink: 0; font-size: 0.9rem; font-weight: 600; color: var(--accent-blue); text-decoration: none; white-space: nowrap; }
-  /* 딥링크 focus 하이라이트 */
-  .profile-focus-flash { animation: profileFocusFlash 2s ease; border-radius: 10px; }
-  @keyframes profileFocusFlash { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 15%, 65% { box-shadow: 0 0 0 3px var(--accent-blue-soft, rgba(49,130,246,0.35)); } }
+  /* 딥링크 focus 하이라이트 — 링 + 은은한 배경 틴트로 "여기에 입력" 위치를 확실히 안내 */
+  .profile-focus-flash { animation: profileFocusFlash 2.4s ease; border-radius: 10px; }
+  @keyframes profileFocusFlash {
+    0% { box-shadow: 0 0 0 0 rgba(49,130,246,0); background: transparent; }
+    18%, 62% { box-shadow: 0 0 0 4px var(--accent-blue-soft, rgba(49,130,246,0.4)); background: var(--accent-blue-soft, rgba(49,130,246,0.07)); }
+    100% { box-shadow: 0 0 0 0 rgba(49,130,246,0); background: transparent; }
+  }
   @media (max-width: 480px) {
     .dashboard-v2 { gap: 2.1rem; }
     .dashv2-hero-headline { font-size: 1.5rem; }
@@ -7525,7 +7529,7 @@ function renderDashboard(container, data) {
   const GAP_DEEP = {
     license:          { tab: 'licenses', focus: 'license' },
     certification:    { tab: 'licenses', focus: 'certification' },
-    directProduction: { tab: 'licenses', focus: 'directProduction' },
+    directProduction: { tab: 'basic', focus: 'directProduction' }, // 직접생산확인은 기본탭 편집 모달(step2)에 있음
     trackRecord:      { tab: 'trackRecords', focus: '' },
   };
   const deepHref = (tab, focus) => '#/me/company?tab=' + encodeURIComponent(tab || 'basic') + (focus ? '&focus=' + encodeURIComponent(focus) : '');
@@ -10198,6 +10202,22 @@ function scrollToProfileFocus(scope, focusKey, tries) {
     return;
   }
   if (tries > 0) setTimeout(() => scrollToProfileFocus(scope, focusKey, tries - 1), 100);
+}
+
+// consumeDeepLinkFocus — 현재 URL(#/me/company?...&focus=X)의 focus 값을 한 번 읽고
+// URL에서 제거한다(탭 전환/재렌더 시 편집 모달이 계속 다시 열리는 것 방지). 딥링크로
+// 도착한 첫 렌더에서만 "입력 위치 안내"가 발동하게 하는 일회성 소비.
+function consumeDeepLinkFocus() {
+  const qs = location.hash.split('?')[1] || '';
+  const params = new URLSearchParams(qs);
+  const f = params.get('focus');
+  if (f) {
+    params.delete('focus');
+    const base = location.hash.split('?')[0];
+    const rest = params.toString();
+    history.replaceState(null, '', location.pathname + location.search + base + (rest ? '?' + rest : ''));
+  }
+  return f;
 }
 
 // renderCompanyInfo — 회사정보 화면(#/me/company, IA 재정리 2026-08-10). 예전
@@ -14155,6 +14175,12 @@ function renderProfileSummaryCard(container) {
   `));
   if (isOwner) {
     document.getElementById('profile-edit-btn').addEventListener('click', () => openProfileEditModal(container));
+    // 딥링크(대시보드 "판정 막는 정보" → 등록하기)로 도착했으면 해당 입력칸을 바로 편집
+    // 모달로 열어 "어디를 어떻게 입력"하는지 즉시 보여준다(2026-08-14 대시보드 V2 후속).
+    const focus = consumeDeepLinkFocus();
+    if (['region', 'industry', 'companySize', 'directProduction'].includes(focus)) {
+      openProfileEditModal(container, focus);
+    }
   }
 }
 
@@ -14162,7 +14188,7 @@ function renderProfileSummaryCard(container) {
 // 쪼갠 모달 폼. 필드는 전부 같은 <form> 안에 있고 wizard-step으로 보이는
 // 것만 CSS로 바꾸므로(display:none), FormData는 어느 단계에 있든 항상
 // 전체 값을 담는다 — 기존 제출 로직을 그대로 재사용할 수 있는 이유.
-function openProfileEditModal(summaryContainer) {
+function openProfileEditModal(summaryContainer, focusField) {
   const stepLabels = ['기본 정보', '재무·실적정보', '면허·인증'];
   const bodyHtml = `
     <div id="wizard-step-indicator" class="wizard-step-indicator"></div>
@@ -14237,6 +14263,26 @@ function openProfileEditModal(summaryContainer) {
   prevBtn.addEventListener('click', () => { wizardStep -= 1; updateWizardStep(); });
   nextBtn.addEventListener('click', () => { wizardStep += 1; updateWizardStep(); });
   updateWizardStep();
+
+  // 딥링크 focus(§10) — 대상 필드가 속한 step으로 이동 후 그 입력칸으로 스크롤+포커스+하이라이트.
+  // region/industry/companySize=step0, directProduction=step2. 판정/저장 로직과 무관한 UI 안내.
+  if (focusField) {
+    const FIELD_STEP = { region: 0, industry: 0, companySize: 0, directProduction: 2 };
+    const targetStep = FIELD_STEP[focusField];
+    if (targetStep != null) { wizardStep = targetStep; updateWizardStep(); }
+    setTimeout(() => {
+      let el = null;
+      if (focusField === 'industry') el = document.getElementById('profile-modal-industry-picker');
+      else if (focusField === 'directProduction') el = form.querySelector('input[name="directProductionCert"]');
+      else el = form.querySelector('[name="' + focusField + '"]');
+      if (!el) return;
+      const flashTarget = el.closest('label') || el.closest('.field-group') || el;
+      flashTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      flashTarget.classList.add('profile-focus-flash');
+      setTimeout(() => flashTarget.classList.remove('profile-focus-flash'), 2200);
+      if (typeof el.focus === 'function' && el.tagName !== 'DIV') { try { el.focus({ preventScroll: true }); } catch (e) { /* noop */ } }
+    }, 200);
+  }
 
   const employeeCountFileInput = document.getElementById('employee-count-file-input');
   const employeeCountConfirmSlot = document.getElementById('employee-count-confirm-slot');
@@ -15110,11 +15156,11 @@ async function renderLicenses(container) {
       </div>
       <input type="file" id="license-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
       <div id="license-form-slot"></div>
-      <div class="license-section">
+      <div class="license-section" data-focus="license">
         <h3>면허·신고·등록</h3>
         <div class="license-list" id="license-list"></div>
       </div>
-      <div class="license-section">
+      <div class="license-section" data-focus="certification">
         <h3>인증 및 확인서</h3>
         <div class="license-list" id="certification-list"></div>
       </div>
