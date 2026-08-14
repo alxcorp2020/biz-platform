@@ -11640,11 +11640,15 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
       ['게시일시', has(detail.publishedAt) ? dt(detail.publishedAt) : null],
       ['참조번호', has(detail.referenceNo) ? esc(detail.referenceNo) : null],
       ['통합공고번호', has(detail.unifiedNoticeNo) ? esc(detail.unifiedNoticeNo) : null],
+      ['조달분류', has(detail.procurementClass) ? esc(detail.procurementClass) : null],
+      ['재공고', ynLabel(detail.reNotice, '재공고', '신규공고')],
     ]],
     ['building', '기관정보', [
       ['공고기관', has(detail.noticeInstitution) ? esc(detail.noticeInstitution) : null],
       ['수요기관', has(detail.demandInstitution) ? esc(detail.demandInstitution) : null],
+      ['발주처', has(detail.creditor) ? esc(detail.creditor) : null],
       ['담당자', officerVal],
+      ['집행관', has(detail.executive) ? esc(detail.executive) : null],
       ['이메일', officerEmailVal],
     ]],
     ['gavel', '입찰·낙찰정보', [
@@ -11655,6 +11659,11 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
       ['국제입찰', ynLabel(detail.internationalBid, '대상', '비대상')],
       ['재입찰', ynLabel(detail.rebidAllowed, '허용', '불허')],
       ['공동수급', has(detail.jointContractMethod) ? esc(detail.jointContractMethod) : null],
+      ['공동수급 협정서 접수', has(detail.jointAgreementMethod) ? esc(detail.jointAgreementMethod) : null],
+      ['공동수급체 지역제한', ynLabel(detail.jointRegionRestricted, '적용', '미적용')],
+      ['실적심사', ynLabel(detail.performanceReview, '대상', '비대상')],
+      ['실적신청서 제출', has(detail.performanceDocMethod) ? esc(detail.performanceDocMethod) : null],
+      ['물품분류 제한', ynLabel(detail.productClassRestricted, '제한', '제한 없음')],
       ['개찰장소', has(detail.openingPlace) ? esc(detail.openingPlace) : null],
     ]],
     ['won', '가격정보', [
@@ -11666,6 +11675,10 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
       ['예비가격 개수', priceCountVal],
     ]],
     // [일정] 그룹은 상단 "입찰 진행정보" 타임라인으로 이관(중복 제거). 데이터(DTO)는 그대로 유지.
+    ['link', '연관정보', [
+      ['발주계획번호', has(detail.orderPlanNo) ? esc(detail.orderPlanNo) : null],
+      ['사전규격등록번호', has(detail.preSpecRegNo) ? esc(detail.preSpecRegNo) : null],
+    ]],
   ];
 
   const groupHtml = (icon, title, rows, extra) => {

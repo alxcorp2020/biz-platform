@@ -58,6 +58,20 @@ type g2bRawFields struct {
 	DcmtgOprtnPlce        string `json:"dcmtgOprtnPlce"`        // 설명회 장소
 	BidPrtcptFee          string `json:"bidPrtcptFee"`          // 입찰참가수수료(원)
 	BidGrntymnyPaymntYn   string `json:"bidGrntymnyPaymntYn"`   // 입찰보증금 납부 여부 Y/N
+	// Phase B 확장(2026-08-13) — 원문 대비 누락 필드 보강. 실측 raw_content에 존재 확인된 것만.
+	ReNtceYn                    string `json:"reNtceYn"`                    // 재공고 여부 Y/N
+	ArsltCmptYn                 string `json:"arsltCmptYn"`                 // 실적심사(경쟁) 여부 Y/N
+	ArsltApplDocRcptMthdNm      string `json:"arsltApplDocRcptMthdNm"`      // 실적신청서 제출방법(없음 등)
+	PrdctClsfcLmtYn             string `json:"prdctClsfcLmtYn"`             // 물품분류 제한 여부 Y/N
+	CmmnSpldmdCorpRgnLmtYn      string `json:"cmmnSpldmdCorpRgnLmtYn"`      // 공동수급체 구성원 지역제한 Y/N
+	CmmnSpldmdAgrmntRcptdocMthd string `json:"cmmnSpldmdAgrmntRcptdocMethd"` // 공동수급 협정서 접수방법(수기 등)
+	ExctvNm                     string `json:"exctvNm"`                     // 집행관
+	OrderPlanUntyNo             string `json:"orderPlanUntyNo"`             // 발주계획 통합번호
+	BfSpecRgstNo                string `json:"bfSpecRgstNo"`                // 사전규격 등록번호
+	CrdtrNm                     string `json:"crdtrNm"`                     // 발주처(채권자)
+	PubPrcrmntLrgClsfcNm        string `json:"pubPrcrmntLrgClsfcNm"`        // 조달 대분류
+	PubPrcrmntMidClsfcNm        string `json:"pubPrcrmntMidClsfcNm"`        // 조달 중분류
+	PubPrcrmntClsfcNm           string `json:"pubPrcrmntClsfcNm"`           // 조달 세부분류
 }
 
 type noticeRawDetail struct {
@@ -100,6 +114,18 @@ type noticeRawDetail struct {
 	BriefingPlace          string     `json:"briefingPlace"`
 	ParticipationFee       *int64     `json:"participationFee"`
 	BidGuaranteeRequired   *bool      `json:"bidGuaranteeRequired"`
+	// Phase B 확장(2026-08-13) — 원문 누락 보강 필드.
+	ReNotice               *bool  `json:"reNotice"`               // 재공고 여부
+	PerformanceReview      *bool  `json:"performanceReview"`      // 실적심사(경쟁) 여부
+	PerformanceDocMethod   string `json:"performanceDocMethod"`   // 실적신청서 제출방법
+	ProductClassRestricted *bool  `json:"productClassRestricted"` // 물품분류 제한 여부
+	JointRegionRestricted  *bool  `json:"jointRegionRestricted"`  // 공동수급체 지역제한 여부
+	JointAgreementMethod   string `json:"jointAgreementMethod"`   // 공동수급 협정서 접수방법
+	Executive              string `json:"executive"`              // 집행관
+	OrderPlanNo            string `json:"orderPlanNo"`            // 발주계획번호
+	PreSpecRegNo           string `json:"preSpecRegNo"`           // 사전규격 등록번호
+	Creditor               string `json:"creditor"`               // 발주처(채권자)
+	ProcurementClass       string `json:"procurementClass"`       // 조달분류(대>중>세)
 	// 담당자 개인정보 마스킹(2026-08-11). OfficerName/Phone/Email에는 "표시용" 값(마스킹 또는
 	// 원본)을 담는다. OfficerMasked=true면 마스킹된 상태. OfficerCanReveal=true면(참여검토 시작한
 	// 사용자) 프론트에 [공개] 버튼을 띄우고 OfficerFull*로 즉시 원본 전환한다. system_admin은
@@ -249,7 +275,30 @@ func (s *Server) fetchNoticeRawDetail(ctx context.Context, versionID string) (*n
 		BriefingPlace:          f.DcmtgOprtnPlce,
 		ParticipationFee:       parseG2BAmount(f.BidPrtcptFee),
 		BidGuaranteeRequired:   ynToBool(f.BidGrntymnyPaymntYn),
+		// Phase B 확장 매핑.
+		ReNotice:               ynToBool(f.ReNtceYn),
+		PerformanceReview:      ynToBool(f.ArsltCmptYn),
+		PerformanceDocMethod:   f.ArsltApplDocRcptMthdNm,
+		ProductClassRestricted: ynToBool(f.PrdctClsfcLmtYn),
+		JointRegionRestricted:  ynToBool(f.CmmnSpldmdCorpRgnLmtYn),
+		JointAgreementMethod:   f.CmmnSpldmdAgrmntRcptdocMthd,
+		Executive:              f.ExctvNm,
+		OrderPlanNo:            f.OrderPlanUntyNo,
+		PreSpecRegNo:           f.BfSpecRgstNo,
+		Creditor:               f.CrdtrNm,
+		ProcurementClass:       joinNonEmpty(" › ", f.PubPrcrmntLrgClsfcNm, f.PubPrcrmntMidClsfcNm, f.PubPrcrmntClsfcNm),
 	}, nil
+}
+
+// joinNonEmpty — 비어있지 않은 조각만 sep로 연결(조달분류 대›중›세 등).
+func joinNonEmpty(sep string, parts ...string) string {
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			out = append(out, strings.TrimSpace(p))
+		}
+	}
+	return strings.Join(out, sep)
 }
 
 func ynToBool(v string) *bool {
