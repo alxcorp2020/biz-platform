@@ -46,6 +46,10 @@ type dashboardPriorityItem struct {
 	Status           *string    `json:"status,omitempty"` // pipeline 항목만
 	ApplicationEndAt *time.Time `json:"applicationEndAt"`
 	IsBookmarked     bool       `json:"isBookmarked"`
+	// Region/BudgetAmount — 추천 항목(내 회사 기회 카드)에만 채운다(2026-08-14 대시보드 V2).
+	// notice scan에서 이미 읽는 값이라 새 쿼리·판정 없음. 다른 종류 항목엔 omitempty로 생략.
+	Region       *string `json:"region,omitempty"`
+	BudgetAmount *int64  `json:"budgetAmount,omitempty"`
 	// Reason/CtaLabel/CtaHref — Phase 2: "오늘 해야 할 일"이 항목마다 왜
 	// 여기 있는지와 무엇을 누르면 되는지를 직접 말해준다("기관 · 상태"
 	// 나열 대신). CtaHref를 서버가 확정해 내려주면 프론트는 종류별로
@@ -257,6 +261,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		if deadline.Valid {
 			item.ApplicationEndAt = &deadline.Time
+		}
+		if noticeRegion.Valid && noticeRegion.String != "" {
+			rgn := noticeRegion.String
+			item.Region = &rgn
+		}
+		if budget.Valid {
+			amt := budget.Int64
+			item.BudgetAmount = &amt
 		}
 		// 추천공고는 "오늘 해야 할 일"(내가 담은 검토건·마감·인증만료 등 실제 작업)과
 		// 분리해 별도 "오늘의 추천 공고" 섹션으로 내려준다(2026-08-08) — 신규 계정에서

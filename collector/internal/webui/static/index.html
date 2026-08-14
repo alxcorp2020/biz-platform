@@ -1310,6 +1310,80 @@
      이중으로 더해지지 않게 명시도를 높여 다시 0으로(회사정보 카드 아래 64px 방지). */
   .dashboard-stack > .detail-card { margin-top: 0; margin-bottom: 0; }
   .dashboard-stack > #dashboard-profile-banner:empty { display: none; }
+
+  /* ===== 대시보드 V2(2026-08-14) — "내 회사 기회" 중심 정보구조 재설계 =====
+     타이포 위계(hero/section/value/body/label) + 의미 단위 여백 + 최소 border(divider 중심).
+     색: blue=주요행동/선택, amber=확인필요, red=마감/위험, neutral=나머지. #detail-body와 무관. */
+  .dashboard-v2 { gap: 2.75rem; }
+  .dashboard-v2 > #dashboard-profile-banner:empty { display: none; }
+  /* ① 인사/핵심 메시지 */
+  .dashv2-hero-hi { margin: 0 0 0.5rem; font-size: 0.95rem; color: var(--ink-soft); }
+  .dashv2-hero-headline { margin: 0; font-size: 1.75rem; font-weight: 700; line-height: 1.3; letter-spacing: -0.02em; color: var(--ink); }
+  .dashv2-hero-headline strong { color: var(--accent-blue); font-weight: 700; }
+  .dashv2-hero-miss { margin: 1.1rem 0 0; font-size: 1rem; color: var(--ink-soft); line-height: 1.55; }
+  .dashv2-hero-miss strong { color: var(--ink); font-weight: 700; }
+  .dashv2-hero-cta { margin-top: 1rem; }
+  /* 공통 섹션 헤더 */
+  .dashv2-section-head { margin-bottom: 1.25rem; }
+  .dashv2-section-head h3 { margin: 0; font-size: 1.3rem; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); }
+  .dashv2-section-head p { margin: 0.35rem 0 0; font-size: 0.95rem; color: var(--ink-soft); line-height: 1.5; }
+  .dashv2-section-head strong { color: var(--ink); font-weight: 700; }
+  /* ② 내 회사 기회 — KPI: 개별 박스 대신 하나의 흰 surface 카드 + 구분선(토스식 stat row) */
+  .dashv2-kpi { display: flex; margin-bottom: 1.5rem; background: var(--surface); border-radius: 18px; padding: 1.3rem 0.5rem; box-shadow: 0 1px 3px rgba(17,24,39,0.05); }
+  .dashv2-kpi-item { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 0.35rem; padding: 0.2rem 0.75rem; position: relative; }
+  .dashv2-kpi-item + .dashv2-kpi-item::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 1px; height: 62%; background: var(--border-soft); }
+  .dashv2-kpi-num { font-size: 1.85rem; font-weight: 800; line-height: 1; letter-spacing: -0.03em; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .dashv2-kpi-lbl { font-size: 0.8rem; color: var(--ink-soft); white-space: nowrap; }
+  .dashv2-kpi-item.is-blue .dashv2-kpi-num { color: var(--accent-blue); }
+  .dashv2-kpi-item.is-amber .dashv2-kpi-num { color: #b26a00; }
+  .dashv2-kpi-item.is-red .dashv2-kpi-num { color: var(--danger); }
+  /* ② 추천 공고 카드 — 회색 캔버스 위 borderless 흰 카드 + 은은한 shadow(토스) */
+  .dashv2-oppcards { display: flex; flex-direction: column; gap: 0.85rem; }
+  .dashv2-oppcard { display: block; text-decoration: none; color: var(--ink); background: var(--surface); border: none; border-radius: 18px; padding: 1.35rem 1.45rem; box-shadow: 0 1px 3px rgba(17,24,39,0.05); transition: box-shadow .15s ease, transform .15s ease; }
+  .dashv2-oppcard:hover { box-shadow: 0 10px 26px -14px rgba(17,24,39,0.2); transform: translateY(-1px); }
+  .dashv2-oppcard-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.55rem; }
+  .dashv2-oppcard-meta { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--ink-soft); min-width: 0; }
+  .dashv2-oppcard-region { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dashv2-oppcard-title { font-size: 1.05rem; font-weight: 600; line-height: 1.4; color: var(--ink); }
+  .dashv2-oppcard-judge { margin-top: 0.45rem; font-size: 0.875rem; color: var(--ink-soft); line-height: 1.5; }
+  .dashv2-oppcard-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 0.85rem; }
+  .dashv2-oppcard-budget { font-size: 0.95rem; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .dashv2-oppcard-cta { font-size: 0.9rem; font-weight: 600; color: var(--accent-blue); white-space: nowrap; }
+  .dashv2-more { display: inline-block; margin-top: 1rem; font-size: 0.92rem; font-weight: 600; color: var(--accent-blue); text-decoration: none; }
+  /* ③ 판정을 막고 있는 정보 — 영향도 랭킹(1위 Primary) */
+  .dashv2-blocking { display: flex; flex-direction: column; }
+  .dashv2-block-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.15rem 0; border-top: 1px solid var(--border-soft); }
+  .dashv2-block-item:first-child { border-top: none; padding-top: 0.25rem; }
+  .dashv2-block-item.is-primary { border-top: none; background: var(--accent-blue-soft, rgba(49,130,246,0.06)); border-radius: 14px; padding: 1.15rem 1.25rem; margin-bottom: 0.5rem; }
+  .dashv2-block-item.is-primary + .dashv2-block-item { border-top: none; padding-top: 0.25rem; }
+  .dashv2-block-main { min-width: 0; }
+  .dashv2-block-lbl { display: flex; align-items: center; gap: 0.5rem; font-size: 1rem; font-weight: 600; color: var(--ink); }
+  .dashv2-block-tag { font-size: 0.72rem; font-weight: 700; color: var(--accent-blue); background: var(--accent-blue-soft, rgba(49,130,246,0.1)); padding: 0.12rem 0.5rem; border-radius: 999px; white-space: nowrap; }
+  .dashv2-block-impact { margin-top: 0.3rem; font-size: 0.875rem; color: var(--ink-soft); line-height: 1.5; }
+  .dashv2-block-cta { flex-shrink: 0; font-size: 0.9rem; font-weight: 600; color: var(--accent-blue); text-decoration: none; white-space: nowrap; }
+  /* 딥링크 focus 하이라이트 */
+  .profile-focus-flash { animation: profileFocusFlash 2s ease; border-radius: 10px; }
+  @keyframes profileFocusFlash { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 15%, 65% { box-shadow: 0 0 0 3px var(--accent-blue-soft, rgba(49,130,246,0.35)); } }
+  @media (max-width: 480px) {
+    .dashboard-v2 { gap: 2.1rem; }
+    .dashv2-hero-headline { font-size: 1.5rem; }
+    .dashv2-kpi { gap: 0.5rem; }
+    .dashv2-kpi-item { padding: 0.75rem 0.7rem; }
+    .dashv2-kpi-num { font-size: 1.35rem; }
+    .dashv2-section-head h3 { font-size: 1.2rem; }
+  }
+  /* 대시보드 내 기존 카드(AI 자동처리·바로가기 등)도 borderless 흰 카드로 통일(토스 일관성) */
+  .dashboard-v2 .detail-card { border: none; border-radius: 18px; box-shadow: 0 1px 3px rgba(17,24,39,0.05); }
+  .dashboard-v2 .dash-automation-card, .dashboard-v2 .dash-growth-card { border: none; border-radius: 18px; box-shadow: 0 1px 3px rgba(17,24,39,0.05); }
+  /* 다크: 흰 캔버스 대비가 없어 shadow가 안 보이므로 hairline border로 카드 경계를 준다 */
+  :root[data-theme="dark"] .dashv2-kpi,
+  :root[data-theme="dark"] .dashv2-oppcard,
+  :root[data-theme="dark"] .dashboard-v2 .detail-card,
+  :root[data-theme="dark"] .dashboard-v2 .dash-automation-card,
+  :root[data-theme="dark"] .dashboard-v2 .dash-growth-card { border: 1px solid var(--border-soft); box-shadow: none; }
+  :root[data-theme="dark"] .dashv2-kpi-item.is-amber .dashv2-kpi-num { color: #f0b866; }
+  :root[data-theme="dark"] .dashv2-block-item.is-primary { background: rgba(49,130,246,0.12); }
+  :root[data-theme="dark"] .dashv2-block-tag { background: rgba(49,130,246,0.18); color: #7db0ff; }
   /* 접힘 섹션(자동처리/바로가기)의 상단 구분선·패딩은 이제 gap이 대신하므로 제거(간격 균일) */
   .dashboard-stack > .dash-automation-collapse, .dashboard-stack > .dash-useful-collapse { border-top: 0; padding-top: 0; margin-top: 0; }
   .dash-hero { background: var(--surface, #fff); border: 1px solid var(--accent-blue); border-radius: 16px; padding: 1.1rem 1.25rem; box-shadow: 0 8px 30px -22px rgba(31,58,95,0.5); }
@@ -7431,165 +7505,165 @@ function renderDashboard(container, data) {
   // ① 인사 ② 가장 먼저 볼 공고(HERO) ③ 오늘 할 일 ④ 회사정보 ⑤ 자동 처리(접힘)로.
   // greeting/오늘할일 모순 제거: greeting을 recommendations·priorityItems 둘 다 반영해
   // "급한 일 없음"과 "오늘 할 일 N건"이 동시에 뜨지 않게 한다. 새 숫자 없음(기존 DTO).
+  // ── 대시보드 V2(2026-08-14) — 중심을 "오늘 할 일"에서 "내 회사 기회"로 이동.
+  //    모든 수치는 기존 dashboard.go DTO의 실계산값만 사용(가짜 숫자 금지). 판정/추천/데이터
+  //    로직 무변경 — 정보구조·시각위계만 재설계. 순서: 인사/핵심메시지 → 회사정보 핵심 CTA →
+  //    내 회사 기회 → 판정 막는 정보 → 오늘 할 일 → AI 처리 → 업무 바로가기.
   const recommendations = data.recommendations || [];
   const items = data.priorityItems || [];
+  const eg = data.eligibilitySummary || {};
+  const summary = data.summary || {};
 
-  // ② 가장 먼저 볼 공고 HERO — "지금 행동할 수 있는 공고 먼저" 규칙(recommendationHeroTier).
-  // Tier ASC → 같은 Tier 내 마감 임박순. recommendations는 서버가 이미 마감순 정렬이라
-  // 안정정렬로 Tier만 재배치하면 Tier 내 마감순이 유지된다. 판정/추천 로직 무변경(기존 DTO만).
+  // 부족 회사정보 영향도 랭킹(§8) — 실계산값만. 지역/업종/기업규모=missingFieldCounts(판정기반),
+  // 면허/인증/직접생산/실적=documentRequirementGaps.noticeCount(요구서류 기반, 0=미상). 딥링크(§10)는
+  // 카테고리→회사정보 탭+focus로 매핑(#/me/company?tab=..&focus=..).
+  const FIELD_DEEP = {
+    industry:    { label: '업종',    tab: 'basic', focus: 'industry' },
+    region:      { label: '지역',    tab: 'basic', focus: 'region' },
+    companySize: { label: '기업규모', tab: 'basic', focus: 'companySize' },
+  };
+  const GAP_DEEP = {
+    license:          { tab: 'licenses', focus: 'license' },
+    certification:    { tab: 'licenses', focus: 'certification' },
+    directProduction: { tab: 'licenses', focus: 'directProduction' },
+    trackRecord:      { tab: 'trackRecords', focus: '' },
+  };
+  const deepHref = (tab, focus) => '#/me/company?tab=' + encodeURIComponent(tab || 'basic') + (focus ? '&focus=' + encodeURIComponent(focus) : '');
+  const missingRanked = [];
+  const mfc = eg.missingFieldCounts || {};
+  Object.keys(FIELD_DEEP).forEach(k => {
+    const m = FIELD_DEEP[k];
+    const cnt = mfc[k] || 0;
+    if (cnt > 0) missingRanked.push({ label: m.label, count: cnt, hasCount: true, href: deepHref(m.tab, m.focus) });
+    else if ((eg.missingFields || []).includes(k)) missingRanked.push({ label: m.label, count: 0, hasCount: false, href: deepHref(m.tab, m.focus) });
+  });
+  (data.documentRequirementGaps || []).forEach(g => {
+    const d = GAP_DEEP[g.category] || { tab: 'basic', focus: '' };
+    missingRanked.push({ label: g.label, count: g.noticeCount || 0, hasCount: (g.noticeCount || 0) > 0, href: deepHref(d.tab, d.focus) });
+  });
+  missingRanked.sort((a, b) => (Number(b.hasCount) - Number(a.hasCount)) || (b.count - a.count));
+
+  // ① 인사 + 핵심 메시지(§3) — 검토 대상 = 추천 공고 수(실데이터). 부족정보 CTA = 영향도 1위.
+  const recCount = recommendations.length;
+  const headline = recCount
+    ? `오늘 참여 검토할 사업이 <strong>${recCount}건</strong> 있어요`
+    : '지금 새로 검토할 추천 공고는 없어요';
+  const topMiss = missingRanked[0] || null;
+  let heroMissHtml = '';
+  if (topMiss) {
+    const body = topMiss.hasCount
+      ? `${escapeHtml(topMiss.label)}정보가 부족해 <strong>${topMiss.count}개</strong> 공고를 정확히 판정하지 못하고 있어요.`
+      : `${escapeHtml(topMiss.label)}정보가 부족해 일부 공고의 참여 가능성을 정확히 판단하지 못하고 있어요.`;
+    heroMissHtml = `
+      <p class="dashv2-hero-miss">${body}</p>
+      <a href="${escapeAttr(topMiss.href)}" class="btn btn-primary dashv2-hero-cta">${escapeHtml(topMiss.label)}정보 등록하기 &rarr;</a>`;
+  }
+  const heroHtml = `
+    <section class="dashv2-hero">
+      <p class="dashv2-hero-hi">안녕하세요.</p>
+      <h2 class="dashv2-hero-headline">${headline}</h2>
+      ${heroMissHtml}
+    </section>`;
+
+  // ② 내 회사 기회(§4/§5) — KPI(참여추천/확인필요/마감임박, 전부 실데이터) + 추천 카드 Top3.
+  // 카드 표시 우선 = recommendationHeroTier(참여 가능 먼저) → 마감 임박순(기존 정렬 재사용).
+  const kpi = [
+    { label: '참여 추천', value: recCount, tone: 'is-blue' },
+    { label: '확인 필요', value: eg.needsReview || 0, tone: 'is-amber' },
+    { label: '마감 임박', value: summary.deadlineSoonCount || 0, tone: 'is-red' },
+  ];
   const sortedRecs = recommendations.map((r, i) => ({ r, i })).sort((a, b) => (recommendationHeroTier(a.r) - recommendationHeroTier(b.r)) || (a.i - b.i)).map(x => x.r);
-  const topPick = sortedRecs[0] || null;
-  let topPickHtml = '';
-  if (topPick) {
-    const tier = recommendationHeroTier(topPick);
-    const j = topPick.judgment || {};
-    const gradeLabel = j.gradeLabel || '';
-    const detailHref = topPick.ctaHref || ('#/notices/' + topPick.noticeId);
-    // 홈 인라인 질문(상세와 동일한 judgment.questions 그대로 — 프론트 추론 없음).
-    const heroQuestions = [];
-    (j.questions || []).forEach(q => { (q.targets || []).forEach(name => heroQuestions.push({ kind: q.kind, category: q.category, name, condType: q.conditionType, reason: q.reason })); });
-    const objJosa = w => { const ch = (w || '').slice(-1).charCodeAt(0); if (ch >= 0xAC00 && ch <= 0xD7A3) return ((ch - 0xAC00) % 28) ? '을' : '를'; return '을(를)'; };
-    // Tier별 배지/아이브로우/본문/행동. 분석대기는 사용자가 해결할 수 없으므로 확인 버튼 없음.
-    let badgeLabel, badgeTone, eyebrow, bodyHtml, actionsHtml, participate = '0';
-    if (tier === 0) {
-      badgeLabel = gradeLabel || '참여 가능'; badgeTone = 'pj-grade--ready'; eyebrow = '가장 먼저 볼 공고'; participate = '1';
-      const rawReasons = (j.reasons || []).slice(0, 3);
-      const reasonList = rawReasons.length ? rawReasons : ['지역·업종·기업규모 요건을 충족했습니다'];
-      bodyHtml = `<div class="dash-hero-why"><span class="dash-hero-why-lbl">왜 추천했나요?</span><ul>${reasonList.map(r => `<li>✓ ${escapeHtml(r)}</li>`).join('')}</ul></div>`;
-      actionsHtml = `<button type="button" class="btn btn-primary dash-hero-cta">참여할게요</button><a href="#/me/saved-searches" class="official-link">맞춤공고 전체 보기 &rarr;</a>`;
-    } else if (tier === 1) {
-      badgeLabel = gradeLabel || '확인 필요'; badgeTone = 'pj-grade--review'; eyebrow = '가장 먼저 확인하세요';
-      bodyHtml = `
-        <div class="dash-hero-why dash-hero-why--review"><span class="dash-hero-why-lbl">AI가 확인하지 못한 조건</span><p class="dash-hero-why-reason">${escapeHtml(heroQuestions[0].reason || '')}</p></div>
-        <div class="dash-hero-questions">
-          ${heroQuestions.map(q => `
-            <div class="pj-question" data-kind="${escapeAttr(q.kind)}" data-category="${escapeAttr(q.category)}" data-name="${escapeAttr(q.name)}">
-              <div class="pj-question-ask">회사에서 <strong>${escapeHtml(q.name)}</strong>${objJosa(q.name)} 보유하고 있나요?</div>
-              <div class="pj-question-btns">
-                <button type="button" class="pj-answer-btn pj-answer-btn--yes" data-answer="보유">보유</button>
-                <button type="button" class="pj-answer-btn" data-answer="미보유">미보유</button>
-                <button type="button" class="pj-answer-btn pj-answer-btn--skip" data-answer="모름">잘 모르겠어요</button>
-              </div>
-            </div>`).join('')}
-        </div>`;
-      actionsHtml = `<a href="${escapeAttr(detailHref)}" class="official-link">공고 상세 보기 &rarr;</a>`;
-    } else if (tier === 3) {
-      // 분석 대기 — 사용자가 해결할 수 없는 시스템 상태. [확인하기] 금지, 사실만 표시.
-      badgeLabel = '분석 중'; badgeTone = 'pj-grade--review'; eyebrow = '가장 먼저 확인하세요';
-      bodyHtml = `<div class="dash-hero-why dash-hero-why--review"><span class="dash-hero-why-lbl">AI가 공고문을 분석하고 있어요</span><p class="dash-hero-why-reason">공고문 분석이 완료되어야 참여 조건을 확인할 수 있어요.</p></div>`;
-      actionsHtml = `<a href="${escapeAttr(detailHref)}" class="official-link">공고 상세 보기 &rarr;</a>`;
-    } else {
-      // Tier 2(상세 확인 필요) / 4(참여 어려움) — 상세로 이동해 확인.
-      badgeLabel = gradeLabel || '확인 필요'; badgeTone = tier === 4 ? 'pj-grade--fail' : 'pj-grade--review'; eyebrow = '가장 먼저 확인하세요';
-      const rawReasons = (j.reasons || []).slice(0, 3);
-      bodyHtml = rawReasons.length ? `<div class="dash-hero-why dash-hero-why--review"><span class="dash-hero-why-lbl">AI가 확인하지 못한 조건</span><ul>${rawReasons.map(r => `<li>• ${escapeHtml(r)}</li>`).join('')}</ul></div>` : '';
-      actionsHtml = `<button type="button" class="btn btn-primary dash-hero-cta">조건 확인하기</button><a href="#/me/saved-searches" class="official-link">맞춤공고 전체 보기 &rarr;</a>`;
-    }
-    topPickHtml = `
-      <section class="dash-hero" data-notice-id="${escapeAttr(topPick.noticeId)}" data-participate="${participate}" data-cta-href="${escapeAttr(detailHref)}">
-        <div class="dash-hero-eyebrow">${eyebrow}</div>
-        <h3 class="dash-hero-title">${escapeHtml(topPick.title)}</h3>
-        <div class="dash-hero-meta"><span>${escapeHtml(topPick.organizationName || '-')}</span>${ddayBadgeHtml(topPick.applicationEndAt)}<span class="pj-mini ${badgeTone}">${escapeHtml(badgeLabel)}</span></div>
-        ${bodyHtml}
-        <div class="dash-hero-actions">${actionsHtml}</div>
+  const oppCards = sortedRecs.slice(0, 3).map(dashOpportunityCardHtml).join('');
+  const oppHtml = recCount ? `
+    <section class="dashv2-section">
+      <div class="dashv2-section-head"><h3>내 회사 기회</h3><p>지금 검토할 만한 공고 ${recCount}건을 골랐어요.</p></div>
+      <div class="dashv2-kpi">${kpi.map(k => `<div class="dashv2-kpi-item ${k.tone}"><span class="dashv2-kpi-num">${k.value}</span><span class="dashv2-kpi-lbl">${escapeHtml(k.label)}</span></div>`).join('')}</div>
+      <div class="dashv2-oppcards">${oppCards}</div>
+      <a href="#/me/saved-searches" class="dashv2-more">맞춤공고 전체보기 &rarr;</a>
+    </section>` : '';
+
+  // ③ 판정을 막고 있는 정보(§6/§11) — 영향도 랭킹, 1위는 Primary CTA. 실데이터 건수만.
+  const blocked = eg.insufficientData || 0;
+  let blockingHtml = '';
+  if (missingRanked.length) {
+    const summaryLine = blocked > 0
+      ? `회사정보가 부족해 <strong>${blocked}개</strong> 공고에서 AI가 최종 판단을 보류하고 있어요.`
+      : '회사정보를 등록하면 더 정확한 참여판정을 받을 수 있어요.';
+    const rows = missingRanked.slice(0, 5).map((m, i) => dashBlockingItemHtml(m, i === 0)).join('');
+    blockingHtml = `
+      <section class="dashv2-section">
+        <div class="dashv2-section-head"><h3>판정을 막고 있는 정보</h3><p>${summaryLine}</p></div>
+        <div class="dashv2-blocking">${rows}</div>
       </section>`;
   }
 
-  // ③ 오늘 할 일 — 실제 처리 todo(파이프라인·면허만료·공고변경). 추천과 별개 모집단.
-  const itemsHtml = items.length
-    ? `<section class="dash-block"><div class="dash-block-head"><h3>오늘 할 일</h3></div><div class="home-list">${items.map(homeListRowHtml).join('')}</div></section>`
-    : '';
+  // ④ 오늘 할 일(§13) — 기존 priorityItems/homeListRowHtml 그대로(기능·CTA 보존).
+  const todoHtml = items.length ? `
+    <section class="dashv2-section">
+      <div class="dashv2-section-head"><h3>오늘 할 일</h3></div>
+      <div class="home-list">${items.map(homeListRowHtml).join('')}</div>
+    </section>` : '';
 
-  // ④ 판정을 막고 있는 회사정보 ⑤ 이번 달 AI가 대신 처리한 일(접힘)
-  const companyInfoHtml = renderCompanyInfoCardHtml(data.growthSummary, data.documentRequirementGaps);
-  const automationInner = renderAutomationSummaryHtml(data.automationSummary);
-  const automationHtml = automationInner
-    ? `<details class="dash-automation-collapse"><summary>이번 달 AI가 대신 처리한 일</summary>${automationInner}</details>`
-    : '';
+  // ⑤ AI가 대신 처리했어요(§14) — 접힘 제거, 그대로 노출. ⑥ 업무 바로가기(§15)는 하단 약하게.
+  const automationHtml = renderAutomationSummaryHtml(data.automationSummary);
 
-  // greeting — 추천과 할 일을 모두 반영(모순 방지). 추천이 있으면 그걸 먼저 말한다.
-  const recCount = recommendations.length;
-  const todoCount = items.length;
-  let greetingTitle;
-  if (recCount && todoCount) greetingTitle = `검토할 맞춤공고 ${recCount}건, 처리할 일 ${todoCount}건이 있어요`;
-  else if (recCount) greetingTitle = `검토할 맞춤공고 ${recCount}건이 있어요`;
-  else if (todoCount) greetingTitle = `오늘 처리할 일 ${todoCount}건이 있어요`;
-  else greetingTitle = '오늘은 급하게 확인할 업무가 없어요';
-
-  // §1 보정: 카드/섹션 사이 세로 간격을 개별 margin이 아니라 부모 컨테이너의 flex gap으로
-  // 통일한다(dash-hero 등 <section>은 하단 margin이 없어 다음 .detail-card와 붙어 보였음).
   container.appendChild(h(`
-    <div class="dashboard-stack">
-      <div class="dash-greeting">
-        <p class="dash-greeting-eyebrow">안녕하세요.</p>
-        <h2 class="dash-greeting-title">${escapeHtml(greetingTitle)}</h2>
-      </div>
+    <div class="dashboard-stack dashboard-v2">
+      ${heroHtml}
       <div id="dashboard-profile-banner"></div>
-      ${topPickHtml}
       ${publicBidFitBannerHtml((currentProfile || {}).publicBidFit)}
-      ${itemsHtml}
-      ${companyInfoHtml}
+      ${oppHtml}
+      ${blockingHtml}
+      ${todoHtml}
       ${automationHtml}
       ${usefulLinksSectionHtml()}
     </div>
   `));
   renderDashboardProfileBanner(document.getElementById('dashboard-profile-banner'));
-
-  // HERO CTA — 참여 가능은 곧바로 준비중에 담기(맞춤공고와 동일 패턴, 새 API 없음),
-  // 그 외는 공고 상세로 이동. 되돌리기는 워크스페이스의 "참여 취소".
-  const heroEl = container.querySelector('.dash-hero');
-  if (heroEl) {
-    const btn = heroEl.querySelector('.dash-hero-cta');
-    if (btn) btn.addEventListener('click', async () => {
-      if (heroEl.dataset.participate !== '1') { location.hash = heroEl.dataset.ctaHref; return; }
-      btn.disabled = true; const orig = btn.textContent; btn.textContent = '담는 중...';
-      try {
-        const entry = await apiRequest('POST', '/api/notices/' + encodeURIComponent(heroEl.dataset.noticeId) + '/pipeline', { targetStatus: '준비중' });
-        location.hash = '#/pipeline/' + entry.id;
-      } catch (err) {
-        btn.disabled = false; btn.textContent = orig;
-        if (err.status === 401) { location.hash = '#/auth/login'; return; }
-        if (err.code === 'company_profile_required') { showToast('회사 정보를 먼저 등록해주세요.', 'error'); return; }
-        if (err.code === 'pipeline_quota_exceeded') { showToast('진행 중 사업 등록 한도에 도달했습니다.', 'error'); return; }
-        showToast(err.message || '참여 처리에 실패했습니다.', 'error');
-      }
-    });
-    // HERO 인라인 REVIEW 질문 답변 — 공고 상세와 완전히 동일한 저장(POST /api/me/
-    // licenses|certifications)·정책. 보유/미보유 저장 후 대시보드를 다시 받아 재렌더하면
-    // 판정이 재계산돼 HERO가 즉시 갱신된다(§5/§7). "잘 모르겠어요"는 저장 없이 접기만.
-    heroEl.querySelectorAll('.pj-question').forEach(qEl => {
-      qEl.querySelectorAll('.pj-answer-btn').forEach(ansBtn => {
-        ansBtn.addEventListener('click', async () => {
-          const answer = ansBtn.dataset.answer;
-          if (answer === '모름') {
-            qEl.remove();
-            // 남은 질문이 없으면 상세에서 이어서 확인할 수 있게 안내(REVIEW 유지).
-            if (!heroEl.querySelector('.pj-question')) {
-              const qWrap = heroEl.querySelector('.dash-hero-questions');
-              if (qWrap) qWrap.innerHTML = '<p class="dash-hero-skip-note">나중에 공고 상세에서 다시 확인할 수 있어요.</p>';
-            }
-            return;
-          }
-          const kind = qEl.dataset.kind, category = qEl.dataset.category, name = qEl.dataset.name;
-          qEl.querySelectorAll('.pj-answer-btn').forEach(b => b.disabled = true);
-          const endpoint = kind === 'certification' ? '/api/me/certifications' : '/api/me/licenses';
-          try {
-            await apiRequest('POST', endpoint, { category, name, status: answer });
-            showToast(answer === '보유' ? '보유로 저장했습니다 — 판정을 갱신합니다.' : '미보유로 저장했습니다.', 'success');
-            const fresh = await apiRequest('GET', '/api/dashboard'); // 재판정
-            renderDashboard(container, fresh); // 홈 재렌더 → HERO 즉시 갱신
-          } catch (err) {
-            qEl.querySelectorAll('.pj-answer-btn').forEach(b => b.disabled = false);
-            if (err.code === 'owner_only') { showToast('면허·인증 등록은 대표 계정만 가능합니다.', 'error'); return; }
-            if (err.status === 401) { location.hash = '#/auth/login'; return; }
-            showToast(err.message || '저장에 실패했습니다.', 'error');
-          }
-        });
-      });
-    });
-  }
+  // 추천은 이제 카드(<a>)→공고 상세로 이동한다. 이전 HERO의 "참여할게요"(원클릭 담기)와
+  // 인라인 REVIEW 질문은 공고 상세의 참여판정 화면에 그대로 존재하므로 기능 손실 없음
+  // (2026-08-14 대시보드 V2 — 표시 위치만 이동).
   wireHomeListNav(container);
   wireUsefulLinksSection(container);
+}
+
+// dashOpportunityCardHtml — "내 회사 기회" 추천 공고 카드(§5). 판단→행동에 필요한 정보만:
+// D-day·지역 / 공고명 / 판정(등급+확인필요 이유) / 예산 + 검토하기. 카드 전체가 상세로 가는
+// <a>라 별도 배선 불필요. 데이터는 dashboard.go recommendations DTO 그대로(새 판정 없음).
+function dashOpportunityCardHtml(item) {
+  const j = item.judgment || {};
+  const tone = HOME_JUDGMENT_TONE[j.grade] || 'pj-grade--review';
+  const reasons = (j.reasons || []).slice(0, 3).map(escapeHtml);
+  const jline = reasons.length ? reasons.join(' · ') : escapeHtml(j.gradeLabel || '지역·업종·기업규모 요건 충족');
+  const region = item.region ? escapeHtml(item.region) : '';
+  const href = item.ctaHref || ('#/notices/' + item.noticeId);
+  const budget = item.budgetAmount != null ? `<span class="dashv2-oppcard-budget">${escapeHtml(formatBudget(item.budgetAmount))}</span>` : '<span></span>';
+  return `
+    <a href="${escapeAttr(href)}" class="dashv2-oppcard">
+      <div class="dashv2-oppcard-top">
+        <span class="dashv2-oppcard-meta">${ddayBadgeHtml(item.applicationEndAt)}${region ? `<span class="dashv2-oppcard-region">${region}</span>` : ''}</span>
+        ${j.gradeLabel ? `<span class="pj-mini ${tone}">${escapeHtml(j.gradeLabel)}</span>` : ''}
+      </div>
+      <div class="dashv2-oppcard-title">${escapeHtml(item.title)}</div>
+      <div class="dashv2-oppcard-judge">${jline}</div>
+      <div class="dashv2-oppcard-foot">${budget}<span class="dashv2-oppcard-cta">검토하기 &rarr;</span></div>
+    </a>`;
+}
+
+// dashBlockingItemHtml — "판정을 막고 있는 정보" 한 항목(§6). 영향도 1위(isPrimary)는 "가장 중요"
+// 태그+Primary 버튼, 나머지는 텍스트 액션. hasCount면 실건수, 아니면 정직한 일반 안내(§9).
+function dashBlockingItemHtml(m, isPrimary) {
+  const impact = m.hasCount
+    ? `${m.count}개 공고의 판정에 필요합니다.`
+    : `${escapeHtml(m.label)} 정보가 필요한 공고가 있습니다.`;
+  return `
+    <div class="dashv2-block-item${isPrimary ? ' is-primary' : ''}">
+      <div class="dashv2-block-main">
+        <div class="dashv2-block-lbl">${escapeHtml(m.label)}${isPrimary ? '<span class="dashv2-block-tag">가장 중요</span>' : ''}</div>
+        <div class="dashv2-block-impact">${impact}</div>
+      </div>
+      <a href="${escapeAttr(m.href)}" class="${isPrimary ? 'btn btn-primary btn-sm' : 'dashv2-block-cta'}">등록하기 &rarr;</a>
+    </div>`;
 }
 
 // renderAutomationSummaryHtml — "이번 달 자동화 성과". 절감시간은 실측이
@@ -10083,6 +10157,9 @@ function renderSavedSearchRecommendations(container, recommendations) {
 // (container)만 받는 기존 자족 함수라 새로 만들지 않는다.
 function renderProfileTabsScreen(container, tabs, opts) {
   opts = opts || {};
+  // Deep link(2026-08-14 대시보드 V2): opts.initialTab로 특정 탭을 처음부터 연다.
+  // opts.focus면 그 탭 콘텐츠의 [data-focus="X"] 입력영역으로 스크롤+하이라이트한다.
+  const initialKey = tabs.some(t => t.key === opts.initialTab) ? opts.initialTab : tabs[0].key;
   const headerHtml = opts.title ? `<h2>${escapeHtml(opts.title)}</h2>` : '';
   const introHtml = opts.intro ? `<p class="license-card-meta">${opts.intro}</p>` : '';
   container.innerHTML = '';
@@ -10090,21 +10167,37 @@ function renderProfileTabsScreen(container, tabs, opts) {
     ${headerHtml}
     ${introHtml}
     <div class="profile-tabs">
-      ${tabs.map((t, i) => `<button type="button" class="profile-tab-btn${i === 0 ? ' is-active' : ''}" data-tab="${t.key}">${escapeHtml(t.label)}</button>`).join('')}
+      ${tabs.map((t) => `<button type="button" class="profile-tab-btn${t.key === initialKey ? ' is-active' : ''}" data-tab="${t.key}">${escapeHtml(t.label)}</button>`).join('')}
     </div>
     <div id="profile-tabs-content"></div>
   `));
   const tabContent = document.getElementById('profile-tabs-content');
   const tabRenderers = {};
   tabs.forEach(t => { tabRenderers[t.key] = () => t.render(tabContent); });
-  tabRenderers[tabs[0].key]();
+  const activate = (key) => {
+    container.querySelectorAll('.profile-tab-btn').forEach(b => b.classList.toggle('is-active', b.dataset.tab === key));
+    tabRenderers[key]();
+  };
+  activate(initialKey);
+  if (opts.focus) scrollToProfileFocus(tabContent, opts.focus);
   container.querySelectorAll('.profile-tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      container.querySelectorAll('.profile-tab-btn').forEach(b => b.classList.remove('is-active'));
-      btn.classList.add('is-active');
-      tabRenderers[btn.dataset.tab]();
-    });
+    btn.addEventListener('click', () => activate(btn.dataset.tab));
   });
+}
+
+// scrollToProfileFocus — 딥링크 focus 대상([data-focus="X"])이 렌더될 때까지(탭 render가
+// async일 수 있음) 잠깐 폴링하다 나타나면 스크롤+하이라이트한다. 못 찾으면 조용히 포기
+// (탭 이동만으로도 딥링크의 핵심 목적은 달성). 판정/저장 로직과 무관한 순수 UI 보조.
+function scrollToProfileFocus(scope, focusKey, tries) {
+  tries = tries == null ? 15 : tries;
+  const el = scope.querySelector(`[data-focus="${CSS.escape(focusKey)}"]`);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('profile-focus-flash');
+    setTimeout(() => el.classList.remove('profile-focus-flash'), 2000);
+    return;
+  }
+  if (tries > 0) setTimeout(() => scrollToProfileFocus(scope, focusKey, tries - 1), 100);
 }
 
 // renderCompanyInfo — 회사정보 화면(#/me/company, IA 재정리 2026-08-10). 예전
@@ -10122,9 +10215,14 @@ async function renderCompanyInfo(container) {
     location.hash = '#/auth/login';
     return;
   }
+  // Deep link 쿼리(#/me/company?tab=...&focus=...) — 대시보드 "판정 막는 정보" CTA가
+  // 부족 항목의 입력 위치로 바로 보낸다(2026-08-14 대시보드 V2).
+  const params = new URLSearchParams((location.hash.split('?')[1] || ''));
   renderProfileTabsScreen(container, COMPANY_INFO_TABS, {
     title: '회사정보',
     intro: '참여 판정에 쓰이는 회사 자료를 관리합니다. 면허·인증은 공고 참여 판정에 바로 반영됩니다.',
+    initialTab: params.get('tab') || '',
+    focus: params.get('focus') || '',
   });
 }
 
