@@ -2326,16 +2326,14 @@
   .pj-answer-btn:disabled { opacity: 0.5; cursor: default; }
   .pj-answer-btn--yes { background: var(--accent-blue, #2f6feb); color: #fff; border-color: var(--accent-blue, #2f6feb); }
   .pj-answer-btn--skip { color: var(--ink-mute, #8a8f98); }
-  @media (prefers-color-scheme: dark) {
-    .pj-question { background: #1a1d21; border-color: #30363d; }
-    .pj-answer-btn { background: #22272e; color: #e6edf3; border-color: #30363d; }
-    .pj-answer-btn--yes { background: #2f6feb; color: #fff; }
-  }
-  @media (prefers-color-scheme: dark) {
-    .cond-badge--high { background: #16351f; color: #7ee2a0; }
-    .cond-badge--medium { background: #3a2c12; color: #f0b866; }
-    .cond-badge--low { background: #3a1a17; color: #f2a099; }
-  }
+  /* 다크 = 앱 토글(:root[data-theme="dark"])만 사용. OS(prefers-color-scheme)로 두면 OS 다크 +
+     앱 라이트에서 다크값이 흰 화면 위로 새어나온다 — 전역 정리(2026-08-14). */
+  :root[data-theme="dark"] .pj-question { background: #1a1d21; border-color: #30363d; }
+  :root[data-theme="dark"] .pj-answer-btn { background: #22272e; color: #e6edf3; border-color: #30363d; }
+  :root[data-theme="dark"] .pj-answer-btn--yes { background: #2f6feb; color: #fff; }
+  :root[data-theme="dark"] .cond-badge--high { background: #16351f; color: #7ee2a0; }
+  :root[data-theme="dark"] .cond-badge--medium { background: #3a2c12; color: #f0b866; }
+  :root[data-theme="dark"] .cond-badge--low { background: #3a1a17; color: #f2a099; }
 
   /* 참여판정 조건 카드(유료화 1단계, 2026-08-09) — 조건별 PASS/REVIEW/FAIL/UNKNOWN */
   /* 판정 verdict — 토스식 상태 헤드라인(컬러 dot + 문장). 배지보다 차분하고 명확. */
@@ -6294,10 +6292,10 @@ const ONBOARDING_CARD_DEFS = [
   { fieldKey: 'companySize', type: 'judged', label: '기업 규모' },
   { fieldKey: 'employeeCount', type: 'presence', label: '직원 수' },
   { fieldKey: 'revenueAmount', type: 'presence', label: '매출액' },
-  { fieldKey: 'trackRecord', type: 'general', label: '수행실적' },
-  { fieldKey: 'license', type: 'general', label: '보유 면허' },
-  { fieldKey: 'certification', type: 'general', label: '인증' },
-  { fieldKey: 'directProduction', type: 'general', label: '직접생산확인' },
+  { fieldKey: 'trackRecord', type: 'general', label: '완료한 사업 실적' },
+  { fieldKey: 'license', type: 'general', label: '사업 수행 자격·면허' },
+  { fieldKey: 'certification', type: 'general', label: '기업·기술 인증' },
+  { fieldKey: 'directProduction', type: 'general', label: '직접생산확인증명서' },
 ];
 
 function buildOnboardingCardQueue(data) {
@@ -7583,11 +7581,11 @@ function renderDashboard(container, data) {
   let heroMissHtml = '';
   if (topMiss) {
     const body = topMiss.hasCount
-      ? `${escapeHtml(topMiss.label)}정보가 부족해 <strong>${topMiss.count}개</strong> 공고를 정확히 판정하지 못하고 있어요.`
-      : `${escapeHtml(topMiss.label)}정보가 부족해 일부 공고의 참여 가능성을 정확히 판단하지 못하고 있어요.`;
+      ? `<strong>${escapeHtml(topMiss.label)}</strong> 정보가 부족해 <strong>${topMiss.count}개</strong> 공고를 정확히 판정하지 못하고 있어요.`
+      : `<strong>${escapeHtml(topMiss.label)}</strong> 정보가 부족해 일부 공고의 참여 가능성을 정확히 판단하지 못하고 있어요.`;
     heroMissHtml = `
       <p class="dashv2-hero-miss">${body}</p>
-      <a href="${escapeAttr(topMiss.href)}" class="btn btn-primary dashv2-hero-cta">${escapeHtml(topMiss.label)}정보 등록하기 &rarr;</a>`;
+      <a href="${escapeAttr(topMiss.href)}" class="btn btn-primary dashv2-hero-cta">${escapeHtml(topMiss.label)} 등록하기 &rarr;</a>`;
   }
   const heroHtml = `
     <section class="dashv2-hero dashv2-card">
@@ -10078,7 +10076,7 @@ const SAVED_SEARCH_NOTICE_TYPE_OPTIONS = [
 const COMPANY_INFO_TABS = [
   { key: 'basic', label: '기업정보', render: renderProfileBasicTab },
   { key: 'financials', label: '재무정보', render: renderFinancialsTab },
-  { key: 'trackRecords', label: '수행실적', render: renderTrackRecordsTab },
+  { key: 'trackRecords', label: '완료한 사업 실적', render: renderTrackRecordsTab },
   { key: 'personnel', label: '인력정보', render: renderPersonnelTab },
   { key: 'licenses', label: '면허·인증', render: renderLicenses },
 ];
@@ -14196,9 +14194,9 @@ function renderProfileSummaryCard(container) {
     ['직원 수', p.employeeCount != null ? `${p.employeeCount}명` : '-'],
     ['최근 3년 최대 실적', fmtMoney(p.maxPerformanceAmount)],
     ['신용등급', p.creditRating || '-'],
-    ['보유 면허', fmtList(p.licenses)],
-    ['보유 인증', fmtList(p.certifications)],
-    ['직접생산확인', p.directProductionCert ? '보유' : '-', 'directProduction'],
+    ['사업 수행 자격·면허', fmtList(p.licenses)],
+    ['기업·기술 인증', fmtList(p.certifications)],
+    ['직접생산확인증명서', p.directProductionCert ? '보유' : '-', 'directProduction'],
   ];
   const isOwner = p.role === 'owner';
   container.innerHTML = '';
@@ -14271,8 +14269,8 @@ function openProfileEditModal(summaryContainer) {
         <label>신용등급<input type="text" name="creditRating"></label>
       </div>
       <div class="wizard-step" data-step="2">
-        <label>보유 면허 (쉼표로 구분)<input type="text" name="licenses"></label>
-        <label>보유 인증 (쉼표로 구분)<input type="text" name="certifications"></label>
+        <label>사업 수행 자격·면허 (쉼표로 구분)<input type="text" name="licenses"></label>
+        <label>기업·기술 인증 (쉼표로 구분)<input type="text" name="certifications"></label>
         <label class="checkbox-label"><input type="checkbox" name="directProductionCert"> ${glossaryHtml('직접생산확인', '직접생산확인증명 보유')}</label>
         <div id="profile-error" class="error" style="display:none"></div>
       </div>

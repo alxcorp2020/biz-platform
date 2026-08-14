@@ -558,15 +558,15 @@ var documentRequirementCategories = []struct {
 	CheckTable string   // 회사가 이미 데이터를 갖고 있는지 확인할 테이블(company_profile_id FK)
 	CtaHref    string
 }{
-	{"trackRecord", "수행실적", []string{"%실적%"}, "company_track_records", "#/me/saved-searches"},
+	{"trackRecord", "완료한 사업 실적", []string{"%실적%"}, "company_track_records", "#/me/saved-searches"},
 	// "면허증"(3글자)은 "인증서"와 겹치지 않는 별도 키워드 — company_licenses
 	// (면허·신고·등록)는 company_certifications(인증서)와 다른 테이블이라
 	// 온보딩 카드에서도 별개 후보로 다룬다(2026-08-04 재설계).
-	{"license", "보유 면허", []string{"%면허증%"}, "company_licenses", "#/me/saved-searches"},
+	{"license", "사업 수행 자격·면허", []string{"%면허증%"}, "company_licenses", "#/me/saved-searches"},
 	// "인증"(2글자)은 "직접생산확인증명서"(확인+증명서) 안에 우연히 부분
 	// 문자열로 들어있어 오탐된다(로컬 검증 중 실제 재현) — "인증서"(3글자)로
 	// 좁혀서 이 충돌을 피한다.
-	{"certification", "인증", []string{"%인증서%", "%ISO%"}, "company_certifications", "#/me/saved-searches"},
+	{"certification", "기업·기술 인증", []string{"%인증서%", "%ISO%"}, "company_certifications", "#/me/saved-searches"},
 	// directProduction — CheckTable은 안 쓴다(아래 특수 분기 참고). 2026-08-04
 	// Phase UX-03에서 발견: 원래 company_licenses에 아무 행이나 있으면(카테고리
 	// 필터 없이) 충족된 걸로 잘못 체크하고 있었는데, 실제 #/me/saved-searches 화면의
@@ -574,7 +574,7 @@ var documentRequirementCategories = []struct {
 	// 계산과 전혀 연결이 안 되어 있었다 — 사용자가 그 체크박스를 켜도 이 갭이
 	// 안 사라지는 버그. computeDocumentRequirementGaps 안에서 이 카테고리만
 	// direct_production_cert 컬럼값을 직접 확인하도록 고쳤다.
-	{"directProduction", "직접생산확인", []string{"%직접생산%"}, "", "#/me/saved-searches"},
+	{"directProduction", "직접생산확인증명서", []string{"%직접생산%"}, "", "#/me/saved-searches"},
 }
 
 func (s *Server) computeDocumentRequirementGaps(ctx context.Context, profileID string) ([]documentRequirementGapItem, error) {
