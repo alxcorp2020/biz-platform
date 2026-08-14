@@ -67,6 +67,58 @@ func (s *Server) handleListCertifications(w http.ResponseWriter, r *http.Request
 	s.handleListLicensesOrCertifications(w, r, "company_certifications")
 }
 
+// directProductionStatusRequest — 참여검토에서 "직접생산확인 있어요/없어요"에 대한 답.
+type directProductionStatusRequest struct {
+	Status string `json:"status"`
+}
+
+// handleSetDirectProductionStatus — 직접생산확인 보유상태(3-상태)를 저장한다(STEP 2-B).
+// 참여검토 질문에 "있어요/없어요"로 답하면 호출된다("잘 모르겠어요"는 프론트가
+// 저장하지 않으므로 여기 오지 않는다). direct_production_status 컬럼에만 쓰고
+// legacy boolean(direct_production_cert)은 건드리지 않는다 — 표시/온보딩 등 기존
+// 경로 회귀를 피하려고(읽는 쪽 companyDirectProductionStatus가 새 컬럼 우선).
+// status는 반드시 보유/미보유/확인되지않음 중 하나(미보유가 자동 처리되지 않도록).
+func (s *Server) handleSetDirectProductionStatus(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("direct-production: profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if profile == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
+		return
+	}
+	if profile.Role != "owner" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_only"})
+		return
+	}
+	var req directProductionStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_body"})
+		return
+	}
+	req.Status = strings.TrimSpace(req.Status)
+	if !validLicenseStatuses[req.Status] {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_status"})
+		return
+	}
+	if _, err := s.db.ExecContext(r.Context(),
+		`UPDATE company_profiles SET direct_production_status = $1 WHERE id = $2`,
+		req.Status, profile.ID,
+	); err != nil {
+		s.logger.Error("direct-production: update failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": req.Status})
+}
+
 // handleCreateLicenseOrCertification saves the user-confirmed (possibly
 // user-edited) final values. confidence is derived, never client-supplied:
 // 'B' when sourceDocumentId references a document actually uploaded by this

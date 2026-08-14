@@ -304,6 +304,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureNoticeEnrichmentTables(ctx, db); err != nil {
 		return fmt.Errorf("migrate notice enrichment tables: %w", err)
 	}
+	if err := ensureDirectProductionStatusColumn(ctx, db); err != nil {
+		return fmt.Errorf("migrate company_profiles.direct_production_status column: %w", err)
+	}
 	return nil
 }
 
@@ -2448,6 +2451,24 @@ func ensureSubscriptionsPreviousPlanColumns(ctx context.Context, db *sql.DB) err
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS previous_plan TEXT;
 		ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS previous_plan_expires_at TIMESTAMPTZ;
+	`)
+	return err
+}
+
+// ensureDirectProductionStatusColumn — 2026-08-15, 직접생산확인 tri-state(STEP 2-B).
+// 기존 direct_production_cert BOOLEAN(NOT NULL DEFAULT false)은 "미보유"와
+// "미확인(아직 안 물어봄)"을 구분하지 못한다 — 온보딩에서 "보유"만 true로
+// 저장하고 그 외(미보유·건너뜀·신규가입)는 전부 false라서, false를 그대로
+// 미보유로 취급하면 참여검토에서 이미 답한 것처럼 오인해 재질문을 못 한다.
+// 그래서 값을 파괴하지 않고(기존 boolean 유지) 3-상태 컬럼을 하나 더 붙인다.
+// NULL = "이 컬럼으로 아직 답 안 함" → 읽는 쪽에서 legacy boolean으로 폴백
+// (true→'보유', false→'확인되지않음'; false는 미확인을 포함하므로 미보유로
+// 단정하지 않는 것이 안전). 값은 company_licenses.status와 동일 enum 재사용.
+// 롤백: ALTER TABLE company_profiles DROP COLUMN direct_production_status.
+func ensureDirectProductionStatusColumn(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE company_profiles ADD COLUMN IF NOT EXISTS direct_production_status TEXT
+			CHECK (direct_production_status IN ('보유','미보유','확인되지않음'));
 	`)
 	return err
 }

@@ -38,6 +38,11 @@ type noticeRequirement struct {
 	Source        string   `json:"source"`               // license_limits|participation_regions|required_documents|eligibility_conditions
 	SourceText    string   `json:"sourceText,omitempty"` // 원문 근거
 	Confidence    *float64 `json:"confidence,omitempty"`
+	// 정량 비교용(주로 TRACK_RECORD 실적 요구에서 사용) — eligibility_conditions에만
+	// 존재. 없으면 빈 문자열. 판정기가 company_track_records와 대조할 때만 참고한다.
+	Operator       string `json:"operator,omitempty"`
+	ThresholdValue string `json:"thresholdValue,omitempty"`
+	Unit           string `json:"unit,omitempty"`
 }
 
 // reqSourcePriority — 낮을수록 우선. 같은 정규화 키가 여러 소스에 있으면 우선순위 높은 소스로 합친다.
@@ -149,12 +154,12 @@ func (s *Server) resolveNoticeRequirements(ctx context.Context, versionID string
 			s.logger.Error("resolver: participation_regions query failed", "error", err)
 		}
 
-		if rows, err := s.db.QueryContext(ctx, `SELECT category, condition_name, is_required, COALESCE(source_text,''), confidence FROM eligibility_conditions WHERE notice_version_id = $1 AND review_status <> 'rejected'`, versionID); err == nil {
+		if rows, err := s.db.QueryContext(ctx, `SELECT category, condition_name, is_required, COALESCE(source_text,''), confidence, COALESCE(operator,''), COALESCE(threshold_value,''), COALESCE(unit,'') FROM eligibility_conditions WHERE notice_version_id = $1 AND review_status <> 'rejected'`, versionID); err == nil {
 			for rows.Next() {
-				var cat, cname, src string
+				var cat, cname, src, op, thr, unit string
 				var isReq bool
 				var conf float64
-				if rows.Scan(&cat, &cname, &isReq, &src, &conf) == nil {
+				if rows.Scan(&cat, &cname, &isReq, &src, &conf, &op, &thr, &unit) == nil {
 					if t := mapEligibilityCategoryToReqType(cat); t != "" {
 						name := strings.TrimSpace(cname)
 						key := normalizeRequirementName(name)
@@ -163,7 +168,8 @@ func (s *Server) resolveNoticeRequirements(ctx context.Context, versionID string
 						}
 						m := isReq
 						c := conf
-						add(noticeRequirement{Type: t, NormalizedKey: key, DisplayName: name, Mandatory: &m, Source: "eligibility_conditions", SourceText: src, Confidence: &c})
+						add(noticeRequirement{Type: t, NormalizedKey: key, DisplayName: name, Mandatory: &m, Source: "eligibility_conditions", SourceText: src, Confidence: &c,
+							Operator: strings.TrimSpace(op), ThresholdValue: strings.TrimSpace(thr), Unit: strings.TrimSpace(unit)})
 					}
 				}
 			}
@@ -183,6 +189,10 @@ func (s *Server) resolveNoticeRequirements(ctx context.Context, versionID string
 		switch {
 		case strings.Contains(n, "직접생산"):
 			add(noticeRequirement{Type: reqTypeDirectProduction, NormalizedKey: "직접생산확인", DisplayName: n, Source: "required_documents", SourceText: n})
+		case strings.Contains(n, "실적"):
+			// "실적증명서/유사용역 실적확인서" 등 제출서류명으로 실적 요구를 감지한다.
+			// 정량 임계치(금액·기간)는 서류명만으로 알 수 없어 대조는 REVIEW로만 처리한다.
+			add(noticeRequirement{Type: reqTypeTrackRecord, NormalizedKey: reqTypeTrackRecord, DisplayName: n, Source: "required_documents", SourceText: n})
 		case strings.Contains(n, "면허"):
 			add(noticeRequirement{Type: reqTypeLicense, NormalizedKey: normalizeRequirementName(n), DisplayName: n, Source: "required_documents", SourceText: n})
 		case strings.Contains(n, "인증서") || strings.Contains(n, "ISO"):

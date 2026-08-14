@@ -15,7 +15,11 @@ package api
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // buildJudgmentForNotice — 공고 하나에 대한 참여판정을 만든다. 공고 상세
@@ -153,6 +157,7 @@ func (s *Server) buildParticipationJudgment(ctx context.Context, versionID, prof
 	//    보존한다. versionID=="" (대시보드 추천 카드)면 Resolver는 requiredDocs만 정규화하므로
 	//    결과가 기존과 동일하다(회귀 없음).
 	var licenseNames, certNames []string
+	var trackRecordReqs []noticeRequirement
 	directProdRequired := false
 	for _, req := range judgmentConsumableRequirements(s.resolveNoticeRequirements(ctx, versionID, requiredDocs)) {
 		switch req.Type {
@@ -162,6 +167,8 @@ func (s *Server) buildParticipationJudgment(ctx context.Context, versionID, prof
 			certNames = append(certNames, req.DisplayName)
 		case reqTypeDirectProduction:
 			directProdRequired = true
+		case reqTypeTrackRecord:
+			trackRecordReqs = append(trackRecordReqs, req)
 		}
 	}
 
@@ -240,20 +247,35 @@ func (s *Server) buildParticipationJudgment(ctx context.Context, versionID, prof
 		j.Conditions = append(j.Conditions, cond)
 	}
 
-	// 5) 직접생산확인(HARD 중요도, 결과는 REVIEW): 프로필은 boolean(direct_production_cert)
-	//    뿐이라 "이 공고가 요구하는 세부품명 충족"을 확정할 수 없다 → 절대 PASS/FAIL
-	//    확정하지 않고 REVIEW로 남긴다(§6/§11).
+	// 5) 직접생산확인(HARD 중요도, 결과는 REVIEW): 세부 품명 충족까지는 확정할 수
+	//    없어 절대 PASS/FAIL 확정하지 않고 REVIEW로 남긴다(§6/§11). 단 보유상태는
+	//    3-상태(보유/미보유/확인되지않음)로 구분해, 미확인일 때만 사용자에게 질문을
+	//    띄운다(보유·미보유는 이미 답한 것이므로 재질문하지 않음 — §7 재사용).
 	if directProdRequired {
-		hasCert := s.companyHasDirectProductionCert(ctx, profileID)
+		status := s.companyDirectProductionStatus(ctx, profileID)
 		cond := conditionResult{ConditionType: "직접생산확인", Severity: sevHARD, Result: condREVIEW,
 			RequirementText: "직접생산확인증명서 요구"}
-		if hasCert {
-			cond.CompanyEvidence = "직접생산확인 보유(체크)"
+		switch status {
+		case "보유":
+			cond.CompanyEvidence = "직접생산확인 보유(등록된 회사정보)"
 			cond.Reason = "직접생산확인 보유 정보는 있으나, 이 공고가 요구하는 세부 품명 충족 여부는 확인이 필요합니다."
-		} else {
-			cond.Reason = "이 공고는 직접생산확인을 요구합니다 — 보유·품명 충족 여부를 확인해주세요."
+		case "미보유":
+			cond.Reason = "회사정보에 직접생산확인 미보유로 등록되어 있습니다 — 이 공고 참여에는 직접생산확인이 필요합니다."
+		default: // 확인되지않음 — 아직 답하지 않음 → 질문 가능(§9)
+			cond.Reason = "이 공고는 직접생산확인을 요구합니다 — 보유 여부를 확인해주세요."
+			cond.Question = &conditionQuestion{Kind: "directProduction", Category: "직접생산", Targets: []string{"직접생산확인증명서"}}
 		}
 		j.Conditions = append(j.Conditions, cond)
+	}
+
+	// 5b) 수행실적(HARD 중요도, 결과는 REVIEW): 공고가 요구하는 실적(금액·기간·분야)을
+	//     회사 등록 실적(company_track_records)과 대조한다. 단 ① 공고측 정량 임계치는
+	//     대부분 원문에만 있고 구조화가 희박하며, ② 회사 실적도 사용자 입력(신뢰도 낮음)
+	//     이라 "충족"을 자동 PASS로 단정하지 않는다(over-PASS 방지) — 항상 REVIEW로 두고
+	//     대조 결과(충족/금액부족/기간부족/정보부족)를 사유로만 제시한다. FAIL도 하지
+	//     않는다(면허와 동일한 FALSE-FAIL 안전 원칙).
+	if len(trackRecordReqs) > 0 {
+		j.Conditions = append(j.Conditions, s.evaluateTrackRecordRequirement(ctx, profileID, trackRecordReqs))
 	}
 
 	// 6) 안전장치: 공고문 분석이 아직 안 돼(required_documents 자체가 비어 있음)
@@ -382,13 +404,219 @@ func shortConditionReason(c conditionResult) string {
 	}
 }
 
-// companyHasDirectProductionCert — 프로필의 direct_production_cert(boolean).
-func (s *Server) companyHasDirectProductionCert(ctx context.Context, profileID string) bool {
-	var has bool
+// companyDirectProductionStatus — 직접생산확인 보유상태를 3-상태로 돌려준다
+// (STEP 2-B). 우선순위: 새 direct_production_status 컬럼(사용자가 참여검토에서
+// 답한 값)이 있으면 그대로, 없으면(NULL) legacy boolean으로 폴백한다.
+// 폴백 매핑: true→"보유", false→"확인되지않음". ⚠️ legacy false는 미보유와
+// 미확인이 섞여 있으므로(온보딩은 보유만 true 저장) false를 "미보유"로
+// 단정하지 않는다 — 미확인으로 두어야 재질문/재사용이 안전하다(§4).
+func (s *Server) companyDirectProductionStatus(ctx context.Context, profileID string) string {
+	var status sql.NullString
+	var legacy bool
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(direct_production_cert, false) FROM company_profiles WHERE id = $1`, profileID,
-	).Scan(&has); err != nil {
-		return false
+		`SELECT direct_production_status, COALESCE(direct_production_cert, false) FROM company_profiles WHERE id = $1`, profileID,
+	).Scan(&status, &legacy); err != nil {
+		return "확인되지않음"
 	}
-	return has
+	if status.Valid && strings.TrimSpace(status.String) != "" {
+		return status.String
+	}
+	if legacy {
+		return "보유"
+	}
+	return "확인되지않음"
+}
+
+var recentYearsRe = regexp.MustCompile(`최근\s*(\d+)\s*년`)
+
+// trackRecordAmountThreshold — 실적 요구 목록에서 정량 금액 임계치(원 단위)를 뽑는다.
+// eligibility_conditions의 threshold_value(text)+unit을 원 단위로 환산해 가장 큰 값(가장
+// 엄격한 요구)을 취한다. 금액형 근거가 하나도 없으면 (0,false).
+func trackRecordAmountThreshold(reqs []noticeRequirement) (int64, bool) {
+	var best int64
+	found := false
+	for _, r := range reqs {
+		raw := strings.TrimSpace(r.ThresholdValue)
+		if raw == "" {
+			continue
+		}
+		// 숫자만 남기고(콤마·통화기호 제거) 파싱.
+		var b strings.Builder
+		for _, ch := range raw {
+			if (ch >= '0' && ch <= '9') || ch == '.' {
+				b.WriteRune(ch)
+			}
+		}
+		num, err := strconv.ParseFloat(b.String(), 64)
+		if err != nil || num <= 0 {
+			continue
+		}
+		// 단위는 구조화된 unit 컬럼만 신뢰한다. source_text(자유문)로 단위를 추론하면
+		// threshold_value가 이미 원 단위인데 원문의 "억"을 잡아 이중 환산되는 버그가
+		// 난다(E2E에서 확인). unit이 비면 원 단위로 간주(factor 1).
+		factor := 1.0
+		switch {
+		case strings.Contains(r.Unit, "억"):
+			factor = 1e8
+		case strings.Contains(r.Unit, "천만"):
+			factor = 1e7
+		case strings.Contains(r.Unit, "백만"):
+			factor = 1e6
+		case strings.Contains(r.Unit, "천원"):
+			factor = 1e3
+		case strings.Contains(r.Unit, "만"): // "만원"(백만/천만은 위에서 이미 처리)
+			factor = 1e4
+		}
+		won := int64(num * factor)
+		if won > best {
+			best = won
+		}
+		found = true
+	}
+	return best, found
+}
+
+// trackRecordRecentYears — 실적 요구에서 "최근 N년" 기간 창을 뽑는다(없으면 0,false).
+func trackRecordRecentYears(reqs []noticeRequirement) (int, bool) {
+	for _, r := range reqs {
+		for _, txt := range []string{r.DisplayName, r.SourceText} {
+			if m := recentYearsRe.FindStringSubmatch(txt); m != nil {
+				if y, err := strconv.Atoi(m[1]); err == nil && y > 0 {
+					return y, true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+// evaluateTrackRecordRequirement — 공고 실적 요구를 회사 등록 실적과 대조한다.
+// 결과는 항상 REVIEW(over-PASS/FALSE-FAIL 방지) — 대조 결과를 4가지 사유
+// (충족추정/금액부족/기간부족/정보부족)로만 구분해 사람이 최종 확인하게 한다.
+// 회사 실적이 없으면 "정보부족"으로 회사정보 실적 등록을 안내한다(기존 회사정보
+// 실적 등록 UI 재사용 — 새 저장/업로드 파이프라인을 만들지 않는다).
+func (s *Server) evaluateTrackRecordRequirement(ctx context.Context, profileID string, reqs []noticeRequirement) conditionResult {
+	reqText := "수행실적 요구"
+	if len(reqs) > 0 && strings.TrimSpace(reqs[0].DisplayName) != "" {
+		reqText = reqs[0].DisplayName
+	}
+	cond := conditionResult{ConditionType: "수행실적", Severity: sevHARD, Result: condREVIEW, RequirementText: reqText}
+
+	amountReq, hasAmount := trackRecordAmountThreshold(reqs)
+	yearsReq, hasYears := trackRecordRecentYears(reqs)
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT COALESCE(project_name,''), contract_amount, COALESCE(period_end, contract_date), industry_field, COALESCE(is_completed,false)
+		FROM company_track_records WHERE company_profile_id = $1`, profileID)
+	if err != nil {
+		cond.Reason = "이 공고는 수행실적을 요구합니다 — 회사 실적 정보를 확인해주세요."
+		return cond
+	}
+	defer rows.Close()
+
+	type trec struct {
+		name     string
+		amount   sql.NullInt64
+		refDate  sql.NullTime
+		field    sql.NullString
+		complete bool
+	}
+	var recs []trec
+	for rows.Next() {
+		var t trec
+		if rows.Scan(&t.name, &t.amount, &t.refDate, &t.field, &t.complete) == nil {
+			recs = append(recs, t)
+		}
+	}
+
+	if len(recs) == 0 {
+		// 정보부족: 회사 실적이 아직 없음 → 회사정보 실적 등록으로 안내(자동 대조 예정).
+		cond.Reason = "이 공고는 수행실적을 요구합니다 — 회사정보에 완료한 사업 실적을 등록하면 금액·기간을 자동으로 대조해 드립니다."
+		return cond
+	}
+
+	// 대조: 요구 금액을 만족하는 실적 중 요구 기간(최근 N년) 내인 것이 하나라도 있으면 충족추정.
+	cutoff := time.Now().AddDate(-yearsReq, 0, 0)
+	var maxAmount int64
+	anyAmount := false
+	amountOK := !hasAmount // 금액 요구 없으면 금액은 통과로 간주
+	periodOK := !hasYears  // 기간 요구 없으면 기간은 통과로 간주
+	var evidences []string
+	for _, t := range recs {
+		if t.amount.Valid {
+			anyAmount = true
+			if t.amount.Int64 > maxAmount {
+				maxAmount = t.amount.Int64
+			}
+		}
+		amtPass := !hasAmount || (t.amount.Valid && t.amount.Int64 >= amountReq)
+		perPass := !hasYears || (t.refDate.Valid && !t.refDate.Time.Before(cutoff))
+		if amtPass {
+			amountOK = true
+		}
+		if perPass {
+			periodOK = true
+		}
+		// 근거 표기(최대 2건).
+		if len(evidences) < 2 && strings.TrimSpace(t.name) != "" {
+			ev := t.name
+			if t.amount.Valid {
+				ev += fmt.Sprintf("(%s원)", formatWonComma(t.amount.Int64))
+			}
+			evidences = append(evidences, ev)
+		}
+	}
+	if len(evidences) > 0 {
+		cond.CompanyEvidence = strings.Join(evidences, ", ")
+	}
+
+	switch {
+	case hasAmount && anyAmount && maxAmount < amountReq:
+		// 금액부족: 등록된 실적 최대 금액이 요구액에 못 미침(확정 아님 — 미등록 실적 가능).
+		cond.Reason = fmt.Sprintf("등록된 실적의 최대 금액(%s원)이 요구 금액(%s원)에 못 미칩니다 — 추가 실적이 있으면 등록해 확인해주세요.", formatWonComma(maxAmount), formatWonComma(amountReq))
+	case hasYears && !periodOK:
+		// 기간부족: 요구 기간(최근 N년) 내 실적을 확인하지 못함.
+		cond.Reason = fmt.Sprintf("요구 기간(최근 %d년) 내 실적을 확인하지 못했습니다 — 해당 기간 실적이 있으면 등록해 확인해주세요.", yearsReq)
+	case amountOK && periodOK:
+		// 충족추정: 금액·기간을 만족하는 실적이 있음(그래도 세부 유사성은 최종 확인 필요).
+		cond.Reason = "요구 실적을 충족하는 것으로 보입니다 — 공고의 유사성·세부 기준을 최종 확인해주세요."
+	default:
+		// 정보 일부 부족(예: 금액 요구가 있으나 등록 실적에 금액 정보가 없음).
+		cond.Reason = "수행실적이 등록돼 있으나 금액·기간 충족 여부를 확정할 수 없습니다 — 세부 정보를 확인해주세요."
+	}
+	return cond
+}
+
+// formatWonComma — 원 단위 정수를 천단위 콤마 문자열로.
+func formatWonComma(v int64) string {
+	s := strconv.FormatInt(v, 10)
+	neg := strings.HasPrefix(s, "-")
+	if neg {
+		s = s[1:]
+	}
+	n := len(s)
+	if n <= 3 {
+		if neg {
+			return "-" + s
+		}
+		return s
+	}
+	var b strings.Builder
+	pre := n % 3
+	if pre > 0 {
+		b.WriteString(s[:pre])
+		if n > pre {
+			b.WriteByte(',')
+		}
+	}
+	for i := pre; i < n; i += 3 {
+		b.WriteString(s[i : i+3])
+		if i+3 < n {
+			b.WriteByte(',')
+		}
+	}
+	if neg {
+		return "-" + b.String()
+	}
+	return b.String()
 }

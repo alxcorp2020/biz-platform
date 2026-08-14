@@ -160,6 +160,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/me/licenses", s.handleListLicenses)
 	mux.HandleFunc("POST /api/me/certifications", s.handleCreateCertification)
 	mux.HandleFunc("GET /api/me/certifications", s.handleListCertifications)
+	mux.HandleFunc("POST /api/me/direct-production", s.handleSetDirectProductionStatus)
 	mux.HandleFunc("POST /api/me/financials/documents", s.handleUploadFinancialDocument)
 	mux.HandleFunc("POST /api/me/financials", s.handleCreateFinancial)
 	mux.HandleFunc("GET /api/me/financials", s.handleListFinancials)

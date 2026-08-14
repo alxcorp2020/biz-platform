@@ -12590,7 +12590,7 @@ function renderParticipationJudgment(container, j, opts) {
       c.question.targets.forEach(name => questions.push({ kind: c.question.kind, category: c.question.category, name, condType: c.conditionType }));
     }
   });
-  const kindWord = { license: '면허', certification: '인증' };
+  const kindWord = { license: '면허', certification: '인증', directProduction: '직접생산확인' };
   // 목적격 조사: 마지막 글자 받침 유무로 을/를(면허→를, 인증→을).
   const objJosa = (w) => {
     const ch = (w || '').slice(-1).charCodeAt(0);
@@ -12626,7 +12626,7 @@ function renderParticipationJudgment(container, j, opts) {
       </div>
       <div class="cond-list">${rows}</div>
       ${questionsHtml}
-      <p class="cond-caveat">지역·업종·기업규모·면허·인증·직접생산확인 기준 자동 판정입니다. 실적·재무 등 그 밖의 참가자격은 공고 원문을 함께 확인해주세요.</p>
+      <p class="cond-caveat">지역·업종·기업규모·면허·인증·직접생산확인·수행실적 기준 자동 판정입니다. 재무·기술인력 등 그 밖의 참가자격은 공고 원문을 함께 확인해주세요.</p>
     </div>
   `));
 
@@ -12639,9 +12639,14 @@ function renderParticipationJudgment(container, j, opts) {
         if (answer === '모름') { qEl.remove(); return; }
         const kind = qEl.dataset.kind, category = qEl.dataset.category, name = qEl.dataset.name;
         qEl.querySelectorAll('.pj-answer-btn').forEach(b => b.disabled = true);
-        const endpoint = kind === 'certification' ? '/api/me/certifications' : '/api/me/licenses';
+        // 직접생산확인은 명칭 없는 단일 3-상태라 전용 엔드포인트(status만)로, 면허·인증은
+        // 명칭별로 회사 프로필 목록에 저장한다. 세 경로 모두 답변이 회사정보에 남아 재사용된다.
+        const isDirectProd = kind === 'directProduction';
+        const endpoint = isDirectProd ? '/api/me/direct-production'
+          : (kind === 'certification' ? '/api/me/certifications' : '/api/me/licenses');
+        const payload = isDirectProd ? { status: answer } : { category, name, status: answer };
         try {
-          await apiRequest('POST', endpoint, { category, name, status: answer });
+          await apiRequest('POST', endpoint, payload);
           showToast(answer === '보유' ? '보유로 저장했습니다 — 판정을 갱신합니다.' : '미보유로 저장했습니다.', 'success');
           if (opts.refetch) {
             const fresh = await opts.refetch();
