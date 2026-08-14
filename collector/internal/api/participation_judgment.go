@@ -119,6 +119,12 @@ func mapCategoryResult(result string) string {
 // buildParticipationJudgment은 기존 3요소 판정(score)에 면허/인증/직접생산확인을
 // 이어붙여 조건별 결과 + 종합 grade를 만든다. procurement 공고에서만 의미가 있다
 // (지원사업은 판정 기준이 달라 호출부에서 제외).
+// [Canonical eligibility core — STEP 1, 2026-08-14] buildParticipationJudgment은 신규 참가자격
+// 판정의 단일 진입점이다. 회사 측은 구조화 테이블(company_licenses/certifications,
+// direct_production_cert)을, 공고 측은 required_documents(+지역 enrichment)를 근거로 조건별
+// PASS/REVIEW/UNKNOWN을 산출한다(NOT_HELD와 UNKNOWN을 구분, 만료는 갱신필요→REVIEW).
+// 신규 판정 로직은 여기(또는 여기가 부르는 헬퍼)에만 추가하고, scoreNoticeForCompany/
+// eligibility.go에 판정 로직을 중복 구현하지 말 것.
 func (s *Server) buildParticipationJudgment(ctx context.Context, versionID, profileID string, score *participationScore, requiredDocs []requiredDocumentItem) *participationJudgment {
 	if score == nil || profileID == "" {
 		return nil
@@ -139,23 +145,23 @@ func (s *Server) buildParticipationJudgment(ctx context.Context, versionID, prof
 		})
 	}
 
-	// 2) 공고 요구 서류에서 면허/인증/직접생산 이름을 분류한다. 데이터 출처는
-	//    required_documents.document_name(document_extraction.go가 추출) — g2b
-	//    원문에 구조화된 "필수 면허" 필드가 없어서다(notice_license_match.go 참고).
+	// 2) 공고 요구 면허/인증/직접생산 이름을 Requirement Resolver로 정규화해 얻는다(STEP 1,
+	//    notice_requirements.go). Resolver가 required_documents + eligibility_conditions +
+	//    (허용면허)license_limits를 근거 보존·중복 제거해 합친다. 단 판정 소비는
+	//    judgmentConsumableRequirements로 required_documents/eligibility_conditions만 쓴다 —
+	//    license_limits(허용/OR 범위)를 개별 HARD 면허요건으로 오판하지 않도록 기존 판정 동작을
+	//    보존한다. versionID=="" (대시보드 추천 카드)면 Resolver는 requiredDocs만 정규화하므로
+	//    결과가 기존과 동일하다(회귀 없음).
 	var licenseNames, certNames []string
 	directProdRequired := false
-	for _, d := range requiredDocs {
-		n := strings.TrimSpace(d.DocumentName)
-		if n == "" {
-			continue
-		}
-		switch {
-		case strings.Contains(n, "직접생산"): // "직접생산확인증명서" 먼저 걸러 인증과 안 겹치게
+	for _, req := range judgmentConsumableRequirements(s.resolveNoticeRequirements(ctx, versionID, requiredDocs)) {
+		switch req.Type {
+		case reqTypeLicense:
+			licenseNames = append(licenseNames, req.DisplayName)
+		case reqTypeCertification:
+			certNames = append(certNames, req.DisplayName)
+		case reqTypeDirectProduction:
 			directProdRequired = true
-		case strings.Contains(n, "면허"):
-			licenseNames = append(licenseNames, n)
-		case strings.Contains(n, "인증서") || strings.Contains(n, "ISO"):
-			certNames = append(certNames, n)
 		}
 	}
 

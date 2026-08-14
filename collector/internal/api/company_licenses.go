@@ -5,6 +5,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -155,6 +156,84 @@ func (s *Server) handleCreateLicenseOrCertification(w http.ResponseWriter, r *ht
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id, "confidence": confidence})
+}
+
+// displayNamesWithFallback — STEP 1 read-side canonical화(2026-08-14). 회사정보 조회 시
+// 면허·인증 표시 목록을 구조화 테이블(canonical)에서 만든다: status='보유'인 이름(TRIM,
+// 중복제거)을 우선하고, legacy TEXT[] 중 구조화에 없는 이름만 fallback으로 뒤에 붙인다
+// (기존 운영 데이터 호환). 미보유/확인되지않음/삭제된 행은 표시에서 제외한다. 쿼리 실패
+// 시에는 회귀 방지를 위해 legacy 배열을 그대로 반환한다. table은 코드 리터럴(인젝션 무관).
+func (s *Server) displayNamesWithFallback(ctx context.Context, profileID, table string, legacy []string) []string {
+	rows, err := s.db.QueryContext(ctx,
+		fmt.Sprintf(`SELECT DISTINCT btrim(name) FROM %s WHERE company_profile_id = $1 AND status = '보유' AND btrim(name) <> ''`, table),
+		profileID,
+	)
+	if err != nil {
+		s.logger.Error("read-side canonical: structured names query failed", "error", err, "table", table)
+		return legacy
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	out := []string{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			continue
+		}
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	for _, raw := range legacy {
+		n := strings.TrimSpace(raw)
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out
+}
+
+// syncStructuredFromLegacyArray — STEP 1(회사정보 canonical 통일, 2026-08-14).
+// 회사정보 모달/PUT /api/me/company-profile은 면허·인증을 company_profiles.licenses/
+// certifications TEXT[]에만 저장해 왔는데, 실제 참가자격 판정(buildParticipationJudgment)은
+// 구조화 테이블(company_licenses/certifications)만 읽는다 — 그래서 모달로 등록한 면허가
+// 판정에서 무시되던 정합성 문제가 있었다(사전 진단 CRITICAL).
+//
+// 이 헬퍼는 프로필 배열(names)의 각 이름 중 구조화 테이블에 아직 "같은 이름(TRIM)"이 없는
+// 것만 status='보유', confidence='C'(직접입력·증빙 없음)로 추가한다 — additive·멱등이며
+// 파괴적 삭제/덮어쓰기를 하지 않는다(문서 증빙 B 또는 탭에서 등록한 구조화 행 보존, 중복 방지).
+// TEXT[]는 하위호환으로 계속 저장되고 legacy로 유지된다(이번 단계에서 즉시 삭제하지 않음).
+// best-effort: 실패해도 프로필 저장은 이미 끝났으므로 로그만 남기고 계속한다(saved_searches
+// 동기화와 동일 패턴). table/category는 코드 리터럴이므로 SQL 인젝션 우려 없음.
+func (s *Server) syncStructuredFromLegacyArray(ctx context.Context, profileID, table, category string, names []string) {
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		var exists bool
+		if err := s.db.QueryRowContext(ctx,
+			fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE company_profile_id = $1 AND btrim(name) = $2)`, table),
+			profileID, name,
+		).Scan(&exists); err != nil {
+			s.logger.Error("legacy->structured sync: existence check failed", "error", err, "table", table)
+			continue
+		}
+		if exists {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx,
+			fmt.Sprintf(`INSERT INTO %s (company_profile_id, category, name, confidence, status) VALUES ($1,$2,$3,'C','보유')`, table),
+			profileID, category, name,
+		); err != nil {
+			s.logger.Error("legacy->structured sync: insert failed", "error", err, "table", table)
+			continue
+		}
+	}
 }
 
 // handleListLicensesOrCertifications computes verificationExpired at read

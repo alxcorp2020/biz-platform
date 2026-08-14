@@ -134,6 +134,11 @@ type eligibilityItem struct {
 	Reason   string `json:"reason"`
 }
 
+// [LEGACY — STEP 1, 2026-08-14] POST /api/notices/{id}/evaluate. 현재 프론트에서 호출되지
+// 않으며(그래서 eligibility_conditions는 대부분 비어 있고 여기서 synthetic 조건을 auto-create),
+// 신규 참가자격 판정의 canonical core는 buildParticipationJudgment(participation_judgment.go)다.
+// 이 경로는 이번 단계에서 삭제하지 않되(후속 결정), 신규 판정에서 호출하거나 여기에 판정
+// 로직을 추가하지 말 것. eligibility_evaluations(판정 스냅샷)는 후속 STEP에서 재활용 검토.
 func (s *Server) handleEvaluateNotice(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {

@@ -112,6 +112,11 @@ func supportProgramScore() participationScore {
 	}
 }
 
+// [역할 확정 — STEP 1, 2026-08-14] scoreNoticeForCompany는 "관심 적합도 + 대시보드 호환"용
+// 경량 스코어러다: 지역/업종/예산 규모 3요소만으로 추천 등급(gradeRecommended 등)과
+// eligibilitySummary를 계산한다. **실제 참가자격(면허/인증/직접생산/실적) 판정의 canonical
+// core는 buildParticipationJudgment(participation_judgment.go)** 이며, 이 함수는 그 대체가
+// 아니다. 두 경로의 등급을 동일 의미로 혼용하지 말 것(추천 relevance ≠ 참가 eligibility).
 func scoreNoticeForCompany(notice noticeScoringInput, company companyScoringInput) participationScore {
 	if notice.NoticeType == noticeTypeSupportProgram {
 		return supportProgramScore()

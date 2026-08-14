@@ -472,8 +472,11 @@ func (s *Server) getCompanyProfile(r *http.Request, userID string) (*companyProf
 	} else if businessAgeYears.Valid {
 		p.BusinessAgeYears = &businessAgeYears.Float64
 	}
-	p.Licenses = []string(licenses)
-	p.Certifications = []string(certs)
+	// read-side canonical(STEP 1): 표시용 면허·인증 목록을 구조화 테이블(company_licenses/
+	// certifications)에서 만들고 legacy TEXT[]는 fallback으로만 쓴다 — 탭/모달/판정이 같은
+	// canonical 데이터를 보게 한다. 프론트 contract(string[])는 그대로 유지된다.
+	p.Licenses = s.displayNamesWithFallback(r.Context(), p.ID, "company_licenses", []string(licenses))
+	p.Certifications = s.displayNamesWithFallback(r.Context(), p.ID, "company_certifications", []string(certs))
 	p.EmployeeCountConfidence = nullStringPtr(employeeCountConfidence)
 	if employeeCountVerifiedAt.Valid {
 		p.EmployeeCountVerifiedAt = &employeeCountVerifiedAt.Time
@@ -778,5 +781,15 @@ func (s *Server) handleUpsertCompanyProfile(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		s.logger.Error("company-profile: reload failed", "error", err)
 	}
+
+	// STEP 1(회사정보 canonical 통일) — 모달/PUT이 방금 저장한 면허·인증(TEXT[])을
+	// 구조화 테이블(company_licenses/certifications, 판정이 읽는 곳)에도 반영한다.
+	// additive·멱등, 파괴적 삭제 없음. best-effort(실패해도 프로필 저장은 유지). TEXT[]는
+	// 하위호환으로 계속 저장되고 legacy로 유지된다(즉시 삭제 금지 — 사전 진단 결정).
+	if profile != nil {
+		s.syncStructuredFromLegacyArray(r.Context(), profile.ID, "company_licenses", "면허", req.Licenses)
+		s.syncStructuredFromLegacyArray(r.Context(), profile.ID, "company_certifications", "인증", req.Certifications)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"companyProfile": profile})
 }
