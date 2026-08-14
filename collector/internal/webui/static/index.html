@@ -7539,19 +7539,25 @@ function renderDashboard(container, data) {
     trackRecord:      { tab: 'trackRecords', focus: '' },
   };
   const deepHref = (tab, focus) => '#/me/company?tab=' + encodeURIComponent(tab || 'basic') + (focus ? '&focus=' + encodeURIComponent(focus) : '');
+  // 영향도 tier(낮을수록 판정에 직접적) — 지역/업종/기업규모/면허/인증=판정 직접 반영(0),
+  // 직접생산확인=요구 시 확인(1), 수행실적=grade 미사용·참고(2). count가 전부 0(미상)일 때
+  // 배열 순서로 수행실적이 "가장 중요"로 올라가던 문제를 이 tier를 1차 정렬키로 써서 방지한다.
+  const MISSING_IMPACT_TIER = { industry: 0, region: 0, companySize: 0, license: 0, certification: 0, directProduction: 1, trackRecord: 2 };
   const missingRanked = [];
   const mfc = eg.missingFieldCounts || {};
   Object.keys(FIELD_DEEP).forEach(k => {
     const m = FIELD_DEEP[k];
     const cnt = mfc[k] || 0;
-    if (cnt > 0) missingRanked.push({ label: m.label, count: cnt, hasCount: true, href: deepHref(m.tab, m.focus) });
-    else if ((eg.missingFields || []).includes(k)) missingRanked.push({ label: m.label, count: 0, hasCount: false, href: deepHref(m.tab, m.focus) });
+    if (cnt > 0) missingRanked.push({ key: k, label: m.label, count: cnt, hasCount: true, tier: MISSING_IMPACT_TIER[k] != null ? MISSING_IMPACT_TIER[k] : 9, href: deepHref(m.tab, m.focus) });
+    else if ((eg.missingFields || []).includes(k)) missingRanked.push({ key: k, label: m.label, count: 0, hasCount: false, tier: MISSING_IMPACT_TIER[k] != null ? MISSING_IMPACT_TIER[k] : 9, href: deepHref(m.tab, m.focus) });
   });
   (data.documentRequirementGaps || []).forEach(g => {
     const d = GAP_DEEP[g.category] || { tab: 'basic', focus: '' };
-    missingRanked.push({ label: g.label, count: g.noticeCount || 0, hasCount: (g.noticeCount || 0) > 0, href: deepHref(d.tab, d.focus) });
+    missingRanked.push({ key: g.category, label: g.label, count: g.noticeCount || 0, hasCount: (g.noticeCount || 0) > 0, tier: MISSING_IMPACT_TIER[g.category] != null ? MISSING_IMPACT_TIER[g.category] : 9, href: deepHref(d.tab, d.focus) });
   });
-  missingRanked.sort((a, b) => (Number(b.hasCount) - Number(a.hasCount)) || (b.count - a.count));
+  // 정렬: 영향도 tier(오름) → 실건수 유무(내림) → 건수(내림). tier가 최우선이라 수행실적(2)이
+  // 면허·인증·지역·업종(0)보다 위로 오지 않는다.
+  missingRanked.sort((a, b) => (a.tier - b.tier) || (Number(b.hasCount) - Number(a.hasCount)) || (b.count - a.count));
 
   // ① 인사 + 핵심 메시지(§3) — 검토 대상 = 추천 공고 수(실데이터). 부족정보 CTA = 영향도 1위.
   const recCount = recommendations.length;
@@ -7669,7 +7675,7 @@ function dashBlockingItemHtml(m, isPrimary) {
   return `
     <div class="dashv2-block-item${isPrimary ? ' is-primary' : ''}">
       <div class="dashv2-block-main">
-        <div class="dashv2-block-lbl">${escapeHtml(m.label)}${isPrimary ? '<span class="dashv2-block-tag">가장 중요</span>' : ''}</div>
+        <div class="dashv2-block-lbl">${escapeHtml(m.label)}${isPrimary && m.hasCount ? '<span class="dashv2-block-tag">가장 중요</span>' : ''}</div>
         <div class="dashv2-block-impact">${impact}</div>
       </div>
       <a href="${escapeAttr(m.href)}" class="${isPrimary ? 'btn btn-primary btn-sm' : 'dashv2-block-cta'}">등록하기 &rarr;</a>
