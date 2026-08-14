@@ -1314,8 +1314,10 @@
   /* ===== 대시보드 V2(2026-08-14) — "내 회사 기회" 중심 정보구조 재설계 =====
      타이포 위계(hero/section/value/body/label) + 의미 단위 여백 + 최소 border(divider 중심).
      색: blue=주요행동/선택, amber=확인필요, red=마감/위험, neutral=나머지. #detail-body와 무관. */
-  .dashboard-v2 { gap: 2.75rem; }
+  .dashboard-v2 { gap: 1.5rem; }
   .dashboard-v2 > #dashboard-profile-banner:empty { display: none; }
+  /* 섹션을 감싸는 흰 카드(Hero·판정 막는 정보·오늘 할 일). 회색 캔버스 위 흰 surface + 은은한 shadow. */
+  .dashv2-card { background: var(--surface); border-radius: 20px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(17,24,39,0.05); }
   /* ① 인사/핵심 메시지 */
   .dashv2-hero-hi { margin: 0 0 0.5rem; font-size: 0.95rem; color: var(--ink-soft); }
   .dashv2-hero-headline { margin: 0; font-size: 1.75rem; font-weight: 700; line-height: 1.3; letter-spacing: -0.02em; color: var(--ink); }
@@ -1354,8 +1356,10 @@
   .dashv2-blocking { display: flex; flex-direction: column; }
   .dashv2-block-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.15rem 0; border-top: 1px solid var(--border-soft); }
   .dashv2-block-item:first-child { border-top: none; padding-top: 0.25rem; }
-  .dashv2-block-item.is-primary { border-top: none; background: var(--accent-blue-soft, rgba(49,130,246,0.06)); border-radius: 14px; padding: 1.15rem 1.25rem; margin-bottom: 0.5rem; }
-  .dashv2-block-item.is-primary + .dashv2-block-item { border-top: none; padding-top: 0.25rem; }
+  /* Primary는 카드 폭 가득 채우는 tint 밴드 — 좌우 negative margin으로 카드 패딩을 상쇄하고
+     같은 값의 padding으로 콘텐츠를 되돌려, 라벨·버튼이 아래 일반 행들과 정확히 정렬된다. */
+  .dashv2-card .dashv2-block-item.is-primary { border-top: none; background: var(--accent-blue-soft, rgba(49,130,246,0.06)); margin: 0 -1.5rem 0.4rem; padding: 1.15rem 1.5rem; border-radius: 0; }
+  .dashv2-block-item.is-primary + .dashv2-block-item { border-top: none; padding-top: 1.15rem; }
   .dashv2-block-main { min-width: 0; }
   .dashv2-block-lbl { display: flex; align-items: center; gap: 0.5rem; font-size: 1rem; font-weight: 600; color: var(--ink); }
   .dashv2-block-tag { font-size: 0.72rem; font-weight: 700; color: var(--accent-blue); background: var(--accent-blue-soft, rgba(49,130,246,0.1)); padding: 0.12rem 0.5rem; border-radius: 999px; white-space: nowrap; }
@@ -1388,6 +1392,7 @@
   /* 다크: 흰 캔버스 대비가 없어 shadow가 안 보이므로 hairline border로 카드 경계를 준다 */
   :root[data-theme="dark"] .dashv2-kpi,
   :root[data-theme="dark"] .dashv2-oppcard,
+  :root[data-theme="dark"] .dashv2-card,
   :root[data-theme="dark"] .dashboard-v2 .detail-card,
   :root[data-theme="dark"] .dashboard-v2 .dash-automation-card,
   :root[data-theme="dark"] .dashboard-v2 .dash-growth-card { border: 1px solid var(--border-soft); box-shadow: none; }
@@ -7575,7 +7580,7 @@ function renderDashboard(container, data) {
       <a href="${escapeAttr(topMiss.href)}" class="btn btn-primary dashv2-hero-cta">${escapeHtml(topMiss.label)}정보 등록하기 &rarr;</a>`;
   }
   const heroHtml = `
-    <section class="dashv2-hero">
+    <section class="dashv2-hero dashv2-card">
       <p class="dashv2-hero-hi">안녕하세요.</p>
       <h2 class="dashv2-hero-headline">${headline}</h2>
       ${heroMissHtml}
@@ -7607,7 +7612,7 @@ function renderDashboard(container, data) {
       : '회사정보를 등록하면 더 정확한 참여판정을 받을 수 있어요.';
     const rows = missingRanked.slice(0, 5).map((m, i) => dashBlockingItemHtml(m, i === 0)).join('');
     blockingHtml = `
-      <section class="dashv2-section">
+      <section class="dashv2-section dashv2-card">
         <div class="dashv2-section-head"><h3>판정을 막고 있는 정보</h3><p>${summaryLine}</p></div>
         <div class="dashv2-blocking">${rows}</div>
       </section>`;
@@ -7615,7 +7620,7 @@ function renderDashboard(container, data) {
 
   // ④ 오늘 할 일(§13) — 기존 priorityItems/homeListRowHtml 그대로(기능·CTA 보존).
   const todoHtml = items.length ? `
-    <section class="dashv2-section">
+    <section class="dashv2-section dashv2-card">
       <div class="dashv2-section-head"><h3>오늘 할 일</h3></div>
       <div class="home-list">${items.map(homeListRowHtml).join('')}</div>
     </section>` : '';
