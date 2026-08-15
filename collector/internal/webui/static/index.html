@@ -2503,20 +2503,29 @@
   .pp-head-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; font-size: 0.9rem; color: var(--ink-soft); }
   .pp-deadline { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--ink); }
   .pp-progress strong { color: var(--accent-blue); font-weight: 800; }
-  .pp-section-title { margin: 1.25rem 0 0.6rem; font-size: 1.05rem; }
-  .pp-collapse { margin: 0.9rem 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+  /* 단일 콘텐츠 컬럼: main>*로 이 래퍼 하나만 가운데정렬되고, 내부 섹션은 flex column+gap으로
+     좌우 edge와 세로 간격을 통일한다(자식의 좌우 margin은 0으로 리셋 — 축약형 margin이
+     auto 정렬을 덮어쓰던 버그의 근본 차단). */
+  .pipeline-detail-page { display: flex; flex-direction: column; gap: 1rem; }
+  .pipeline-detail-page > * { margin-left: 0; margin-right: 0; margin-top: 0; margin-bottom: 0; }
+  .pipeline-detail-page > .back-link { align-self: flex-start; }
+  .pipeline-detail-page > .pp-section-title { margin-top: 0.4rem; margin-bottom: -0.4rem; }
+  .pp-section-title { font-size: 1.05rem; }
+  .pp-collapse { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
   .pp-collapse > summary { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; padding: 0.8rem 1rem; cursor: pointer; font-size: 0.92rem; font-weight: 700; color: var(--ink); list-style: none; }
   .pp-collapse > summary::-webkit-details-marker { display: none; }
   .pp-collapse > summary::after { content: none; }
   .pp-collapse-cta { font-size: 0.82rem; font-weight: 600; color: var(--accent-blue); white-space: nowrap; }
   .pp-collapse-cta::after { content: ' ▾'; }
-  .pp-collapse[open] > .pp-collapse-cta::after, .pp-collapse[open] > summary .pp-collapse-cta::after { content: ' ▴'; }
+  .pp-collapse[open] > summary .pp-collapse-cta::after { content: ' ▴'; }
+  .pp-collapse[open] > summary .pp-cta-closed { display: none; }
+  .pp-collapse:not([open]) > summary .pp-cta-open { display: none; }
   .pp-collapse > *:not(summary) { padding: 0 1rem 1rem; }
   .pp-collapse > form.profile-form { margin-top: 0; }
   .pp-workinfo .calendar-add-link { display: inline-block; margin: 0.4rem 1rem 0.6rem; }
   .pp-workinfo .pipeline-cancel-btn { margin: 0 1rem 1rem; }
   .pipeline-judgment-collapse.pp-collapse > summary { color: var(--ink); font-weight: 700; }
-  .pp-action-secondary { margin: 0.4rem 0 1.2rem; }
+  .pp-action-secondary { margin-bottom: 0.4rem; }
   .pp-action-secondary .pipeline-action-bar { margin: 0; }
   .pp-action-secondary .pipeline-action-btn--primary { background: var(--surface); color: var(--ink-soft); border-color: var(--border); font-weight: 600; }
   .pp-action-secondary .pipeline-action-btn--primary:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
@@ -9327,10 +9336,12 @@ async function renderPipelineDetail(container, id, uiState) {
   const judgmentSummaryLabel = prep.reviewCount
     ? `참여 조건 · 확인 필요 ${prep.reviewCount}개`
     : (hasJudgment ? '참여 조건 · 확인할 것 없음' : '참여 조건');
+  // 접기/펼치기 문구는 details[open] 상태와 CSS로 동기화(닫힘=펼치기/자세히 보기, 열림=접기).
+  const collapseCta = openLabel => `<span class="pp-collapse-cta"><span class="pp-cta-closed">${escapeHtml(openLabel)}</span><span class="pp-cta-open">접기</span></span>`;
   const judgmentSlotHtml = hasJudgment
     ? (judgmentActive
         ? '<div id="pipeline-judgment-section"></div>'
-        : `<details class="pipeline-judgment-collapse pp-collapse"><summary><span>${escapeHtml(judgmentSummaryLabel)}</span><span class="pp-collapse-cta">자세히 보기</span></summary><div id="pipeline-judgment-section"></div></details>`)
+        : `<details class="pipeline-judgment-collapse pp-collapse"><summary><span>${escapeHtml(judgmentSummaryLabel)}</span>${collapseCta('자세히 보기')}</summary><div id="pipeline-judgment-section"></div></details>`)
     : '';
 
   // 공고 기본정보(§19-2): 제목·기관·마감(최신 canonical 우선, STEP 6)·준비 진행률.
@@ -9366,7 +9377,7 @@ async function renderPipelineDetail(container, id, uiState) {
   // 업무정보(§10): 낙찰금액/담당자/메모/저장 — 접어서 하단으로. 기존 폼/저장 API 그대로.
   const workInfoHtml = `
     <details class="pp-collapse pp-workinfo" id="pipeline-workinfo"${entry.status === '낙찰' ? ' open' : ''}>
-      <summary><span>업무 정보</span><span class="pp-collapse-cta">펼치기</span></summary>
+      <summary><span>업무 정보</span>${collapseCta('펼치기')}</summary>
       <form id="pipeline-entry-form" class="profile-form">
         <label>낙찰 금액(원)<input type="text" inputmode="numeric" name="awardedAmount" value="${escapeAttr(formatCurrency(entry.awardedAmount))}" placeholder="낙찰된 경우 실제 계약금액을 입력해주세요 (성장분석 ROI에 반영됩니다)"></label>
         <div id="assignee-section">${assigneeSectionHtml(entry)}</div>
@@ -9385,11 +9396,16 @@ async function renderPipelineDetail(container, id, uiState) {
   // 다음 할 일 히어로 → 체크리스트 → 참여 조건(접힘) → 업무정보(접힘).
   const checklistCollapsed = isSubmitted || isTerminal;
   const checklistSectionHtml = checklistCollapsed
-    ? `<details class="pp-collapse"><summary><span>준비 내역</span><span class="pp-collapse-cta">펼치기</span></summary><div id="pipeline-checklist-section"></div></details>`
+    ? `<details class="pp-collapse"><summary><span>준비 내역</span>${collapseCta('펼치기')}</summary><div id="pipeline-checklist-section"></div></details>`
     : `<h3 id="pipeline-checklist-title" class="pp-section-title">준비할 항목</h3><div id="pipeline-checklist-section"></div>`;
 
   container.innerHTML = '';
+  // 레이아웃(2026-08-15 육안 검수 보정): 상세 본문 전체를 단일 콘텐츠 컬럼(.pipeline-detail-page)
+  // 하나로 감싼다. 이전엔 각 섹션이 main>*로 개별 가운데정렬됐는데, 접힘 카드/제목/보조 CTA의
+  // `margin: x 0 y` 축약형이 main>*의 margin-left/right:auto를 덮어써 넓은 화면(≥~1384px)에서
+  // 상단 카드는 중앙, 하단 카드는 왼쪽으로 어긋났다(맞춤공고 .saved-search-page와 같은 원인·해법).
   container.appendChild(h(`
+    <div class="pipeline-detail-page">
     <a href="#/pipeline" class="back-link">&larr; 참여 준비 목록으로</a>
     ${noticeChangesAlertHtml(data.noticeChanges, entry, checklist)}
     <div class="detail-card pp-head">
@@ -9407,6 +9423,7 @@ async function renderPipelineDetail(container, id, uiState) {
     ${judgmentActive ? '' : judgmentSlotHtml}
     ${workInfoHtml}
     ${actionBottomHtml}
+    </div>
   `));
 
   // 준비 완료 카드 안에 [제출했어요]를 다음 CTA로(§16). 기존 action-btn 핸들러 재사용.
