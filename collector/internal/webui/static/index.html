@@ -2471,6 +2471,15 @@
   .pipeline-judgment-collapse > summary::after { content: ' ▾'; color: var(--ink-soft); font-weight: 400; }
   .pipeline-judgment-collapse[open] > summary::after { content: ' ▴'; }
   /* 준비중 사업 상단 "제출 준비" 요약 */
+  /* STEP 5: 판정 확인 통합(✅ 자동 확인 / ⚠️ 미보유 경고 / 완료 안내) */
+  .prep-warn { margin: 0 0 0.8rem; padding: 0.7rem 0.85rem; background: rgba(220,38,38,0.06); border: 1px solid rgba(220,38,38,0.25); border-radius: 10px; font-size: 0.9rem; font-weight: 700; color: var(--danger, #d33); display: flex; flex-direction: column; gap: 0.3rem; }
+  .prep-warn-sub { font-weight: 400; font-size: 0.85rem; color: var(--ink-soft, #57606a); line-height: 1.5; overflow-wrap: anywhere; }
+  .prep-jdone { list-style: none; margin: 0.7rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+  .prep-jdone li { font-size: 0.88rem; color: var(--ink, #1f2328); }
+  .prep-jdone-sub { color: var(--ink-mute, #8a8f98); font-size: 0.82rem; margin-left: 0.25rem; }
+  .prep-done-caveat { margin: 0.2rem 0 0.6rem; font-size: 0.82rem; color: var(--ink-mute, #8a8f98); }
+  .checklist-done-btn { margin-left: 0.4rem; white-space: nowrap; }
+  :root[data-theme="dark"] .prep-warn { background: rgba(220,38,38,0.12); }
   .prep-summary-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
   .prep-summary-head h3 { margin: 0; }
   .prep-pct { font-size: 0.95rem; font-weight: 800; color: var(--accent-blue); }
@@ -8953,42 +8962,112 @@ async function renderAIUsage(container) {
 // →확인 순)를 그대로 재사용해, 사용자가 폼/체크리스트까지 스크롤하지 않고도 "지금
 // 할 일 N건 + 상위 항목 + 준비율"을 제목 아래에서 바로 보게 한다. 데이터가 없으면
 // (분석 전) 생략 — 체크리스트 섹션의 빈 상태 안내가 이유를 대신 설명한다.
-function pipelinePrepSummaryHtml(checklist, entry) {
+// pipelinePrepSummaryHtml — 준비중 상태의 "다음 행동" 요약. STEP 5(2026-08-15):
+// 서류 체크리스트에 더해 참여판정(judgment)의 미확인 조건을 "확인할 것"으로 통합한다.
+// 판정 조건은 DB 체크리스트로 복제 저장하지 않는다(§10 — 의미가 다르고, 회사정보가
+// canonical이라 복제하면 stale 위험). 표시 계층에서만 합성: PASS+회사근거=✅ 확인 완료,
+// REVIEW+질문/실적 미충족=행동형 할 일(내부 판정 문구를 그대로 노출하지 않는다 §6).
+// 우선순위(§14): 참가를 막을 수 있는 미확인 조건(판정) > 서류(갱신>발급/작성>확인).
+function pipelinePrepSummaryHtml(checklist, entry, judgment) {
   const items = checklist || [];
-  if (!items.length) return '';
+  const conds = (judgment && judgment.conditions) || [];
+  // 판정 → 확인 완료(자동) / 확인할 것(행동형). 기존 STEP 2/3 UX로 연결(§27/§28):
+  // CTA는 같은 화면의 판정 영역으로 스크롤(질문 버튼·실적 등록 CTA가 그 안에 있음).
+  const termLabel = t => (typeof PJ_CONDITION_TERM !== 'undefined' && PJ_CONDITION_TERM[t]) ? PJ_CONDITION_TERM[t].label : t;
+  const jDone = conds.filter(c => c.result === 'PASS' && c.companyEvidence)
+    .map(c => ({ label: termLabel(c.conditionType) }));
+  const jTodos = [];
+  let notHeldWarn = '';
+  conds.forEach(c => {
+    if (c.result !== 'REVIEW') return;
+    if ((c.reason || '').includes('미보유로 등록')) {
+      // §15: 회사정보상 명시적 미보유 — 정상 진행처럼 보이지 않게 경고로 승격.
+      notHeldWarn = c.reason;
+      return;
+    }
+    if (c.conditionType === '수행실적' && !(c.reason || '').includes('충족하는 것으로 보입니다')) {
+      jTodos.push({ act: '완료한 사업 실적을 등록하세요.', cta: '실적 확인하기' });
+      return;
+    }
+    if (c.question && Array.isArray(c.question.targets) && c.question.targets.length) {
+      const t = c.question.targets;
+      const name = t[0] + (t.length > 1 ? ` 외 ${t.length - 1}건` : '');
+      jTodos.push({ act: `${name} 보유 여부를 확인하세요.`, cta: '확인하기' });
+    }
+  });
+
   const done = items.filter(it => it.status === '보유');
   const actionable = items.filter(it => it.status !== '보유');
   const total = items.length;
   const prepPct = total ? Math.round(done.length / total * 100) : 0;
+  if (!total && !jTodos.length && !jDone.length && !notHeldWarn) return '';
   const order = { '갱신필요': 0, '발급필요': 1, '신규작성': 1, '확인필요': 2 };
   actionable.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
   const shortAction = it => it.status === '갱신필요' ? '갱신 확인' : it.status === '신규작성' ? '양식 작성' : it.status === '발급필요' ? '발급·등록' : '확인';
   const ddayHtml = entry.submissionDeadline ? `${ddayBadgeHtml(entry.submissionDeadline)}<span class="prep-deadline mono">${escapeHtml(entry.submissionDeadline)}</span>` : '';
+
+  // 판정 확인 요약 줄(✅ 자동 확인 / ⚠️ 미보유 경고) — 진행률에 합산하지 않는다
+  // (§20: 진행률은 실제 체크리스트 항목 수 기반, 임의 가중치 금지).
+  const warnHtml = notHeldWarn ? `
+    <div class="prep-warn">⚠️ 참여 전에 확인이 필요합니다.<span class="prep-warn-sub">${escapeHtml(notHeldWarn)}</span><a href="#/me/company" class="official-link">회사정보 수정 &rarr;</a></div>` : '';
+  const jDoneHtml = jDone.length ? `
+    <ul class="prep-jdone">${jDone.slice(0, 4).map(d => `<li>✅ ${escapeHtml(d.label)} <span class="prep-jdone-sub">등록된 회사정보로 확인했습니다.</span></li>`).join('')}</ul>` : '';
+
   // Phase 1(§3): "상태 관리"가 아니라 "다음 행동" 화면. 우선순위 1위 한 건을 히어로로
-  // 크게(지금 할 일), 나머지는 아래 목록으로. 우선순위/준비율/마감 로직은 그대로 재사용.
-  if (!actionable.length) {
+  // 크게(지금 할 일), 나머지는 아래 목록으로. 판정 확인이 서류보다 우선(§14).
+  // STEP 5 안전조건: 체크리스트 100%여도 ①판정 기반 할 일(jTodos)이 남았거나
+  // ②명시적 미보유(NOT_HELD) 경고가 있으면 "참여 준비 완료"를 표시하지 않는다 —
+  // 서류 보유율과 참가자격 해소는 다른 문제다. 미보유는 할 일 목록이 아니라
+  // 경고로 다루므로(회사정보 수정이 먼저) 완료 판정에서 별도로 확인한다.
+  if (!actionable.length && !jTodos.length && notHeldWarn) {
+    return `
+      <div class="detail-card prep-summary-card">
+        <div class="prep-summary-head"><h3>참여 준비</h3><span class="prep-pct">서류 준비 ${prepPct}% <span class="prep-pct-sub">(${done.length}/${total})</span></span></div>
+        ${ddayHtml ? `<p class="prep-deadline-row">제출 마감 ${ddayHtml}</p>` : ''}
+        ${warnHtml}${jDoneHtml}
+        <p class="prep-lead">서류 준비는 끝났지만, 참여 전에 위 항목을 확인해야 합니다.</p>
+        <button type="button" class="official-link prep-jump" data-scroll-to="pipeline-judgment-section">참여판정 자세히 보기 &rarr;</button>
+      </div>`;
+  }
+  if (!actionable.length && !jTodos.length) {
     return `
       <div class="detail-card prep-summary-card prep-summary-card--done">
-        <div class="prep-summary-head"><h3>제출 준비</h3><span class="prep-pct">서류 준비 ${prepPct}% <span class="prep-pct-sub">(${done.length}/${total})</span></span></div>
+        <div class="prep-summary-head"><h3>참여 준비</h3><span class="prep-pct">서류 준비 ${prepPct}% <span class="prep-pct-sub">(${done.length}/${total})</span></span></div>
         ${ddayHtml ? `<p class="prep-deadline-row">제출 마감 ${ddayHtml}</p>` : ''}
-        <p class="prep-lead prep-lead--done">추가로 준비할 서류가 없어요. 제출 준비가 끝났습니다.</p>
+        ${warnHtml}${jDoneHtml}
+        <p class="prep-lead prep-lead--done">참여 준비가 완료되었습니다.</p>
+        <p class="prep-done-caveat">제출 전 공고문과 최종 서류를 한 번 더 확인하세요.</p>
         <button type="button" class="official-link prep-jump" data-scroll-to="pipeline-checklist-section">체크리스트 보기 &rarr;</button>
       </div>`;
   }
-  const top = actionable[0];
-  const rest = actionable.slice(1, 4);
+  // 히어로: 판정 확인(참가를 막을 수 있는 미확인)이 최우선, 다음이 서류.
+  const heroFromJudgment = jTodos.length > 0;
+  const top = heroFromJudgment ? jTodos[0] : actionable[0];
+  const heroDoc = heroFromJudgment ? top.act : top.documentName;
+  const heroSub = heroFromJudgment ? '' : shortAction(top);
+  const heroCtaLabel = heroFromJudgment ? top.cta : '준비 계속하기';
+  const heroScrollTo = heroFromJudgment ? 'pipeline-judgment-section' : 'pipeline-checklist-section';
+  const restJ = heroFromJudgment ? jTodos.slice(1) : jTodos;
+  const restDocs = (heroFromJudgment ? actionable : actionable.slice(1)).slice(0, 4 - Math.min(restJ.length, 2));
+  const restCount = restJ.length + (heroFromJudgment ? actionable.length : actionable.length - 1);
   return `
     <div class="detail-card prep-summary-card">
+      ${warnHtml}
       <div class="prep-hero">
         <div class="prep-hero-eyebrow">지금 할 일</div>
-        <div class="prep-hero-doc">${escapeHtml(top.documentName)}</div>
-        <div class="prep-hero-sub">${escapeHtml(shortAction(top))}</div>
-        <div class="prep-hero-meta"><span>제출 준비 <strong>${done.length}/${total}</strong></span>${ddayHtml ? `<span>마감 ${ddayHtml}</span>` : ''}</div>
-        <button type="button" class="btn btn-primary prep-jump" data-scroll-to="pipeline-checklist-section">준비 계속하기</button>
+        <div class="prep-hero-doc">${escapeHtml(heroDoc)}</div>
+        ${heroSub ? `<div class="prep-hero-sub">${escapeHtml(heroSub)}</div>` : ''}
+        <div class="prep-hero-meta"><span>서류 준비 <strong>${done.length}/${total}</strong></span>${ddayHtml ? `<span>마감 ${ddayHtml}</span>` : ''}</div>
+        <button type="button" class="btn btn-primary prep-jump" data-scroll-to="${heroScrollTo}">${escapeHtml(heroCtaLabel)}</button>
       </div>
-      ${rest.length ? `<div class="prep-rest">
+      ${jDoneHtml}
+      ${(restJ.length || restDocs.length) ? `<div class="prep-rest">
         <span class="prep-rest-lbl">남은 할 일</span>
-        <ul class="prep-todo">${rest.map(it => `<li><span class="prep-doc">${escapeHtml(it.documentName)}</span><span class="prep-act">${escapeHtml(shortAction(it))}</span></li>`).join('')}${actionable.length > 4 ? `<li class="prep-more">외 ${actionable.length - 4}건</li>` : ''}</ul>
+        <ul class="prep-todo">
+          ${restJ.slice(0, 2).map(t => `<li><span class="prep-doc">${escapeHtml(t.act)}</span><span class="prep-act">확인</span></li>`).join('')}
+          ${restDocs.map(it => `<li><span class="prep-doc">${escapeHtml(it.documentName)}</span><span class="prep-act">${escapeHtml(shortAction(it))}</span></li>`).join('')}
+          ${restCount > restJ.slice(0, 2).length + restDocs.length ? `<li class="prep-more">외 ${restCount - restJ.slice(0, 2).length - restDocs.length}건</li>` : ''}
+        </ul>
       </div>` : ''}
     </div>`;
 }
@@ -9107,7 +9186,7 @@ async function renderPipelineDetail(container, id) {
       <p class="detail-eyebrow">${escapeHtml(entry.organizationName || '-')}</p>
       <h2><a href="#/notices/${escapeAttr(entry.noticeId)}">${escapeHtml(entry.noticeTitle)}</a></h2>
       ${judgmentSlotHtml}
-      ${entry.status === '준비중' ? pipelinePrepSummaryHtml(checklist, entry) : ''}
+      ${entry.status === '준비중' ? pipelinePrepSummaryHtml(checklist, entry, pj) : ''}
       <div class="pipeline-step-summary">${pipelineStepIndicatorHtml(entry.status)}${pipelineResultBadgeHtml(entry)}</div>
       ${pipelineOfficialResultHtml(entry)}
       ${pipelineActionBarHtml(entry)}
@@ -9146,13 +9225,17 @@ async function renderPipelineDetail(container, id) {
 
   // "준비할 것 자세히 보기" → 같은 화면의 체크리스트 섹션으로 스크롤(해시 라우팅을
   // 건드리지 않도록 href 대신 scrollIntoView 사용).
-  const prepJump = container.querySelector('.prep-jump');
-  if (prepJump) {
+  // STEP 5: prep-jump가 여러 개(히어로/완료카드) + 판정 영역으로도 이동 —
+  // 판정이 접혀 있으면(details) 펼친 뒤 스크롤한다.
+  container.querySelectorAll('.prep-jump').forEach(prepJump => {
     prepJump.addEventListener('click', () => {
       const target = document.getElementById(prepJump.dataset.scrollTo);
-      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (!target) return;
+      const collapsed = target.closest('details');
+      if (collapsed) collapsed.open = true;
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
-  }
+  });
 
   // ics 다운로드는 일반 <a download> 링크라 완료 이벤트를 JS로 알 방법이
   // 없다(브라우저가 네이티브로 처리) — 클릭 시점에 "다운로드를
@@ -9257,7 +9340,7 @@ async function renderPipelineDetail(container, id) {
     }
   });
 
-  renderPipelineChecklist(document.getElementById('pipeline-checklist-section'), id, checklist, data.documentAnalysisStatus, entry.noticeId);
+  renderPipelineChecklist(document.getElementById('pipeline-checklist-section'), id, checklist, data.documentAnalysisStatus, entry.noticeId, () => renderPipelineDetail(container, id));
 }
 
 // assigneeSectionHtml/wireAssigneeSection — 2026-08-06, 담당자-회원계정 FK
@@ -9401,7 +9484,7 @@ function wireLoadContactButton(container) {
 // 끝났거나 애초에 첨부파일이 없어 더 안 채워짐) 2가지로만 단순화해서
 // 보여준다 — 참가자격 요건/제출서류 탭의 4단계 세분화와 달리 여기는
 // "그래서 지금 뭘 해야 하나"가 중요해 두 갈래면 충분하다는 판단.
-function renderPipelineChecklist(container, entryId, items, analysisStatus, noticeId) {
+function renderPipelineChecklist(container, entryId, items, analysisStatus, noticeId, onChanged) {
   container.innerHTML = '';
   if (!items.length) {
     const isWaiting = analysisStatus === 'extracting_text' || analysisStatus === 'awaiting_structured_extraction';
@@ -9476,6 +9559,7 @@ function renderPipelineChecklist(container, entryId, items, analysisStatus, noti
         <span class="checklist-item-hint">${escapeHtml(m.hint)}</span>
       </div>
       <a class="btn btn-secondary btn-sm checklist-item-cta" href="${m.href}">${escapeHtml(m.ctaLabel)}</a>
+      <button type="button" class="btn btn-primary btn-sm checklist-done-btn" data-item-id="${escapeAttr(it.id)}">완료</button>
       ${manualHtml(it)}
     </div>`;
   };
@@ -9508,11 +9592,34 @@ function renderPipelineChecklist(container, entryId, items, analysisStatus, noti
         await apiRequest('PATCH',
           '/api/pipeline/' + encodeURIComponent(entryId) + '/checklist/' + encodeURIComponent(itemId),
           { status: sel.value });
+        // STEP 5: 상태 변경(완료 취소 포함) 후 요약/다음 행동/진행률을 다시 계산해
+        // 화면을 갱신한다(전체 페이지 reload 없음 — 상세 재렌더만).
+        if (onChanged) { onChanged(); return; }
       } catch (err) {
         sel.value = originalValue;
         if (err.status === 401) { location.hash = '#/auth/login'; return; }
       } finally {
         sel.disabled = false;
+      }
+    });
+  });
+
+  // STEP 5(§18): [완료] 버튼 — 기존 checklist PATCH API로 status='보유' 저장 후
+  // 상세 재렌더(진행률·다음 행동 자동 변경). 취소는 기존 "직접 변경" select로 가능.
+  container.querySelectorAll('.checklist-done-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const itemId = btn.dataset.itemId;
+      btn.disabled = true;
+      try {
+        await apiRequest('PATCH',
+          '/api/pipeline/' + encodeURIComponent(entryId) + '/checklist/' + encodeURIComponent(itemId),
+          { status: '보유' });
+        showToast('완료로 표시했습니다.', 'success');
+        if (onChanged) onChanged();
+      } catch (err) {
+        btn.disabled = false;
+        if (err.status === 401) { location.hash = '#/auth/login'; return; }
+        showToast(err.message || '저장에 실패했습니다.', 'error');
       }
     });
   });
@@ -11446,7 +11553,7 @@ function renderAlreadyInPipeline(container, noticeId, entryId) {
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="notice-action-bar">
-      <a href="#/pipeline/${escapeAttr(entryId)}" class="pipeline-review-btn" style="text-decoration:none">진행 중 &middot; 워크스페이스로 이동 &rarr;</a>
+      <a href="#/pipeline/${escapeAttr(entryId)}" class="pipeline-review-btn" style="text-decoration:none">참여 준비 계속하기 &rarr;</a>
       <button type="button" id="notice-cancel-review-btn" class="btn btn-secondary btn-sm pipeline-cancel-btn">참여 취소</button>
       <button type="button" id="share-notice-btn" class="btn btn-secondary btn-sm">담당자에게 전달</button>
     </div>
