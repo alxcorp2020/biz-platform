@@ -2344,6 +2344,12 @@
   .pj-question-req { font-size: 0.9rem; color: var(--ink-soft); line-height: 1.5; }
   .pj-question-ask { margin: 0.35rem 0 0.6rem; font-size: 0.95rem; font-weight: 600; color: var(--ink, #1f2328); }
   .pj-question-btns { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  /* STEP 4: 관심분야 밖 공고 안내(참여 검토 직전 게이트) */
+  .interest-prompt { margin-top: 0.8rem; background: var(--bg-soft, #f6f8fa); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 0.9rem 1rem; }
+  .interest-prompt-title { font-size: 0.95rem; font-weight: 700; color: var(--ink, #1f2328); }
+  .interest-prompt-ask { margin: 0.35rem 0 0.7rem; font-size: 0.9rem; color: var(--ink-soft, #57606a); line-height: 1.5; overflow-wrap: anywhere; }
+  .interest-prompt-btns { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  :root[data-theme="dark"] .interest-prompt { background: #1a1d21; border-color: #30363d; }
   /* STEP 3: 수행실적 인라인 등록(CTA + 방식선택 패널) */
   .cond-track-cta { margin-top: 0.6rem; }
   .pj-track-panel { margin-top: 1rem; background: var(--bg-soft, #f6f8fa); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 0.9rem 1rem; }
@@ -11359,7 +11365,7 @@ function renderDetail(container, id) {
       renderEligibilityConditions(document.getElementById('eligibility-conditions-section'), data.eligibilityConditions || [], data.documentAnalysisStatus, n.officialUrl);
       // 면허·인증 요건 확인(회사 보유 여부=적합성)은 참여판정 영역에서만 표시한다(참가조건 중복 제거, 2026-08-12).
       renderAwardHistory(document.getElementById('award-history-section'), data.organizationAwardHistory, data.hasCompetitiveOverlap);
-      renderPipelineReviewAction(document.getElementById('pipeline-review-action'), id, data.existingPipelineEntryId);
+      renderPipelineReviewAction(document.getElementById('pipeline-review-action'), id, data.existingPipelineEntryId, n);
       wireDetailTabs(body);
     })
     .catch(err => {
@@ -11425,7 +11431,7 @@ function wireDetailTabs(body) {
 // 액션 3종: "참여 검토 시작" / "제외" / "담당자에게 전달". 서버가 미리
 // 알려주는 existingPipelineEntryId로 재방문 시 상태를 바로 인지한다(이미
 // 파이프라인에 있으면 버튼 대신 "진행 중 → 이동" 링크).
-function renderPipelineReviewAction(container, noticeId, existingPipelineEntryId) {
+function renderPipelineReviewAction(container, noticeId, existingPipelineEntryId, notice) {
   container.innerHTML = '';
   if (!currentUser) return;
 
@@ -11433,7 +11439,7 @@ function renderPipelineReviewAction(container, noticeId, existingPipelineEntryId
     renderAlreadyInPipeline(container, noticeId, existingPipelineEntryId);
     return;
   }
-  renderPipelineReviewButtons(container, noticeId);
+  renderPipelineReviewButtons(container, noticeId, notice);
 }
 
 function renderAlreadyInPipeline(container, noticeId, entryId) {
@@ -11468,7 +11474,7 @@ function renderAlreadyInPipeline(container, noticeId, entryId) {
   });
 }
 
-function renderPipelineReviewButtons(container, noticeId) {
+function renderPipelineReviewButtons(container, noticeId, notice) {
   container.innerHTML = '';
   container.appendChild(h(`
     <div class="notice-action-bar">
@@ -11476,6 +11482,7 @@ function renderPipelineReviewButtons(container, noticeId) {
       <button type="button" id="exclude-notice-btn" class="btn btn-secondary btn-sm">제외</button>
       <button type="button" id="share-notice-btn" class="btn btn-secondary btn-sm">담당자에게 전달</button>
     </div>
+    <div id="interest-prompt-slot"></div>
     <p id="pipeline-review-error" class="error" style="display:none"></p>
     <div id="exclude-notice-result"></div>
     <div id="share-notice-form-slot"></div>
@@ -11483,7 +11490,13 @@ function renderPipelineReviewButtons(container, noticeId) {
 
   // "참여할게요" — 참여 흐름 2클릭화(2026-08-10). 검토중을 거치지 않고 한 번의
   // 요청으로 곧바로 "준비중"(제출 준비 단계)으로 담고 워크스페이스로 이동한다.
-  document.getElementById('pipeline-review-btn').addEventListener('click', async () => {
+  // STEP 4(2026-08-15): 담기 직전에 관심분야 게이트를 얇게 끼운다 — 이 공고가
+  // 현재 활성 맞춤공고(saved_searches)의 업종/키워드와 무관하면 "앞으로 비슷한
+  // 사업도 추천받을까요?"를 한 번 묻는다. 어느 선택이든 참여 검토는 계속되고,
+  // [관심분야에 추가]를 명시적으로 눌렀을 때만 canonical saved_searches에 저장한다.
+  // 게이트 판단 실패(비로그인/API 오류/업종정보 없음)는 조용히 건너뛰고 바로
+  // 진행한다 — 추천 설정 문제로 참여 검토를 막지 않는다.
+  const proceedReview = async () => {
     const btn = document.getElementById('pipeline-review-btn');
     const errEl = document.getElementById('pipeline-review-error');
     errEl.style.display = 'none';
@@ -11509,10 +11522,95 @@ function renderPipelineReviewButtons(container, noticeId) {
       }
       errEl.style.display = 'block';
     }
+  };
+
+  document.getElementById('pipeline-review-btn').addEventListener('click', async () => {
+    const outside = await noticeOutsideInterestProfile(notice);
+    if (!outside) { proceedReview(); return; }
+    renderInterestPrompt(container.querySelector('#interest-prompt-slot'), notice, proceedReview);
   });
 
   wireExcludeNoticeButton(container, noticeId);
   wireShareNoticeButton(container, noticeId);
+}
+
+// noticeOutsideInterestProfile — STEP 4: 이 공고가 사용자의 활성 맞춤공고
+// (saved_searches) 관심분야 밖인지 판단한다. 판정 규칙은 기존 매칭
+// (matchNoticesForSavedSearch)의 "분야" 축과 동일한 의미만 재사용한다:
+// 업종(industry) 정확일치 또는 keywordsInclude의 제목 포함. 업종/키워드
+// 조건이 하나도 없는 검색(지역만 등)은 분야 판정 근거가 아니라 제외한다.
+// 새 relevance 엔진/AI 판정 없음. 판단 불가(비로그인/오류/공고 업종 없음)면
+// false(=게이트 스킵)를 반환해 참여 검토를 절대 막지 않는다.
+async function noticeOutsideInterestProfile(notice) {
+  if (!currentUser || !notice) return false;
+  const industry = (notice.industry || '').trim();
+  const title = notice.title || '';
+  if (!industry) return false; // 구조화 업종이 없으면 안전하게 묻지 않는다
+  let items;
+  try {
+    items = (await apiRequest('GET', '/api/me/saved-searches')).items || [];
+  } catch (err) {
+    return false;
+  }
+  const active = items.filter(ss => ss.isActive !== false);
+  if (!active.length) return false; // 관심 프로필 자체가 없으면 게이트 대상 아님
+  let hasFieldCriteria = false;
+  for (const ss of active) {
+    if (ss.noticeType && notice.noticeType && ss.noticeType !== notice.noticeType) continue;
+    const ssIndustry = (ss.industry || '').trim();
+    const kws = (ss.keywordsInclude || []).filter(k => (k || '').trim());
+    if (!ssIndustry && !kws.length) continue; // 분야 조건 없는 검색은 판단 근거 아님
+    hasFieldCriteria = true;
+    if (ssIndustry && ssIndustry === industry) return false;      // 업종 일치 → 관심분야 안
+    if (kws.some(kw => title.includes(kw.trim()))) return false;  // 키워드 일치 → 관심분야 안
+  }
+  return hasFieldCriteria; // 분야 조건이 있는데 아무것도 안 맞음 → 관심분야 밖
+}
+
+// renderInterestPrompt — STEP 4: 관심분야 밖 안내 + 명시적 선택 UX.
+// [이번 사업만 검토]=아무것도 저장하지 않고 참여 검토 계속.
+// [관심분야에 추가]=공고의 구조화 업종을 기존 canonical saved_searches에
+// 저장(POST /api/me/saved-searches — 신규 저장소/스키마 없음). 공고 제목을
+// 통째로 키워드로 저장하지 않으며, AI 추측 키워드도 만들지 않는다(업종만).
+// 저장 실패해도 참여 검토는 계속한다(추천 설정 실패 ≠ 검토 실패).
+function renderInterestPrompt(slot, notice, proceed) {
+  if (!slot) { proceed(); return; }
+  const industry = (notice.industry || '').trim();
+  slot.innerHTML = '';
+  slot.appendChild(h(`
+    <div class="interest-prompt">
+      <div class="interest-prompt-title">이 공고는 현재 설정한 관심분야와 조금 다릅니다.</div>
+      <p class="interest-prompt-ask">"<strong>${escapeHtml(industry)}</strong>" 분야 — 이와 비슷한 사업도 앞으로 추천받을까요?</p>
+      <div class="interest-prompt-btns">
+        <button type="button" class="btn btn-primary btn-sm" id="interest-add-btn">관심분야에 추가</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="interest-skip-btn">이번 사업만 검토</button>
+      </div>
+    </div>
+  `));
+  const clear = () => { slot.innerHTML = ''; };
+  slot.querySelector('#interest-skip-btn').addEventListener('click', () => { clear(); proceed(); });
+  slot.querySelector('#interest-add-btn').addEventListener('click', async () => {
+    slot.querySelectorAll('button').forEach(b => b.disabled = true);
+    try {
+      await apiRequest('POST', '/api/me/saved-searches', {
+        name: industry,
+        noticeType: notice.noticeType || null,
+        industry: industry,
+        keywordsInclude: [], keywordsExclude: [],
+        alertEnabled: true, recipientContactIds: [], reminderEnabled: false, reminderDaysBefore: [],
+      });
+      showToast('관심분야에 추가했습니다. 앞으로 비슷한 공고도 추천해 드릴게요.', 'success');
+    } catch (err) {
+      if (err.status === 409) {
+        // 이미 같은 조건의 맞춤공고가 있음(기존 중복 방지) — 사용자 입장에선 성공과 동일.
+        showToast('이미 관심분야에 있는 조건입니다.', 'success');
+      } else {
+        showToast('관심분야 저장에 실패했습니다.', 'error');
+      }
+    }
+    clear();
+    proceed(); // 어느 경우든 참여 검토는 계속
+  });
 }
 
 // wireExcludeNoticeButton — "제외" 클릭 시 바로 실행(확인창 없음 — 원복
