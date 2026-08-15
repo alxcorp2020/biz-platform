@@ -2344,6 +2344,17 @@
   .pj-question-req { font-size: 0.9rem; color: var(--ink-soft); line-height: 1.5; }
   .pj-question-ask { margin: 0.35rem 0 0.6rem; font-size: 0.95rem; font-weight: 600; color: var(--ink, #1f2328); }
   .pj-question-btns { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  /* STEP 3: 수행실적 인라인 등록(CTA + 방식선택 패널) */
+  .cond-track-cta { margin-top: 0.6rem; }
+  .pj-track-panel { margin-top: 1rem; background: var(--bg-soft, #f6f8fa); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 0.9rem 1rem; }
+  .pj-track-title { font-size: 0.95rem; font-weight: 700; color: var(--ink, #1f2328); }
+  .pj-track-desc { margin: 0.35rem 0 0.7rem; font-size: 0.85rem; color: var(--ink-soft, #57606a); line-height: 1.5; }
+  .pj-track-btns { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .pj-track-btn { padding: 0.5rem 0.85rem; border-radius: 8px; border: 1px solid var(--border, #d0d7de); background: var(--surface, #fff); color: var(--ink, #1f2328); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+  .pj-track-btn:hover { border-color: var(--accent-blue, #2f6feb); }
+  .pj-track-form-slot { margin-top: 0.75rem; }
+  :root[data-theme="dark"] .pj-track-panel { background: #1a1d21; border-color: #30363d; }
+  :root[data-theme="dark"] .pj-track-btn { background: #22272e; color: #e6edf3; border-color: #30363d; }
   .pj-answer-btn { padding: 0.45rem 0.9rem; border-radius: 8px; border: 1px solid var(--border, #d0d7de); background: var(--surface, #fff); color: var(--ink, #1f2328); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
   .pj-answer-btn:hover { border-color: var(--accent-blue, #2f6feb); }
   .pj-answer-btn:disabled { opacity: 0.5; cursor: default; }
@@ -12660,6 +12671,11 @@ function renderParticipationJudgment(container, j, opts) {
     const help = term ? tooltipIconHtml('?', term.desc, term.label, '') : '';
     // §6: PASS이고 회사 보유 근거가 있으면 "등록된 회사정보로 확인" 자동사용 메시지.
     const autoNote = (c.result === 'PASS' && c.companyEvidence) ? '<div class="cond-auto-note">✅ 등록된 회사정보로 확인했습니다.</div>' : '';
+    // STEP 3: 수행실적 REVIEW 중 "부족/미확인" 사유일 때만 인라인 등록 CTA(§2/§16).
+    // 평가·PQ용 실적은 판정 조건 자체가 생성되지 않으므로(STEP 2-C-1) 여기 오지 않는다(§17).
+    // 충족추정("충족하는 것으로 보입니다") 상태에서는 CTA를 띄우지 않는다.
+    const trackCta = (c.conditionType === '수행실적' && c.result === 'REVIEW' && !(c.reason || '').includes('충족하는 것으로 보입니다'))
+      ? '<div class="cond-track-cta"><button type="button" class="btn btn-primary btn-sm" id="pj-track-register-btn">실적 등록하기</button></div>' : '';
     return `
       <div class="cond-row ${meta.cls}">
         <div class="cond-main">
@@ -12667,6 +12683,7 @@ function renderParticipationJudgment(container, j, opts) {
           <div class="cond-reason">${escapeHtml(c.reason || '')}</div>
           ${autoNote}
           ${evidence ? `<div class="cond-evidence">${evidence}</div>` : ''}
+          ${trackCta}
         </div>
         <span class="cond-status">${meta.label}</span>
       </div>`;
@@ -12715,10 +12732,29 @@ function renderParticipationJudgment(container, j, opts) {
         <span class="pj-count pj-count--unknown${j.unknownCount ? '' : ' is-zero'}">정보부족 ${j.unknownCount}</span>
       </div>
       <div class="cond-list">${rows}</div>
+      <div id="pj-track-slot"></div>
       ${questionsHtml}
       <p class="cond-caveat">지역·업종·기업규모·면허·인증·직접생산확인·수행실적 기준 자동 판정입니다. 재무·기술인력 등 그 밖의 참가자격은 공고 원문을 함께 확인해주세요.</p>
     </div>
   `));
+
+  // STEP 3: 수행실적 인라인 등록(§3/§8) — CTA 클릭 시 같은 카드 안에서 등록 방식을
+  // 고르고(실적증명서/계약서 업로드 → 기존 OCR 후보확인, 또는 직접 입력), 저장되면
+  // canonical company_track_records에 들어가므로 opts.refetch로 현재 공고를 즉시
+  // 재판정·재렌더한다. 새 API/파이프라인 없음(회사정보 실적 탭과 동일 경로 재사용).
+  const trackBtn = container.querySelector('#pj-track-register-btn');
+  if (trackBtn) {
+    trackBtn.addEventListener('click', () => {
+      renderTrackRecordEntryPanel(container.querySelector('#pj-track-slot'), async () => {
+        showToast('실적을 저장했습니다 — 판정을 갱신합니다.', 'success');
+        if (opts.refetch) {
+          const fresh = await opts.refetch();
+          renderParticipationJudgment(container, fresh, opts);
+        }
+      });
+      trackBtn.disabled = true;
+    });
+  }
 
   // 질문 답변 배선. 보유/미보유는 기존 POST로 회사 프로필에 저장(§5) 후 판정을
   // 다시 받아 재렌더(§7). "잘 모르겠음"은 저장하지 않고 이 질문만 접는다(REVIEW 유지, §10).
@@ -12753,6 +12789,64 @@ function renderParticipationJudgment(container, j, opts) {
       });
     });
   });
+}
+
+// renderTrackRecordEntryPanel — STEP 3(2026-08-15): 공고 상세 참여판정 카드 안의
+// 수행실적 인라인 등록 패널. 등록 방식 3개(실적증명서/계약서 업로드, 직접 입력)를
+// 제공하고, 업로드는 기존 uploadCompanyRecordDocument + OCR 후보확인 폼
+// (renderTrackRecordForm — 회사정보 실적 탭과 동일)을 그대로 재사용한다.
+// 저장은 canonical company_track_records(POST /api/me/track-records)로만 들어가므로
+// 회사정보 화면에도 그대로 보이고 다른 공고 판정에도 자동 재사용된다(§11/§14).
+// AI가 읽은 값은 반드시 사용자 확인 폼을 거친다(§5 — renderTrackRecordForm이 담당).
+function renderTrackRecordEntryPanel(slot, onSaved) {
+  if (!slot) return;
+  slot.innerHTML = '';
+  slot.appendChild(h(`
+    <div class="pj-track-panel">
+      <div class="pj-track-title">완료한 사업 실적 등록</div>
+      <p class="pj-track-desc">이전에 실제 수행·납품·완료한 사업입니다. 계약서나 실적증명서를 올리면 주요 정보를 자동으로 읽어옵니다.</p>
+      <div class="pj-track-btns">
+        <button type="button" class="pj-track-btn" data-doctype="수행실적증명서">실적증명서 올리기</button>
+        <button type="button" class="pj-track-btn" data-doctype="계약서">계약서 올리기</button>
+        <button type="button" class="pj-track-btn pj-track-btn--manual">직접 입력하기</button>
+      </div>
+      <input type="file" class="pj-track-file" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+      <div class="pj-track-form-slot"></div>
+    </div>
+  `));
+  const panel = slot.querySelector('.pj-track-panel');
+  const fileInput = panel.querySelector('.pj-track-file');
+  const formSlot = panel.querySelector('.pj-track-form-slot');
+  let pickedDocType = '';
+  panel.querySelectorAll('.pj-track-btn[data-doctype]').forEach(btn => {
+    btn.addEventListener('click', () => { pickedDocType = btn.dataset.doctype; fileInput.click(); });
+  });
+  panel.querySelector('.pj-track-btn--manual').addEventListener('click', () => {
+    renderTrackRecordForm(formSlot, null, null, onSaved);
+    formSlot.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    formSlot.innerHTML = '';
+    formSlot.appendChild(h('<div class="loading">문서를 분석하는 중...</div>'));
+    let uploadData;
+    try {
+      uploadData = await uploadCompanyRecordDocument('/api/me/track-records/documents', file);
+    } catch (err) {
+      formSlot.innerHTML = '';
+      formSlot.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+      return;
+    }
+    formSlot.innerHTML = '';
+    // AI 후보에 서류 종류가 비어 있으면 사용자가 누른 버튼(실적증명서/계약서)을 기본값으로.
+    const candidate = Object.assign({}, uploadData.candidate || {});
+    if (!candidate.documentType && pickedDocType) candidate.documentType = pickedDocType;
+    renderTrackRecordForm(formSlot, candidate, uploadData.documentId, onSaved);
+    formSlot.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  disableOwnerOnlyButtons(panel);
 }
 
 // 공고 상세 첫 화면에 자동으로 뜨는 "AI 참여 분석" — data.participationScore
