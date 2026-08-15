@@ -440,6 +440,11 @@ func trackRecordAmountThreshold(reqs []noticeRequirement) (int64, bool) {
 		if raw == "" {
 			continue
 		}
+		// 건수형(unit='건', STEP 2-C-1)은 금액이 아니다 — 환산 로직에 절대 넣지 않는다
+		// (threshold_value=1, unit=건을 1원으로 오해하면 거짓 금액요구가 생긴다).
+		if strings.Contains(r.Unit, "건") {
+			continue
+		}
 		// 숫자만 남기고(콤마·통화기호 제거) 파싱.
 		var b strings.Builder
 		for _, ch := range raw {
@@ -476,6 +481,24 @@ func trackRecordAmountThreshold(reqs []noticeRequirement) (int64, bool) {
 	return best, found
 }
 
+// trackRecordCountThreshold — 건수형 실적 요구(unit='건', STEP 2-C-1)의 최소 건수를
+// 뽑는다(없으면 0,false). 여러 개면 가장 엄격한(큰) 값.
+func trackRecordCountThreshold(reqs []noticeRequirement) (int, bool) {
+	best, found := 0, false
+	for _, r := range reqs {
+		if !strings.Contains(r.Unit, "건") {
+			continue
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(r.ThresholdValue)); err == nil && n > 0 {
+			if n > best {
+				best = n
+			}
+			found = true
+		}
+	}
+	return best, found
+}
+
 // trackRecordRecentYears — 실적 요구에서 "최근 N년" 기간 창을 뽑는다(없으면 0,false).
 func trackRecordRecentYears(reqs []noticeRequirement) (int, bool) {
 	for _, r := range reqs {
@@ -504,6 +527,7 @@ func (s *Server) evaluateTrackRecordRequirement(ctx context.Context, profileID s
 
 	amountReq, hasAmount := trackRecordAmountThreshold(reqs)
 	yearsReq, hasYears := trackRecordRecentYears(reqs)
+	countReq, hasCount := trackRecordCountThreshold(reqs) // 건수형(STEP 2-C-1)
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT COALESCE(project_name,''), contract_amount, COALESCE(period_end, contract_date), industry_field, COALESCE(is_completed,false)
@@ -570,6 +594,10 @@ func (s *Server) evaluateTrackRecordRequirement(ctx context.Context, profileID s
 		cond.CompanyEvidence = strings.Join(evidences, ", ")
 	}
 
+	// 건수형(STEP 2-C-1): 요구 건수 대비 등록 실적 건수. 분야 유사성은 자동 판정하지
+	// 않으므로(semantic 매칭 없음, §5) 충족돼 보여도 결과는 항상 REVIEW 유지.
+	countOK := !hasCount || len(recs) >= countReq
+
 	switch {
 	case hasAmount && anyAmount && maxAmount < amountReq:
 		// 금액부족: 등록된 실적 최대 금액이 요구액에 못 미침(확정 아님 — 미등록 실적 가능).
@@ -577,7 +605,13 @@ func (s *Server) evaluateTrackRecordRequirement(ctx context.Context, profileID s
 	case hasYears && !periodOK:
 		// 기간부족: 요구 기간(최근 N년) 내 실적을 확인하지 못함.
 		cond.Reason = fmt.Sprintf("요구 기간(최근 %d년) 내 실적을 확인하지 못했습니다 — 해당 기간 실적이 있으면 등록해 확인해주세요.", yearsReq)
-	case amountOK && periodOK:
+	case hasCount && !countOK:
+		// 건수부족: 등록된 실적 건수가 요구 건수에 못 미침(확정 아님 — 미등록 실적 가능).
+		cond.Reason = fmt.Sprintf("등록된 실적 건수(%d건)가 요구 건수(%d건 이상)에 못 미칩니다 — 추가 실적이 있으면 등록해 확인해주세요.", len(recs), countReq)
+	case hasCount && countOK && !hasAmount && !hasYears:
+		// 건수 충족추정: 요구 분야와의 유사성은 자동 판정하지 않으므로 최종 확인 안내.
+		cond.Reason = fmt.Sprintf("요구 건수(%d건 이상)를 충족하는 것으로 보입니다 — 공고가 요구하는 분야와의 유사성을 최종 확인해주세요.", countReq)
+	case amountOK && periodOK && countOK:
 		// 충족추정: 금액·기간을 만족하는 실적이 있음(그래도 세부 유사성은 최종 확인 필요).
 		cond.Reason = "요구 실적을 충족하는 것으로 보입니다 — 공고의 유사성·세부 기준을 최종 확인해주세요."
 	default:

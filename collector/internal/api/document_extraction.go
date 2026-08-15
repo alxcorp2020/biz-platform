@@ -88,6 +88,13 @@ const (
 )
 
 var headerPrefixRe = regexp.MustCompile(`^([0-9]+[.)]|[①-⑩]|[가나다라마바사아자차카타파하][.)]|[○◦●■□❍▶◆★☆※\-*])`)
+
+// listPrefixRe — 제출서류 "목록 줄" 인식 전용(STEP 2-C-1). headerPrefixRe에 괄호숫자
+// "(1)~(99)"를 더한 것. 실제 공고 원문 "(4) …실적을 확인할 수 있는 증빙서류 1부"가
+// 목록으로 인식되지 않아 required_documents에서 누락되던 실측 문제(MEDIUM-2) 보정.
+// ⚠️ 섹션 경계 판정(looksLikeHeaderLine)은 기존 headerPrefixRe를 그대로 쓴다 —
+// 괄호숫자를 헤더로도 취급하면 기존 섹션 절단 동작이 바뀌어 회귀 위험이 있다.
+var listPrefixRe = regexp.MustCompile(`^([0-9]+[.)]|\([0-9]{1,2}\)|[①-⑩]|[가나다라마바사아자차카타파하][.)]|[○◦●■□❍▶◆★☆※\-*])`)
 var sentenceEndingRe = regexp.MustCompile(`(다|함|음|까|요|임|됨|습니다|입니다)[.]?$`)
 var whitespaceRunRe = regexp.MustCompile(`\s+`)
 
@@ -109,7 +116,7 @@ func looksLikeHeaderLine(line string) bool {
 
 func stripListPrefix(line string) string {
 	s := strings.TrimSpace(line)
-	if loc := headerPrefixRe.FindStringIndex(s); loc != nil {
+	if loc := listPrefixRe.FindStringIndex(s); loc != nil {
 		s = s[loc[1]:]
 	}
 	return strings.Trim(s, " .)")
@@ -225,7 +232,7 @@ func findListLikeLines(sectionText string) []string {
 	var out []string
 	for _, raw := range strings.Split(sectionText, "\n") {
 		l := strings.TrimSpace(raw)
-		if l == "" || l == "<표>" || !headerPrefixRe.MatchString(l) {
+		if l == "" || l == "<표>" || !listPrefixRe.MatchString(l) {
 			continue
 		}
 		if looksLikeDocumentName(stripListPrefix(l)) {
@@ -279,7 +286,16 @@ type trackRecordRuleRow struct {
 
 // 실적이 참가필수가 아니라 평가배점/제출서류/개인정보 문맥일 때 그 줄을 참가요건으로
 // 만들지 않도록 거르는 토큰(§3/§22 오판 방지 — FALSE 참가요건 방지가 최우선).
-var trackRecordExcludeTokens = []string{"평가", "배점", "가점", "우대", "심사", "점수", "제출", "증빙", "서류", "첨부", "붙임", "신용", "납세", "개인정보", "수집", "제공", "동의"}
+// STEP 2-C-1: 실공고 스팟 검증(PQ 수행능력 평가기준 문형)에서 줄 자체에 '평가'가 없는
+// 케이스가 확인돼 PQ/수행능력/만점을 최소 보강.
+var trackRecordExcludeTokens = []string{"평가", "배점", "가점", "우대", "심사", "점수", "제출", "증빙", "서류", "첨부", "붙임", "신용", "납세", "개인정보", "수집", "제공", "동의", "PQ", "수행능력", "만점"}
+
+// trackRecordSectionExcludeTokens — 섹션 제목(anchor) 자체가 평가/PQ 문맥이면 그 섹션의
+// 실적 문구 전체를 참가필수 후보에서 제외한다(STEP 2-C-1 LOW 방어). 실측 근거: PQ 공고의
+// "사업수행능력 평가서 제출 참가자격" 섹션 하위에 '평가' 단어 없는 실적 인정기준 줄이
+// 있었음 — 줄 단위 토큰만으로는 섹션 범위가 넓은 문서에서 오탐 위험. 참가자격 앵커라도
+// 제목에 평가류 토큰이 있으면 참가필수 실적 요구로 취급하지 않는다.
+var trackRecordSectionExcludeTokens = []string{"평가", "PQ", "수행능력", "적격심사", "배점"}
 
 // 금액 파서: "1억원 이상 / 5천만원 이상 / 50,000,000원 이상 / 3억원 초과". 단위는
 // 구조화된 unit 필드로만 넘겨 이후 판정기가 환산한다(source_text로 재환산 금지 — STEP
@@ -288,6 +304,20 @@ var trackRecordExcludeTokens = []string{"평가", "배점", "가점", "우대", 
 var trackRecordAmountRe = regexp.MustCompile(`([0-9][0-9,]*)\s*(억|천만|백만|만)?\s*원\s*(이상|이하|초과|미만)?`)
 var trackRecordCompoundRe = regexp.MustCompile(`억\s*[0-9]`)
 var foreignCurrencyRe = regexp.MustCompile(`불|달러|USD|\$`)
+
+// trackRecordCountRe — 건수형 참가필수 실적(STEP 2-C-1, MEDIUM-1). 실공고 실측 문형
+// "…관련 실적 1건 이상 보유…"를 구조화한다. '이상'이 명시된 하한만 인식(과대해석 방지).
+var trackRecordCountRe = regexp.MustCompile(`([0-9]+)\s*건\s*이상`)
+
+// parseTrackRecordCount — "실적 N건 이상" → (>=, N, 건). 금액과 무관한 별도 단위라
+// unit='건'으로 저장하고, 판정측 금액 환산 로직은 이 unit을 명시적으로 건너뛴다(§3).
+func parseTrackRecordCount(line string) (op, thr, unit string, ok bool) {
+	m := trackRecordCountRe.FindStringSubmatch(line)
+	if m == nil {
+		return "", "", "", false
+	}
+	return ">=", m[1], "건", true
+}
 
 func parseTrackRecordAmount(line string) (op, thr, unit string, ok bool) {
 	if foreignCurrencyRe.MatchString(line) {
@@ -325,10 +355,16 @@ func parseTrackRecordAmount(line string) (op, thr, unit string, ok bool) {
 // buildTrackRecordRuleRows — 참가자격 섹션에서 참가필수 실적요건(정량 임계 명확)만 추출.
 func buildTrackRecordRuleRows(sections []extractedSection) []trackRecordRuleRow {
 	var rows []trackRecordRuleRow
+	seen := map[string]bool{} // 같은 줄이 여러 앵커 섹션에 중복 포함돼도 조건은 1개만(§8)
 	for _, sec := range sections {
+		// 섹션 제목이 평가/PQ 문맥이면 섹션 전체 제외(STEP 2-C-1 LOW 방어 — 실측 근거는
+		// trackRecordSectionExcludeTokens 주석 참고).
+		if containsAnyToken(sec.anchorText, trackRecordSectionExcludeTokens) {
+			continue
+		}
 		for _, raw := range strings.Split(sec.anchorText+"\n"+sec.sectionText, "\n") {
 			line := strings.TrimSpace(raw)
-			if line == "" || !strings.Contains(line, "실적") {
+			if line == "" || !strings.Contains(line, "실적") || seen[line] {
 				continue
 			}
 			if containsAnyToken(line, trackRecordExcludeTokens) {
@@ -342,9 +378,18 @@ func buildTrackRecordRuleRows(sections []extractedSection) []trackRecordRuleRow 
 			}
 			op, thr, unit, hasAmount := parseTrackRecordAmount(line)
 			hasYears := recentYearsRe.MatchString(line)
+			// 건수형(STEP 2-C-1): 금액이 없을 때만 "N건 이상"을 구조화한다(금액이 있으면
+			// 금액 임계가 우선 — 실공고에서 금액+건수 동시 문형은 미확인이라 보수적으로).
+			if !hasAmount {
+				if cop, cthr, cunit, hasCount := parseTrackRecordCount(line); hasCount {
+					op, thr, unit = cop, cthr, cunit
+					hasAmount = true // 아래 생성 조건 재사용(정량 임계 있음)
+				}
+			}
 			if !hasAmount && !hasYears {
 				continue // 정량 임계 없는 모호한 실적은 구조화하지 않음(§4/§21)
 			}
+			seen[line] = true
 			rows = append(rows, trackRecordRuleRow{
 				conditionName:  truncateRunes(line, 200),
 				sourceText:     truncateRunes(line, 500),
@@ -975,18 +1020,18 @@ func (s *Server) saveDocumentSupplement(ctx context.Context, t aiSupplementTarge
 // the "시스템 상태" admin screen shows actual counts instead of just
 // {"status":"completed"} (이전엔 성공/실패/대기 건수를 전혀 볼 수 없었음).
 type documentExtractionSummary struct {
-	Status                           string `json:"status"`
-	RuleBasedProcessedCount          int    `json:"ruleBasedProcessedCount"`
-	SupportConditionProcessedCount   int    `json:"supportConditionProcessedCount"` // B-3: 지원사업 규칙 추출 건수
+	Status                         string `json:"status"`
+	RuleBasedProcessedCount        int    `json:"ruleBasedProcessedCount"`
+	SupportConditionProcessedCount int    `json:"supportConditionProcessedCount"` // B-3: 지원사업 규칙 추출 건수
 
-	EligibilitySupplementTargetCount int    `json:"eligibilitySupplementTargetCount"`
-	EligibilitySupplementSavedCount  int    `json:"eligibilitySupplementSavedCount"`
-	EligibilitySupplementFailedCount int    `json:"eligibilitySupplementFailedCount"`
-	EligibilitySupplementGaveUpCount int    `json:"eligibilitySupplementGaveUpCount"`
-	DocumentSupplementTargetCount    int    `json:"documentSupplementTargetCount"`
-	DocumentSupplementSavedCount     int    `json:"documentSupplementSavedCount"`
-	DocumentSupplementFailedCount    int    `json:"documentSupplementFailedCount"`
-	DocumentSupplementGaveUpCount    int    `json:"documentSupplementGaveUpCount"`
+	EligibilitySupplementTargetCount int `json:"eligibilitySupplementTargetCount"`
+	EligibilitySupplementSavedCount  int `json:"eligibilitySupplementSavedCount"`
+	EligibilitySupplementFailedCount int `json:"eligibilitySupplementFailedCount"`
+	EligibilitySupplementGaveUpCount int `json:"eligibilitySupplementGaveUpCount"`
+	DocumentSupplementTargetCount    int `json:"documentSupplementTargetCount"`
+	DocumentSupplementSavedCount     int `json:"documentSupplementSavedCount"`
+	DocumentSupplementFailedCount    int `json:"documentSupplementFailedCount"`
+	DocumentSupplementGaveUpCount    int `json:"documentSupplementGaveUpCount"`
 }
 
 // RunDocumentExtraction is the entry point cmd/apiserver calls on a

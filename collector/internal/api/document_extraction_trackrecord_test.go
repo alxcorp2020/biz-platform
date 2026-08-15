@@ -1,6 +1,9 @@
 package api
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // STEP 2-C: 참가필수 실적요건 규칙 추출 검증. 입력 문자열은 로컬 실데이터
 // (attachments.extracted_text)에서 뽑은 실제 공고 원문 형태를 사용한다.
@@ -97,3 +100,92 @@ func TestTrackRecord_BareMentionNotExtracted(t *testing.T) {
 		t.Errorf("bare 실적 (no threshold) must NOT be extracted, got %+v", rows)
 	}
 }
+
+// ───────── STEP 2-C-1: 실공고 스팟 검증(2026-08-15)에서 확인된 문형 보정 ─────────
+
+func TestTrackRecord_CountThresholdExtracted(t *testing.T) {
+	// 실제 공고 ①(방사선환경 로봇 실증센터 설계용역, eb8c87db) 참가자격 원문.
+	line := "공고일 기준 방사선 조사시설의 차폐설계 및 인허가 기술지원 관련 실적 1건 이상 보유하여 업무 를 수행할 수 있는 역량을 갖춘 업체 또는 해당 역량을 갖춘 업체를 포함한 공동수급체"
+	rows := trackRows(t, "3. 입찰참가자격", line)
+	if len(rows) != 1 {
+		t.Fatalf("건수형 참가필수 실적이 추출돼야 함, got %d: %+v", len(rows), rows)
+	}
+	r := rows[0]
+	if r.operator != ">=" || r.thresholdValue != "1" || r.unit != "건" {
+		t.Errorf("count parse wrong: op=%q thr=%q unit=%q (want >=,1,건)", r.operator, r.thresholdValue, r.unit)
+	}
+	if r.sourceText == "" || !contains(r.sourceText, "실적 1건 이상") {
+		t.Errorf("source_text 원문 보존 실패: %q", r.sourceText)
+	}
+}
+
+func TestTrackRecord_CountVariants(t *testing.T) {
+	for _, line := range []string{
+		"수행실적 2건 이상인 업체",
+		"유사용역 실적 3건 이상 보유한 자",
+		"관련 실적이 1건 이상 있을 것",
+	} {
+		rows := trackRows(t, "참가자격", line)
+		if len(rows) != 1 || rows[0].unit != "건" {
+			t.Errorf("%q: want 1 count row(unit=건), got %+v", line, rows)
+		}
+	}
+}
+
+func TestTrackRecord_PQSectionAnchorNotExtracted(t *testing.T) {
+	// 실제 공고 ③(신현배수지 PQ, dc99e8a7): 섹션 제목이 평가 문맥("사업수행능력 평가서
+	// 제출 참가자격")이면 줄에 '평가'가 없어도 섹션 전체를 제외해야 한다(LOW 방어).
+	line := "3) 유사용역수행실적은 입찰공고일을 기준으로 최근 3년간 발주청에서 시행한 “상하수도분야”건설 공사의 건설사업관리용역을 전체 준공하였거나, 수행중인 실적으로"
+	if rows := trackRows(t, "사업수행능력 평가서 제출 참가자격", line); len(rows) != 0 {
+		t.Errorf("PQ 평가 섹션의 실적 인정기준이 참가필수로 오탐됨: %+v", rows)
+	}
+	// 같은 줄이 PQ 토큰을 담고 있으면 라인 단위로도 방어된다.
+	if rows := trackRows(t, "참가자격", "PQ 심사를 위한 유사용역수행실적은 최근 3년간 실적으로 한다"); len(rows) != 0 {
+		t.Errorf("PQ 라인 토큰 방어 실패: %+v", rows)
+	}
+}
+
+func TestTrackRecord_RealEvalPhraseNotExtracted(t *testing.T) {
+	// 실제 공고 ②(논현동, bc395ac6) 적격심사 문형 — '평가' 토큰으로 제외되어야 한다.
+	line := "▢ 이행실적 평가 : 공고일 기준 최근 3년간 준공 완료된 공공기관 용역실적의 합계 - 당해용역 추정가격 : 163,636,364원"
+	if rows := trackRows(t, "참가자격", line); len(rows) != 0 {
+		t.Errorf("적격심사 이행실적 평가가 참가필수로 오탐됨: %+v", rows)
+	}
+}
+
+func TestRequiredDocs_ParenNumberPrefix(t *testing.T) {
+	// 실제 공고 ① 제출서류 원문 — "(4)" 괄호숫자 목록이 문서명으로 인식되어야 한다(MEDIUM-2).
+	section := "(3) 건축사 면허 소지를 확인할 수 있는 증빙서류(건축사자격등록증 등) 1부.\n(4) 방사선 조사시설의 차폐설계 및 인허가 기술지원 관련 실적을 확인할 수 있는 증빙서류 1부."
+	rows := buildRequiredDocumentRuleRows([]extractedSection{{anchorText: "3-1. 제출서류", sectionText: section}})
+	var names []string
+	for _, r := range rows {
+		names = append(names, r.documentName)
+	}
+	foundTrack := false
+	for _, n := range names {
+		if contains(n, "실적") {
+			foundTrack = true
+		}
+	}
+	if !foundTrack {
+		t.Fatalf("괄호숫자 목록의 실적 증빙서류가 문서명으로 인식돼야 함, got %v", names)
+	}
+	// 기존 prefix(1. / 가. / -)도 계속 동작해야 한다.
+	rows2 := buildRequiredDocumentRuleRows([]extractedSection{{anchorText: "제출서류", sectionText: "1. 사업자등록증 사본 1부\n가. 법인등기부등본 1부\n- 인감증명서 1부"}})
+	if len(rows2) != 3 {
+		t.Errorf("기존 목록 prefix 회귀: got %d rows %+v", len(rows2), rows2)
+	}
+}
+
+func TestTrackRecord_CountUnitNotTreatedAsAmount(t *testing.T) {
+	// unit='건'은 금액 환산에 절대 들어가면 안 된다(§3) — 건수 임계로만 읽혀야 한다.
+	reqs := []noticeRequirement{{Type: reqTypeTrackRecord, ThresholdValue: "1", Unit: "건", SourceText: "실적 1건 이상"}}
+	if amt, ok := trackRecordAmountThreshold(reqs); ok {
+		t.Errorf("unit=건이 금액 임계로 오해됨: %d", amt)
+	}
+	if n, ok := trackRecordCountThreshold(reqs); !ok || n != 1 {
+		t.Errorf("건수 임계 파싱 실패: n=%d ok=%v", n, ok)
+	}
+}
+
+func contains(s, sub string) bool { return len(s) >= len(sub) && strings.Contains(s, sub) }
