@@ -61,6 +61,9 @@ type pipelineChecklistItem struct {
 	// 확인(license)"을 구분한다. matchedDocumentId는 실제 파일 근거일 때만.
 	EvidenceType      string  `json:"evidenceType,omitempty"` // file | profile | license | ""
 	MatchedDocumentID *string `json:"matchedDocumentId,omitempty"`
+	// STEP 6(2026-08-15): 공고 정정으로 현재 버전에서는 더 이상 요구되지 않는
+	// 항목 표시(삭제하지 않음 — 완료 이력 보존). markStaleChecklistItems가 채운다.
+	Stale bool `json:"stale,omitempty"`
 }
 
 type pipelineEntry struct {
@@ -995,6 +998,10 @@ func (s *Server) handleGetPipelineEntry(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
+	// STEP 6(2026-08-15): 공고가 정정돼 새 버전의 required_documents가 추가됐으면
+	// 기존 체크리스트에 "없는 항목만" 추가한다(중복 없음, 기존 완료 상태 보존).
+	// 항목 삭제는 하지 않는다 — 요구가 사라진 항목은 아래 stale 플래그로만 표시.
+	s.syncChecklistWithCurrentVersion(ctx, entryID, ownerProfileID)
 	// Step 3(2026-08-09): matched_document_id는 외래키가 아니므로, 참조 문서가
 	// 하드삭제된 dangling 참조를 fetch 직전에 자동 해제·재평가한다(자가치유).
 	s.reevaluateChecklistMatches(ctx, entryID, ownerProfileID)
@@ -1004,6 +1011,7 @@ func (s *Server) handleGetPipelineEntry(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
+	s.markStaleChecklistItems(ctx, entry.NoticeID, checklist)
 
 	// documentAnalysisStatus — 2026-08-07, 빈 상태 문구 개선. 체크리스트가
 	// 비어있을 때만 계산한다(항목이 있으면 이미 채워진 것이니 불필요).
@@ -1029,5 +1037,155 @@ func (s *Server) handleGetPipelineEntry(w http.ResponseWriter, r *http.Request) 
 	company := companyScoringInput{Region: region, Industry: profile.Industry, Size: size, TrackRecordMaxAmount: trackRecordMax}
 	partJudgment := s.buildJudgmentForNotice(ctx, entry.NoticeID, profile.ID, company)
 
-	writeJSON(w, http.StatusOK, map[string]any{"entry": entry, "checklist": checklist, "documentAnalysisStatus": documentAnalysisStatus, "participationJudgment": partJudgment})
+	// STEP 6: 검토 시작(entry 생성) 이후 발생한 공고 변경(notice_changes — 수집기
+	// changedetect가 버전 diff로 자동 기록)을 함께 내려준다. 프론트가 "공고가
+	// 변경되었습니다" 경고와 변경 내역을 표시한다. 조회 실패는 본 흐름을 막지 않는다.
+	noticeChanges, err := s.fetchNoticeChangesSince(ctx, entry.NoticeID, entry.CreatedAt)
+	if err != nil {
+		s.logger.Error("get-pipeline: notice changes query failed", "error", err)
+	}
+
+	// STEP 6 보정(2026-08-15): 화면의 "현재 마감"은 최신 공고의 canonical
+	// application_end_at을 우선한다. entry.submission_deadline은 검토 당시
+	// 스냅샷(이력)으로 보존하며 절대 덮어쓰지 않는다 — 마감이 앞당겨진 정정에서
+	// 과거 마감을 현재 마감처럼 보여주는 위험 방지. 최신값이 없으면 null로 두고
+	// 프론트가 스냅샷으로 폴백한다(임의 날짜 생성 없음).
+	var currentDeadline *string
+	var cd sql.NullTime
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT application_end_at FROM notices WHERE id = $1`, entry.NoticeID,
+	).Scan(&cd); err != nil {
+		s.logger.Error("get-pipeline: current deadline query failed", "error", err)
+	} else if cd.Valid {
+		v := cd.Time.Format("2006-01-02")
+		currentDeadline = &v
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"entry": entry, "checklist": checklist, "documentAnalysisStatus": documentAnalysisStatus, "participationJudgment": partJudgment, "noticeChanges": noticeChanges, "currentDeadline": currentDeadline})
+}
+
+// pipelineNoticeChange — STEP 6: 검토 시작 이후의 공고 변경 1건(초보자 표시용 최소 필드).
+type pipelineNoticeChange struct {
+	Field      string    `json:"field"`
+	OldValue   string    `json:"oldValue"`
+	NewValue   string    `json:"newValue"`
+	Importance string    `json:"importance"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
+// fetchNoticeChangesSince — entry 생성(검토 시작) 이후 기록된 notice_changes.
+// 같은 필드가 여러 번 바뀌었으면 최신 것만(DISTINCT ON field). 과거 버전
+// 데이터는 일절 수정하지 않는다(읽기 전용).
+func (s *Server) fetchNoticeChangesSince(ctx context.Context, noticeID string, since time.Time) ([]pipelineNoticeChange, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT ON (changed_field) changed_field, COALESCE(old_value,''), COALESCE(new_value,''), importance, created_at
+		FROM notice_changes
+		WHERE notice_id = $1 AND created_at > $2
+		ORDER BY changed_field, created_at DESC`, noticeID, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []pipelineNoticeChange{}
+	for rows.Next() {
+		var c pipelineNoticeChange
+		if err := rows.Scan(&c.Field, &c.OldValue, &c.NewValue, &c.Importance, &c.CreatedAt); err != nil {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// syncChecklistWithCurrentVersion — STEP 6: 현재 버전 required_documents 중 이
+// entry의 체크리스트에 아직 없는 것만 추가한다. 기존 generateChecklistItems의
+// 자동매칭(resolveChecklistMatch)을 그대로 재사용하며, 기존 항목/완료 상태는
+// 건드리지 않는다(중복 생성 없음 — required_document_id와 문서명 양쪽으로 dedup).
+func (s *Server) syncChecklistWithCurrentVersion(ctx context.Context, entryID, profileID string) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT rd.id, rd.document_name
+		FROM required_documents rd
+		JOIN notice_versions nv ON nv.id = rd.notice_version_id
+		JOIN notice_pipeline_entries pe ON pe.notice_id = nv.notice_id
+		JOIN notices n ON n.id = nv.notice_id AND nv.version_number = n.current_version
+		WHERE pe.id = $1 AND rd.review_status != 'rejected'
+		  AND NOT EXISTS (
+		    SELECT 1 FROM pipeline_checklist_items pci
+		    WHERE pci.pipeline_entry_id = pe.id
+		      AND (pci.required_document_id = rd.id OR btrim(pci.document_name) = btrim(rd.document_name))
+		  )`, entryID)
+	if err != nil {
+		s.logger.Error("sync-checklist: query failed", "error", err)
+		return
+	}
+	type reqDoc struct{ id, name string }
+	var docs []reqDoc
+	for rows.Next() {
+		var d reqDoc
+		if rows.Scan(&d.id, &d.name) == nil {
+			docs = append(docs, d)
+		}
+	}
+	rows.Close()
+	for _, d := range docs {
+		status, method, matchedDocID := s.resolveChecklistMatch(ctx, profileID, d.name)
+		var methodVal, matchedAtVal any
+		if method != "" {
+			methodVal = method
+			matchedAtVal = time.Now()
+		}
+		// INSERT 자체에도 NOT EXISTS를 넣어(단일 문장) 상세 조회가 짧은 간격으로
+		// 반복/동시에 실행돼도 같은 요구서류 항목이 중복 생성될 창을 최소화한다
+		// (테이블에 unique 제약이 없어 완전한 동시성 보장은 아니지만, 사전 SELECT와
+		// 이 원자적 검사 2중이면 실사용 패턴에서 안전 — migration 금지 범위 준수).
+		if _, err := s.db.ExecContext(ctx, `
+			INSERT INTO pipeline_checklist_items (pipeline_entry_id, document_name, status, required_document_id, matched_document_id, match_method, matched_at)
+			SELECT $1, $2, $3, $4, $5, $6, $7
+			WHERE NOT EXISTS (
+				SELECT 1 FROM pipeline_checklist_items
+				WHERE pipeline_entry_id = $1
+				  AND (required_document_id = $4 OR btrim(document_name) = btrim($2))
+			)`,
+			entryID, d.name, status, d.id, matchedDocID, methodVal, matchedAtVal,
+		); err != nil {
+			s.logger.Error("sync-checklist: insert failed", "error", err, "doc", d.name)
+		}
+	}
+}
+
+// markStaleChecklistItems — STEP 6: 체크리스트 항목이 참조하는 요구서류가 현재
+// 버전에 더 이상 없으면 Stale=true로만 표시한다(삭제하지 않음 — 사용자 완료
+// 이력 보존, §12). 수집기는 새 버전마다 required_documents를 같은 이름·새 id로
+// 다시 만들 수 있으므로 id뿐 아니라 "문서명(btrim)"이 현재 버전에 존재하면
+// stale로 보지 않는다. required_document_id가 없는 항목(수동 추가)은 판단하지 않는다.
+func (s *Server) markStaleChecklistItems(ctx context.Context, noticeID string, checklist []pipelineChecklistItem) {
+	currentIDs := map[string]bool{}
+	currentNames := map[string]bool{}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT rd.id, btrim(rd.document_name) FROM required_documents rd
+		JOIN notice_versions nv ON nv.id = rd.notice_version_id
+		JOIN notices n ON n.id = nv.notice_id AND nv.version_number = n.current_version
+		WHERE n.id = $1 AND rd.review_status != 'rejected'`, noticeID)
+	if err != nil {
+		s.logger.Error("stale-checklist: query failed", "error", err)
+		return
+	}
+	for rows.Next() {
+		var id, name string
+		if rows.Scan(&id, &name) == nil {
+			currentIDs[id] = true
+			currentNames[name] = true
+		}
+	}
+	rows.Close()
+	for i := range checklist {
+		it := &checklist[i]
+		if it.RequiredDocumentID == nil {
+			continue
+		}
+		if currentIDs[*it.RequiredDocumentID] || currentNames[strings.TrimSpace(it.DocumentName)] {
+			continue
+		}
+		it.Stale = true
+	}
 }

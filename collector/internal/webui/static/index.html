@@ -2471,6 +2471,20 @@
   .pipeline-judgment-collapse > summary::after { content: ' ▾'; color: var(--ink-soft); font-weight: 400; }
   .pipeline-judgment-collapse[open] > summary::after { content: ' ▴'; }
   /* 준비중 사업 상단 "제출 준비" 요약 */
+  .deadline-changed-note { color: var(--ink-mute, #8a8f98); font-size: 0.8rem; }
+  /* STEP 6: 공고 변경 경고 + 더 이상 요구되지 않는 항목 */
+  .notice-change-alert { border: 1px solid rgba(220,38,38,0.3); background: rgba(220,38,38,0.05); }
+  .nc-title { font-size: 1rem; font-weight: 700; color: var(--danger, #d33); }
+  .nc-sub { margin: 0.4rem 0 0.6rem; font-size: 0.88rem; color: var(--ink-soft, #57606a); line-height: 1.5; }
+  .nc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+  .nc-list li { display: flex; gap: 0.6rem; font-size: 0.88rem; flex-wrap: wrap; }
+  .nc-field { font-weight: 700; color: var(--ink, #1f2328); flex-shrink: 0; }
+  .nc-vals { color: var(--ink-soft, #57606a); overflow-wrap: anywhere; }
+  .checklist-stale-group { margin-top: 0.9rem; opacity: 0.75; }
+  .checklist-stale-lbl { display: block; font-size: 0.8rem; color: var(--ink-mute, #8a8f98); margin-bottom: 0.4rem; }
+  .checklist-item--stale { background: var(--bg-soft, #f6f8fa); border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+  :root[data-theme="dark"] .notice-change-alert { background: rgba(220,38,38,0.1); }
+  :root[data-theme="dark"] .checklist-item--stale { background: #1a1d21; }
   /* STEP 5: 판정 확인 통합(✅ 자동 확인 / ⚠️ 미보유 경고 / 완료 안내) */
   .prep-warn { margin: 0 0 0.8rem; padding: 0.7rem 0.85rem; background: rgba(220,38,38,0.06); border: 1px solid rgba(220,38,38,0.25); border-radius: 10px; font-size: 0.9rem; font-weight: 700; color: var(--danger, #d33); display: flex; flex-direction: column; gap: 0.3rem; }
   .prep-warn-sub { font-weight: 400; font-size: 0.85rem; color: var(--ink-soft, #57606a); line-height: 1.5; overflow-wrap: anywhere; }
@@ -8962,6 +8976,34 @@ async function renderAIUsage(container) {
 // →확인 순)를 그대로 재사용해, 사용자가 폼/체크리스트까지 스크롤하지 않고도 "지금
 // 할 일 N건 + 상위 항목 + 준비율"을 제목 아래에서 바로 보게 한다. 데이터가 없으면
 // (분석 전) 생략 — 체크리스트 섹션의 빈 상태 안내가 이유를 대신 설명한다.
+// noticeChangesAlertHtml — STEP 6(2026-08-15): 검토 시작 이후 공고가 정정·변경된
+// 경우의 경고 카드. 백엔드가 notice_changes(수집기 changedetect의 버전 diff)를
+// entry 생성 시각 이후로 필터해 내려준다. 내부 용어(version/diff) 미노출, 변경된
+// 항목만 초보자 문구로 나열한다. 변경이 없으면 아무것도 그리지 않는다.
+function noticeChangesAlertHtml(changes, entry) {
+  const list = changes || [];
+  if (!list.length) return '';
+  const FIELD_LABEL = { application_end_at: '마감일', application_start_at: '신청 시작일', budget_amount: '예산', title: '공고 제목', status: '공고 상태', organization_name: '발주기관', region: '지역', industry: '업종' };
+  const fmtVal = (f, v) => {
+    if (!v) return '(없음)';
+    if (f === 'budget_amount') { const n = Number(v); return isNaN(n) ? v : formatBudget(n); }
+    return v;
+  };
+  const rows = list.slice(0, 5).map(c => {
+    const label = FIELD_LABEL[c.field] || '공고 정보';
+    return `<li><span class="nc-field">${escapeHtml(label)}</span><span class="nc-vals">${escapeHtml(fmtVal(c.field, c.oldValue))} &rarr; <strong>${escapeHtml(fmtVal(c.field, c.newValue))}</strong></span></li>`;
+  }).join('');
+  const latest = list.reduce((a, c) => (!a || c.createdAt > a ? c.createdAt : a), '');
+  const when = latest ? new Date(latest) : null;
+  const whenTxt = when && !isNaN(when) ? `${when.getMonth() + 1}월 ${when.getDate()}일 ` : '';
+  return `
+    <div class="detail-card notice-change-alert">
+      <div class="nc-title">⚠️ 공고가 변경되었습니다.</div>
+      <p class="nc-sub">${whenTxt}공고 내용이 수정되었습니다. 참여 조건과 준비서류를 다시 확인해 주세요.</p>
+      <ul class="nc-list">${rows}</ul>
+    </div>`;
+}
+
 // pipelinePrepSummaryHtml — 준비중 상태의 "다음 행동" 요약. STEP 5(2026-08-15):
 // 서류 체크리스트에 더해 참여판정(judgment)의 미확인 조건을 "확인할 것"으로 통합한다.
 // 판정 조건은 DB 체크리스트로 복제 저장하지 않는다(§10 — 의미가 다르고, 회사정보가
@@ -8969,7 +9011,9 @@ async function renderAIUsage(container) {
 // REVIEW+질문/실적 미충족=행동형 할 일(내부 판정 문구를 그대로 노출하지 않는다 §6).
 // 우선순위(§14): 참가를 막을 수 있는 미확인 조건(판정) > 서류(갱신>발급/작성>확인).
 function pipelinePrepSummaryHtml(checklist, entry, judgment) {
-  const items = checklist || [];
+  // STEP 6: 공고 정정으로 더 이상 요구되지 않는 항목(stale)은 진행률·할 일에서 제외
+  // (완료 이력은 체크리스트 화면에 보존 — 삭제 아님).
+  const items = (checklist || []).filter(it => !it.stale);
   const conds = (judgment && judgment.conditions) || [];
   // 판정 → 확인 완료(자동) / 확인할 것(행동형). 기존 STEP 2/3 UX로 연결(§27/§28):
   // CTA는 같은 화면의 판정 영역으로 스크롤(질문 버튼·실적 등록 CTA가 그 안에 있음).
@@ -9004,7 +9048,11 @@ function pipelinePrepSummaryHtml(checklist, entry, judgment) {
   const order = { '갱신필요': 0, '발급필요': 1, '신규작성': 1, '확인필요': 2 };
   actionable.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
   const shortAction = it => it.status === '갱신필요' ? '갱신 확인' : it.status === '신규작성' ? '양식 작성' : it.status === '발급필요' ? '발급·등록' : '확인';
-  const ddayHtml = entry.submissionDeadline ? `${ddayBadgeHtml(entry.submissionDeadline)}<span class="prep-deadline mono">${escapeHtml(entry.submissionDeadline)}</span>` : '';
+  // STEP 6 보정: 화면의 "현재 마감"은 최신 공고 canonical 마감(currentDeadline)을
+  // 우선하고, 없을 때만 검토 당시 스냅샷(submissionDeadline)으로 폴백한다.
+  // 스냅샷은 이력으로 보존(덮어쓰지 않음) — 변경 경고 카드가 기존→최신을 보여준다.
+  const effDeadline = entry.currentDeadline || entry.submissionDeadline;
+  const ddayHtml = effDeadline ? `${ddayBadgeHtml(effDeadline)}<span class="prep-deadline mono">${escapeHtml(effDeadline)}</span>` : '';
 
   // 판정 확인 요약 줄(✅ 자동 확인 / ⚠️ 미보유 경고) — 진행률에 합산하지 않는다
   // (§20: 진행률은 실제 체크리스트 항목 수 기반, 임의 가중치 금지).
@@ -9186,6 +9234,8 @@ async function renderPipelineDetail(container, id) {
       <p class="detail-eyebrow">${escapeHtml(entry.organizationName || '-')}</p>
       <h2><a href="#/notices/${escapeAttr(entry.noticeId)}">${escapeHtml(entry.noticeTitle)}</a></h2>
       ${judgmentSlotHtml}
+      ${(() => { entry.currentDeadline = data.currentDeadline || null; return ''; })()}
+      ${noticeChangesAlertHtml(data.noticeChanges, entry)}
       ${entry.status === '준비중' ? pipelinePrepSummaryHtml(checklist, entry, pj) : ''}
       <div class="pipeline-step-summary">${pipelineStepIndicatorHtml(entry.status)}${pipelineResultBadgeHtml(entry)}</div>
       ${pipelineOfficialResultHtml(entry)}
@@ -9206,7 +9256,7 @@ async function renderPipelineDetail(container, id) {
         <label>낙찰 금액(원)<input type="text" inputmode="numeric" name="awardedAmount" value="${escapeAttr(formatCurrency(entry.awardedAmount))}" placeholder="낙찰된 경우 실제 계약금액을 입력해주세요 (성장분석 ROI에 반영됩니다)"></label>
         <div id="assignee-section">${assigneeSectionHtml(entry)}</div>
         <label>메모<textarea name="memo" rows="3">${escapeHtml(entry.memo || '')}</textarea></label>
-        <p class="license-card-meta">제출 마감: ${entry.submissionDeadline ? escapeHtml(entry.submissionDeadline) : '확인 안 됨'}</p>
+        <p class="license-card-meta">제출 마감: ${(entry.currentDeadline || entry.submissionDeadline) ? escapeHtml(entry.currentDeadline || entry.submissionDeadline) : '확인 안 됨'}${entry.currentDeadline && entry.submissionDeadline && entry.currentDeadline !== entry.submissionDeadline ? ` <span class="deadline-changed-note">(검토 시작 당시: ${escapeHtml(entry.submissionDeadline)})</span>` : ''}</p>
         <div id="pipeline-entry-error" class="error" style="display:none"></div>
         <button type="submit" class="btn btn-primary btn-block">저장</button>
       </form>
@@ -9486,7 +9536,11 @@ function wireLoadContactButton(container) {
 // "그래서 지금 뭘 해야 하나"가 중요해 두 갈래면 충분하다는 판단.
 function renderPipelineChecklist(container, entryId, items, analysisStatus, noticeId, onChanged) {
   container.innerHTML = '';
-  if (!items.length) {
+  // STEP 6: 공고 정정으로 현재 버전에서 더 이상 요구되지 않는 항목은 통계/할 일에서
+  // 분리해 하단에 안내만 한다(삭제·초기화 없음 — 완료 이력 보존).
+  const staleItems = (items || []).filter(it => it.stale);
+  items = (items || []).filter(it => !it.stale);
+  if (!items.length && !staleItems.length) {
     const isWaiting = analysisStatus === 'extracting_text' || analysisStatus === 'awaiting_structured_extraction';
     const text = isWaiting
       ? '이 공고는 아직 서류 분석이 진행 중입니다. 완료되면 체크리스트가 자동으로 채워집니다.'
@@ -9581,7 +9635,11 @@ function renderPipelineChecklist(container, entryId, items, analysisStatus, noti
     ? `<details class="checklist-done-group"><summary>자동 확인된 서류 ${done.length}개</summary><div class="checklist-list">${done.map(doneItemHtml).join('')}</div></details>`
     : '';
 
-  container.appendChild(h(summaryHtml + actionsHtml + doneGroupHtml));
+  // STEP 6: 더 이상 요구되지 않는 항목 안내(회색·완료상태 그대로, 삭제 없음).
+  const staleHtml = staleItems.length
+    ? `<div class="checklist-stale-group"><span class="checklist-stale-lbl">현재 공고에서는 더 이상 요구되지 않는 것으로 보입니다</span>${staleItems.map(it => `<div class="checklist-item checklist-item--stale"><span class="checklist-item-name">${escapeHtml(it.documentName)}</span><span class="checklist-item-hint">${it.status === '보유' ? '준비했던 서류입니다.' : '준비하지 않아도 될 수 있어요.'}</span></div>`).join('')}</div>`
+    : '';
+  container.appendChild(h(summaryHtml + actionsHtml + doneGroupHtml + staleHtml));
 
   container.querySelectorAll('.checklist-status-select').forEach(sel => {
     const originalValue = sel.value;
