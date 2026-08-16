@@ -1628,7 +1628,6 @@
   }
   .detail-section + .detail-section { margin-top: 0; padding-top: 2rem; border-top: none; }
   .detail-section-head { display: flex; align-items: flex-start; gap: 0.6rem; margin: 0 0 1.75rem; }
-  .detail-section-icon { flex-shrink: 0; width: 1.25rem; height: 1.25rem; color: var(--ink-soft); margin-top: 0.15rem; }
   .detail-section-heading { flex: 1 1 auto; min-width: 0; }
   .detail-section-title { margin: 0; padding: 0; border: none; font-size: var(--dtl-section); font-weight: 700; color: var(--ink); letter-spacing: -0.01em; line-height: 1.45; }
   .detail-section-sub { margin: 0.375rem 0 0; font-size: var(--dtl-body); color: var(--ink-soft); line-height: 1.6; }
@@ -4506,11 +4505,12 @@ function sectionHeadHtml(iconName, title, opts) {
 // detailSectionHtml — 공고 상세 V3 단일 스크롤의 앵커 섹션(2026-08-11). 상단 sticky nav가 여기로
 // smooth scroll하고, scroll-margin-top으로 제목이 nav 뒤에 가리지 않게 한다. bodyHtml은 이미
 // 안전하게 조립된 HTML(각 render 함수가 채울 컨테이너 div 포함)을 그대로 받는다.
+// 섹션 제목 아이콘은 2026-08-16 제거(사용자 지시) — 제목/부제가 본문과 같은 좌측 선에 정렬되도록
+// 아이콘 없이 텍스트만 렌더한다. iconName은 sectionDefs 호환용으로 받되 사용하지 않는다.
 function detailSectionHtml(id, iconName, title, subtitle, bodyHtml) {
   const sub = subtitle ? `<p class="detail-section-sub">${escapeHtml(subtitle)}</p>` : '';
   return `<section class="detail-section" id="section-${id}" data-section="${id}" tabindex="-1" aria-labelledby="section-${id}-title">
       <header class="detail-section-head">
-        <span class="detail-section-icon" aria-hidden="true">${outlineIcon(iconName)}</span>
         <div class="detail-section-heading">
           <h2 class="detail-section-title" id="section-${id}-title">${escapeHtml(title)}</h2>
           ${sub}
