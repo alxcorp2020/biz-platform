@@ -2500,6 +2500,9 @@
   .prep-pct-sub { font-weight: 500; color: var(--ink-soft); font-size: 0.8rem; }
   /* UX 단순화(2026-08-15): 참여 준비 상세 — 기본정보 헤더/접힘 섹션/보조 CTA/목록 다음 할 일 */
   .pp-head h2 { margin: 0.2rem 0 0.5rem; }
+  /* 상단 공고명(2026-08-15 육안 검수): 전역 a 규칙(파란색+밑줄)을 이 링크에서만 해제 — 검정
+     ink 색·밑줄 없음. 클릭(공고 상세 이동)·포커스 outline은 그대로, hover/visited도 파랑 금지. */
+  .pp-head h2 a, .pp-head h2 a:hover, .pp-head h2 a:visited, .pp-head h2 a:active { color: var(--ink); text-decoration: none; cursor: pointer; }
   .pp-head-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; font-size: 0.9rem; color: var(--ink-soft); }
   .pp-deadline { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--ink); }
   .pp-progress strong { color: var(--accent-blue); font-weight: 800; }
