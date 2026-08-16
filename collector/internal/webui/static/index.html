@@ -1644,6 +1644,10 @@
      #detail-body(=renderDetail 전용 루트)에만 스코프해 전역 .btn/.profile-form/.detail-card(대시보드 공용)를
      건드리지 않는다. 연한 회색 캔버스 + 흰 정보 surface 대비, 타이포 확대(토큰 재정의), 상세 전용 버튼/입력. */
   main:has(#detail-body) { background: var(--bg-soft); }
+  /* 공고 상세 뒤로가기(2026-08-16 육안 검수): .back-link는 inline-block이라 main>*의 auto 가운데정렬이
+     안 먹혀 넓은 화면에서 본문(680px 컬럼)과 떨어져 main 왼쪽 여백에 붙었다. block으로 만들어 같은
+     컬럼 축(왼쪽 시작선)에 맞춘다 — 색/문구/링크는 그대로, 이 화면에만 적용. */
+  @media (min-width: 900px) { main:has(#detail-body) > .back-link { display: block; } }
   /* 상세 화면만 타이포 한 단계 확대: page 24 / section 20 / group·value 16 (본문/라벨은 유지) */
   #detail-body { --dtl-page: 1.5rem; --dtl-section: 1.25rem; --dtl-group: 1rem; }
 
