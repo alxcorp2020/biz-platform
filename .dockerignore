@@ -1,0 +1,14 @@
+# Docker 빌드 컨텍스트에서 제외(Dockerfile.apiserver / Dockerfile.extractor 공용).
+# 로컬 수집 데이터(data/ 수 GB)·파이썬 venv·로그가 컨텍스트에 실리면 빌드가 매우 느려진다.
+# 두 Dockerfile 모두 아래 경로를 COPY하지 않으므로 이미지 내용에는 영향 없음.
+.git
+data/
+collector/data/
+analyzer/venv/
+analyzer/logs/
+analyzer/__pycache__/
+**/__pycache__/
+docs/
+.env
+.env.*
+!.env.example

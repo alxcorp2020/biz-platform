@@ -313,7 +313,33 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureProposalDraftTables(ctx, db); err != nil {
 		return fmt.Errorf("migrate proposal draft tables: %w", err)
 	}
+	if err := ensureAttachmentExtractionWorkerColumns(ctx, db); err != nil {
+		return fmt.Errorf("migrate attachment extraction worker columns: %w", err)
+	}
 	return nil
+}
+
+// ensureAttachmentExtractionWorkerColumns — 운영 첨부 텍스트 추출 워커
+// (analyzer/worker.py, 2026-08-16). 운영에는 텍스트 추출 consumer가 없어
+// attachments.extraction_status가 영원히 'pending'이던 장애의 복구.
+// 워커는 attachments 테이블 자체를 작업 큐로 쓰므로(별도 큐 테이블 없음)
+// claim/stale 복구/재시도 상한에 필요한 최소 메타 3컬럼만 additive로 둔다:
+//   - extraction_attempts   claim 횟수(재시도 상한 판정)
+//   - extraction_started_at 마지막 claim 시각(stale processing 판정 +
+//                           일시 실패 후 재시도 backoff 기준 — 컬럼 추가 없이 겸용)
+//   - extraction_completed_at 완료 시각
+// extraction_status CHECK(pending/processing/completed/failed/unsupported)는
+// 001_init.sql에 이미 5값이 있어 constraint 변경 없음. 부분 인덱스는 claim
+// 쿼리(pending/processing만 훑음)가 첨부 수만 건에서도 seq scan을 안 하게.
+func ensureAttachmentExtractionWorkerColumns(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE attachments ADD COLUMN IF NOT EXISTS extraction_attempts INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE attachments ADD COLUMN IF NOT EXISTS extraction_started_at TIMESTAMPTZ;
+		ALTER TABLE attachments ADD COLUMN IF NOT EXISTS extraction_completed_at TIMESTAMPTZ;
+		CREATE INDEX IF NOT EXISTS idx_attachments_extraction_queue
+			ON attachments(created_at) WHERE extraction_status IN ('pending','processing');
+	`)
+	return err
 }
 
 // ensureProposalDraftTables — 평가기준 맞춤 제안서 1차(2026-08-16).

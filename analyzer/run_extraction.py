@@ -18,6 +18,7 @@ attachments.extraction_status='pending'인 행을 조회해, 파일 형식별로
 import argparse
 import logging
 import os
+import shutil
 import subprocess
 import sys
 
@@ -36,10 +37,21 @@ class ExtractionError(Exception):
     pass
 
 
+def hwp5txt_path():
+    """hwp5txt CLI 위치. venv에서는 python 옆(bin/)에 설치되고, 컨테이너
+    (Dockerfile.extractor, `pip install` 시스템 설치)에서는 PATH에 있다 —
+    둘 다 지원해야 로컬 스크립트와 운영 워커(worker.py)가 같은 코드를 쓴다."""
+    sibling = os.path.join(os.path.dirname(sys.executable), "hwp5txt")
+    if os.path.exists(sibling):
+        return sibling
+    found = shutil.which("hwp5txt")
+    return found or sibling
+
+
 def extract_hwp(path):
     """pyhwp는 안정적인 공개 파이썬 API가 없어(내부 모델이 복잡하고 문서화가
     부실함), 이미 동작이 검증된 hwp5txt CLI를 서브프로세스로 호출한다."""
-    hwp5txt = os.path.join(os.path.dirname(sys.executable), "hwp5txt")
+    hwp5txt = hwp5txt_path()
     out_path = path + ".extracted.txt"
     try:
         proc = subprocess.run(

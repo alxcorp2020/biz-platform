@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1
+# Document Extraction Worker — 첨부파일(PDF/HWP/HWPX/XLSX) → attachments.extracted_text.
+#
+# apiserver(Go, distroless)와 분리된 별도 컨테이너. Python 파서(pdfplumber/hwp5txt/
+# hwp_hwpx_parser/openpyxl)를 그대로 쓰기 위해 Python 이미지를 쓴다. 입력은 DATABASE_URL
+# 하나뿐(플랫폼 독립 — Render/Railway/AWS 어디서든 같은 이미지로 실행).
+#
+#   docker build -f Dockerfile.extractor -t biz-extractor .
+#   docker run --rm -e DATABASE_URL=postgres://... biz-extractor            # 상시 워커
+#   docker run --rm -e DATABASE_URL=... biz-extractor python worker.py --once --notice-id <uuid>   # 백필
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# 의존성 먼저(레이어 캐시). analyzer/requirements.txt는 로컬 스크립트와 같은 고정 버전
+# — 전부 manylinux 휠이 있어 컴파일러/OS 패키지 추가 없이 설치된다.
+COPY analyzer/requirements.txt ./requirements.txt
+RUN pip install -r requirements.txt
+
+# 워커 + 재사용하는 기존 파서 모듈만 복사(venv/로그/캐시 제외 — .dockerignore 참고).
+COPY analyzer/worker.py analyzer/run_extraction.py ./
+
+# hwp5txt(pyhwp CLI)가 PATH에 있어야 한다(run_extraction.hwp5txt_path가 shutil.which로 찾음).
+RUN hwp5txt --version && python -c "import pdfplumber, hwp_hwpx_parser, openpyxl, psycopg2"
+
+RUN useradd --create-home --uid 10001 worker && chown -R worker:worker /app
+USER worker
+
+CMD ["python", "worker.py"]
