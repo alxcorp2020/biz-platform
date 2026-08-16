@@ -64,28 +64,34 @@ services:
         sync: false
     healthCheckPath: /healthz
 
-  # 첨부파일 텍스트 추출 워커(analyzer/worker.py, Dockerfile.extractor) — 2026-08-16.
+  # 첨부파일 텍스트 추출 Cron Job(analyzer/worker.py --cron, Dockerfile.extractor) — 2026-08-17.
   # 운영에 이 consumer가 없어 모든 첨부가 extraction_status='pending'("텍스트 추출 중")으로
-  # 영원히 남던 장애의 복구. apiserver와 별도 프로세스/이미지(Python). 입력은 DATABASE_URL뿐.
-  # ⚠️ Render 무료 플랜은 Background Worker 타입을 지원하지 않는다(파일 상단 참고) — 이 블록을
-  #    적용하려면 워커 서비스가 가능한 플랜/비용을 먼저 확인해야 하며, 대안은 같은 이미지를
-  #    다른 플랫폼(Railway/Fly/VM 등)에서 DATABASE_URL만 주고 실행하는 것.
-  # ⚠️ apiserver가 먼저 배포돼 ensureAttachmentExtractionWorkerColumns 마이그레이션이 적용된
-  #    뒤 워커를 띄울 것(워커는 컬럼이 없으면 시작 시 명확히 종료).
-  # 기본은 "워커 시작 이후 새로 수집된 첨부만" 처리(EXTRACTOR_PROCESS_EXISTING=false).
-  # 과거 pending 백필은 `python worker.py --notice-id ...|--created-after ...|--limit N`으로 명시 실행.
-  - type: worker
+  # 영원히 남던 장애의 복구. apiserver와 별도 이미지(Python). 상시 Background Worker 대신
+  # 15분 주기 Cron으로 "컷오버 이후 pending을 상한 안에서 처리하고 exit 0"(수집이 60분 주기라 충분).
+  # ⚠️ Render cron schedule은 UTC. 한 서비스의 run은 동시에 1개만(겹치면 다음 run 지연) — DB claim은
+  #    그와 별개로 FOR UPDATE SKIP LOCKED라 다른 플랫폼/수동 백필과 동시 실행해도 안전.
+  # ⚠️ EXTRACTOR_CREATED_AFTER(고정 컷오버, ISO8601 UTC)는 생성 시 반드시 값 지정 — 미설정이면 워커가
+  #    FAIL CLOSED로 종료(과거 12,000+ pending 전체 처리 방지). 컷오버 이전 첨부는 백필 CLI
+  #    (`python worker.py --attachment-id|--notice-id|--limit|--created-after`)로만 명시 처리.
+  # ⚠️ apiserver(ensureAttachmentExtractionWorkerColumns 포함 468f6d5+)가 먼저 배포돼 있어야 함.
+  # 비용: 실행시간 초 단위 비례 + cron job당 월 최소요금(Render 정책, 금액은 대시보드 확인).
+  - type: cron
     name: biz-platform-extractor
     plan: starter
     runtime: docker
     dockerfilePath: ./Dockerfile.extractor
-    autoDeploy: false
+    schedule: "*/15 * * * *"
+    dockerCommand: python worker.py --cron
+    autoDeployTrigger: off
     envVars:
       - key: DATABASE_URL
         fromDatabase:
           name: biz-platform-db
           property: connectionString
-      - key: EXTRACTOR_PROCESS_EXISTING
-        value: "false"
-      - key: EXTRACTOR_POLL_SECONDS
-        value: "10"
+      # 고정 컷오버(예: "2026-08-17T00:00:00Z"). 값은 생성 시 대시보드에서 입력(sync: false).
+      - key: EXTRACTOR_CREATED_AFTER
+        sync: false
+      - key: EXTRACTOR_CRON_MAX_ITEMS
+        value: "30"
+      - key: EXTRACTOR_CRON_MAX_RUNTIME_SECONDS
+        value: "600"

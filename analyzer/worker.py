@@ -16,7 +16,12 @@ extraction_status='pending'(화면상 "텍스트 추출 중")으로 영원히 �
       → 이후는 기존 apiserver 60분 배치(section_extraction 등)가 그대로 이어받는다.
 
 실행:
-    상시:   DATABASE_URL=... python worker.py
+    Cron(운영 기본): EXTRACTOR_CREATED_AFTER=<컷오버 시각> python worker.py --cron
+            → stale 복구 1회 → 컷오버 이후 생성된 pending을 최대 EXTRACTOR_CRON_MAX_ITEMS건 /
+              EXTRACTOR_CRON_MAX_RUNTIME_SECONDS 안에서 처리 → exit 0 (while-forever 없음).
+              컷오버 미설정이면 FAIL CLOSED(오류 종료) — 과거 pending 전체를 실수로 처리하지 않는다.
+              컷오버 이후 문서는 몇 시간이 지나도(다음 Cron에서도) completed/failed될 때까지 계속 대상.
+    상시:   DATABASE_URL=... python worker.py            (Background Worker용, 시작 시각 이후 새 첨부만)
     1회:    python worker.py --once
     백필:   python worker.py --attachment-id ID [--attachment-id ID2] | --notice-id ID
                              [--limit N] [--created-after 2026-08-16T00:00:00Z]
@@ -34,7 +39,13 @@ extraction_status='pending'(화면상 "텍스트 추출 중")으로 영원히 �
     EXTRACTOR_PROCESS_EXISTING         true면 과거 pending 전부 대상. 기본 false = 워커 시작
                                        시각(또는 EXTRACTOR_CREATED_AFTER) 이후 생성된 첨부만
                                        — 배포 직후 수천 건 폭주 방지 안전장치. 과거분은 백필 옵션으로
-    EXTRACTOR_CREATED_AFTER            컷오프 시각(ISO8601). PROCESS_EXISTING=false일 때 시작 시각 대신 사용
+    EXTRACTOR_CREATED_AFTER            컷오프 시각(ISO8601, naive면 UTC). daemon: 시작 시각 대신 사용.
+                                       --cron: **필수 고정 컷오버** — 이 시각 이전 첨부는 자동 처리 안 함(백필 CLI로만),
+                                       이후 첨부는 pending인 한 매 실행마다 대상(rolling lookback 아님 → 장애로
+                                       밀려도 age-out되지 않음)
+    EXTRACTOR_CRON_MAX_ITEMS           --cron 1회 실행당 최대 처리 건수(기본 30) — 남은 건은 다음 실행
+    EXTRACTOR_CRON_MAX_RUNTIME_SECONDS --cron 1회 실행 시간 상한(기본 600). 새 파일 claim 전에만 검사(처리 중인
+                                       파일을 강제로 끊어 processing에 남기지 않음)
     EXTRACTOR_ALLOW_PRIVATE_URLS       테스트 전용. true면 호스트 allowlist/내부 IP 차단을 끈다(운영 금지)
 """
 import argparse
@@ -91,6 +102,8 @@ class Config:
         self.parse_timeout = _env_int("EXTRACTOR_PARSE_TIMEOUT_SECONDS", 300)
         self.process_existing = _env_bool("EXTRACTOR_PROCESS_EXISTING", False)
         self.created_after = os.environ.get("EXTRACTOR_CREATED_AFTER", "").strip() or None
+        self.cron_max_items = _env_int("EXTRACTOR_CRON_MAX_ITEMS", 30)
+        self.cron_max_runtime = _env_int("EXTRACTOR_CRON_MAX_RUNTIME_SECONDS", 600)
         self.allow_private_urls = _env_bool("EXTRACTOR_ALLOW_PRIVATE_URLS", False)
 
 
@@ -296,6 +309,21 @@ class Scope:
         return bool(self.attachment_ids or self.notice_id or self.limit or self.created_after)
 
 
+def parse_cutover(value):
+    """ISO8601 문자열 → aware datetime(naive면 UTC). 잘못된 값이면 ValueError — cron 모드는
+    이 값이 안전장치라 조용히 무시하지 않는다."""
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        v = str(value).strip()
+        if v.endswith("Z") or v.endswith("z"):
+            v = v[:-1] + "+00:00"
+        dt = datetime.fromisoformat(v)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def claim_next(conn, cfg, scope):
     """pending 1건을 processing으로 원자 전환해 가져온다. 동시 워커 중복 처리는
     FOR UPDATE SKIP LOCKED로 방지(CASE G). 일시 실패 후 재시도는 extraction_started_at
@@ -489,11 +517,12 @@ def process_one(conn, cfg, att):
 # ---------------------------------------------------------------------------
 
 class Worker:
-    def __init__(self, cfg, scope, once=False, mode="daemon"):
+    def __init__(self, cfg, scope, once=False, mode="daemon", max_runtime=0):
         self.cfg = cfg
         self.scope = scope
         self.once = once
         self.mode = mode
+        self.max_runtime = max_runtime  # 초. >0이면 새 claim 전에 경과시간 검사(cron)
         self.stopping = False
         self.counts = {"completed": 0, "failed": 0, "unsupported": 0, "retry": 0, "skipped": 0}
 
@@ -506,11 +535,12 @@ class Worker:
         signal.signal(signal.SIGINT, self.request_stop)
         conn = connect(self.cfg)
         ensure_schema(conn)
-        logger.info("worker start mode=%s once=%s created_after=%s poll=%ss max_attempts=%s stale=%smin",
-                    self.mode, self.once, self.scope.created_after, self.cfg.poll_seconds,
-                    self.cfg.max_attempts, self.cfg.stale_minutes)
+        logger.info("worker start mode=%s once=%s created_after=%s limit=%s max_runtime=%ss poll=%ss max_attempts=%s stale=%smin",
+                    self.mode, self.once, self.scope.created_after, self.scope.limit, self.max_runtime,
+                    self.cfg.poll_seconds, self.cfg.max_attempts, self.cfg.stale_minutes)
         processed = 0
         last_stale_check = 0.0
+        run_start = time.monotonic()
         try:
             while not self.stopping:
                 now = time.monotonic()
@@ -518,6 +548,11 @@ class Worker:
                     recover_stale(conn, self.cfg)
                     last_stale_check = now
                 if self.scope.limit and processed >= self.scope.limit:
+                    logger.info("item limit reached processed=%d limit=%d; exiting", processed, self.scope.limit)
+                    break
+                if self.max_runtime and (now - run_start) >= self.max_runtime:
+                    logger.info("runtime limit reached elapsed=%.0fs limit=%ss processed=%d; exiting",
+                                now - run_start, self.max_runtime, processed)
                     break
                 try:
                     att = claim_next(conn, self.cfg, self.scope)
@@ -550,6 +585,8 @@ class Worker:
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="첨부파일 텍스트 추출 워커")
     p.add_argument("--once", action="store_true", help="대기열이 빌 때까지 1회 처리 후 종료")
+    p.add_argument("--cron", action="store_true",
+                   help="Cron 모드: EXTRACTOR_CREATED_AFTER(필수) 이후 pending을 상한 안에서 처리하고 종료")
     p.add_argument("--attachment-id", action="append", default=[], help="특정 첨부만(반복 가능) — 백필")
     p.add_argument("--notice-id", default=None, help="특정 공고의 첨부만 — 백필")
     p.add_argument("--limit", type=int, default=None, help="최대 처리 건수 — 백필")
@@ -558,14 +595,32 @@ def parse_args(argv=None):
 
 
 def build_scope(args, cfg, started_at):
-    """(scope, once, mode). 백필 옵션이 있으면 backfill(1회, 컷오프 무시); 아니면
-    EXTRACTOR_PROCESS_EXISTING에 따라 전체 또는 '시작 시각(또는 EXTRACTOR_CREATED_AFTER) 이후 새 첨부만'."""
-    scope = Scope(args.attachment_id, args.notice_id, args.limit, args.created_after)
+    """(scope, once, mode).
+    - --cron: 고정 컷오버(--created-after 또는 EXTRACTOR_CREATED_AFTER) **필수**. 없으면 SystemExit(FAIL CLOSED).
+      limit=EXTRACTOR_CRON_MAX_ITEMS(또는 --limit). EXTRACTOR_PROCESS_EXISTING은 cron에서 무시(경고) —
+      cron의 안전은 boolean 하나가 아니라 컷오버로 보장한다. 컷오버 이전 pending은 백필 CLI로만.
+    - 백필 옵션이 있으면 backfill(1회, 컷오프 무시).
+    - 아니면 EXTRACTOR_PROCESS_EXISTING에 따라 전체 또는 '시작 시각(또는 EXTRACTOR_CREATED_AFTER) 이후 새 첨부만'(daemon)."""
+    if getattr(args, "cron", False):
+        raw = args.created_after or cfg.created_after
+        if not raw:
+            raise SystemExit("--cron 모드는 고정 컷오버가 필수입니다: EXTRACTOR_CREATED_AFTER=<ISO8601> "
+                             "(또는 --created-after). 미설정 시 과거 pending 전체 처리를 막기 위해 종료합니다")
+        try:
+            cutover = parse_cutover(raw)
+        except ValueError:
+            raise SystemExit(f"--cron 컷오버 시각을 해석할 수 없습니다: {raw!r} (ISO8601, 예 2026-08-17T00:00:00Z)")
+        if cfg.process_existing:
+            logger.warning("EXTRACTOR_PROCESS_EXISTING=true는 --cron 모드에서 무시됩니다(컷오버 %s 적용)", cutover.isoformat())
+        limit = args.limit or cfg.cron_max_items
+        return Scope(args.attachment_id, args.notice_id, limit, cutover), True, "cron"
+    scope = Scope(args.attachment_id, args.notice_id, args.limit,
+                  parse_cutover(args.created_after) if args.created_after else None)
     if scope.explicit:
         return scope, True, "backfill"
     if cfg.process_existing:
         return Scope(), args.once, "all-pending"
-    return Scope(created_after=cfg.created_after or started_at.isoformat()), args.once, "new-only"
+    return Scope(created_after=parse_cutover(cfg.created_after) if cfg.created_after else started_at), args.once, "new-only"
 
 
 def main(argv=None):
@@ -578,7 +633,8 @@ def main(argv=None):
         logger.warning("EXTRACTOR_ALLOW_PRIVATE_URLS=true — 테스트 전용 설정입니다. 운영에서 켜지 마세요")
     started_at = datetime.now(timezone.utc)
     scope, once, mode = build_scope(args, cfg, started_at)
-    Worker(cfg, scope, once=once, mode=mode).run()
+    Worker(cfg, scope, once=once, mode=mode,
+           max_runtime=cfg.cron_max_runtime if mode == "cron" else 0).run()
     return 0
 
 

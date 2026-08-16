@@ -1,7 +1,7 @@
 """worker.py 단위 테스트(네트워크/DB 없이 순수 함수 + 다운로드 검증 경로).
 
 실행: cd analyzer && ./venv/bin/python -m unittest discover -s tests -v
-통합(CASE A~H)은 로컬 Postgres + 테스트 HTTP 서버가 필요해 이 파일에 넣지 않았다
+통합(CASE A~J: 데몬·cron)은 로컬 Postgres + 테스트 HTTP 서버가 필요해 이 파일에 넣지 않았다
 (docs/HANDOFF.md 절차 참고).
 """
 import ipaddress
@@ -132,7 +132,7 @@ class ScopeTest(unittest.TestCase):
         started = datetime(2026, 8, 16, tzinfo=timezone.utc)
         scope, once, mode = worker.build_scope(A(), cfg, started)
         self.assertEqual(mode, "new-only")
-        self.assertEqual(scope.created_after, started.isoformat())
+        self.assertEqual(scope.created_after, started)  # daemon: 시작 시각(datetime) 컷오프
         self.assertFalse(once)
 
         cfg.process_existing = True
@@ -145,6 +145,90 @@ class ScopeTest(unittest.TestCase):
         scope, once, mode = worker.build_scope(a, cfg, started)
         self.assertEqual(mode, "backfill")
         self.assertTrue(once)
+
+
+class CronScopeTest(unittest.TestCase):
+    """--cron: 고정 컷오버 필수(FAIL CLOSED), 컷오버 이후만, limit=EXTRACTOR_CRON_MAX_ITEMS,
+    PROCESS_EXISTING 무시, 시작 시각을 컷오프로 쓰지 않음(daemon-start 컷오프 문제 해결)."""
+
+    def _args(self, **kw):
+        class A:
+            attachment_id = []
+            notice_id = None
+            limit = None
+            created_after = None
+            once = False
+            cron = True
+        a = A()
+        for k, v in kw.items():
+            setattr(a, k, v)
+        return a
+
+    def test_cron_fail_closed_without_cutover(self):
+        from datetime import datetime, timezone
+        cfg = worker.Config()
+        cfg.created_after = None
+        cfg.process_existing = True  # 심지어 true여도 컷오버 없으면 종료
+        with self.assertRaises(SystemExit):
+            worker.build_scope(self._args(), cfg, datetime.now(timezone.utc))
+
+    def test_cron_invalid_cutover_fails(self):
+        from datetime import datetime, timezone
+        cfg = worker.Config()
+        cfg.created_after = "not-a-date"
+        with self.assertRaises(SystemExit):
+            worker.build_scope(self._args(), cfg, datetime.now(timezone.utc))
+
+    def test_cron_uses_fixed_cutover_not_start_time(self):
+        from datetime import datetime, timezone
+        cfg = worker.Config()
+        cfg.created_after = "2026-08-17T00:00:00Z"
+        cfg.cron_max_items = 30
+        cfg.process_existing = True  # 무시돼야 함
+        started = datetime(2026, 8, 17, 9, 0, tzinfo=timezone.utc)
+        scope, once, mode = worker.build_scope(self._args(), cfg, started)
+        self.assertEqual(mode, "cron")
+        self.assertTrue(once)
+        self.assertEqual(scope.created_after, datetime(2026, 8, 17, 0, 0, tzinfo=timezone.utc))
+        self.assertNotEqual(scope.created_after, started)
+        self.assertEqual(scope.limit, 30)
+
+    def test_cron_cli_created_after_and_limit_override(self):
+        from datetime import datetime, timezone
+        cfg = worker.Config()
+        cfg.created_after = None
+        scope, once, mode = worker.build_scope(
+            self._args(created_after="2026-08-10T12:00:00+09:00", limit=5), cfg, datetime.now(timezone.utc))
+        self.assertEqual(mode, "cron")
+        self.assertEqual(scope.limit, 5)
+        self.assertEqual(scope.created_after.utcoffset().total_seconds(), 9 * 3600)
+
+    def test_parse_cutover(self):
+        from datetime import timezone
+        self.assertEqual(worker.parse_cutover("2026-08-17T00:00:00Z").tzinfo, timezone.utc)
+        self.assertEqual(worker.parse_cutover("2026-08-17T00:00:00").tzinfo, timezone.utc)  # naive → UTC
+        with self.assertRaises(ValueError):
+            worker.parse_cutover("yesterday")
+
+    def test_daemon_new_only_uses_start_time(self):
+        from datetime import datetime, timezone
+        cfg = worker.Config()
+        cfg.created_after = None
+        cfg.process_existing = False
+        started = datetime(2026, 8, 17, 9, 0, tzinfo=timezone.utc)
+        a = self._args(cron=False)
+        scope, once, mode = worker.build_scope(a, cfg, started)
+        self.assertEqual(mode, "new-only")
+        self.assertEqual(scope.created_after, started)
+
+
+class RuntimeLimitTest(unittest.TestCase):
+    def test_worker_max_runtime_attr(self):
+        cfg = worker.Config()
+        w = worker.Worker(cfg, worker.Scope(), once=True, mode="cron", max_runtime=600)
+        self.assertEqual(w.max_runtime, 600)
+        w2 = worker.Worker(cfg, worker.Scope(), once=False)
+        self.assertEqual(w2.max_runtime, 0)
 
 
 if __name__ == "__main__":
