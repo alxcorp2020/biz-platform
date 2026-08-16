@@ -2055,6 +2055,91 @@
   .or-more-btn { align-self: flex-start; }
   .or-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
   .or-fetched { margin: 0; font-size: 0.76rem; color: var(--ink-mute, #8a8f98); }
+  /* ── 평가기준 맞춤 제안서(2026-08-16) — 공고 상세 섹션 / 작성 준비 / 초안 미리보기 ── */
+  .prop-intro { display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; }
+  .prop-intro-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .prop-intro-title { font-size: var(--dtl-group); font-weight: 700; color: var(--ink); }
+  .prop-paid-badge { display: inline-block; font-size: 0.72rem; font-weight: 700; line-height: 1; padding: 0.28rem 0.5rem; border-radius: 6px; color: var(--accent-blue); background: var(--accent-blue-soft, rgba(49,130,246,0.1)); letter-spacing: 0.02em; }
+  .prop-intro-desc { margin: 0; font-size: var(--dtl-body); color: var(--ink); line-height: 1.6; }
+  .prop-intro-list { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.35rem 1rem; }
+  .prop-intro-list li { position: relative; padding-left: 1.2rem; font-size: 0.9rem; color: var(--ink-soft); line-height: 1.5; }
+  .prop-intro-list li::before { content: '✓'; position: absolute; left: 0; top: 0; color: var(--success, #127a4f); font-weight: 700; }
+  .prop-intro-actions, .prop-ready-actions, .prop-page-actions, .prop-paywall-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  .prop-intro-note { margin: 0; font-size: 0.78rem; color: var(--ink-mute, #8a8f98); line-height: 1.5; }
+  .prop-loading { color: var(--ink-soft); font-size: var(--dtl-body); margin: 0.75rem 0 0; }
+  .prop-readiness { margin-top: 1rem; }
+  .prop-readiness[hidden] { display: none; }
+  .prop-paywall p { margin: 0 0 0.75rem; line-height: 1.6; }
+  .prop-paywall-lead { font-weight: 700; font-size: 1.05rem; }
+  .prop-paywall-sub { color: var(--ink-soft); font-size: 0.9rem; }
+  .prop-paywall-actions { margin-top: 1rem; }
+  .prop-empty { border: 1px solid var(--border); border-radius: 14px; padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .prop-empty p { margin: 0; line-height: 1.6; font-size: var(--dtl-body); }
+  .prop-empty-title { font-weight: 700; }
+  .prop-ready { border: 1px solid var(--border); border-radius: 14px; padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.9rem; min-width: 0; }
+  .prop-ready-title { margin: 0; font-size: var(--dtl-group); font-weight: 700; }
+  .prop-ready-sub { margin: 0.25rem 0 0; font-size: 0.86rem; color: var(--ink-soft); }
+  .prop-ready-counts { margin: 0.6rem 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.5rem; }
+  .prop-ready-counts div { background: var(--surface-sunken, #f1f3f5); border-radius: 10px; padding: 0.55rem 0.75rem; }
+  .prop-ready-counts dt { margin: 0; font-size: 0.78rem; color: var(--ink-soft); }
+  .prop-ready-counts dd { margin: 0.15rem 0 0; font-size: 1.05rem; font-weight: 800; }
+  .prop-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .prop-item { padding: 0.65rem 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.25rem; }
+  .prop-item:first-child { border-top: none; }
+  .prop-item-main { display: flex; justify-content: space-between; gap: 0.75rem; align-items: baseline; }
+  .prop-item-title { font-weight: 600; font-size: var(--dtl-body); }
+  .prop-item-score { white-space: nowrap; font-size: 0.86rem; color: var(--ink-soft); font-weight: 600; }
+  .prop-item-sub { display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; font-size: 0.82rem; }
+  .prop-item-status { font-weight: 700; }
+  .prop-item--ok .prop-item-status { color: var(--success, #127a4f); }
+  .prop-item--warn .prop-item-status { color: var(--warn, #9a6a00); }
+  .prop-item--muted .prop-item-status { color: var(--ink-soft); }
+  .prop-item-evidence { color: var(--ink-soft); }
+  .prop-reqs { font-size: 0.86rem; }
+  .prop-reqs-title, .prop-drafts-title { margin: 0 0 0.3rem; font-weight: 700; font-size: 0.86rem; }
+  .prop-reqs ul, .prop-drafts-list { margin: 0; padding-left: 1.1rem; }
+  .prop-drafts { background: var(--surface-sunken, #f1f3f5); border-radius: 10px; padding: 0.6rem 0.8rem; font-size: 0.86rem; }
+  .prop-drafts-meta { color: var(--ink-soft); font-size: 0.78rem; margin-left: 0.35rem; }
+  .prop-stale { color: var(--warn, #9a6a00); font-weight: 700; }
+  .prop-questions { display: flex; flex-direction: column; gap: 0.75rem; }
+  .prop-questions[hidden] { display: none; }
+  .prop-q-intro, .prop-q-none { margin: 0; font-size: 0.82rem; color: var(--ink-soft); line-height: 1.5; }
+  .prop-q { border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.85rem; margin: 0; min-width: 0; }
+  .prop-q legend { font-weight: 600; font-size: 0.9rem; padding: 0 0.25rem; }
+  .prop-q-opt { display: block; font-size: 0.88rem; margin: 0.25rem 0; }
+  .prop-q-text { width: 100%; box-sizing: border-box; margin-top: 0.3rem; font: inherit; font-size: 0.88rem; padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; resize: vertical; }
+  .prop-q-link { display: inline-block; margin-top: 0.4rem; font-size: 0.84rem; font-weight: 700; color: var(--accent-blue); text-decoration: none; }
+  /* 초안 미리보기 페이지 */
+  .proposal-page { display: flex; flex-direction: column; gap: 1rem; }
+  .proposal-page > * { margin: 0; }
+  .prop-page-head { background: var(--surface); border-radius: 20px; padding: 1.5rem 1.75rem; display: flex; flex-direction: column; gap: 0.6rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  .prop-page-title { margin: 0; font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.35; word-break: keep-all; }
+  .prop-page-meta { margin: 0; font-size: 0.86rem; color: var(--ink-soft); }
+  .prop-stale-banner { border: 1px solid var(--warn, #9a6a00); background: var(--warn-soft, #fbf0dc); border-radius: 14px; padding: 0.9rem 1rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.6rem; }
+  .prop-stale-banner p { margin: 0; font-size: 0.9rem; line-height: 1.55; }
+  .prop-missing-box { background: var(--surface); border-radius: 14px; padding: 0.8rem 1rem; }
+  .prop-missing-box summary { cursor: pointer; font-weight: 700; font-size: 0.9rem; }
+  .prop-missing-box ul { margin: 0.5rem 0 0; padding-left: 1.2rem; font-size: 0.86rem; line-height: 1.55; }
+  .prop-sections { display: flex; flex-direction: column; gap: 1rem; }
+  .prop-sec { background: var(--surface); border-radius: 20px; padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  .prop-sec-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; }
+  .prop-sec-title { margin: 0; font-size: 1.05rem; font-weight: 800; line-height: 1.4; }
+  .prop-sec-guidance { margin: 0; font-size: 0.8rem; color: var(--ink-mute, #8a8f98); line-height: 1.5; }
+  .prop-sec-body { margin: 0; font-size: 0.95rem; line-height: 1.7; white-space: pre-wrap; word-break: keep-all; }
+  .prop-sec-body[hidden], .prop-sec-editor[hidden] { display: none; }
+  .prop-sec-textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.92rem; line-height: 1.6; padding: 0.6rem 0.7rem; border: 1px solid var(--border); border-radius: 10px; resize: vertical; }
+  .prop-sec-editor-actions { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
+  .prop-sec-bullets { margin: 0; padding-left: 1.2rem; font-size: 0.92rem; line-height: 1.65; }
+  .prop-sec-table-title { margin: 0.2rem 0 0; font-weight: 700; font-size: 0.86rem; }
+  .prop-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 480px; }
+  .prop-table th { text-align: left; font-weight: 600; color: var(--ink-soft); padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .prop-table td { padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .prop-sec-missing { margin: 0; padding-left: 1.2rem; font-size: 0.88rem; line-height: 1.6; color: var(--warn, #9a6a00); }
+  @media (max-width: 768px) {
+    .prop-page-head, .prop-sec { border-radius: 16px; padding: 1rem 1.1rem; }
+    .prop-item-main { flex-direction: column; gap: 0.1rem; }
+    .prop-page-actions .btn, .prop-ready-actions .btn { flex: 1 1 auto; }
+  }
   .or-warn-text { color: var(--warn, #9a6a00); }
   /* #assignee-section(파이프라인 상세, assigneeSectionHtml)은 .profile-form의
      직속 자식이 아니라 그 안에 감싸인 <div>라 .profile-form의 gap이 안쪽
@@ -4694,6 +4779,11 @@ const ERROR_MESSAGES = {
   file_retry_blocked: '이 파일은 반복 실패하고 있어 잠시 후 다시 시도하거나 직접 입력해주세요.',
   ai_analysis_quota_exceeded: '이번달 AI 분석 한도를 모두 사용했습니다. 직접 입력하시거나 다음달에 다시 시도해주세요.',
   document_not_found: '해당 서류를 찾을 수 없습니다.',
+  paid_feature_required: '유료 플랜에서 이용할 수 있는 서비스입니다.',
+  draft_exists: '이 공고에 작성 중인 제안서 초안이 있습니다.',
+  no_evaluation_criteria: '현재 수집된 공고자료에서 제안서 평가기준을 찾지 못했습니다.',
+  draft_not_found: '제안서 초안을 찾을 수 없습니다.',
+  docx_failed: '문서를 만드는 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.',
   retry_unavailable: '이 서류는 재시도를 지원하지 않습니다(오래된 업로드 기록). 새로 업로드해주세요.',
   original_file_missing: '원본 파일을 찾을 수 없어 재시도할 수 없습니다. 새로 업로드해주세요.',
   category_and_name_required: '구분과 명칭은 필수입니다.',
@@ -4811,6 +4901,9 @@ async function apiRequest(method, url, body) {
 
 let currentUser = null;
 let currentProfile = null;
+// currentEntitlements — GET /api/me의 기능 권한 맵(예: proposal_draft_docx). 클릭 시
+// 결제 안내 모달을 띄울지 판단하는 데만 쓰고, 실제 기능 API는 서버가 다시 검사한다.
+let currentEntitlements = {};
 
 // ---------- 다크 모드 ----------
 // 색 변수만 뒤집는 방식(:root[data-theme="dark"]). <head>의 조기 스크립트가
@@ -4873,9 +4966,11 @@ async function loadMe() {
     const data = await apiRequest('GET', '/api/me');
     currentUser = data.user;
     currentProfile = data.companyProfile;
+    currentEntitlements = data.entitlements || {};
   } catch (err) {
     currentUser = null;
     currentProfile = null;
+    currentEntitlements = {};
   }
   renderHeader();
   if (currentUser) refreshUnreadNotificationCount();
@@ -11766,6 +11861,7 @@ function renderDetail(container, id) {
             ['progress', 'clock', '입찰 진행현황', '공고부터 개찰·낙찰까지 진행 단계입니다.', '<div id="bid-timeline-section"></div>'],
             ['opening', 'gavel', '개찰결과', '나라장터 개찰·낙찰 결과입니다.', '<div id="opening-result-section"></div>'],
             ['participation', 'clipboard-check', '참여판정', '회사정보와 공고 조건을 비교한 결과입니다.', '<div id="participation-judgment-section"></div><div id="ai-participation-section"></div>'],
+            ['proposal', 'file-text', '평가기준 맞춤 제안서', '참여 가능 여부를 확인한 뒤, 이 공고의 평가기준에 맞춰 제안서를 준비합니다.', '<div id="proposal-section"></div>'],
             ['documents', 'file-text', '제출서류', '참여를 위해 확인해야 할 서류입니다.', docBody],
             ['info', 'building', '공고 정보', '공고번호·기관·가격 등 상세 정보입니다.', infoBody],
             ['awards', 'award', '발주기관 낙찰이력', '이 발주기관의 과거 낙찰 데이터입니다.', '<div id="award-history-section"></div>'],
@@ -11815,6 +11911,8 @@ function renderDetail(container, id) {
           renderBidTimeline(document.getElementById('bid-timeline-section'), data.detail, n, opening);
         });
       }
+      // 평가기준 맞춤 제안서(유료) — 소개+CTA만 그린다. 상세를 열기만 해서는 어떤 생성/조회 API도 호출하지 않는다.
+      if (!isSupport) renderProposalSection(document.getElementById('proposal-section'), id, n);
       if (isSupport) {
         // B-2: 지원사업 공식 데이터(지원대상·사업개요·신청방법·문의처·지원분야) +
         // "사업 신청하기" CTA를 "신청 안내" 탭에, 첨부는 공고문/별첨자료로 나눠 표시.
@@ -12696,6 +12794,366 @@ function renderOpeningResultBody(container, op, notice) {
 // 행/그룹은 아예 만들지 않는다(빈 행 금지). 2026-08-16: 참가자격 성격의 행(참가가능지역·허용면허·
 // 업종/지역제한·공동수급·실적심사·PQ/TP·낙찰방법·낙찰하한율·조달분류·물품분류 제한)은 "입찰자격"
 // 섹션(renderBidQualification)으로 옮겨 같은 값이 두 곳에 반복되지 않게 했다.
+// ═══════════════════════════════════════════════════════════════════════
+// 평가기준 맞춤 제안서(2026-08-16, 유료 기능) — 공고 상세 섹션 + 작성 준비 + 초안 미리보기/DOCX
+// 원칙: ① 무료 사용자에게도 섹션/CTA는 항상 DOM에 존재(숨김/disabled 금지). 클릭 시에만
+// 결제 안내 모달(생성 API 호출 0). ② 상세를 열기만 해서는 어떤 제안서 API도 호출하지 않는다.
+// ③ 화면 문구에 "AI"를 쓰지 않는다. ④ 서버가 403 paid_feature_required를 주면 같은 모달.
+// ═══════════════════════════════════════════════════════════════════════
+const PROPOSAL_FEATURE_KEY = 'proposal_draft_docx';
+function canUseProposalDraft() { return !!(currentEntitlements && currentEntitlements[PROPOSAL_FEATURE_KEY]); }
+
+// openPaidFeatureModal — 유료 안내(플랜 이름/가격은 결제 화면이 기존 billing 데이터로 보여준다).
+function openPaidFeatureModal() {
+  const body = openModal('평가기준 맞춤 제안서', `
+    <div class="prop-paywall">
+      <p class="prop-paywall-lead">유료 서비스입니다.</p>
+      <p>공고별 평가기준과 회사정보를 반영한<br>수정 가능한 제안서 초안은<br>유료 플랜에서 사용할 수 있습니다.</p>
+      <p class="prop-paywall-sub">결제 후 바로 이용할 수 있습니다.</p>
+      <div class="prop-paywall-actions">
+        <a href="#/billing/plans" class="btn btn-primary" id="prop-paywall-go">플랜 확인·결제하기</a>
+        <button type="button" class="btn btn-secondary" id="prop-paywall-close">닫기</button>
+      </div>
+    </div>`);
+  body.querySelector('#prop-paywall-go').addEventListener('click', () => closeModal());
+  body.querySelector('#prop-paywall-close').addEventListener('click', closeModal);
+}
+
+function openLoginRequiredModal() {
+  const body = openModal('로그인이 필요한 서비스입니다', `
+    <div class="prop-paywall">
+      <p>제안서 초안 기능은 로그인 후 이용할 수 있습니다.</p>
+      <div class="prop-paywall-actions">
+        <a href="#/auth/login" class="btn btn-primary" id="prop-login-go">로그인하고 계속하기</a>
+        <button type="button" class="btn btn-secondary" id="prop-login-close">닫기</button>
+      </div>
+    </div>`);
+  body.querySelector('#prop-login-go').addEventListener('click', () => closeModal());
+  body.querySelector('#prop-login-close').addEventListener('click', closeModal);
+}
+
+// handleProposalApiError — 403 paid_feature_required → 결제 모달, 그 외 toast. true면 처리됨.
+function handleProposalApiError(err) {
+  if (err && err.code === 'paid_feature_required') { openPaidFeatureModal(); return true; }
+  if (err && err.status === 401) { openLoginRequiredModal(); return true; }
+  return false;
+}
+
+// renderProposalSection — 공고 상세 섹션(소개 카드 + CTA). 유료/무료 모두 동일 DOM.
+function renderProposalSection(container, noticeId, notice) {
+  if (!container) return;
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="prop-intro" data-notice-id="${escapeAttr(noticeId)}">
+      <div class="prop-intro-head">
+        <span class="prop-intro-title">평가기준 맞춤 제안서</span>
+        <span class="prop-paid-badge" aria-label="유료 서비스">유료</span>
+      </div>
+      <p class="prop-intro-desc">공고별 평가기준과 회사정보를 반영하여<br>수정 가능한 제안서 초안을 제공합니다.</p>
+      <ul class="prop-intro-list">
+        <li>평가항목·배점 기준 반영</li>
+        <li>등록된 회사정보·실적 반영</li>
+        <li>부족한 내용 확인</li>
+        <li>수정 가능한 DOCX 제공</li>
+      </ul>
+      <div class="prop-intro-actions">
+        <button type="button" class="btn btn-primary" id="prop-start-btn">제안서 초안 만들기</button>
+      </div>
+      <p class="prop-intro-note">제출 전 공고 원문과 회사정보를 직접 확인해 주세요.</p>
+    </div>
+    <div id="prop-readiness" class="prop-readiness" hidden></div>
+  `));
+  container.querySelector('#prop-start-btn').addEventListener('click', () => {
+    if (!currentUser) { openLoginRequiredModal(); return; }
+    if (!canUseProposalDraft()) { openPaidFeatureModal(); return; }
+    loadProposalReadiness(container, noticeId, notice, false);
+  });
+}
+
+// loadProposalReadiness — 유료 사용자 클릭 후에만 호출. 작성 준비 화면을 섹션 안에 그린다.
+async function loadProposalReadiness(container, noticeId, notice, refresh) {
+  const box = container.querySelector('#prop-readiness');
+  const startBtn = container.querySelector('#prop-start-btn');
+  if (!box) return;
+  box.hidden = false;
+  box.innerHTML = '<p class="prop-loading" role="status">평가기준과 회사정보를 확인하는 중…</p>';
+  if (startBtn) startBtn.disabled = true;
+  try {
+    const data = await apiRequest('GET', '/api/notices/' + encodeURIComponent(noticeId) + '/proposal-readiness' + (refresh ? '?refresh=1' : ''));
+    renderProposalReadiness(box, noticeId, notice, data);
+    box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    box.hidden = true;
+    if (!handleProposalApiError(err)) showToast(err.message || '작성 준비 정보를 불러오지 못했습니다.', 'error');
+  } finally {
+    if (startBtn) startBtn.disabled = false;
+  }
+}
+
+function proposalStatusClass(status) {
+  return status === 'ready' ? 'ok' : status === 'ready_partial' ? 'ok' : status === 'needs_input' ? 'warn' : 'muted';
+}
+function scoreLabel(score) { return (score === null || score === undefined) ? '배점 미확인' : (Number.isInteger(score) ? score : score.toFixed(1)) + '점'; }
+
+// renderProposalReadiness — 작성 준비 화면(평가기준 N개/총 배점/준비 완료·추가 확인/항목 목록/
+// 기존 초안/부족정보 질문/[제안서 초안 만들기]). "예상 점수" 같은 표현은 쓰지 않는다.
+function renderProposalReadiness(box, noticeId, notice, data) {
+  box.innerHTML = '';
+  const drafts = data.drafts || [];
+  const draftsHtml = drafts.length ? `
+    <div class="prop-drafts">
+      <p class="prop-drafts-title">작성 중인 제안서가 있습니다.</p>
+      <ul class="prop-drafts-list">
+        ${drafts.map(d => `<li><a href="#/proposal-drafts/${escapeAttr(d.id)}">${escapeHtml(d.title || '제안서 초안')}</a>
+          <span class="prop-drafts-meta">${formatDate(d.updatedAt || d.createdAt)}${d.stale ? ' · <span class="prop-stale">이전 공고 기준</span>' : ''}</span></li>`).join('')}
+      </ul>
+    </div>` : '';
+  if (data.status !== 'ready') {
+    box.appendChild(h(`
+      <div class="prop-empty">
+        <p class="prop-empty-title">평가기준을 확인할 수 없습니다.</p>
+        <p>현재 수집된 공고자료에서 제안서 평가기준을 찾지 못했습니다.<br>공고 첨부파일의 제안요청서 또는 평가표를 확인해 주세요.</p>
+        <div class="prop-intro-actions">
+          <a href="#section-documents" class="btn btn-secondary" id="prop-goto-attachments">첨부파일 확인</a>
+          <button type="button" class="btn btn-ghost btn-sm" id="prop-recheck">다시 확인</button>
+        </div>
+        ${draftsHtml}
+      </div>`));
+    const goto = box.querySelector('#prop-goto-attachments');
+    goto.addEventListener('click', (e) => { e.preventDefault(); const t = document.getElementById('section-documents'); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    box.querySelector('#prop-recheck').addEventListener('click', () => loadProposalReadiness(box.parentElement, noticeId, notice, true));
+    return;
+  }
+  const s = data.summary || {};
+  const items = data.items || [];
+  const questions = data.questions || [];
+  const reqs = data.requirements || [];
+  const itemsHtml = items.map(it => `
+    <li class="prop-item prop-item--${proposalStatusClass(it.status)}">
+      <div class="prop-item-main">
+        <span class="prop-item-title">${escapeHtml(it.title)}</span>
+        <span class="prop-item-score">${escapeHtml(scoreLabel(it.score))}</span>
+      </div>
+      <div class="prop-item-sub">
+        <span class="prop-item-status">${escapeHtml(it.statusLabel)}</span>
+        ${(it.evidence || []).map(e => `<span class="prop-item-evidence">${escapeHtml(e)}</span>`).join('')}
+      </div>
+    </li>`).join('');
+  const reqsHtml = reqs.length ? `<div class="prop-reqs"><p class="prop-reqs-title">공고의 제안서 작성 요구사항</p><ul>${reqs.map(r => `<li><strong>${escapeHtml(r.label)}</strong> ${escapeHtml(r.value)}</li>`).join('')}</ul></div>` : '';
+  const qHtml = questions.length ? questions.map(q => {
+    const opts = (q.options || []).map(o => `<label class="prop-q-opt"><input type="radio" name="${escapeAttr(q.id)}" value="${escapeAttr(o.value)}"> ${escapeHtml(o.label)}</label>`).join('');
+    const free = q.allowFreeText ? `<label class="prop-q-opt"><input type="radio" name="${escapeAttr(q.id)}" value="__text"> 직접 입력</label>
+      <textarea class="prop-q-text" data-q="${escapeAttr(q.id)}" rows="2" placeholder="${escapeAttr(q.freeTextHint || '')}"></textarea>` : '';
+    const link = q.linkHref ? `<a class="prop-q-link" href="${escapeAttr(q.linkHref)}">${escapeHtml(q.linkLabel || '회사정보로 이동')} &rarr;</a>` : '';
+    return `<fieldset class="prop-q" data-q="${escapeAttr(q.id)}"><legend>${escapeHtml(q.prompt)}</legend>${opts}${free}${link}</fieldset>`;
+  }).join('') : '<p class="prop-q-none">추가로 확인할 정보가 없습니다.</p>';
+  box.appendChild(h(`
+    <div class="prop-ready">
+      <div class="prop-ready-head">
+        <h4 class="prop-ready-title">제안서 작성 준비</h4>
+        <p class="prop-ready-sub">평가기준 ${s.criteriaCount || 0}개${(s.totalScore !== null && s.totalScore !== undefined) ? ' · 총 배점 ' + escapeHtml(scoreLabel(s.totalScore)) : ' · 총 배점 미확인'}${data.sourceDocs && data.sourceDocs.length ? ' · 출처: ' + escapeHtml(data.sourceDocs.join(', ')) : ''}</p>
+        <dl class="prop-ready-counts">
+          <div><dt>작성 준비 완료</dt><dd>${s.readyCount || 0}개</dd></div>
+          <div><dt>추가 확인 필요</dt><dd>${s.needsInputCount || 0}개</dd></div>
+        </dl>
+      </div>
+      ${draftsHtml}
+      <ul class="prop-items">${itemsHtml}</ul>
+      ${reqsHtml}
+      <div class="prop-ready-actions">
+        <button type="button" class="btn btn-secondary" id="prop-toggle-q" aria-expanded="false">부족정보 확인${questions.length ? ' (' + questions.length + ')' : ''}</button>
+        <button type="button" class="btn btn-primary" id="prop-create-btn">제안서 초안 만들기</button>
+      </div>
+      <div class="prop-questions" id="prop-questions" hidden>
+        <p class="prop-q-intro">정보가 없는 항목만 묻습니다. 여기 입력한 내용은 이 초안에만 반영되고 회사정보에는 저장되지 않습니다.</p>
+        ${qHtml}
+      </div>
+      <p class="prop-intro-note">초안은 공고자료와 등록된 회사정보만으로 구성되며, 확인되지 않은 내용은 [확인 필요]로 남습니다.</p>
+    </div>`));
+  const qBox = box.querySelector('#prop-questions');
+  const toggle = box.querySelector('#prop-toggle-q');
+  toggle.addEventListener('click', () => { const open = qBox.hidden; qBox.hidden = !open; toggle.setAttribute('aria-expanded', String(open)); });
+  box.querySelector('#prop-create-btn').addEventListener('click', () => createProposalDraft(box, noticeId, false));
+}
+
+function collectProposalAnswers(box) {
+  const answers = {};
+  box.querySelectorAll('.prop-q').forEach(fs => {
+    const qid = fs.dataset.q;
+    const sel = fs.querySelector('input[type=radio]:checked');
+    const ta = fs.querySelector('.prop-q-text');
+    const text = ta ? ta.value.trim() : '';
+    if (!sel && !text) return;
+    const value = sel && sel.value !== '__text' ? sel.value : '';
+    if (!value && !text) return;
+    answers[qid] = { value, text };
+  });
+  return answers;
+}
+
+// createProposalDraft — POST. 같은 버전 초안이 있으면 409 draft_exists → [계속 작성]/[새 초안 만들기].
+async function createProposalDraft(box, noticeId, force) {
+  const btn = box.querySelector('#prop-create-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '초안을 구성하는 중…'; }
+  try {
+    const answers = collectProposalAnswers(box);
+    const draft = await apiRequest('POST', '/api/notices/' + encodeURIComponent(noticeId) + '/proposal-drafts', { answers, force: !!force });
+    showToast('제안서 초안이 준비됐습니다.', 'success');
+    location.hash = '#/proposal-drafts/' + encodeURIComponent(draft.id);
+  } catch (err) {
+    if (err.code === 'draft_exists' && err.data && err.data.draftId) {
+      const body = openModal('작성 중인 제안서가 있습니다', `
+        <div class="prop-paywall">
+          <p>이 공고(현재 버전)에 이미 만든 초안이 있습니다. 이어서 작성할까요, 새 초안을 만들까요?</p>
+          <div class="prop-paywall-actions">
+            <a href="#/proposal-drafts/${escapeAttr(err.data.draftId)}" class="btn btn-primary" id="prop-continue">계속 작성</a>
+            <button type="button" class="btn btn-secondary" id="prop-new">새 초안 만들기</button>
+          </div>
+        </div>`);
+      body.querySelector('#prop-continue').addEventListener('click', () => closeModal());
+      body.querySelector('#prop-new').addEventListener('click', () => { closeModal(); createProposalDraft(box, noticeId, true); });
+    } else if (err.code === 'no_evaluation_criteria') {
+      showToast(ERROR_MESSAGES.no_evaluation_criteria, 'error');
+    } else if (!handleProposalApiError(err)) {
+      showToast(err.message || '초안을 만들지 못했습니다.', 'error');
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '제안서 초안 만들기'; }
+  }
+}
+
+// ── 초안 미리보기 페이지 #/proposal-drafts/{id} ──
+function renderProposalDraftPage(container, draftId) {
+  container.innerHTML = '';
+  container.appendChild(h(`<div class="proposal-page" id="proposal-page"><p class="prop-loading" role="status">제안서 초안을 불러오는 중…</p></div>`));
+  const page = container.querySelector('#proposal-page');
+  if (!currentUser) { location.hash = '#/auth/login'; return; }
+  if (!canUseProposalDraft()) { page.innerHTML = ''; openPaidFeatureModal(); page.appendChild(h(`<a href="#/notices" class="back-link">&larr; 공고 검색으로</a><p class="section-empty">유료 플랜에서 이용할 수 있는 서비스입니다.</p>`)); return; }
+  apiRequest('GET', '/api/proposal-drafts/' + encodeURIComponent(draftId))
+    .then(draft => renderProposalDraftBody(page, draft))
+    .catch(err => {
+      page.innerHTML = '';
+      page.appendChild(h(`<a href="#/notices" class="back-link">&larr; 공고 검색으로</a><p class="section-empty">${escapeHtml(err.message || '초안을 불러오지 못했습니다.')}</p>`));
+      handleProposalApiError(err);
+    });
+}
+
+function renderProposalDraftBody(page, draft) {
+  page.innerHTML = '';
+  const c = draft.content || {};
+  const sections = c.sections || [];
+  const staleHtml = draft.stale ? `
+    <div class="prop-stale-banner" role="alert">
+      <p><strong>공고 내용이 변경되었습니다.</strong><br>현재 제안서는 이전 공고(${escapeHtml(String(draft.noticeVersionNumber))}차) 기준으로 작성되었습니다. 현재 공고는 ${escapeHtml(String(draft.currentVersionNumber))}차입니다.</p>
+      <button type="button" class="btn btn-secondary btn-sm" id="prop-regen-version">변경사항 반영해 새 초안 만들기</button>
+    </div>` : '';
+  const secHtml = sections.map((sec, i) => {
+    const title = (i > 0 ? i + '. ' : '') + sec.title + (sec.score !== null && sec.score !== undefined ? ' (' + scoreLabel(sec.score) + ')' : '');
+    const guidance = (sec.guidance || []).length ? `<p class="prop-sec-guidance">작성 안내(공고 평가기준): ${escapeHtml(sec.guidance.join(' / '))}</p>` : '';
+    const bullets = (sec.bullets || []).length ? `<ul class="prop-sec-bullets">${sec.bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>` : '';
+    const tables = (sec.tables || []).map(t => `
+      ${t.title ? `<p class="prop-sec-table-title">${escapeHtml(t.title)}</p>` : ''}
+      <div class="table-scroll prop-table-wrap"><table class="prop-table"><thead><tr>${(t.header || []).map(hd => `<th>${escapeHtml(hd)}</th>`).join('')}</tr></thead>
+      <tbody>${(t.rows || []).map(r => `<tr>${r.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`).join('');
+    const missing = (sec.missing || []).length ? `<ul class="prop-sec-missing">${sec.missing.map(m => `<li>${escapeHtml(m)}</li>`).join('')}</ul>` : '';
+    return `
+      <section class="prop-sec" data-sec-id="${escapeAttr(sec.id)}">
+        <div class="prop-sec-head">
+          <h3 class="prop-sec-title">${escapeHtml(title)}</h3>
+          <button type="button" class="btn btn-ghost btn-sm prop-sec-edit" data-sec-id="${escapeAttr(sec.id)}">수정</button>
+        </div>
+        ${guidance}
+        <p class="prop-sec-body" data-sec-body="${escapeAttr(sec.id)}">${escapeHtml(sec.body || '')}</p>
+        <div class="prop-sec-editor" data-sec-editor="${escapeAttr(sec.id)}" hidden>
+          <textarea rows="6" class="prop-sec-textarea">${escapeHtml(sec.body || '')}</textarea>
+          <div class="prop-sec-editor-actions">
+            <button type="button" class="btn btn-primary btn-sm prop-sec-save" data-sec-id="${escapeAttr(sec.id)}">저장</button>
+            <button type="button" class="btn btn-secondary btn-sm prop-sec-cancel" data-sec-id="${escapeAttr(sec.id)}">취소</button>
+          </div>
+        </div>
+        ${bullets}${tables}${missing}
+      </section>`;
+  }).join('');
+  const missingAll = (draft.missing || c.missing || []);
+  page.appendChild(h(`
+    <a href="#/notices/${escapeAttr(draft.noticeId)}" class="back-link">&larr; 공고 상세로</a>
+    <div class="prop-page-head">
+      <p class="detail-eyebrow">평가기준 맞춤 제안서 · 초안</p>
+      <h2 class="prop-page-title">${escapeHtml(draft.title || c.title || '제안서 초안')}</h2>
+      <p class="prop-page-meta">${escapeHtml(draft.noticeTitle || '')}${draft.companyName ? ' · 제안사 ' + escapeHtml(draft.companyName) : ''} · 작성 ${formatDate(draft.generatedAt || draft.createdAt)}</p>
+      <div class="prop-page-actions">
+        <button type="button" class="btn btn-primary" id="prop-docx-btn">DOCX로 받기</button>
+        <button type="button" class="btn btn-secondary" id="prop-regen-company">현재 회사정보로 다시 반영</button>
+      </div>
+      <p class="prop-intro-note">본 문서는 공고자료와 등록된 회사정보를 기준으로 구성된 초안입니다. 제출 전 공고 원문 및 실제 회사정보와의 일치 여부를 반드시 확인하세요.</p>
+    </div>
+    ${staleHtml}
+    ${missingAll.length ? `<details class="prop-missing-box"><summary>확인 필요 항목 ${missingAll.length}개</summary><ul>${missingAll.map(m => `<li>${escapeHtml(m)}</li>`).join('')}</ul></details>` : ''}
+    <div class="prop-sections">${secHtml}</div>
+  `));
+  page.querySelector('#prop-docx-btn').addEventListener('click', () => downloadProposalDocx(draft.id, page.querySelector('#prop-docx-btn')));
+  const regen = (force) => openConfirmModal({
+    title: '새 초안 만들기',
+    message: '현재 공고 내용과 현재 회사정보를 기준으로 새 초안을 만듭니다. 기존 초안은 그대로 남습니다.',
+    confirmLabel: '새 초안 만들기',
+    onConfirm: async () => {
+      const d = await apiRequest('POST', '/api/notices/' + encodeURIComponent(draft.noticeId) + '/proposal-drafts', { answers: draft.answers || {}, force: true });
+      location.hash = '#/proposal-drafts/' + encodeURIComponent(d.id);
+    },
+  });
+  page.querySelector('#prop-regen-company').addEventListener('click', () => regen(true));
+  const rv = page.querySelector('#prop-regen-version');
+  if (rv) rv.addEventListener('click', () => regen(true));
+  page.querySelectorAll('.prop-sec-edit').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.secId;
+    page.querySelector(`[data-sec-editor="${CSS.escape(id)}"]`).hidden = false;
+    page.querySelector(`[data-sec-body="${CSS.escape(id)}"]`).hidden = true;
+  }));
+  page.querySelectorAll('.prop-sec-cancel').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.secId;
+    page.querySelector(`[data-sec-editor="${CSS.escape(id)}"]`).hidden = true;
+    page.querySelector(`[data-sec-body="${CSS.escape(id)}"]`).hidden = false;
+  }));
+  page.querySelectorAll('.prop-sec-save').forEach(btn => btn.addEventListener('click', async () => {
+    const id = btn.dataset.secId;
+    const ta = page.querySelector(`[data-sec-editor="${CSS.escape(id)}"] textarea`);
+    btn.disabled = true;
+    try {
+      const updated = await apiRequest('PATCH', '/api/proposal-drafts/' + encodeURIComponent(draft.id), { sections: [{ id, body: ta.value }] });
+      showToast('저장했습니다.', 'success');
+      renderProposalDraftBody(page, updated);
+    } catch (err) {
+      if (!handleProposalApiError(err)) showToast(err.message || '저장하지 못했습니다.', 'error');
+    } finally { btn.disabled = false; }
+  }));
+}
+
+// downloadProposalDocx — 세션 쿠키로 fetch → blob → a[download]. 파일명은 서버 Content-Disposition(filename*)에서.
+async function downloadProposalDocx(draftId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '문서를 만드는 중…'; }
+  try {
+    const res = await fetch('/api/proposal-drafts/' + encodeURIComponent(draftId) + '/docx');
+    if (!res.ok) {
+      let data = null; try { data = await res.json(); } catch (e) { /* no body */ }
+      const err = new Error((data && ERROR_MESSAGES[data.error]) || '문서를 받지 못했습니다.'); err.code = data && data.error; err.status = res.status;
+      throw err;
+    }
+    const blob = await res.blob();
+    let filename = 'proposal.docx';
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename\*=UTF-8''([^;]+)/i);
+    if (m) { try { filename = decodeURIComponent(m[1]); } catch (e) { /* keep default */ } }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showToast('DOCX 파일을 내려받았습니다. Word/한글에서 열어 수정하세요.', 'success');
+  } catch (err) {
+    if (!handleProposalApiError(err)) showToast(err.message || '문서를 받지 못했습니다.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'DOCX로 받기'; }
+  }
+}
+
 function renderNoticeDetailInfo(container, detail) {
   if (!container) return;
   container.innerHTML = '';
@@ -19397,6 +19855,11 @@ function route() {
   const pipelineDetailMatch = path.match(/^#\/pipeline\/(.+)$/);
   if (pipelineDetailMatch) {
     renderPipelineDetail(app, decodeURIComponent(pipelineDetailMatch[1]));
+    return;
+  }
+  const proposalDraftMatch = path.match(/^#\/proposal-drafts\/(.+)$/);
+  if (proposalDraftMatch) {
+    renderProposalDraftPage(app, decodeURIComponent(proposalDraftMatch[1]));
     return;
   }
   const reportMatch = path.match(/^#\/notices\/(.+)\/report$/);

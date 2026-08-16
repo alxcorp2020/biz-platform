@@ -310,7 +310,51 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureNoticeOpeningResultsTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate notice_opening_results table: %w", err)
 	}
+	if err := ensureProposalDraftTables(ctx, db); err != nil {
+		return fmt.Errorf("migrate proposal draft tables: %w", err)
+	}
 	return nil
+}
+
+// ensureProposalDraftTables — 평가기준 맞춤 제안서 1차(2026-08-16).
+//
+//   - notice_versions.evaluation_criteria(JSONB) 등 3컬럼: 공고 버전별 "평가기준
+//     구조화 결과"(항목/배점/세부기준/근거 인용). ai_summary_* 컬럼과 같은 관례로
+//     기존 enrichment 결과 자리에 얹는다(새 테이블 없음). status: found /
+//     not_found / error. 정정공고로 버전이 바뀌면 새 버전 행에서 다시 추출된다.
+//   - proposal_drafts: 회사(company_profile_id)×공고(notice_id)×공고버전
+//     (notice_version_id) 단위 초안. 생성 당시의 평가기준/회사정보/사용자 답변을
+//     JSONB 스냅샷으로 보관해 이후 회사정보나 공고가 바뀌어도 과거 문서를 몰래
+//     바꾸지 않는다(재반영은 사용자 명시 선택). DOCX 바이너리는 저장하지 않고
+//     content(JSONB 섹션)에서 요청 시 생성한다. 멱등(IF NOT EXISTS), DROP 없음.
+func ensureProposalDraftTables(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		ALTER TABLE notice_versions ADD COLUMN IF NOT EXISTS evaluation_criteria JSONB;
+		ALTER TABLE notice_versions ADD COLUMN IF NOT EXISTS evaluation_criteria_status TEXT;
+		ALTER TABLE notice_versions ADD COLUMN IF NOT EXISTS evaluation_criteria_extracted_at TIMESTAMPTZ;
+
+		CREATE TABLE IF NOT EXISTS proposal_drafts (
+			id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			notice_id            UUID NOT NULL REFERENCES notices(id) ON DELETE CASCADE,
+			notice_version_id    UUID NOT NULL REFERENCES notice_versions(id) ON DELETE CASCADE,
+			company_profile_id   UUID NOT NULL REFERENCES company_profiles(id) ON DELETE CASCADE,
+			created_by_user_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+			status               TEXT NOT NULL DEFAULT 'draft',
+			title                TEXT NOT NULL DEFAULT '',
+			evaluation_snapshot  JSONB,
+			company_snapshot     JSONB,
+			answers              JSONB,
+			content              JSONB,
+			missing_information  JSONB,
+			generation_model     TEXT,
+			generation_error     TEXT,
+			generated_at         TIMESTAMPTZ,
+			created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_proposal_drafts_company_notice ON proposal_drafts(company_profile_id, notice_id, created_at DESC);
+	`)
+	return err
 }
 
 // ensureNoticeOpeningResultsTable — 공고 상세 고도화 1차(2026-08-16) "개찰결과". 나라장터

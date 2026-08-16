@@ -550,12 +550,19 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("me: profile query failed", "error", err)
 	}
 
+	// entitlements — 기능 권한(유료 기능) 맵. 프론트는 클릭 시 결제 안내 모달을
+	// 띄울지 판단하는 데만 쓰고, 실제 기능 API는 서버가 다시 검사한다(entitlements.go).
+	profileID := ""
+	if profile != nil {
+		profileID = profile.ID
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": map[string]any{
 			"id": userID, "email": email, "role": role, "plan": plan,
 			"phoneVerified": phoneVerified, "emailVerified": emailVerified, "onboarded": onboarded,
 		},
 		"companyProfile": profile,
+		"entitlements":   s.entitlementsFor(r.Context(), profileID),
 	})
 }
 
