@@ -36,42 +36,52 @@ type g2bRawFields struct {
 	RgnLmtBidLocplcJdgmBssNm string `json:"rgnLmtBidLocplcJdgmBssNm"`
 	// Phase B(2026-08-11) — raw_content에 이미 있었으나 그동안 안 읽던 필드. 새 API 호출 없음.
 	// 필드 의미는 실측 응답으로 확인된 것만(추측 금지). 값 없으면 프론트가 행을 안 만든다.
-	BidNtceNo             string `json:"bidNtceNo"`             // 입찰공고번호
-	BidNtceOrd            string `json:"bidNtceOrd"`            // 차수
-	RefNo                 string `json:"refNo"`                 // 참조번호
-	UntyNtceNo            string `json:"untyNtceNo"`            // 통합공고번호
-	SrvceDivNm            string `json:"srvceDivNm"`            // 용역구분(일반용역 등)
-	BidNtceDt             string `json:"bidNtceDt"`             // 공고 게시일시(초 단위)
-	BidMethdNm            string `json:"bidMethdNm"`            // 입찰방식(전자입찰 등)
-	IntrbidYn             string `json:"intrbidYn"`             // 국제입찰 여부 Y/N
-	PrearngPrceDcsnMthdNm string `json:"prearngPrceDcsnMthdNm"` // 예정가격 결정방법(복수예가 등)
-	DrwtPrdprcNum         string `json:"drwtPrdprcNum"`         // 예정가격 추첨 개수
-	TotPrdprcNum          string `json:"totPrdprcNum"`          // 예비가격 전체 개수
-	CmmnSpldmdMethdNm     string `json:"cmmnSpldmdMethdNm"`     // 공동수급 방식(불허 등)
-	OpengPlce             string `json:"opengPlce"`             // 개찰 장소
-	RbidOpengDt           string `json:"rbidOpengDt"`           // 재입찰 개찰일시
-	AsignBdgtAmt          string `json:"asignBdgtAmt"`          // 배정예산액
-	DminsttNm             string `json:"dminsttNm"`             // 수요기관명
-	NtceInsttNm           string `json:"ntceInsttNm"`           // 공고기관명
+	BidNtceNo              string `json:"bidNtceNo"`              // 입찰공고번호
+	BidNtceOrd             string `json:"bidNtceOrd"`             // 차수
+	RefNo                  string `json:"refNo"`                  // 참조번호
+	UntyNtceNo             string `json:"untyNtceNo"`             // 통합공고번호
+	SrvceDivNm             string `json:"srvceDivNm"`             // 용역구분(일반용역 등)
+	BidNtceDt              string `json:"bidNtceDt"`              // 공고 게시일시(초 단위)
+	BidMethdNm             string `json:"bidMethdNm"`             // 입찰방식(전자입찰 등)
+	IntrbidYn              string `json:"intrbidYn"`              // 국제입찰 여부 Y/N
+	PrearngPrceDcsnMthdNm  string `json:"prearngPrceDcsnMthdNm"`  // 예정가격 결정방법(복수예가 등)
+	DrwtPrdprcNum          string `json:"drwtPrdprcNum"`          // 예정가격 추첨 개수
+	TotPrdprcNum           string `json:"totPrdprcNum"`           // 예비가격 전체 개수
+	CmmnSpldmdMethdNm      string `json:"cmmnSpldmdMethdNm"`      // 공동수급 방식(불허 등)
+	OpengPlce              string `json:"opengPlce"`              // 개찰 장소
+	RbidOpengDt            string `json:"rbidOpengDt"`            // 재입찰 개찰일시
+	AsignBdgtAmt           string `json:"asignBdgtAmt"`           // 배정예산액
+	DminsttNm              string `json:"dminsttNm"`              // 수요기관명
+	NtceInsttNm            string `json:"ntceInsttNm"`            // 공고기관명
 	NtceInsttOfclEmailAdrs string `json:"ntceInsttOfclEmailAdrs"` // 공고기관 담당자 이메일
-	DcmtgOprtnDt          string `json:"dcmtgOprtnDt"`          // 설명회 일시
-	DcmtgOprtnPlce        string `json:"dcmtgOprtnPlce"`        // 설명회 장소
-	BidPrtcptFee          string `json:"bidPrtcptFee"`          // 입찰참가수수료(원)
-	BidGrntymnyPaymntYn   string `json:"bidGrntymnyPaymntYn"`   // 입찰보증금 납부 여부 Y/N
+	DcmtgOprtnDt           string `json:"dcmtgOprtnDt"`           // 설명회 일시
+	DcmtgOprtnPlce         string `json:"dcmtgOprtnPlce"`         // 설명회 장소
+	BidPrtcptFee           string `json:"bidPrtcptFee"`           // 입찰참가수수료(원)
+	BidGrntymnyPaymntYn    string `json:"bidGrntymnyPaymntYn"`    // 입찰보증금 납부 여부 Y/N
 	// Phase B 확장(2026-08-13) — 원문 대비 누락 필드 보강. 실측 raw_content에 존재 확인된 것만.
-	ReNtceYn                    string `json:"reNtceYn"`                    // 재공고 여부 Y/N
-	ArsltCmptYn                 string `json:"arsltCmptYn"`                 // 실적심사(경쟁) 여부 Y/N
-	ArsltApplDocRcptMthdNm      string `json:"arsltApplDocRcptMthdNm"`      // 실적신청서 제출방법(없음 등)
-	PrdctClsfcLmtYn             string `json:"prdctClsfcLmtYn"`             // 물품분류 제한 여부 Y/N
-	CmmnSpldmdCorpRgnLmtYn      string `json:"cmmnSpldmdCorpRgnLmtYn"`      // 공동수급체 구성원 지역제한 Y/N
+	ReNtceYn                    string `json:"reNtceYn"`                     // 재공고 여부 Y/N
+	ArsltCmptYn                 string `json:"arsltCmptYn"`                  // 실적심사(경쟁) 여부 Y/N
+	ArsltApplDocRcptMthdNm      string `json:"arsltApplDocRcptMthdNm"`       // 실적신청서 제출방법(없음 등)
+	PrdctClsfcLmtYn             string `json:"prdctClsfcLmtYn"`              // 물품분류 제한 여부 Y/N
+	CmmnSpldmdCorpRgnLmtYn      string `json:"cmmnSpldmdCorpRgnLmtYn"`       // 공동수급체 구성원 지역제한 Y/N
 	CmmnSpldmdAgrmntRcptdocMthd string `json:"cmmnSpldmdAgrmntRcptdocMethd"` // 공동수급 협정서 접수방법(수기 등)
-	ExctvNm                     string `json:"exctvNm"`                     // 집행관
-	OrderPlanUntyNo             string `json:"orderPlanUntyNo"`             // 발주계획 통합번호
-	BfSpecRgstNo                string `json:"bfSpecRgstNo"`                // 사전규격 등록번호
-	CrdtrNm                     string `json:"crdtrNm"`                     // 발주처(채권자)
-	PubPrcrmntLrgClsfcNm        string `json:"pubPrcrmntLrgClsfcNm"`        // 조달 대분류
-	PubPrcrmntMidClsfcNm        string `json:"pubPrcrmntMidClsfcNm"`        // 조달 중분류
-	PubPrcrmntClsfcNm           string `json:"pubPrcrmntClsfcNm"`           // 조달 세부분류
+	ExctvNm                     string `json:"exctvNm"`                      // 집행관
+	OrderPlanUntyNo             string `json:"orderPlanUntyNo"`              // 발주계획 통합번호
+	BfSpecRgstNo                string `json:"bfSpecRgstNo"`                 // 사전규격 등록번호
+	CrdtrNm                     string `json:"crdtrNm"`                      // 발주처(채권자)
+	PubPrcrmntLrgClsfcNm        string `json:"pubPrcrmntLrgClsfcNm"`         // 조달 대분류
+	PubPrcrmntMidClsfcNm        string `json:"pubPrcrmntMidClsfcNm"`         // 조달 중분류
+	PubPrcrmntClsfcNm           string `json:"pubPrcrmntClsfcNm"`            // 조달 세부분류
+	// 공고 상세 고도화 1차(2026-08-16) "입찰자격" — 실측 응답에 존재하는 자격 관련 필드(값 없으면 프론트가 생략).
+	PqEvalYn               string `json:"pqEvalYn"`             // PQ 심사 여부 Y/N
+	TpEvalYn               string `json:"tpEvalYn"`             // TP 심사 여부 Y/N
+	RgnDutyJntcontrctRt    string `json:"rgnDutyJntcontrctRt"`  // 지역의무공동도급 비율(%)
+	JntcontrctDutyRgnNm1   string `json:"jntcontrctDutyRgnNm1"` // 공동도급 의무지역명 1~3
+	JntcontrctDutyRgnNm2   string `json:"jntcontrctDutyRgnNm2"`
+	JntcontrctDutyRgnNm3   string `json:"jntcontrctDutyRgnNm3"`
+	CmmnSpldmdAgrmntClseDt string `json:"cmmnSpldmdAgrmntClseDt"` // 공동수급협정 마감일시
+	ArsltReqstdocRcptDt    string `json:"arsltReqstdocRcptDt"`    // 실적신청서 접수일시
+	BidPrtcptLmtYn         string `json:"bidPrtcptLmtYn"`         // 입찰참가(지역)제한 여부 Y/N
 }
 
 type noticeRawDetail struct {
@@ -126,6 +136,14 @@ type noticeRawDetail struct {
 	PreSpecRegNo           string `json:"preSpecRegNo"`           // 사전규격 등록번호
 	Creditor               string `json:"creditor"`               // 발주처(채권자)
 	ProcurementClass       string `json:"procurementClass"`       // 조달분류(대>중>세)
+	// 입찰자격(2026-08-16) — 나라장터 등록정보. 값 없으면 nil/빈문자열.
+	PQReview                *bool      `json:"pqReview"`                // PQ 심사 여부
+	TPReview                *bool      `json:"tpReview"`                // TP 심사 여부
+	RegionDutyJointRate     string     `json:"regionDutyJointRate"`     // 지역의무공동도급 비율(%)
+	JointDutyRegions        []string   `json:"jointDutyRegions"`        // 공동도급 의무지역
+	JointAgreementDeadline  *time.Time `json:"jointAgreementDeadline"`  // 공동수급협정 마감
+	PerformanceDocDeadline  *time.Time `json:"performanceDocDeadline"`  // 실적신청서 접수일시
+	ParticipationRestricted *bool      `json:"participationRestricted"` // 입찰참가(지역)제한 여부
 	// 담당자 개인정보 마스킹(2026-08-11). OfficerName/Phone/Email에는 "표시용" 값(마스킹 또는
 	// 원본)을 담는다. OfficerMasked=true면 마스킹된 상태. OfficerCanReveal=true면(참여검토 시작한
 	// 사용자) 프론트에 [공개] 버튼을 띄우고 OfficerFull*로 즉시 원본 전환한다. system_admin은
@@ -287,7 +305,26 @@ func (s *Server) fetchNoticeRawDetail(ctx context.Context, versionID string) (*n
 		PreSpecRegNo:           f.BfSpecRgstNo,
 		Creditor:               f.CrdtrNm,
 		ProcurementClass:       joinNonEmpty(" › ", f.PubPrcrmntLrgClsfcNm, f.PubPrcrmntMidClsfcNm, f.PubPrcrmntClsfcNm),
+		// 입찰자격 매핑(2026-08-16).
+		PQReview:                ynToBool(f.PqEvalYn),
+		TPReview:                ynToBool(f.TpEvalYn),
+		RegionDutyJointRate:     strings.TrimSpace(f.RgnDutyJntcontrctRt),
+		JointDutyRegions:        nonEmptyStrings(f.JntcontrctDutyRgnNm1, f.JntcontrctDutyRgnNm2, f.JntcontrctDutyRgnNm3),
+		JointAgreementDeadline:  parseG2BDateTime(f.CmmnSpldmdAgrmntClseDt),
+		PerformanceDocDeadline:  parseG2BDateTime(f.ArsltReqstdocRcptDt),
+		ParticipationRestricted: ynToBool(f.BidPrtcptLmtYn),
 	}, nil
+}
+
+// nonEmptyStrings — 공백 제거 후 비어있지 않은 값만(공동도급 의무지역 1~3 등). 항상 non-nil 슬라이스.
+func nonEmptyStrings(vals ...string) []string {
+	out := []string{}
+	for _, v := range vals {
+		if t := strings.TrimSpace(v); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // joinNonEmpty — 비어있지 않은 조각만 sep로 연결(조달분류 대›중›세 등).

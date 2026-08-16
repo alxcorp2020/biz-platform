@@ -121,6 +121,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/notices/suggest", s.handleNoticeSuggest)
 	mux.HandleFunc("GET /api/industry-taxonomy", s.handleGetIndustryTaxonomy)
 	mux.HandleFunc("GET /api/notices/{id}", s.handleGetNotice)
+	mux.HandleFunc("GET /api/notices/{id}/opening-result", s.handleGetNoticeOpeningResult)
 	mux.HandleFunc("GET /api/attachments/{id}/preview", s.handleAttachmentPreview)
 	mux.HandleFunc("POST /api/auth/signup", s.handleSignup)
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)

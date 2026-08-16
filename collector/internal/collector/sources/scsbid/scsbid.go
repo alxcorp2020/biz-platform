@@ -42,6 +42,17 @@ type Source struct {
 	HTTPClient *http.Client
 	RateLimit  *common.RateLimiter
 	PageSize   int
+	// BaseURL — 비어 있으면 baseURL 상수. 테스트에서 모의 서버로 교체하기 위한 필드(opening.go의
+	// 개찰결과 오퍼레이션이 사용; FetchAwards도 동일 base를 쓴다).
+	BaseURL string
+}
+
+// base — 요청 base URL(BaseURL 미설정 시 운영 상수).
+func (s *Source) base() string {
+	if s.BaseURL != "" {
+		return s.BaseURL
+	}
+	return baseURL
 }
 
 // New creates a scsbid Source. serviceKey is the decoded (raw) data.go.kr
@@ -193,7 +204,7 @@ func (s *Source) FetchAwards(ctx context.Context, begin, end time.Time) ([]Award
 		q.Set("inqryDiv", "1")
 		q.Set("inqryBgnDt", begin.Format("200601021504"))
 		q.Set("inqryEndDt", end.Format("200601021504"))
-		reqURL := baseURL + "/" + operation + "?" + q.Encode()
+		reqURL := s.base() + "/" + operation + "?" + q.Encode()
 
 		var envelope apiEnvelope
 		err := common.Do(ctx, common.DefaultRetryConfig(), func() error {

@@ -307,7 +307,52 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureDirectProductionStatusColumn(ctx, db); err != nil {
 		return fmt.Errorf("migrate company_profiles.direct_production_status column: %w", err)
 	}
+	if err := ensureNoticeOpeningResultsTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate notice_opening_results table: %w", err)
+	}
 	return nil
+}
+
+// ensureNoticeOpeningResultsTable — 공고 상세 고도화 1차(2026-08-16) "개찰결과". 나라장터
+// 낙찰정보서비스(ScsbidInfoService) 개찰결과 계열 오퍼레이션(목록·개찰순위·복수예가·낙찰현황·
+// 재입찰·유찰) 응답을 **공고당 1행 캐시/요약**으로 저장한다. 목적은 화면 제공 + API 호출 캐시라
+// participants/preliminary_prices 등 다건은 JSONB로 담고 정규화 테이블을 만들지 않는다(경쟁사 분석용
+// 정규화는 실제 필요가 생긴 뒤 별도 검토). notice_id PK — 차수(bid_ntce_ord)가 바뀌면 같은 행을
+// 새 차수 기준으로 덮어쓴다(정정/재공고 결과가 섞이지 않게 키에 차수를 보관). status/next_check_at은
+// 캐시 TTL 판단용(notice_opening_result.go 참고). 멱등(CREATE IF NOT EXISTS).
+func ensureNoticeOpeningResultsTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS notice_opening_results (
+			notice_id           UUID PRIMARY KEY REFERENCES notices(id) ON DELETE CASCADE,
+			bid_ntce_no         TEXT NOT NULL,
+			bid_ntce_ord        TEXT NOT NULL DEFAULT '',
+			bid_clsfc_no        TEXT,
+			rbid_no             TEXT,
+			business_type       TEXT NOT NULL,
+			status              TEXT NOT NULL,
+			opening_at          TIMESTAMPTZ,
+			actual_opening_at   TIMESTAMPTZ,
+			participant_count   INTEGER,
+			base_amount         BIGINT,
+			planned_price       BIGINT,
+			top_bidder          JSONB,
+			winner              JSONB,
+			participants        JSONB,
+			preliminary_prices  JSONB,
+			rounds              JSONB,
+			rebid               JSONB,
+			failing             JSONB,
+			payload             JSONB,
+			fetch_error         TEXT,
+			fetched_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			next_check_at       TIMESTAMPTZ,
+			source_updated_at   TIMESTAMPTZ,
+			created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_notice_opening_results_next_check ON notice_opening_results(next_check_at);
+	`)
+	return err
 }
 
 // ensureSavedSearchesTable adds saved_searches — 2026-08-06 "맞춤공고"

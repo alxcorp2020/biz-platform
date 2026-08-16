@@ -1992,6 +1992,71 @@
   .bt-node-clock { font-size: var(--dtl-body); color: var(--ink-soft); }
   @media (max-width: 560px) { .bt-node-main { justify-content: flex-start; } }
   .bt-node-place { font-size: 0.82rem; color: var(--ink-soft); margin-top: 0.1rem; word-break: break-word; }
+  /* 진행현황 결과 노드(2026-08-16): 유찰=red, 재입찰=amber, 대기/이력=muted. 시각 없는 결과 노드도 같은 세로선. */
+  .bt-node--fail .bt-dot { background: var(--danger, #c0392b); color: #fff; font-size: 0.7rem; font-weight: 800; }
+  .bt-node--fail .bt-node-label { color: var(--danger, #c0392b); }
+  .bt-node--warn .bt-dot { background: var(--warn, #9a6a00); color: #fff; font-size: 0.75rem; font-weight: 800; }
+  .bt-node--warn .bt-node-label { color: var(--warn, #9a6a00); }
+  .bt-node--muted .bt-dot { background: var(--surface); border: 2px solid var(--border); }
+  .bt-node--muted .bt-node-label { color: var(--ink-soft); font-weight: 600; }
+  .bt-node--next .bt-dot .bt-hourglass { font-size: 0.6rem; line-height: 1; }
+  .detail-source-badge--doc { color: var(--ink-soft); background: var(--surface-sunken, #f1f3f5); }
+  /* ── 입찰자격(2026-08-16): 라벨/값 2단 리스트 + "우리 회사" 비교 줄(기존 판정 결과 표현만) ── */
+  .bq-list { margin: 0; display: flex; flex-direction: column; gap: 0; }
+  .bq-row { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: 0.35rem 1rem; padding: 0.85rem 0; border-top: 1px solid var(--border); }
+  .bq-row:first-child { border-top: 0; padding-top: 0.2rem; }
+  .bq-label { margin: 0; font-size: 0.86rem; font-weight: 600; color: var(--ink-soft); padding-top: 0.1rem; }
+  .bq-value { margin: 0; min-width: 0; font-size: var(--dtl-body); color: var(--ink); line-height: 1.55; word-break: break-word; }
+  .bq-value .notice-license-list { margin: 0; }
+  .bq-hint { margin: 0.4rem 0 0; font-size: 0.8rem; color: var(--ink-soft); }
+  .bq-meta { margin-top: 0.25rem; font-size: 0.8rem; color: var(--ink-soft); }
+  .bq-company { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.5rem; margin-top: 0.5rem; padding: 0.45rem 0.65rem; border-radius: 8px; background: var(--surface-sunken, #f1f3f5); font-size: 0.86rem; }
+  .bq-company-label { font-weight: 700; color: var(--ink-soft); }
+  .bq-company-state { font-weight: 700; }
+  .bq-company-state.cond--pass { color: var(--success, #127a4f); }
+  .bq-company-state.cond--review { color: var(--warn, #9a6a00); }
+  .bq-company-state.cond--fail { color: var(--danger, #c0392b); }
+  .bq-company-state.cond--unknown { color: var(--ink-soft); }
+  .bq-company-evidence { color: var(--ink); }
+  .bq-company-reason { flex-basis: 100%; color: var(--ink-soft); font-size: 0.82rem; }
+  .bq-company-action { font-weight: 700; color: var(--accent-blue); text-decoration: none; }
+  @media (max-width: 560px) { .bq-row { grid-template-columns: 1fr; gap: 0.2rem; } }
+  /* ── 개찰결과(2026-08-16) ── */
+  .or-loading, .or-fallback p { color: var(--ink-soft); font-size: var(--dtl-body); margin: 0 0 0.6rem; }
+  .or-card { display: flex; flex-direction: column; gap: 0.9rem; min-width: 0; }
+  .or-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .or-status { font-size: 0.9rem; font-weight: 800; padding: 0.3rem 0.85rem; border-radius: 999px; }
+  .or-status--done { background: var(--success-soft, #e3f4eb); color: var(--success, #127a4f); }
+  .or-status--warn { background: var(--warn-soft, #fbf0dc); color: var(--warn, #9a6a00); }
+  .or-status--fail { background: var(--danger-soft, #fdecea); color: var(--danger, #c0392b); }
+  .or-status--muted { background: var(--surface-sunken, #f1f3f5); color: var(--ink-soft); }
+  .or-round { font-size: 0.78rem; font-weight: 700; color: var(--ink-soft); background: var(--surface-sunken, #f1f3f5); border-radius: 6px; padding: 0.1rem 0.45rem; }
+  .or-stale { font-size: 0.74rem; color: var(--warn, #9a6a00); }
+  .or-kvs { margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.75rem 1.5rem; }
+  .or-kv dt { margin: 0; font-size: 0.8rem; font-weight: 500; color: var(--ink-soft); }
+  .or-kv dd { margin: 0.2rem 0 0; font-size: var(--dtl-group); font-weight: 600; color: var(--ink); line-height: 1.4; word-break: break-word; }
+  .or-note { margin: 0; font-size: 0.86rem; color: var(--ink-soft); line-height: 1.55; }
+  .or-sub-title { margin: 0.4rem 0 0; font-size: var(--dtl-body); font-weight: 700; }
+  .or-table-wrap { margin: 0.4rem 0 0; }
+  .or-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 520px; }
+  .or-table--prices { min-width: 360px; }
+  .or-table th { text-align: left; font-weight: 600; color: var(--ink-soft); padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .or-table td { padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .or-td-rank { width: 3rem; color: var(--ink-soft); }
+  .or-td-name { font-weight: 600; }
+  .or-bizno { display: block; font-size: 0.74rem; font-weight: 400; color: var(--ink-soft); }
+  .or-td-amt, .or-td-rate { white-space: nowrap; }
+  .or-row--disq td { color: var(--ink-soft); }
+  .or-disq { display: inline-block; font-size: 0.74rem; font-weight: 700; color: var(--danger, #c0392b); background: var(--danger-soft, #fdecea); border-radius: 6px; padding: 0.05rem 0.4rem; }
+  .or-disq-reason { display: block; font-size: 0.74rem; color: var(--ink-soft); margin-top: 0.15rem; }
+  .or-win { display: inline-block; font-size: 0.74rem; font-weight: 700; color: var(--success, #127a4f); background: var(--success-soft, #e3f4eb); border-radius: 6px; padding: 0.05rem 0.4rem; }
+  .or-top { display: inline-block; font-size: 0.74rem; font-weight: 700; color: var(--accent-blue); background: var(--accent-blue-soft, rgba(49,130,246,0.1)); border-radius: 6px; padding: 0.05rem 0.4rem; }
+  .or-drawn { display: inline-block; font-size: 0.74rem; font-weight: 700; color: var(--accent-blue); }
+  .or-row--drawn td { font-weight: 600; }
+  .or-more-btn { align-self: flex-start; }
+  .or-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .or-fetched { margin: 0; font-size: 0.76rem; color: var(--ink-mute, #8a8f98); }
+  .or-warn-text { color: var(--warn, #9a6a00); }
   /* #assignee-section(파이프라인 상세, assigneeSectionHtml)은 .profile-form의
      직속 자식이 아니라 그 안에 감싸인 <div>라 .profile-form의 gap이 안쪽
      label들 사이에는 적용되지 않는다 — 그 자체도 flex column으로 만들어야
@@ -9348,7 +9413,7 @@ async function renderPipelineDetail(container, id, uiState) {
   const judgmentSlotHtml = hasJudgment
     ? (judgmentActive
         ? '<div id="pipeline-judgment-section"></div>'
-        : `<details class="pipeline-judgment-collapse pp-collapse"><summary><span>${escapeHtml(judgmentSummaryLabel)}</span>${collapseCta('자세히 보기')}</summary><div id="pipeline-judgment-section"></div></details>`)
+        : `<details class="pipeline-judgment-collapse pp-collapse" open><summary><span>${escapeHtml(judgmentSummaryLabel)}</span>${collapseCta('자세히 보기')}</summary><div id="pipeline-judgment-section"></div></details>`)
     : '';
 
   // 공고 기본정보(§19-2): 제목·기관·마감(최신 canonical 우선, STEP 6)·준비 진행률.
@@ -9381,9 +9446,11 @@ async function renderPipelineDetail(container, id, uiState) {
         </div>
       </div>` : '';
 
-  // 업무정보(§10): 낙찰금액/담당자/메모/저장 — 접어서 하단으로. 기존 폼/저장 API 그대로.
+  // 업무정보(§10): 낙찰금액/담당자/메모/저장 — 하단 배치, 기존 폼/저장 API 그대로.
+  // 기본 펼침 정책(2026-08-16): 정보 영역(참여 조건·준비 내역·업무 정보)은 기본 OPEN, 조작 영역
+  // ("상태 직접 변경(고급)", 체크리스트 "직접 변경")만 중첩 details로 기본 CLOSED 유지.
   const workInfoHtml = `
-    <details class="pp-collapse pp-workinfo" id="pipeline-workinfo"${entry.status === '낙찰' ? ' open' : ''}>
+    <details class="pp-collapse pp-workinfo" id="pipeline-workinfo" open>
       <summary><span>업무 정보</span>${collapseCta('펼치기')}</summary>
       <form id="pipeline-entry-form" class="profile-form">
         <label>낙찰 금액(원)<input type="text" inputmode="numeric" name="awardedAmount" value="${escapeAttr(formatCurrency(entry.awardedAmount))}" placeholder="낙찰된 경우 실제 계약금액을 입력해주세요 (성장분석 ROI에 반영됩니다)"></label>
@@ -9403,7 +9470,7 @@ async function renderPipelineDetail(container, id, uiState) {
   // 다음 할 일 히어로 → 체크리스트 → 참여 조건(접힘) → 업무정보(접힘).
   const checklistCollapsed = isSubmitted || isTerminal;
   const checklistSectionHtml = checklistCollapsed
-    ? `<details class="pp-collapse"><summary><span>준비 내역</span>${collapseCta('펼치기')}</summary><div id="pipeline-checklist-section"></div></details>`
+    ? `<details class="pp-collapse" open><summary><span>준비 내역</span>${collapseCta('펼치기')}</summary><div id="pipeline-checklist-section"></div></details>`
     : `<h3 id="pipeline-checklist-title" class="pp-section-title">준비할 항목</h3><div id="pipeline-checklist-section"></div>`;
 
   container.innerHTML = '';
@@ -11614,7 +11681,16 @@ function renderDetail(container, id) {
       // V3(2026-08-11): 탭형 → 단일 스크롤 상세 + sticky anchor nav. 콘텐츠를 모두 한 페이지에
       // 연속 렌더하고, 상단 nav 클릭은 콘텐츠 교체가 아니라 해당 섹션으로 smooth scroll한다.
       // 기존 render 함수/데이터/컨테이너 id를 그대로 재사용(추가 API 호출 없음).
-      // ── 참가조건 섹션 본문(핵심조건 → 진행정보 → 상세정보 → 참가자격 → 계산기) ──
+      //
+      // 공고 상세 고도화 1차(2026-08-16): 섹션 역할을 명확히 분리해 같은 내용이 세 곳에서 반복되지 않게 한다.
+      //   입찰자격     = 공고가 요구하는 "공식" 조건(나라장터 등록정보 우선 + 공고문에서 확인된 조건)
+      //   입찰 진행현황 = 공식 API 데이터를 조합한 타임라인(BidPublicInfo 일정 + ScsbidInfo 개찰결과)
+      //   개찰결과     = 나라장터 개찰·낙찰 결과(child endpoint, 상세 응답과 분리)
+      //   참여판정     = 우리 회사가 그 조건을 충족하는지
+      //   제출서류     = 실제 준비할 증빙
+      //   공고 정보    = 공고번호·기관·가격 등 행정 정보 + 계산기
+      // 모든 섹션은 항상 렌더(기본 OPEN). 조작 성격의 UI만 접힘.
+      // ── 입찰자격 섹션 본문(핵심 요약 → 나라장터 등록 입찰자격 → 공고문에서 확인된 조건) ──
       const condBody = isSupport ? `
           <dl class="detail-meta">
             <div><dt>소관기관</dt><dd>${escapeHtml(n.organizationName || '-')}</dd></div>
@@ -11635,25 +11711,28 @@ function renderDetail(container, id) {
           </div>
           <div class="cond-blocks">
             <section class="cond-block">
-              ${sectionHeadHtml('clipboard-check', '핵심 참가조건')}
-              <div id="core-conditions-section"></div>
+              ${sectionHeadHtml('shield-check', '나라장터 등록 입찰자격', { right: '<span class="detail-source-badge">나라장터 등록정보</span>' })}
+              <div id="bid-qualification-section"></div>
             </section>
-            <div id="bid-timeline-section" class="cond-block"></div>
+            <section class="cond-block">
+              ${sectionHeadHtml('file-text', '공고문에서 확인된 조건', { right: '<span class="detail-source-badge detail-source-badge--doc">공고문에서 확인</span>' })}
+              ${extractionBannerHtml}
+              <div id="eligibility-conditions-section"></div>
+            </section>
+          </div>
+        `;
+      // ── 공고 정보 섹션 본문(공고 상세정보 → 계산기) — 입찰자격으로 옮긴 행은 여기서 뺐다(중복 제거) ──
+      const infoBody = `
+          <div class="cond-blocks">
             <section class="cond-block">
               ${sectionHeadHtml('file-text', '공고 상세정보')}
               <div id="notice-detail-info-section"></div>
-            </section>
-            <section class="cond-block">
-              ${sectionHeadHtml('shield-check', '참가자격 요건')}
-              ${extractionBannerHtml}
-              <div id="eligibility-conditions-section"></div>
             </section>
             <section class="cond-block cond-block--tool">
               ${sectionHeadHtml('calculator', '적격심사 계산기', { right: '<span class="badge-soft">자체 참고용</span>' })}
               <div id="bid-calculator-section"></div>
             </section>
-          </div>
-        `;
+          </div>`;
       // ── 제출서류 섹션 본문 ──
       const docBody = isSupport ? `
           <div id="attachments-section"></div>
@@ -11674,7 +11753,7 @@ function renderDetail(container, id) {
           <div id="change-impact-section"></div>`;
       // ── AI 요약 섹션 본문 ──
       const summaryBody = `${isSupport ? '<p class="detail-sub">이 지원사업의 핵심 안내는 위 "신청 안내"와 원문 공고를 확인해주세요.</p>' : ''}<div id="ai-summary-section"></div>`;
-      // ── 섹션 정의(순서=업무 흐름). 지원사업은 판정/낙찰 제외. [id, 아이콘, 제목, subtitle, 본문] ──
+      // ── 섹션 정의(순서=업무 흐름). 지원사업은 판정/낙찰/개찰 제외. [id, 아이콘, 제목, subtitle, 본문] ──
       const sectionDefs = isSupport
         ? [
             ['conditions', 'clipboard-check', '신청 안내', '신청 전 확인해야 할 핵심 조건입니다.', condBody],
@@ -11683,10 +11762,13 @@ function renderDetail(container, id) {
             ['summary', 'info', '요약', 'AI가 정리한 공고 핵심내용입니다.', summaryBody],
           ]
         : [
-            ['conditions', 'clipboard-check', '참가조건', '참여 전 확인해야 할 핵심 조건입니다.', condBody],
-            ['participation', 'shield-check', '참여판정', '회사정보와 공고 조건을 비교한 결과입니다.', '<div id="participation-judgment-section"></div><div id="ai-participation-section"></div>'],
+            ['qualification', 'shield-check', '입찰자격', '공고가 요구하는 공식 참가 조건입니다.', condBody],
+            ['progress', 'clock', '입찰 진행현황', '공고부터 개찰·낙찰까지 진행 단계입니다.', '<div id="bid-timeline-section"></div>'],
+            ['opening', 'gavel', '개찰결과', '나라장터 개찰·낙찰 결과입니다.', '<div id="opening-result-section"></div>'],
+            ['participation', 'clipboard-check', '참여판정', '회사정보와 공고 조건을 비교한 결과입니다.', '<div id="participation-judgment-section"></div><div id="ai-participation-section"></div>'],
             ['documents', 'file-text', '제출서류', '참여를 위해 확인해야 할 서류입니다.', docBody],
-            ['awards', 'award', '낙찰정보', '확인된 낙찰 데이터를 보여줍니다.', '<div id="award-history-section"></div>'],
+            ['info', 'building', '공고 정보', '공고번호·기관·가격 등 상세 정보입니다.', infoBody],
+            ['awards', 'award', '발주기관 낙찰이력', '이 발주기관의 과거 낙찰 데이터입니다.', '<div id="award-history-section"></div>'],
             ['changes', 'repeat', '변경이력', '공고 변경사항을 확인합니다.', changesBody],
             ['summary', 'info', 'AI 요약', 'AI가 정리한 공고 핵심내용입니다.', summaryBody],
           ];
@@ -11722,10 +11804,17 @@ function renderDetail(container, id) {
       });
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.confidenceTier);
       renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
-      renderBidTimeline(document.getElementById('bid-timeline-section'), data.detail, n);
-      renderCoreConditions(document.getElementById('core-conditions-section'), data.detail, data.participationRegions, data.licenseLimits, n, data.participationRegionStatus);
-      renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail, data.participationRegions, data.licenseLimits, data.participationRegionStatus);
+      // 입찰 진행현황 — 우선 공고 일정만으로 그리고(개찰 경과 여부는 시간으로 단정하지 않음), 개찰결과가
+      // 도착하면 실제 결과로 다시 그린다. 개찰결과 child endpoint 실패는 이 섹션/개찰결과 섹션에만 영향.
+      renderBidTimeline(document.getElementById('bid-timeline-section'), data.detail, n, null);
+      renderBidQualification(document.getElementById('bid-qualification-section'), data.detail, data.participationRegions, data.licenseLimits, data.participationRegionStatus, n, data.participationJudgment);
+      renderNoticeDetailInfo(document.getElementById('notice-detail-info-section'), data.detail);
       renderBidCalculator(document.getElementById('bid-calculator-section'), data.detail);
+      if (!isSupport) {
+        renderOpeningResult(document.getElementById('opening-result-section'), id, n, (opening) => {
+          renderBidTimeline(document.getElementById('bid-timeline-section'), data.detail, n, opening);
+        });
+      }
       if (isSupport) {
         // B-2: 지원사업 공식 데이터(지원대상·사업개요·신청방법·문의처·지원분야) +
         // "사업 신청하기" CTA를 "신청 안내" 탭에, 첨부는 공고문/별첨자료로 나눠 표시.
@@ -12180,53 +12269,106 @@ async function renderNoticeReport(container, id) {
 // 지역제한은 이 데이터 소스(목록조회 API)에 판단기준 텍스트만 있고 구체적인
 // 지역명 목록 자체가 없어, 표로 꾸미지 않고 있는 그대로(판단기준 문구 또는
 // "확인 불가")를 보여준다 — 없는 데이터를 있는 것처럼 표로 만들지 않는다.
-// bidTimelineStage — 공식 일정 + 현재시각만으로 입찰 진행단계를 deterministic 계산(AI 없음).
-// 취소/재공고 status가 최우선, 그다음 시각 비교. 필요한 일정(제출시작/마감)이 없으면 계산 보류.
-// 없는 날짜는 추정하지 않는다.
-function bidTimelineStage(detail, status, nowMs) {
+// bidTimelineStage — 공식 일정 + 현재시각 + (있으면) 개찰결과로 입찰 진행단계를 deterministic 계산(AI 없음).
+// 취소/재공고 status가 최우선, 그다음 개찰결과(실제 결과가 있을 때만 "개찰 완료"), 그다음 시각 비교.
+// 🚨 개찰 예정시각이 지났다는 이유만으로 "개찰 완료"라고 하지 않는다 — opening(개찰결과)이 없으면
+// "개찰 결과 확인 중", 조회 실패면 "개찰 예정 경과 · 결과 확인 필요"로 둔다. 없는 날짜는 추정하지 않는다.
+function bidTimelineStage(detail, status, nowMs, opening) {
   if (status === 'cancelled') return { key: 'cancelled', label: '취소됨', tone: 'fail' };
   if (status === 'reannounced') return { key: 'reannounced', label: '재공고', tone: 'warn' };
   const ms = v => { const t = v ? Date.parse(v) : NaN; return isNaN(t) ? null : t; };
   const S = ms(detail.applicationStartAt), E = ms(detail.applicationEndAt), O = ms(detail.bidOpeningAt);
+  // 개찰결과가 있으면 그 상태가 곧 단계.
+  if (opening && opening.status) {
+    switch (opening.status) {
+      case 'AWARDED': return { key: 'awarded', label: '낙찰 확정', tone: 'done' };
+      case 'FAILED': return { key: 'failed', label: '유찰', tone: 'fail' };
+      case 'REBID': return { key: 'rebid', label: `재입찰 진행 중${opening.roundIndex ? ` · ${opening.roundIndex}차` : ''}`, tone: 'warn' };
+      case 'OPENED_WAITING_AWARD': return { key: 'waiting', label: '개찰완료 · 낙찰자 결정 대기', tone: 'warn' };
+      case 'OPENING_PENDING': return { key: 'pending', label: '개찰 결과 등록 대기', tone: 'warn' };
+      case 'UNAVAILABLE': if (O != null && nowMs >= O) return { key: 'unavailable', label: '개찰 예정 경과 · 결과 확인 필요', tone: 'muted' }; break;
+      default: break; // BEFORE_OPENING 등은 아래 시각 비교로
+    }
+  }
   if (S == null || E == null) return { key: 'unknown', label: '일정 확인 필요', tone: 'muted' };
   if (nowMs < S) return { key: 'before', label: '접수 준비', tone: 'muted' };
   if (nowMs < E) return { key: 'receiving', label: '입찰서 접수중', tone: 'active' };
   if (O != null && nowMs < O) return { key: 'awaiting', label: '개찰 대기', tone: 'warn' };
-  if (O != null && nowMs >= O) return { key: 'opened', label: '개찰 완료', tone: 'done' };
+  if (O != null && nowMs >= O) return { key: 'checking', label: '개찰 결과 확인 중', tone: 'muted' };
   return { key: 'closed', label: '제출 마감', tone: 'muted' };
 }
 
-// renderBidTimeline — 공고 상세 "입찰 진행정보" 세로 타임라인 + 현재 단계 강조(2026-08-11).
-// 기존 Detail DTO 값만 사용(신규 API/DB/계산 데이터 없음). 값 없는 단계는 렌더하지 않는다.
-function renderBidTimeline(container, detail, notice) {
+// renderBidTimeline — 공고 상세 "입찰 진행현황" 세로 타임라인(2026-08-11, 2026-08-16 개찰결과 결합).
+// 공식 API 데이터 조합: BidPublicInfo 일정(detail) + ScsbidInfo 개찰결과(opening) + 기존 notice_changes(변경공고는
+// 변경이력 섹션). 값 없는 단계는 렌더하지 않는다. opening === null 이면 아직 로딩 중(개찰 경과 여부를 단정하지 않음).
+// 단계: 공고 등록 → 입찰서 접수 시작 → 접수 마감 → 개찰(예정/완료) → 낙찰자 결정 대기 → 낙찰 확정 / 유찰 / 재입찰.
+function renderBidTimeline(container, detail, notice, opening) {
   if (!container) return;
   container.innerHTML = '';
   if (!detail) return;
   const esc = escapeHtml;
   const nowMs = Date.now();
   const status = notice && notice.status;
+  const os = opening && opening.status;
+  const openingKnown = os && os !== 'BEFORE_OPENING' && os !== 'UNAVAILABLE' && os !== 'NOT_APPLICABLE';
+  const openedForReal = os === 'OPENED_WAITING_AWARD' || os === 'AWARDED' || os === 'FAILED' || os === 'REBID';
 
-  // 단계 노드 — 값 있는 것만, 시각순 정렬.
+  // 노드 — kind: 'time'(일정, 과거면 완료 표시) | 'done'(결과로 확인된 완료) | 'next'(현재 대기) | 'warn' | 'fail' | 'muted'
   const nodes = [];
-  const add = (label, iso, place) => { const t = iso ? Date.parse(iso) : NaN; if (!isNaN(t)) nodes.push({ label, iso, ms: t, place: place || '' }); };
-  add('공고 게시', detail.publishedAt);
-  add('입찰서 제출 시작', detail.applicationStartAt);
-  add('현장설명회', detail.briefingAt, detail.briefingPlace);
-  add('참가자격 등록 마감', detail.qualificationDeadlineAt);
-  add('입찰서 제출 마감', detail.applicationEndAt);
-  add('개찰', detail.bidOpeningAt, detail.openingPlace);
-  // 재입찰 개찰 — 실제로 존재하고 개찰과 다른 시각일 때만(같은 값이면 개찰과 중복이라 숨김,
-  // 재입찰 허용이라는 이유만으로 가짜 단계를 만들지 않는다).
-  if (detail.rebidOpeningAt && !isNaN(Date.parse(detail.rebidOpeningAt)) && detail.rebidOpeningAt !== detail.bidOpeningAt) {
-    add('재입찰 개찰', detail.rebidOpeningAt);
-  }
-  if (!nodes.length) return; // 표시할 일정이 전혀 없으면 섹션 숨김
+  const addTime = (label, iso, place) => { const t = iso ? Date.parse(iso) : NaN; if (!isNaN(t)) nodes.push({ kind: 'time', label, iso, ms: t, place: place || '' }); };
+  addTime('공고 등록', detail.publishedAt);
+  addTime('입찰서 접수 시작', detail.applicationStartAt);
+  addTime('현장설명회', detail.briefingAt, detail.briefingPlace);
+  addTime('참가자격 등록 마감', detail.qualificationDeadlineAt);
+  addTime('입찰서 접수 마감', detail.applicationEndAt);
   nodes.sort((a, b) => a.ms - b.ms);
 
-  // 다음 예정 노드(가장 이른 미래) 하나만 "다음 일정"으로 강조.
-  const nextIdx = nodes.findIndex(nd => nd.ms >= nowMs);
+  // 개찰 노드 — 실제 결과가 있을 때만 "개찰 완료". 그 전엔 "개찰 예정"(시각이 지났어도 완료라 하지 않음).
+  const openIso = (opening && opening.actualOpeningAt) || (opening && opening.openingAt) || detail.bidOpeningAt;
+  if (openedForReal) {
+    nodes.push({ kind: 'done', label: '개찰 완료', iso: openIso, place: detail.openingPlace || '' });
+  } else if (openIso) {
+    const t = Date.parse(openIso);
+    if (!isNaN(t)) {
+      if (os === 'OPENING_PENDING') nodes.push({ kind: 'time', label: '개찰 예정', iso: openIso, ms: t, place: detail.openingPlace || '' , forceFuture: true });
+      else if (opening === null && t <= nowMs) nodes.push({ kind: 'muted', label: '개찰 예정 (결과 확인 중)', iso: openIso, place: detail.openingPlace || '' });
+      else if (os === 'UNAVAILABLE' && t <= nowMs) nodes.push({ kind: 'muted', label: '개찰 예정 (결과 확인 필요)', iso: openIso, place: detail.openingPlace || '' });
+      else nodes.push({ kind: 'time', label: '개찰 예정', iso: openIso, ms: t, place: detail.openingPlace || '' });
+    }
+  }
+  // 재입찰 개찰(공고 일정) — 실제로 존재하고 개찰과 다른 시각일 때만(재입찰 허용이라는 이유만으로 단계 생성 금지).
+  if (!openedForReal && detail.rebidOpeningAt && !isNaN(Date.parse(detail.rebidOpeningAt)) && detail.rebidOpeningAt !== detail.bidOpeningAt) {
+    addTime('재입찰 개찰(예정)', detail.rebidOpeningAt);
+  }
+  // 결과 노드(개찰결과 API로 확인된 것만).
+  if (os === 'OPENING_PENDING') nodes.push({ kind: 'next', label: '개찰 결과 등록 대기' });
+  if (os === 'OPENED_WAITING_AWARD') nodes.push({ kind: 'next', label: '낙찰자 결정 대기', sub: opening.topBidder ? `1순위 ${opening.topBidder.name}` : '' });
+  if (os === 'AWARDED') nodes.push({ kind: 'done', label: '낙찰 확정', iso: opening.winner && opening.winner.finalAwardDate ? opening.winner.finalAwardDate : '', dateOnly: true, sub: opening.winner ? `낙찰업체 ${opening.winner.name}` : '' });
+  if (os === 'FAILED') nodes.push({ kind: 'fail', label: '유찰', sub: opening.failing && opening.failing.reason ? `사유: ${opening.failing.reason}` : '' });
+  if (os === 'REBID') {
+    const rebidSub = [];
+    if (opening.rebid && opening.rebid.reason) rebidSub.push(`사유: ${opening.rebid.reason}`);
+    if (opening.rebid && opening.rebid.openingAt) rebidSub.push(`재입찰 개찰 예정: ${opening.rebid.openingAt}`);
+    nodes.push({ kind: 'warn', label: `재입찰 진행 중${opening.roundIndex ? ` · ${opening.roundIndex}차` : ''}`, sub: rebidSub.join(' · ') });
+  }
+  // 이전 회차 이력(재입찰 → 다음 회차): rounds가 2개 이상이면 마지막 회차 앞 회차를 이력으로 한 줄.
+  if (opening && Array.isArray(opening.rounds) && opening.rounds.length > 1) {
+    const prev = opening.rounds.slice(0, -1).map(r => `${(parseInt(r.roundNo, 10) || 0) + 1}차 ${r.status}`).join(' · ');
+    if (prev) nodes.push({ kind: 'muted', label: `이전 회차: ${prev}`, history: true, sub: (os !== 'REBID' && opening.rebid && opening.rebid.reason) ? `재입찰 사유: ${opening.rebid.reason}` : '' });
+  }
+  if (!nodes.length) return; // 표시할 일정이 전혀 없으면 섹션 숨김
 
-  const stage = bidTimelineStage(detail, status, nowMs);
+  // 정렬: 일정/결과 노드는 시각순, 결과 노드(시각 없음)는 뒤에 붙는다(순서 유지). 이력 노드는 맨 뒤.
+  const timed = nodes.filter(nd => nd.kind === 'time' || (nd.iso && !nd.dateOnly)).sort((a, b) => (a.ms || Date.parse(a.iso)) - (b.ms || Date.parse(b.iso)));
+  const untimed = nodes.filter(nd => !(nd.kind === 'time' || (nd.iso && !nd.dateOnly)) && !nd.history);
+  const history = nodes.filter(nd => nd.history);
+  const ordered = [...timed, ...untimed, ...history];
+
+  // "다음 일정" — 결과 노드에 next가 있으면 그것, 없으면 가장 이른 미래 일정.
+  const hasStatusNext = ordered.some(nd => nd.kind === 'next');
+  const nextIdx = hasStatusNext ? ordered.findIndex(nd => nd.kind === 'next') : ordered.findIndex(nd => nd.kind === 'time' && (nd.forceFuture || nd.ms >= nowMs));
+
+  const stage = bidTimelineStage(detail, status, nowMs, opening);
   const stageToneCls = { active: 'bts--active', warn: 'bts--warn', done: 'bts--done', fail: 'bts--fail', muted: 'bts--muted' }[stage.tone] || 'bts--muted';
 
   const badges = [];
@@ -12236,98 +12378,331 @@ function renderBidTimeline(container, detail, notice) {
   else if (detail.rebidAllowed === false) badges.push('재입찰 불허');
   const badgeHtml = badges.map(b => `<span class="bt-badge">${b}</span>`).join('');
 
-  // 단계 상태: 완료(past·muted+체크) / 현재=다음 예정(next·blue) / 예정(future·gray).
-  // 위험/마감초과 같은 실제 위험이 아닌 일반 단계엔 red를 쓰지 않는다.
   const checkIcon = '<svg class="bt-check" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
-  const nodesHtml = nodes.map((nd, i) => {
+  const nodesHtml = ordered.map((nd, i) => {
     let cls = 'bt-node';
     let tag = '';
     let dotInner = '';
     if (i === nextIdx) {
       cls += ' bt-node--next';
-      // "다음 일정" + 기존 D-day 계산값(D-14/오늘/내일)을 작은 badge로.
-      tag = `<span class="bt-node-tag">다음 일정</span>${ddayBadgeHtml(nd.iso, 'dday-badge--inline')}`;
-    } else if (nd.ms < nowMs) { cls += ' bt-node--past'; dotInner = checkIcon; }
+      tag = nd.kind === 'time' ? `<span class="bt-node-tag">다음 일정</span>${ddayBadgeHtml(nd.iso, 'dday-badge--inline')}` : '<span class="bt-node-tag">현재</span>';
+      if (nd.kind === 'next') dotInner = '<span class="bt-hourglass" aria-hidden="true">⏳</span>';
+    } else if (nd.kind === 'done' || (nd.kind === 'time' && !nd.forceFuture && nd.ms < nowMs)) { cls += ' bt-node--past'; dotInner = checkIcon; }
+    else if (nd.kind === 'fail') { cls += ' bt-node--fail'; dotInner = '<span aria-hidden="true">!</span>'; }
+    else if (nd.kind === 'warn') { cls += ' bt-node--warn'; dotInner = '<span aria-hidden="true">↻</span>'; }
+    else if (nd.kind === 'muted' || nd.kind === 'next') { cls += ' bt-node--muted'; }
     else { cls += ' bt-node--future'; }
+    let when = '';
+    if (nd.iso) {
+      when = nd.dateOnly
+        ? `<div class="bt-node-when"><span class="bt-node-date">${esc(formatKoreanDate(nd.iso))}</span></div>`
+        : `<div class="bt-node-when"><span class="bt-node-date">${formatKoreanDate(nd.iso)}</span><span class="bt-node-clock">${formatKoreanTime(nd.iso)}</span></div>`;
+    }
     return `<li class="${cls}">
       <span class="bt-dot">${dotInner}</span>
       <div class="bt-node-body">
         <div class="bt-node-main">
           <div class="bt-node-label">${esc(nd.label)}${tag}</div>
-          <div class="bt-node-when"><span class="bt-node-date">${formatKoreanDate(nd.iso)}</span><span class="bt-node-clock">${formatKoreanTime(nd.iso)}</span></div>
+          ${when}
         </div>
         ${nd.place ? `<div class="bt-node-place">${esc(nd.place)}</div>` : ''}
+        ${nd.sub ? `<div class="bt-node-place">${esc(nd.sub)}</div>` : ''}
       </div>
     </li>`;
   }).join('');
 
   container.appendChild(h(`
     <section class="bid-timeline">
-      ${sectionHeadHtml('clock', '입찰 진행정보', { right: `<span class="bt-stage ${stageToneCls}">${esc(stage.label)}</span>` })}
+      <div class="bt-head"><span class="detail-source-badge">공식 API 조합</span><span class="bt-stage ${stageToneCls}">${esc(stage.label)}</span></div>
       ${badgeHtml ? `<div class="bt-badges">${badgeHtml}</div>` : ''}
       <ul class="bt-list">${nodesHtml}</ul>
     </section>
   `));
 }
 
-// renderCoreConditions — 참가조건 탭 최상단 "핵심 참가조건"(2026-08-11 Phase 1). 실무자가
-// 5초 안에 판단할 수 있게 지역·업종·면허·공동수급·국제입찰·재입찰 6개만 grid로 보여준다.
-// 값은 전부 기존 DTO(detail) + Phase C 공식 보강(participationRegions/licenseLimits)에서 오고,
-// 값이 없으면 "확인 필요"로 표시할 뿐 지어내지 않는다. 카드로 만들지 않고 label/value 계층만 준다.
-function renderCoreConditions(container, detail, participationRegions, licenseLimits, notice, participationRegionStatus) {
+// renderBidQualification — 공고 상세 "입찰자격"(2026-08-16). 나라장터 공식 구조화 데이터(BidPublicInfo 목록 필드 +
+// Phase C 보강 참가가능지역/면허제한)를 "공고가 요구하는 조건"으로 보여준다. 값이 있는 항목만 렌더한다(지역만
+// 수집 상태를 함께 표기). 우리 회사 비교는 **기존 participation judgment 결과(conditions)** 를 그대로 붙일 뿐,
+// license_limits/regions로 새 PASS/FAIL 판정을 만들지 않는다(허용면허=OR 범위, 기존 엔진 동결).
+function renderBidQualification(container, detail, participationRegions, licenseLimits, participationRegionStatus, notice, judgment) {
   if (!container) return;
   container.innerHTML = '';
   const esc = escapeHtml;
   const d = detail || {};
   const regions = Array.isArray(participationRegions) ? participationRegions : [];
   const licenses = Array.isArray(licenseLimits) ? licenseLimits : [];
+  const has = v => v !== null && v !== undefined && v !== '';
   const ynLabel = (b, yes, no) => b === true ? yes : b === false ? no : null;
+  const conds = (judgment && Array.isArray(judgment.conditions)) ? judgment.conditions : [];
+  const findCond = (...types) => conds.filter(c => types.includes(c.conditionType));
 
-  // 지역: 공식 참가가능지역(authoritative)만 확정값으로 표시한다. 추론값(notices.region)은
-  // 신뢰할 수 없어 확정처럼 쓰지 않는다 — 미수집(unknown)이면 '확인 필요'로 둔다.
-  //   restricted    → 공식 제한지역 목록
-  //   confirmed_all → 전국(공식 확인)
-  //   unknown       → 확인 필요(값 null)
+  // 우리 회사 비교 줄 — 기존 판정 결과 표현만(재판정 금지). 질문형(REVIEW+question)이면 참여판정 섹션으로 안내.
+  const companyLine = (list) => {
+    if (!list.length) return '';
+    return list.map(c => {
+      const meta = PARTICIPATION_COND_META[c.result] || PARTICIPATION_COND_META.UNKNOWN;
+      const action = c.question ? ` <a class="bq-company-action" href="#section-participation" data-bq-jump="participation">보유 여부 확인 &rarr;</a>` : '';
+      const evidence = c.companyEvidence ? ` <span class="bq-company-evidence">${esc(c.companyEvidence)}</span>` : '';
+      return `<div class="bq-company"><span class="bq-company-label">우리 회사</span><span class="bq-company-state ${esc(meta.cls)}">${esc(meta.icon)} ${esc(meta.label)}</span>${evidence}<span class="bq-company-reason">${esc(c.reason || '')}</span>${action}</div>`;
+    }).join('');
+  };
+
+  // 지역 — 공식 참가가능지역(authoritative)만 확정값. 미수집이면 "수집 전"으로 상태 표기(값을 지어내지 않음).
   const regionStatus = participationRegionStatus || (regions.length ? 'restricted' : 'unknown');
-  let regionVal = null, regionOfficial = false;
-  if (regions.length) { regionVal = regions.map(esc).join(' · '); regionOfficial = true; }
-  else if (regionStatus === 'confirmed_all') { regionVal = '전국'; regionOfficial = true; }
-  const industryVal = (notice && notice.industry) ? esc(notice.industry) : null;
-  const licenseVal = licenses.length ? licenses.map(l => esc(l.name)).join(', ') : null;
-  const jointVal = d.jointContractMethod ? esc(d.jointContractMethod) : null;
-  const intlVal = ynLabel(d.internationalBid, '대상', '비대상');
-  const rebidVal = ynLabel(d.rebidAllowed, '허용', '불허');
+  let regionVal;
+  if (regions.length) regionVal = `<div class="notice-chips">${regions.map(r => `<span class="notice-chip">${esc(r)}</span>`).join('')}</div>`;
+  else if (regionStatus === 'confirmed_all') regionVal = `전국 <span class="detail-sub">지역제한 없음(공식 확인)</span>`;
+  else regionVal = `<span class="detail-data-status">공식 참가가능지역 정보 수집 전</span>${has(d.regionRestrictionBasis) ? ` <span class="detail-sub">판단기준: ${esc(d.regionRestrictionBasis)}</span>` : ''}`;
+  const regionMeta = [];
+  if (has(d.regionRestrictionBasis) && (regions.length || regionStatus === 'confirmed_all')) regionMeta.push(`판단기준: ${esc(d.regionRestrictionBasis)}`);
+  if (d.participationRestricted === true && !regions.length) regionMeta.push('입찰참가 지역제한 있음');
 
-  // [아이콘, 라벨, 값(null이면 '확인 필요'), 공식배지여부] — 아이콘/라벨/값 3단계 위계.
-  const items = [
-    ['map-pin', '지역', regionVal, regionOfficial],
-    ['briefcase', '업종', industryVal, false],
-    ['award', '면허·자격', licenseVal, licenses.length > 0],
-    ['users', '공동수급', jointVal, false],
-    ['globe', '국제입찰', intlVal, false],
-    ['repeat', '재입찰', rebidVal, false],
+  // 면허/업종 제한 — 허용면허 목록(OR 범위) + 업종제한 여부. 값 없으면 "세부조건 확인 필요".
+  const licenseVal = licenses.length
+    ? `<ul class="notice-license-list">${licenses.map(l => `<li>${esc(l.name)}${has(l.groupNo) ? ` <span class="detail-sub">그룹 ${esc(l.groupNo)}</span>` : ''}</li>`).join('')}</ul><p class="bq-hint">여러 면허가 있으면 그중 하나 이상 해당(허용 범위)일 수 있습니다. 정확한 조합은 공고문을 확인하세요.</p>`
+    : null;
+  const industryVal = ynLabel(d.industryRestricted, '있음', '없음');
+
+  // 공동수급 / 지역의무공동도급
+  const jointParts = [];
+  if (has(d.jointContractMethod)) jointParts.push(esc(d.jointContractMethod));
+  if (has(d.jointAgreementMethod)) jointParts.push(`협정서 접수: ${esc(d.jointAgreementMethod)}`);
+  if (has(d.jointAgreementDeadline)) jointParts.push(`협정 마감: ${esc(formatKoreanDateTime(d.jointAgreementDeadline))}`);
+  const jrr = ynLabel(d.jointRegionRestricted, '공동수급체 지역제한 적용', '공동수급체 지역제한 미적용');
+  if (jrr) jointParts.push(jrr);
+  const dutyParts = [];
+  if (has(d.regionDutyJointRate)) dutyParts.push(`<span class="mono">${esc(d.regionDutyJointRate)}%</span>`);
+  if (Array.isArray(d.jointDutyRegions) && d.jointDutyRegions.length) dutyParts.push(d.jointDutyRegions.map(esc).join(' · '));
+
+  // 실적 / PQ / TP
+  const perfParts = [];
+  const perf = ynLabel(d.performanceReview, '실적심사(경쟁) 대상', '실적심사 비대상');
+  if (perf) perfParts.push(perf);
+  if (has(d.performanceDocMethod)) perfParts.push(`실적신청서 제출: ${esc(d.performanceDocMethod)}`);
+  if (has(d.performanceDocDeadline)) perfParts.push(`접수일시: ${esc(formatKoreanDateTime(d.performanceDocDeadline))}`);
+  const pq = ynLabel(d.pqReview, '대상', '비대상');
+  const tp = ynLabel(d.tpReview, '대상', '비대상');
+
+  // 낙찰방식 / 하한율 / 조달분류 / 물품분류 제한
+  const awardVal = has(d.awardMethod) ? esc(d.awardMethod) + (has(d.awardMethodDetail) ? ` <span class="detail-sub">${esc(d.awardMethodDetail)}</span>` : '') : null;
+  const lowerVal = has(d.awardLowerLimitRate) ? `<span class="mono">${esc(d.awardLowerLimitRate)}%</span>` : null;
+  const classVal = has(d.procurementClass) ? esc(d.procurementClass) : (notice && notice.industry ? esc(notice.industry) : null);
+  const productLimit = ynLabel(d.productClassRestricted, '제한', '제한 없음');
+
+  // [라벨, 값(null이면 생략), 회사비교 HTML, 보조설명 배열]
+  const rows = [
+    ['참가 가능 지역', regionVal, companyLine(findCond('지역')), regionMeta],
+    ['면허·업종 제한', licenseVal || (industryVal === '있음' ? '<span class="detail-data-status">업종제한 있음 · 세부 면허 조건은 공고문 확인</span>' : null), companyLine(findCond('면허', '필수 면허·자격')), industryVal ? [`업종제한 ${industryVal}`] : []],
+    ['업종', classVal, companyLine(findCond('업종')), []],
+    ['공동수급', jointParts.length ? jointParts.join(' · ') : null, '', []],
+    ['지역의무공동도급', dutyParts.length ? dutyParts.join(' · ') : null, '', []],
+    ['실적 요구', perfParts.length ? perfParts.join(' · ') : null, companyLine(findCond('수행실적')), []],
+    ['PQ 심사', pq, '', []],
+    ['TP 심사', tp, '', []],
+    ['낙찰방식', awardVal, '', []],
+    ['낙찰하한율', lowerVal, '', []],
+    ['물품분류 제한', productLimit, '', []],
+    ['직접생산확인', null, companyLine(findCond('직접생산확인')), []],
+    ['기업규모', null, companyLine(findCond('기업규모/예산')), []],
   ];
-  const cells = items.map(([, label, val, official]) => `
-    <div class="core-cond-cell">
-      <dt class="core-cond-label">${esc(label)}${official ? ' <span class="detail-source-badge">공식</span>' : ''}</dt>
-      <dd class="core-cond-value${val ? '' : ' core-cond-value--muted'}">${val || '확인 필요'}</dd>
+  const rowsHtml = rows.filter(([, v, cmp]) => v != null || cmp).map(([label, v, cmp, meta]) => `
+    <div class="bq-row">
+      <dt class="bq-label">${esc(label)}</dt>
+      <dd class="bq-value">${v != null ? v : '<span class="detail-data-status">나라장터 등록정보 없음 · 아래 회사 비교는 공고문 기준</span>'}${(meta || []).length ? `<div class="bq-meta">${meta.join(' · ')}</div>` : ''}${cmp || ''}</dd>
     </div>`).join('');
 
-  container.appendChild(h(`<dl class="core-conditions">${cells}</dl>`));
+  container.appendChild(h(`<dl class="bq-list">${rowsHtml || '<p class="section-empty">나라장터 등록 입찰자격 정보를 확인할 수 없습니다.</p>'}</dl>`));
+  // [보유 여부 확인 →] — 참여판정 섹션으로 부드럽게 이동(질문형 해소 UI는 그곳에 있다).
+  container.querySelectorAll('[data-bq-jump]').forEach(a => {
+    a.addEventListener('click', (e) => {
+      const sec = document.getElementById('section-participation');
+      if (!sec) return;
+      e.preventDefault();
+      sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+}
+
+// ---- 개찰결과(2026-08-16) ----
+// renderOpeningResult — GET /api/notices/{id}/opening-result(읽기 전용 child endpoint)를 비동기로 불러 상태별로
+// 그린다. 실패해도 공고 상세 전체는 정상이고 이 영역만 안내 문구로 대체된다(graceful degradation).
+// 개인정보: 사업자번호는 서버가 마스킹한 값만, 대표자/전화번호는 응답에 없다. 대량 순위 행은 상위 5개만
+// 보이고 [전체 투찰순위 보기]로 점진 노출(섹션 자체는 기본 OPEN — 정보 기본 open 원칙의 예외가 아니다).
+const OPENING_TOP_N = 5;
+const OPENING_PRICE_TOP_N = 5;
+function openingStatusToneCls(status) {
+  return { AWARDED: 'or-status--done', OPENED_WAITING_AWARD: 'or-status--warn', OPENING_PENDING: 'or-status--warn', REBID: 'or-status--warn', FAILED: 'or-status--fail', BEFORE_OPENING: 'or-status--muted' }[status] || 'or-status--muted';
+}
+function renderOpeningResult(container, noticeId, notice, onLoaded) {
+  if (!container) return;
+  container.innerHTML = '';
+  container.appendChild(h('<p class="or-loading" role="status">개찰결과를 확인하는 중…</p>'));
+  const done = (opening) => { try { if (typeof onLoaded === 'function') onLoaded(opening); } catch (e) { /* 타임라인 재렌더 실패가 개찰결과 표시를 막지 않게 */ } };
+  fetchJSON('/api/notices/' + encodeURIComponent(noticeId) + '/opening-result')
+    .then(op => { renderOpeningResultBody(container, op, notice); done(op); })
+    .catch(() => {
+      container.innerHTML = '';
+      container.appendChild(h(`
+        <div class="or-fallback">
+          <p>개찰결과를 불러오는 중 문제가 발생했습니다.<br>나라장터에서 직접 확인할 수 있습니다.</p>
+          ${notice && notice.officialUrl ? `<a class="official-link" href="${escapeAttr(notice.officialUrl)}" target="_blank" rel="noopener">나라장터에서 확인 ${newTabIconHtml()}</a>` : ''}
+        </div>`));
+      done({ status: 'UNAVAILABLE' });
+    });
+}
+
+function renderOpeningResultBody(container, op, notice) {
+  container.innerHTML = '';
+  const esc = escapeHtml;
+  if (!op || !op.status) { container.appendChild(h('<p class="section-empty">개찰결과 정보가 없습니다.</p>')); return; }
+  const won = v => (v === null || v === undefined) ? '' : `${Number(v).toLocaleString('ko-KR')}원`;
+  const pct = v => v ? `${esc(v)}%` : '';
+  const officialLink = (op.officialUrl || (notice && notice.officialUrl))
+    ? `<a class="official-link or-official" href="${escapeAttr(op.officialUrl || notice.officialUrl)}" target="_blank" rel="noopener">나라장터에서 확인 ${newTabIconHtml()}</a>` : '';
+
+  if (op.status === 'NOT_APPLICABLE') { container.appendChild(h('<p class="section-empty">개찰결과가 제공되지 않는 공고입니다.</p>')); return; }
+  if (op.status === 'UNAVAILABLE') {
+    container.appendChild(h(`
+      <div class="or-fallback">
+        <p>${esc(op.fetchError || '개찰결과를 불러오는 중 문제가 발생했습니다.')}<br>나라장터에서 직접 확인할 수 있습니다.</p>
+        ${officialLink}
+      </div>`));
+    return;
+  }
+
+  const roundTag = op.roundIndex > 1 ? ` <span class="or-round">${op.roundIndex}차</span>` : '';
+  const headHtml = `<div class="or-head"><span class="or-status ${openingStatusToneCls(op.status)}">${esc(op.statusLabel || op.status)}</span>${roundTag}${op.stale ? '<span class="or-stale">이전 조회값</span>' : ''}</div>`;
+  const kv = (label, val) => val ? `<div class="or-kv"><dt>${esc(label)}</dt><dd>${val}</dd></div>` : '';
+
+  // 개찰 전
+  if (op.status === 'BEFORE_OPENING') {
+    container.appendChild(h(`
+      <div class="or-card">
+        ${headHtml}
+        <dl class="or-kvs">
+          ${kv('개찰 예정', op.openingAt ? `${esc(formatKoreanDate(op.openingAt))} ${esc(formatKoreanTime(op.openingAt))}` : '')}
+        </dl>
+        <p class="or-note">개찰이 끝나면 이곳에서 결과를 확인할 수 있습니다.</p>
+        ${officialLink}
+      </div>`));
+    return;
+  }
+  // 개찰 예정시각 경과 + 결과 미등록
+  if (op.status === 'OPENING_PENDING') {
+    container.appendChild(h(`
+      <div class="or-card">
+        ${headHtml}
+        <dl class="or-kvs">
+          ${kv('개찰 예정', op.openingAt ? `${esc(formatKoreanDate(op.openingAt))} ${esc(formatKoreanTime(op.openingAt))}` : '')}
+        </dl>
+        <p class="or-note">나라장터에 개찰 결과가 아직 등록되지 않았습니다. 잠시 후 다시 확인해주세요.</p>
+        ${officialLink}
+      </div>`));
+    return;
+  }
+
+  // 결과 요약(상태별)
+  const summaryRows = [];
+  if (op.status === 'FAILED') {
+    summaryRows.push(kv('사유', op.failing && op.failing.reason ? esc(op.failing.reason) : '<span class="detail-data-status">사유 미등록</span>'));
+  } else if (op.status === 'REBID') {
+    if (op.rebid) {
+      summaryRows.push(kv('사유', op.rebid.reason ? esc(op.rebid.reason) : ''));
+      summaryRows.push(kv('재입찰 마감', op.rebid.closeAt ? esc(op.rebid.closeAt) : ''));
+      summaryRows.push(kv('재입찰 개찰', op.rebid.openingAt ? esc(op.rebid.openingAt) : ''));
+    }
+  } else if (op.status === 'AWARDED' && op.winner) {
+    summaryRows.push(kv('낙찰업체', `<strong>${esc(op.winner.name)}</strong>${op.winner.businessNumberMasked ? ` <span class="detail-sub mono">${esc(op.winner.businessNumberMasked)}</span>` : ''}`));
+    summaryRows.push(kv('낙찰금액', op.winner.amount != null ? `<span class="mono">${won(op.winner.amount)}</span>` : ''));
+    summaryRows.push(kv('낙찰률', pct(op.winner.rate)));
+    summaryRows.push(kv('최종낙찰일', op.winner.finalAwardDate ? esc(op.winner.finalAwardDate) : ''));
+  } else if (op.status === 'OPENED_WAITING_AWARD' && op.topBidder) {
+    // 🚨 낙찰 확정 전 — "낙찰업체"라 부르지 않고 "1순위"로만.
+    summaryRows.push(kv('1순위', `<strong>${esc(op.topBidder.name)}</strong>${op.topBidder.businessNumberMasked ? ` <span class="detail-sub mono">${esc(op.topBidder.businessNumberMasked)}</span>` : ''}`));
+    summaryRows.push(kv('투찰금액', op.topBidder.amount != null ? `<span class="mono">${won(op.topBidder.amount)}</span>` : ''));
+    summaryRows.push(kv('투찰률', pct(op.topBidder.rate)));
+  }
+  if (op.participantCount != null) summaryRows.push(kv('참여업체', `${op.participantCount}개`));
+  if (op.actualOpeningAt || op.openingAt) { const t = op.actualOpeningAt || op.openingAt; summaryRows.push(kv('개찰일시', `${esc(formatKoreanDate(t))} ${esc(formatKoreanTime(t))}`)); }
+  if (op.plannedPrice != null) summaryRows.push(kv('예정가격', `<span class="mono">${won(op.plannedPrice)}</span>`));
+  if (op.baseAmount != null) summaryRows.push(kv('기초금액', `<span class="mono">${won(op.baseAmount)}</span>`));
+
+  const waitingNote = op.status === 'OPENED_WAITING_AWARD'
+    ? '<p class="or-note">개찰은 끝났지만 최종 낙찰자는 아직 확정되지 않았습니다(적격심사·협상 등). 확정되면 낙찰업체로 표시됩니다.</p>' : '';
+  // 이전 회차 이력(재입찰 → 다음 회차) — 최신 회차 결과와 섞이지 않게 별도 한 줄로만.
+  const rounds = Array.isArray(op.rounds) ? op.rounds : [];
+  const historyNote = rounds.length > 1
+    ? `<p class="or-note or-history">이전 회차: ${rounds.slice(0, -1).map(r => `${(parseInt(r.roundNo, 10) || 0) + 1}차 ${esc(r.status)}`).join(' · ')}${op.status !== 'REBID' && op.rebid && op.rebid.reason ? ` · 재입찰 사유: ${esc(op.rebid.reason)}` : ''}</p>` : '';
+
+  // 투찰 순위표 — 상위 N개 + [전체 투찰순위 보기]
+  const parts = Array.isArray(op.participants) ? op.participants : [];
+  let rankHtml = '';
+  if (parts.length) {
+    const row = (p) => `<tr class="${p.disqualified ? 'or-row--disq' : ''}">
+        <td class="or-td-rank">${p.rank != null ? p.rank : '-'}</td>
+        <td class="or-td-name">${esc(p.name)}${p.businessNumberMasked ? `<span class="or-bizno mono">${esc(p.businessNumberMasked)}</span>` : ''}</td>
+        <td class="or-td-amt mono">${p.amount != null ? won(p.amount) : '-'}</td>
+        <td class="or-td-rate mono">${p.rate ? esc(p.rate) + '%' : (p.totalScore ? esc(p.totalScore) + '점' : '-')}</td>
+        <td class="or-td-result">${p.disqualified ? `<span class="or-disq">부적격</span><span class="or-disq-reason">${esc(p.remark || '')}</span>` : (op.status === 'AWARDED' && op.winner && p.rank === 1 ? '<span class="or-win">낙찰</span>' : (p.rank === 1 ? '<span class="or-top">1순위</span>' : '정상'))}</td>
+      </tr>`;
+    const head = `<thead><tr><th>순위</th><th>업체명</th><th>투찰금액</th><th>${parts.some(p => p.rate) ? '투찰률' : '평가점수'}</th><th>결과</th></tr></thead>`;
+    const top = parts.slice(0, OPENING_TOP_N).map(row).join('');
+    const rest = parts.slice(OPENING_TOP_N).map(row).join('');
+    rankHtml = `
+      <h4 class="or-sub-title">투찰 순위 <span class="detail-sub">${parts.length}개 업체</span></h4>
+      <div class="table-scroll or-table-wrap"><table class="or-table">${head}<tbody>${top}</tbody>${rest ? `<tbody class="or-more-rows" hidden>${rest}</tbody>` : ''}</table></div>
+      ${rest ? `<button type="button" class="btn btn-secondary btn-sm or-more-btn" data-or-more="ranks">전체 투찰순위 보기 (${parts.length}개)</button>` : ''}`;
+  }
+
+  // 복수예비가격 — 데이터가 있는 공고에만(빈 표 금지). 5개 요약 후 [N개 모두 보기].
+  const prices = Array.isArray(op.preliminaryPrices) ? op.preliminaryPrices : [];
+  let priceHtml = '';
+  if (prices.length) {
+    const prow = (p) => `<tr class="${p.drawn ? 'or-row--drawn' : ''}"><td class="or-td-rank">${p.seq}</td><td class="or-td-amt mono">${p.price != null ? won(p.price) : '-'}</td><td>${p.drawn ? '<span class="or-drawn">추첨</span>' : ''}${p.drawCount != null ? ` <span class="detail-sub">${p.drawCount}회</span>` : ''}</td></tr>`;
+    const top = prices.slice(0, OPENING_PRICE_TOP_N).map(prow).join('');
+    const rest = prices.slice(OPENING_PRICE_TOP_N).map(prow).join('');
+    priceHtml = `
+      <h4 class="or-sub-title">복수예비가격 <span class="detail-sub">${op.preliminaryTotal || prices.length}개</span></h4>
+      <div class="table-scroll or-table-wrap"><table class="or-table or-table--prices"><thead><tr><th>순번</th><th>예비가격</th><th>추첨</th></tr></thead><tbody>${top}</tbody>${rest ? `<tbody class="or-more-rows" hidden>${rest}</tbody>` : ''}</table></div>
+      ${rest ? `<button type="button" class="btn btn-secondary btn-sm or-more-btn" data-or-more="prices">${prices.length}개 모두 보기</button>` : ''}`;
+  }
+
+  const fetchedHtml = op.fetchedAt ? `<p class="or-fetched">나라장터 조회 ${esc(formatKoreanDate(op.fetchedAt))} ${esc(formatKoreanTime(op.fetchedAt))}${op.fetchError ? ` · <span class="or-warn-text">${esc(op.fetchError)}</span>` : ''}</p>` : (op.fetchError ? `<p class="or-fetched or-warn-text">${esc(op.fetchError)}</p>` : '');
+
+  container.appendChild(h(`
+    <div class="or-card">
+      ${headHtml}
+      ${summaryRows.join('') ? `<dl class="or-kvs">${summaryRows.join('')}</dl>` : ''}
+      ${waitingNote}
+      ${historyNote}
+      ${rankHtml}
+      ${priceHtml}
+      <div class="or-foot">${fetchedHtml}${officialLink}</div>
+    </div>`));
+
+  // [전체 보기] — 숨긴 tbody를 펼치고 버튼 제거(점진 노출).
+  container.querySelectorAll('[data-or-more]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const wrap = btn.previousElementSibling;
+      const more = wrap && wrap.querySelector('.or-more-rows');
+      if (more) more.hidden = false;
+      btn.remove();
+    });
+  });
 }
 
 // renderNoticeDetailInfo — 공고 상세정보를 나라장터 정보구조에 가깝게 그룹별로 보여준다
 // (Phase B, 2026-08-11). 모든 값은 나라장터 공식 API(raw_content)에서 온 것이고, 값이 없는
-// 행/그룹은 아예 만들지 않는다(빈 행 금지). 참가가능지역·허용업종/면허·기초금액은 Phase C.
-function renderNoticeDetailInfo(container, detail, participationRegions, licenseLimits, participationRegionStatus) {
+// 행/그룹은 아예 만들지 않는다(빈 행 금지). 2026-08-16: 참가자격 성격의 행(참가가능지역·허용면허·
+// 업종/지역제한·공동수급·실적심사·PQ/TP·낙찰방법·낙찰하한율·조달분류·물품분류 제한)은 "입찰자격"
+// 섹션(renderBidQualification)으로 옮겨 같은 값이 두 곳에 반복되지 않게 했다.
+function renderNoticeDetailInfo(container, detail) {
   if (!container) return;
   container.innerHTML = '';
   if (!detail) {
     container.appendChild(h('<p class="section-empty">원문 상세 데이터를 확인할 수 없습니다.</p>'));
     return;
   }
-  const regions = Array.isArray(participationRegions) ? participationRegions : [];
-  const licenses = Array.isArray(licenseLimits) ? licenseLimits : [];
   const esc = escapeHtml;
   const won = v => `<span class="mono">${formatBudget(v)}</span>`;
   const dt = v => `<span>${formatKoreanDateTime(v)}</span>`;
@@ -12335,9 +12710,6 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
 
   const noticeNoVal = has(detail.noticeNo)
     ? esc(detail.noticeNo) + (has(detail.noticeOrd) ? ` <span class="detail-sub">차수 ${esc(detail.noticeOrd)}</span>` : '')
-    : null;
-  const awardVal = has(detail.awardMethod)
-    ? esc(detail.awardMethod) + (has(detail.awardMethodDetail) ? `<span class="detail-sub">${esc(detail.awardMethodDetail)}</span>` : '')
     : null;
   // 담당자 개인정보 마스킹 — 서버가 표시값(officerName/Phone/Email)을 이미 마스킹/원본으로 내려준다.
   // officerMasked면 (?) 안내, officerCanReveal(참여검토 시작)이면 [공개] 버튼을 띄우고 클릭 시
@@ -12357,14 +12729,9 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
   const priceCountVal = (detail.priceDrawCount != null || detail.priceTotalCount != null)
     ? `<span class="mono">추첨 ${detail.priceDrawCount != null ? detail.priceDrawCount : '-'} / 전체 ${detail.priceTotalCount != null ? detail.priceTotalCount : '-'}</span>`
     : null;
-  const briefingVal = has(detail.briefingAt)
-    ? dt(detail.briefingAt) + (has(detail.briefingPlace) ? ` <span class="detail-sub">${esc(detail.briefingPlace)}</span>` : '')
-    : (has(detail.briefingPlace) ? esc(detail.briefingPlace) : null);
   const ynLabel = (b, yes, no) => b === true ? yes : b === false ? no : null;
 
-  // [그룹명, [[라벨, 값(null이면 생략)], ...]]
-  // 그룹 배치(2026-08-11 Phase 1) — 기본/기관/입찰·낙찰/가격/참가자격. 입찰방식·계약방법·
-  // 국제입찰·재입찰은 [입찰·낙찰정보]로, 예정가격 결정방법·예비가격 개수는 [가격정보]로 이관.
+  // [그룹명, [[라벨, 값(null이면 생략)], ...]] — 기본/기관/입찰/가격/연관.
   const groups = [
     ['info', '기본정보', [
       ['공고번호', noticeNoVal],
@@ -12373,7 +12740,6 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
       ['게시일시', has(detail.publishedAt) ? dt(detail.publishedAt) : null],
       ['참조번호', has(detail.referenceNo) ? esc(detail.referenceNo) : null],
       ['통합공고번호', has(detail.unifiedNoticeNo) ? esc(detail.unifiedNoticeNo) : null],
-      ['조달분류', has(detail.procurementClass) ? esc(detail.procurementClass) : null],
       ['재공고', ynLabel(detail.reNotice, '재공고', '신규공고')],
     ]],
     ['building', '기관정보', [
@@ -12384,20 +12750,13 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
       ['집행관', has(detail.executive) ? esc(detail.executive) : null],
       ['이메일', officerEmailVal],
     ]],
-    ['gavel', '입찰·낙찰정보', [
+    ['gavel', '입찰정보', [
       ['입찰방식', has(detail.bidMethod) ? esc(detail.bidMethod) : null],
       ['계약방법', has(detail.contractMethod) ? esc(detail.contractMethod) : null],
-      ['낙찰방법', awardVal],
-      ['낙찰하한율', has(detail.awardLowerLimitRate) ? `<span class="mono">${esc(detail.awardLowerLimitRate)}%</span>` : null],
       ['국제입찰', ynLabel(detail.internationalBid, '대상', '비대상')],
       ['재입찰', ynLabel(detail.rebidAllowed, '허용', '불허')],
-      ['공동수급', has(detail.jointContractMethod) ? esc(detail.jointContractMethod) : null],
-      ['공동수급 협정서 접수', has(detail.jointAgreementMethod) ? esc(detail.jointAgreementMethod) : null],
-      ['공동수급체 지역제한', ynLabel(detail.jointRegionRestricted, '적용', '미적용')],
-      ['실적심사', ynLabel(detail.performanceReview, '대상', '비대상')],
-      ['실적신청서 제출', has(detail.performanceDocMethod) ? esc(detail.performanceDocMethod) : null],
-      ['물품분류 제한', ynLabel(detail.productClassRestricted, '제한', '제한 없음')],
       ['개찰장소', has(detail.openingPlace) ? esc(detail.openingPlace) : null],
+      ['입찰보증금', ynLabel(detail.bidGuaranteeRequired, '납부', '면제')],
     ]],
     ['won', '가격정보', [
       ['배정예산', detail.assignedBudget != null ? won(detail.assignedBudget) : null],
@@ -12407,7 +12766,7 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
       ['예정가격 결정방법', has(detail.prearrangedPriceMethod) ? esc(detail.prearrangedPriceMethod) : null],
       ['예비가격 개수', priceCountVal],
     ]],
-    // [일정] 그룹은 상단 "입찰 진행정보" 타임라인으로 이관(중복 제거). 데이터(DTO)는 그대로 유지.
+    // [일정] 그룹은 "입찰 진행현황" 타임라인으로 이관(중복 제거). 데이터(DTO)는 그대로 유지.
     ['link', '연관정보', [
       ['발주계획번호', has(detail.orderPlanNo) ? esc(detail.orderPlanNo) : null],
       ['사전규격등록번호', has(detail.preSpecRegNo) ? esc(detail.preSpecRegNo) : null],
@@ -12419,33 +12778,7 @@ function renderNoticeDetailInfo(container, detail, participationRegions, license
     if (!dl) return '';
     return `<div class="detail-group"><h4 class="detail-group-title">${esc(title)}</h4><dl class="detail-meta">${dl}</dl>${extra || ''}</div>`;
   };
-
-  // 참가자격 그룹 — 제한 플래그 + Phase C 공식 보강(참가가능지역/허용면허). 공식 API 값엔 [공식] 배지.
-  const officialBadge = '<span class="detail-source-badge">공식</span>';
-  // 데이터 "없음"과 "미수집"을 구분 — 공식 참가가능지역/면허 API 결과가 없으면 "정보 없음"이 아니라
-  // "수집 전 / 확인 필요"로 상태를 정확히 표시한다(값을 지어내지 않는다). 지역제한/업종제한 플래그
-  // 판단 로직은 이번 UI 패스에서 변경하지 않는다(공식지역 우선순위 이슈는 BUG로 별도 보고).
-  const statusVal = (t) => `<span class="detail-data-status">${esc(t)}</span>`;
-  const qualRowsHtml = [];
-  const industryText = ynLabel(detail.industryRestricted, '있음', '없음');
-  if (industryText) qualRowsHtml.push(`<div><dt>업종제한</dt><dd>${industryText}</dd></div>`);
-  if (has(detail.regionRestrictionBasis)) qualRowsHtml.push(`<div><dt>지역제한</dt><dd>있음 <span class="detail-sub">판단기준: ${esc(detail.regionRestrictionBasis)}</span></dd></div>`);
-  // 참가가능지역 — 공식 API가 authoritative. restricted=목록, confirmed_all=전국(공식확인), unknown=수집 전.
-  const regionStatus = participationRegionStatus || (regions.length ? 'restricted' : 'unknown');
-  if (regions.length) {
-    qualRowsHtml.push(`<div><dt>참가가능지역 ${officialBadge}</dt><dd><div class="notice-chips">${regions.map(r => `<span class="notice-chip">${esc(r)}</span>`).join('')}</div></dd></div>`);
-  } else if (regionStatus === 'confirmed_all') {
-    qualRowsHtml.push(`<div><dt>참가가능지역 ${officialBadge}</dt><dd>전국 <span class="detail-sub">지역제한 없음(공식 확인)</span></dd></div>`);
-  } else {
-    qualRowsHtml.push(`<div><dt>참가가능지역</dt><dd>${statusVal('공식 참가가능지역 정보 수집 전')}</dd></div>`);
-  }
-  // 허용업종·면허 — 공식 API 값 우선, 없으면 "확인 필요" 상태.
-  qualRowsHtml.push(licenses.length
-    ? `<div><dt>허용업종·면허 ${officialBadge}</dt><dd><ul class="notice-license-list">${licenses.map(l => `<li>${esc(l.name)}${has(l.groupNo) ? ` <span class="detail-sub">그룹 ${esc(l.groupNo)}</span>` : ''}</li>`).join('')}</ul></dd></div>`
-    : `<div><dt>허용업종·면허</dt><dd>${statusVal('면허·자격 세부조건 확인 필요')}</dd></div>`);
-  const qualGroup = `<div class="detail-group"><h4 class="detail-group-title">참가자격</h4><dl class="detail-meta">${qualRowsHtml.join('')}</dl></div>`;
-
-  const body = groups.map(([icon, t, r]) => groupHtml(icon, t, r)).join('') + qualGroup;
+  const body = groups.map(([icon, t, r]) => groupHtml(icon, t, r)).join('');
 
   container.appendChild(h(`
     <div class="detail-info-groups">${body || '<p class="section-empty">표시할 상세 정보가 없습니다.</p>'}</div>
