@@ -875,6 +875,88 @@ func (s *Server) requireOwnedDraft(w http.ResponseWriter, r *http.Request, logTa
 	return d, profile, true
 }
 
+// GET /api/proposal-drafts — 우리 회사 초안 목록(최신순, 최대 200). 2026-08-18 사용자 앱
+// "제안서"(#/app/proposals) 허브 페이지용. 초안 본문(content)은 내려주지 않고 목록 메타만
+// (id·공고·버전·stale·제목·시각). requireOwnedDraft와 같은 이유로 유료 게이트 없이 로그인+회사만
+// (체험/강등 후 초안도 목록에 보여야 한다). 소유 회사 스코프 외 데이터는 절대 포함하지 않는다.
+func (s *Server) handleListProposalDrafts(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.currentUserID(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("proposal-drafts-list: profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if profile == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0})
+		return
+	}
+	ctx := r.Context()
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.id, d.notice_id, d.notice_version_id, d.status, d.title, d.generated_at, d.created_at, d.updated_at,
+		       n.title, n.organization_name, n.current_version, n.application_end_at,
+		       dv.version_number,
+		       (SELECT id FROM notice_versions cv WHERE cv.notice_id = n.id AND cv.version_number = n.current_version LIMIT 1) AS current_version_id
+		FROM proposal_drafts d
+		JOIN notices n ON n.id = d.notice_id
+		LEFT JOIN notice_versions dv ON dv.id = d.notice_version_id
+		WHERE d.company_profile_id = $1
+		ORDER BY d.updated_at DESC
+		LIMIT 200`, profile.ID)
+	if err != nil {
+		s.logger.Error("proposal-drafts-list: query failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var id, noticeID, versionID, status, title, noticeTitle string
+		var org, currentVersionID sql.NullString
+		var generatedAt sql.NullTime
+		var appEnd sql.NullTime
+		var createdAt, updatedAt time.Time
+		var currentVersion int
+		var draftVersion sql.NullInt64
+		if err := rows.Scan(&id, &noticeID, &versionID, &status, &title, &generatedAt, &createdAt, &updatedAt,
+			&noticeTitle, &org, &currentVersion, &appEnd, &draftVersion, &currentVersionID); err != nil {
+			s.logger.Error("proposal-drafts-list: scan failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+			return
+		}
+		stale := currentVersionID.Valid && currentVersionID.String != versionID
+		var genAt, endAt *time.Time
+		if generatedAt.Valid {
+			t := generatedAt.Time
+			genAt = &t
+		}
+		if appEnd.Valid {
+			t := appEnd.Time
+			endAt = &t
+		}
+		items = append(items, map[string]any{
+			"id":                   id,
+			"noticeId":             noticeID,
+			"noticeTitle":          noticeTitle,
+			"organizationName":     org.String,
+			"applicationEndAt":     endAt,
+			"noticeVersionNumber":  draftVersion.Int64,
+			"currentVersionNumber": currentVersion,
+			"stale":                stale,
+			"status":               status,
+			"title":                title,
+			"generatedAt":          genAt,
+			"createdAt":            createdAt,
+			"updatedAt":            updatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(items)})
+}
+
 // GET /api/proposal-drafts/{id}
 func (s *Server) handleGetProposalDraft(w http.ResponseWriter, r *http.Request) {
 	d, _, ok := s.requireOwnedDraft(w, r, "proposal-draft-get")

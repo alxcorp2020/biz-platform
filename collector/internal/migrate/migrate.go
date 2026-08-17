@@ -319,7 +319,36 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureFeatureUsageTable(ctx, db); err != nil {
 		return fmt.Errorf("migrate feature_usage table: %w", err)
 	}
+	if err := ensureContactInquiriesTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate contact_inquiries table: %w", err)
+	}
 	return nil
+}
+
+// ensureContactInquiriesTable — 공개 "문의하기"(#/contact, 2026-08-18) 접수 저장. 이전엔 문의
+// 저장/발송 구조가 없어 페이지를 만들 수 없었다(가짜 성공 금지). 로그인 무관 공개 접수라
+// user_id는 선택(NULL 허용, 탈퇴/하드삭제 시 SET NULL로 접수 기록은 남긴다). status는
+// 관리자 처리 상태(new/in_progress/done). additive, 멱등.
+func ensureContactInquiriesTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS contact_inquiries (
+			id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			name           TEXT NOT NULL,
+			company_name   TEXT,
+			email          TEXT NOT NULL,
+			phone          TEXT,
+			inquiry_type   TEXT NOT NULL,
+			message        TEXT NOT NULL,
+			privacy_agreed BOOLEAN NOT NULL DEFAULT TRUE,
+			user_id        UUID REFERENCES users(id) ON DELETE SET NULL,
+			client_ip      TEXT,
+			status         TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','in_progress','done')),
+			created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_contact_inquiries_created ON contact_inquiries(created_at DESC);
+	`)
+	return err
 }
 
 // ensureFeatureUsageTable — 플랜별 소비형 사용량(2026-08-18). 기능별 테이블을 만들지 않고
@@ -2503,7 +2532,7 @@ func ensureAuthLookupKindEmailVerifyResend(ctx context.Context, db *sql.DB) erro
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE auth_lookup_attempts DROP CONSTRAINT IF EXISTS auth_lookup_attempts_kind_check;
 		ALTER TABLE auth_lookup_attempts ADD CONSTRAINT auth_lookup_attempts_kind_check
-			CHECK (kind IN ('find_email','reset_password','email_verify_resend','biz_reg_extract'));
+			CHECK (kind IN ('find_email','reset_password','email_verify_resend','biz_reg_extract','contact_inquiry'));
 	`)
 	return err
 }
@@ -2556,11 +2585,14 @@ func ensureSavedSearchIsActiveColumn(ctx context.Context, db *sql.DB) error {
 // ensureAuthLookupKindBizRegExtract widens auth_lookup_attempts.kind's CHECK
 // to allow 'biz_reg_extract'(business_registration.go의
 // handleExtractBusinessRegistration이 씀) — 같은 드롭+재생성 방식.
+// 2026-08-18: 'contact_inquiry'(contact_inquiries.go 공개 문의 rate limit) 추가 —
+// 이 제약을 손보는 두 함수(ensureAuthLookupKindEmailVerifyResend/여기)의 목록을
+// 항상 동일한 최종 전체 목록으로 동기화한다(위 사고 이력 참고).
 func ensureAuthLookupKindBizRegExtract(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		ALTER TABLE auth_lookup_attempts DROP CONSTRAINT IF EXISTS auth_lookup_attempts_kind_check;
 		ALTER TABLE auth_lookup_attempts ADD CONSTRAINT auth_lookup_attempts_kind_check
-			CHECK (kind IN ('find_email','reset_password','email_verify_resend','biz_reg_extract'));
+			CHECK (kind IN ('find_email','reset_password','email_verify_resend','biz_reg_extract','contact_inquiry'));
 	`)
 	return err
 }

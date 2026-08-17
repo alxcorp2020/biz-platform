@@ -319,7 +319,7 @@ CREATE INDEX idx_phone_verifications_phone ON phone_verifications(phone_number, 
 -- 같은 identifier라도(이론상 겹칠 일은 없지만) 서로 한도를 침범하지 않는다.
 CREATE TABLE auth_lookup_attempts (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    kind         TEXT NOT NULL CHECK (kind IN ('find_email','reset_password','email_verify_resend','biz_reg_extract')),
+    kind         TEXT NOT NULL CHECK (kind IN ('find_email','reset_password','email_verify_resend','biz_reg_extract','contact_inquiry')),
     identifier   TEXT NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );

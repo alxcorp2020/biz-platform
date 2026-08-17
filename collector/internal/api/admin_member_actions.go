@@ -327,6 +327,10 @@ func (s *Server) handleAdminDeleteMember(w http.ResponseWriter, r *http.Request)
 		`DELETE FROM password_reset_tokens WHERE user_id = $1`,
 		`DELETE FROM email_verification_tokens WHERE user_id = $1`,
 		`DELETE FROM broadcast_messages WHERE created_by = $1`,
+		// contact_inquiries.user_id(2026-08-18 공개 문의하기) — FK는 ON DELETE SET NULL이라
+		// 없어도 삭제는 통과하지만, 목록 완전성 원칙대로 여기서도 명시적으로 연결을 끊는다
+		// (접수 기록 자체는 운영 데이터라 남긴다).
+		`UPDATE contact_inquiries SET user_id = NULL WHERE user_id = $1`,
 	}
 	for _, q := range userScopedStmts {
 		if _, err := tx.ExecContext(ctx, q, targetID); err != nil {

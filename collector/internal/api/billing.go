@@ -214,9 +214,28 @@ func (s *Server) billingPlansForConfig(ctx context.Context) []map[string]any {
 			"maxPipelineEntries":    info.MaxPipelineEntries,
 			"maxAIAnalysisPerMonth": info.MaxAIAnalysisPerMonth,
 			"purchasable":           p.Purchasable(),
+			// 2026-08-18 공개 요금제 페이지(#/pricing)용 additive 필드 — 플랜 정책의 단일 원천은
+			// billing/plan.go PlanInfo(+관리자 오버라이드)이고, 프론트는 한도표를 하드코딩하지
+			// 않고 이 값을 그대로 표시한다. -1 = 무제한, 0 = 이용 불가.
+			"maxTeamMembers":                     info.MaxTeamMembers,
+			"maxSavedSearches":                   info.MaxSavedSearches,
+			"maxParticipationReviewsPerMonth":    info.MaxParticipationReviewsPerMonth,
+			"maxProposalDraftsPerMonth":          info.MaxProposalDraftsPerMonth,
+			"freeProposalTrialLifetime":          proposalTrialForPlan(p),
+			"maxSMSPerMonth":                     info.MaxSMSPerMonth,
+			"maxBusinessRegistrationOCRPerMonth": info.MaxBusinessRegistrationOCRPerMonth,
 		})
 	}
 	return out
+}
+
+// proposalTrialForPlan — Free 회사만 평생 체험 1회(billing.FreeProposalTrialLifetime). 유료 플랜은
+// 월 한도(maxProposalDraftsPerMonth)만 있어 0.
+func proposalTrialForPlan(p billing.Plan) int {
+	if p == billing.PlanFree {
+		return billing.FreeProposalTrialLifetime
+	}
+	return 0
 }
 
 func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {

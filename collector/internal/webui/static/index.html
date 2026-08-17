@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>공공사업 AI 비서</title>
+<!-- 공개 페이지별 SEO 기본정보(2026-08-18) — setPageMeta()가 라우트마다 title/description/canonical을
+     갱신한다. 해시 라우팅 SPA라 크롤러가 라우트별로 다른 HTML을 받지는 못한다(서버 렌더 미도입,
+     docs/HANDOFF §18) — 이 메타는 브라우저/공유 도구 기준의 최소 반영이다. -->
+<meta name="description" id="meta-description" content="나라장터·기업마당 공고를 한곳에서 검색하고, 회사정보 기준으로 참여 가능 여부를 확인하는 공공사업 참여 비서">
+<link rel="canonical" id="link-canonical" href="/">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="icon" href="/icons/icon-192.png">
@@ -3821,14 +3826,49 @@
     color: var(--navy); text-decoration: none; margin-bottom: 1.25rem;
   }
 
-  .landing-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 1.25rem var(--space-lg); border-bottom: 1px solid var(--border);
+  /* ---------- Public Header(2026-08-18 공개/앱 영역 분리) ----------
+     공개 페이지(홈·공고 검색·맞춤공고 안내·주요 기능·요금제·문의·약관·공지)의 공통 헤더.
+     데스크톱(≥900px) 가로 메뉴 + 로그인/무료로 시작하기, 모바일은 햄버거 → 아래로 펼치는
+     패널. 앱 셸(사이드바/.site-header)은 body.is-landing에서 display:none이라 두 크롬이
+     동시에 보이는 일은 없다(§4 규칙). */
+  .landing-header, .public-header {
+    position: sticky; top: 0; z-index: 40;
+    background: rgba(255,255,255,0.96); backdrop-filter: saturate(160%) blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  .public-header-inner {
+    max-width: 1140px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    padding: 0.85rem var(--space-lg);
   }
   .landing-logo { font-size: 1.15rem; font-weight: 700; color: var(--navy); text-decoration: none; white-space: nowrap; }
-  .landing-header-actions { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+  .public-nav { display: flex; align-items: center; gap: 1.4rem; margin-left: 1.5rem; flex: 1; }
+  .public-nav a {
+    color: var(--ink-soft); font-weight: 600; font-size: 0.9rem; text-decoration: none;
+    padding: 0.4rem 0; border-bottom: 2px solid transparent; white-space: nowrap;
+  }
+  .public-nav a:hover { color: var(--ink); }
+  .public-nav a.is-active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); }
+  .public-nav a:focus-visible, .public-mobile-menu a:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; border-radius: 4px; }
+  .landing-header-actions { display: flex; align-items: center; gap: 0.6rem; flex-shrink: 0; }
   .landing-header-actions .home-cta-secondary,
-  .landing-header-actions .home-cta-primary { padding: 0.55rem 1.2rem; font-size: 0.85rem; }
+  .landing-header-actions .home-cta-primary { padding: 0.55rem 1.1rem; font-size: 0.85rem; }
+  .public-menu-toggle {
+    display: none; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--ink); cursor: pointer;
+  }
+  .public-menu-toggle svg { width: 22px; height: 22px; }
+  .public-mobile-menu { display: none; border-top: 1px solid var(--border); background: var(--bg); padding: 0.5rem var(--space-md) 0.9rem; }
+  .public-mobile-menu a { display: block; padding: 0.7rem 0.4rem; font-weight: 600; color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--border-soft); }
+  .public-mobile-menu a.is-active { color: var(--accent-blue); }
+  .public-mobile-menu .public-mobile-actions { display: flex; gap: 0.6rem; padding-top: 0.9rem; }
+  .public-mobile-menu .public-mobile-actions a { flex: 1; text-align: center; border-bottom: 0; padding: 0.7rem; }
+  @media (max-width: 899px) {
+    .public-nav, .public-header .landing-header-actions { display: none; }
+    .public-menu-toggle { display: inline-flex; }
+    .public-header.is-open .public-mobile-menu { display: block; }
+  }
 
   /* 섹션 간 상하 여백 — 기존(var(--space-xl)=3rem) 대비 약 2배. 랜딩페이지
      전용 값이라 앱 전역에서 쓰는 --space-xl 자체는 건드리지 않는다(다른
@@ -3974,6 +4014,15 @@
   .landing-footer-info strong { color: var(--ink); }
   .landing-footer-links { display: flex; gap: 1.25rem; font-size: 0.85rem; }
   .landing-footer-bottom { border-top: 1px solid var(--border); padding-top: 1.25rem; font-size: 0.78rem; color: var(--ink-soft); }
+  /* Public Footer(2026-08-18): 서비스 소개 + 메뉴 2열 + 사업자정보(company_info) + 데이터 출처. */
+  .public-footer-grid { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 2rem; margin-bottom: 2rem; }
+  .public-footer-brand { font-size: 1rem; font-weight: 800; color: var(--navy); }
+  .public-footer-desc { font-size: 0.85rem; color: var(--ink-soft); line-height: 1.7; margin: 0.5rem 0 0; max-width: 360px; }
+  .public-footer-col h4 { font-size: 0.8rem; font-weight: 700; color: var(--ink); margin: 0 0 0.6rem; }
+  .public-footer-col a { display: block; font-size: 0.85rem; color: var(--ink-soft); text-decoration: none; padding: 0.22rem 0; }
+  .public-footer-col a:hover { color: var(--ink); }
+  .public-footer-source { font-size: 0.78rem; color: var(--ink-soft); line-height: 1.7; margin: 0 0 1rem; }
+  @media (max-width: 720px) { .public-footer-grid { grid-template-columns: 1fr 1fr; } .public-footer-grid > :first-child { grid-column: 1 / -1; } }
 
   /* 스크롤 reveal(부드러운 페이드인) — IntersectionObserver로 뷰포트
      진입 시 .is-visible을 붙인다(initLandingRevealAnimations). 모션에
@@ -4000,6 +4049,136 @@
     .landing-footer { padding: 2.5rem 1.25rem 1.5rem; }
     .landing-footer-top { flex-direction: column; gap: 1.25rem; }
   }
+  /* ================================================================
+     디자인 시스템 용어(2026-08-18, §11) — 공개 페이지·앱 공용
+       Page Canvas  : body 배경(연한 중성). 앱은 body:not(.is-landing) --bg-soft, 공개는 .public-page.
+       Page Header  : 제목/설명/주요 CTA — 카드로 감싸지 않음(.public-page-header).
+       Section      : 제목+여백으로 구분(.public-section). 모든 섹션을 카드로 만들지 않음.
+       Card         : 독립 정보/행동 1단위(.public-card) — 흰 카드 안 흰 카드 중첩 금지(최대 2단계).
+       Work Panel   : 입력/작성용 넓은 흰 영역(.public-panel).
+       Inset Area   : 카드 내부 보조정보(.public-inset) — 연한 배경, 카드 아님.
+     radius/border/shadow/padding 통일: --radius-lg(16px) / 1px var(--border) / var(--shadow-soft) / 20~24px.
+     ================================================================ */
+  .public-page { background: var(--bg-soft); }
+  .public-page-header { padding: 3.25rem 0 2rem; }
+  .public-page-header .public-eyebrow { font-size: 0.85rem; font-weight: 700; color: var(--accent-blue); margin: 0 0 0.5rem; }
+  .public-page-header h1 { font-size: 2rem; font-weight: 800; color: var(--navy); line-height: 1.35; margin: 0 0 0.75rem; }
+  .public-page-header .public-lead { font-size: 1.02rem; color: var(--ink-soft); line-height: 1.75; margin: 0; max-width: 700px; }
+  .public-page-header .public-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1.5rem; }
+  .public-section { padding: 2.25rem 0; }
+  .public-section + .public-section { border-top: 1px solid var(--border-soft); }
+  .public-section > h2 { font-size: 1.3rem; font-weight: 800; color: var(--navy); margin: 0 0 0.5rem; }
+  .public-section > .public-section-desc { font-size: 0.95rem; color: var(--ink-soft); line-height: 1.7; margin: 0 0 1.25rem; max-width: 720px; }
+  .public-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft); padding: 22px 24px;
+  }
+  .public-card h3 { font-size: 1rem; font-weight: 700; color: var(--ink); margin: 0 0 0.4rem; }
+  .public-card p { font-size: 0.9rem; color: var(--ink-soft); line-height: 1.7; margin: 0; }
+  .public-card .public-card-icon { width: 36px; height: 36px; border-radius: 10px; background: rgba(49,130,246,0.1); color: var(--accent-blue); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 0.8rem; }
+  .public-card .public-card-icon svg { width: 20px; height: 20px; }
+  .public-inset { background: var(--bg-soft); border-radius: var(--radius-md); padding: 14px 16px; font-size: 0.88rem; color: var(--ink-soft); line-height: 1.65; }
+  .public-inset + .public-inset { margin-top: 0.6rem; }
+  .public-panel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft); padding: 28px 28px 24px;
+  }
+  .public-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+  .public-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+  .public-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
+  @media (max-width: 899px) { .public-grid-3, .public-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { .public-grid-3, .public-grid-2, .public-grid-4 { grid-template-columns: 1fr; } .public-page-header h1 { font-size: 1.55rem; } .public-page-header { padding: 2.25rem 0 1.5rem; } }
+  .public-steps { counter-reset: step; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 1rem; }
+  .public-step { position: relative; padding-left: 3rem; }
+  .public-step::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; left: 0; top: 0; width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent-blue); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 0.9rem;
+  }
+  .public-step h3 { margin: 0.2rem 0 0.35rem; font-size: 0.98rem; }
+  .public-step p { margin: 0; font-size: 0.88rem; color: var(--ink-soft); line-height: 1.65; }
+  @media (max-width: 899px) { .public-steps { grid-template-columns: 1fr; } }
+  .public-badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; border: 1px solid transparent; }
+  .public-badge--ok { background: rgba(31,138,95,0.1); color: var(--success); }
+  .public-badge--warn { background: rgba(196,132,29,0.12); color: var(--warn); }
+  .public-badge--info { background: rgba(49,130,246,0.1); color: var(--accent-blue); }
+  .public-badge--muted { background: var(--bg-soft); color: var(--ink-soft); border-color: var(--border); }
+  .public-example-list { display: flex; flex-direction: column; gap: 0.6rem; margin: 0; padding: 0; list-style: none; }
+  .public-example-list li { display: flex; align-items: flex-start; gap: 0.6rem; font-size: 0.9rem; color: var(--ink); line-height: 1.6; }
+  .public-example-list li .public-badge { flex-shrink: 0; margin-top: 0.15rem; }
+  .public-faq .landing-faq-item { background: var(--surface); }
+  .public-cta-band {
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-blue-deep)); color: #fff;
+    border-radius: var(--radius-lg); padding: 2.25rem 2rem; text-align: center; margin: 2.5rem 0 3rem;
+  }
+  .public-cta-band h2 { color: #fff; margin: 0 0 0.6rem; font-size: 1.4rem; }
+  .public-cta-band p { color: rgba(255,255,255,0.88); margin: 0 0 1.25rem; }
+  .public-cta-band .home-cta-primary { background: #fff; color: var(--accent-blue-deep); }
+  .public-cta-band .home-cta-primary:hover { background: #f1f5ff; }
+  .public-screenshot { border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); box-shadow: 0 16px 40px rgba(20,33,61,0.12); background: var(--surface); }
+  .public-screenshot img { display: block; width: 100%; height: auto; }
+  .public-page-body { max-width: 860px; margin: 0 auto; }
+  .public-page-header.is-narrow { max-width: 860px; margin-left: auto; margin-right: auto; }
+  .public-page-header.is-compact { padding-bottom: 0.5rem; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  /* 공개 공고 검색/상세: 앱과 같은 renderList/renderDetail 재사용 — 게스트에게는 행동만 다르다. */
+  .public-guest-gate {
+    background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius-lg);
+    padding: 20px 22px; margin: 0.5rem 0;
+  }
+  .public-guest-gate p { margin: 0 0 0.9rem; font-size: 0.92rem; color: var(--ink); line-height: 1.6; }
+  .public-guest-gate .public-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .public-notice-actions-hint { font-size: 0.82rem; color: var(--ink-soft); margin: 0.6rem 0 0; }
+  /* 요금제 비교표 */
+  .pricing-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .pricing-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; min-width: 640px; background: var(--surface); border-radius: var(--radius-lg); overflow: hidden; }
+  .pricing-table th, .pricing-table td { padding: 0.8rem 0.9rem; border-bottom: 1px solid var(--border-soft); text-align: right; white-space: nowrap; }
+  .pricing-table th:first-child, .pricing-table td:first-child { text-align: left; color: var(--ink); font-weight: 600; }
+  .pricing-table thead th { background: var(--bg-soft); color: var(--ink); font-weight: 700; }
+  .pricing-table tbody tr:last-child td { border-bottom: 0; }
+  .pricing-table td.is-current { color: var(--accent-blue); font-weight: 700; }
+  .pricing-plan-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 1rem; }
+  @media (max-width: 1000px) { .pricing-plan-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  @media (max-width: 560px) { .pricing-plan-grid { grid-template-columns: 1fr; } }
+  .pricing-plan { position: relative; display: flex; flex-direction: column; }
+  .pricing-plan--highlight { border-color: var(--accent-blue); box-shadow: 0 8px 28px rgba(49,130,246,0.14); }
+  .pricing-plan--current { border-color: var(--success); }
+  .pricing-plan .pricing-plan-name { font-size: 1.05rem; font-weight: 800; color: var(--navy); margin: 0 0 0.25rem; display: flex; align-items: center; gap: 0.5rem; }
+  .pricing-plan .pricing-plan-price { font-size: 1.6rem; font-weight: 800; color: var(--ink); margin: 0.2rem 0 0.9rem; }
+  .pricing-plan .pricing-plan-price small { font-size: 0.85rem; color: var(--ink-soft); font-weight: 600; }
+  .pricing-plan ul { list-style: none; margin: 0 0 1.2rem; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
+  .pricing-plan ul li { font-size: 0.86rem; color: var(--ink-soft); padding-left: 1.2rem; position: relative; }
+  .pricing-plan ul li::before { content: '✓'; position: absolute; left: 0; color: var(--accent-blue); font-weight: 800; }
+  .pricing-plan .pricing-plan-cta { display: block; text-align: center; }
+  .pricing-plan .pricing-plan-current { display: inline-block; text-align: center; padding: 0.6rem; border-radius: 10px; background: rgba(31,138,95,0.1); color: var(--success); font-weight: 700; font-size: 0.9rem; }
+  /* 문의 폼(Work Panel) */
+  .contact-form { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 1.25rem; }
+  .contact-form label { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; color: var(--ink); }
+  .contact-form label.is-wide { grid-column: 1 / -1; }
+  .contact-form input, .contact-form select, .contact-form textarea {
+    font: inherit; font-size: 0.95rem; padding: 0.7rem 0.85rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--ink);
+  }
+  .contact-form textarea { min-height: 160px; resize: vertical; }
+  .contact-form input:focus, .contact-form select:focus, .contact-form textarea:focus { outline: 2px solid var(--accent-blue); outline-offset: 1px; border-color: var(--accent-blue); }
+  .contact-form .contact-form-footer { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 0.9rem; }
+  .contact-form .contact-form-footer .checkbox-label { font-weight: 500; }
+  .contact-form .contact-char-count { font-size: 0.78rem; color: var(--ink-soft); text-align: right; font-weight: 500; }
+  .contact-form .required-mark { color: var(--danger); margin-left: 0.15rem; }
+  .contact-form .contact-label { display: block; }
+  .contact-honeypot { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  @media (max-width: 640px) { .contact-form { grid-template-columns: 1fr; } .public-panel { padding: 20px 18px; } }
+  .contact-info-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.9rem; color: var(--ink-soft); }
+  /* 앱 전용 404 / 권한 없음 */
+  .app-not-found { text-align: center; padding: 4rem 1rem; }
+  .app-not-found h2 { margin: 0 0 0.6rem; }
+  .app-not-found p { color: var(--ink-soft); margin: 0 0 1.5rem; }
+  /* 제안서 목록(#/app/proposals) */
+  .proposal-list-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid var(--border-soft); }
+  .proposal-list-row:last-child { border-bottom: 0; }
+  .proposal-list-row .proposal-list-title { font-weight: 700; color: var(--ink); text-decoration: none; }
+  .proposal-list-row .proposal-list-meta { font-size: 0.82rem; color: var(--ink-soft); margin-top: 0.3rem; }
+  .proposal-list-row .proposal-list-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+  @media (max-width: 640px) { .proposal-list-row { flex-direction: column; } }
 </style>
 </head>
 <body class="app-booting">
@@ -4009,7 +4188,8 @@
 <div class="app-boot-overlay"><div class="app-boot-spinner"></div></div>
 <header class="site-header">
   <div class="header-inner">
-    <a href="#/" class="brand-link">
+    <!-- 로고 목적지는 renderHeader()가 로그인 여부로 갱신한다(로그인=대시보드, 비회원=공개 홈, appHomeHref) -->
+    <a href="#/" class="brand-link" id="header-brand-link">
       <p class="brand-eyebrow">우리 회사에 맞는 사업을 AI가 찾아드립니다</p>
       <h1 class="brand-title brand-name-text">공공사업 AI 비서</h1>
     </a>
@@ -4031,7 +4211,7 @@
      참고) 이 너비에서는 위 .site-header를 대신한다. 좁은 화면에서는
      기존 상단 헤더가 그대로 쓰인다. -->
 <nav class="sidebar" id="sidebar">
-  <a href="#/dashboard" class="sidebar-brand">
+  <a href="#/app/dashboard" class="sidebar-brand" id="sidebar-brand-link">
     <span class="sidebar-brand-title brand-name-text">공공사업 AI 비서</span>
   </a>
   <div class="sidebar-menu" id="sidebar-menu"></div>
@@ -4045,6 +4225,112 @@
 
 <script>
 const app = document.getElementById('app');
+
+// ================================================================
+// 라우트 중앙 맵 + 화면 영역 분류(2026-08-18, 공개/앱 영역 분리 통합 패치)
+//   Public Area : 비로그인도 접근(홈·공고 검색·맞춤공고 안내·주요 기능·요금제·문의·로그인·가입·약관·공지)
+//   App Area    : 로그인 사용자 서비스(#/app/*, + 캘린더/알림/계정/성장분석/결제 등 기존 앱 경로)
+//   Admin Area  : #/admin* (system_admin) — 기존 경로/기능 무변경
+// 경로를 여러 곳에 하드코딩하지 않기 위해 사이드바/탭바/헤더/로그인 후 이동/공개 헤더·푸터는
+// 전부 이 ROUTES를 참조한다. 예전 경로(#/dashboard, #/me/*, #/pipeline …)는 이메일/북마크/외부
+// 링크가 이미 쓰고 있어 LEGACY_ROUTE_REDIRECTS로 새 경로에 redirect(history.replaceState)한다.
+// ================================================================
+const ROUTES = {
+  // Public
+  home: '#/', notices: '#/notices', matching: '#/matching', features: '#/features',
+  pricing: '#/pricing', contact: '#/contact', announcements: '#/announcements',
+  terms: '#/terms', privacy: '#/privacy',
+  login: '#/auth/login', signup: '#/auth/signup',
+  // App
+  appDashboard: '#/app/dashboard', appNotices: '#/app/notices',
+  appPipeline: '#/app/pipeline', appProposals: '#/app/proposals', appCompany: '#/app/company',
+  appBilling: '#/app/billing',
+  notifications: '#/notifications', calendar: '#/calendar', growth: '#/growth', account: '#/me/account',
+  billingPlans: '#/billing/plans',
+  // Admin
+  admin: '#/admin', adminInquiries: '#/admin/inquiries',
+};
+// 예전 경로 → 새 경로. 쿼리스트링(?tab=…&focus=…)은 그대로 이어붙인다.
+// - #/me/bookmarks(관심공고, 2026-08-08 폐지)·#/app/saved-notices는 외부/옛 링크 호환용 redirect만 —
+//   관심공고 기능은 참여검토(파이프라인)로 통합됐고 재구현하지 않는다(메뉴/화면/API 없음). 사용자 행동은
+//   기존 파이프라인 등록 용어("참여 준비하기"/참여 검토)로 통일.
+const LEGACY_ROUTE_REDIRECTS = {
+  '#/dashboard': ROUTES.appDashboard,
+  '#/me/saved-searches': ROUTES.appNotices,
+  '#/pipeline': ROUTES.appPipeline,
+  '#/me/company': ROUTES.appCompany,
+  '#/me/profile': ROUTES.appCompany,
+  '#/me/licenses': ROUTES.appCompany,
+  '#/me/subscription': ROUTES.appBilling,
+  '#/me/bookmarks': ROUTES.appPipeline,
+  '#/app/saved-notices': ROUTES.appPipeline,
+};
+// 공개 마케팅/정보 페이지: 로그인 여부와 무관하게 Public Layout(공개 헤더/푸터).
+const PUBLIC_LAYOUT_ROUTES = new Set([ROUTES.home, ROUTES.matching, ROUTES.features, ROUTES.pricing, ROUTES.contact, ROUTES.terms, ROUTES.privacy, ROUTES.announcements]);
+// 공유 라우트: 비로그인은 Public Layout, 로그인은 App Shell(같은 renderer — 로그인 여부로 데이터
+// 표현을 바꾸지 않고 이용 가능한 행동만 달라진다). 공고 검색/상세.
+function isSharedNoticeRoute(path) {
+  return path === ROUTES.notices || (path.startsWith('#/notices/') && !path.endsWith('/report'));
+}
+function isAdminRoute(path) { return path === ROUTES.admin || path.startsWith('#/admin/'); }
+function isAuthRoute(path) { return path.startsWith('#/auth/'); }
+// appHomeHref — 로고 클릭 목적지: 로그인이면 사용자 대시보드, 비회원이면 공개 홈(§3).
+function appHomeHref() { return currentUser ? ROUTES.appDashboard : ROUTES.home; }
+// safeInternalRoute — 로그인 후 복귀 경로(next)로 허용되는 내부 해시 경로만 통과. 외부 URL·스킴·
+// 프로토콜 상대 경로(//)는 전부 거부해 open redirect를 막는다(§6). 로그인/가입 화면 자체로의
+// 복귀도 무의미하므로 거부.
+function safeInternalRoute(v) {
+  if (!v || typeof v !== 'string') return null;
+  let s = v.trim();
+  try { s = decodeURIComponent(s); } catch (e) { return null; }
+  if (!s.startsWith('#/') || s.startsWith('#//')) return null;
+  if (/[\s<>"'`\\]/.test(s) || /^#\/\/|:\/\//.test(s) || s.length > 400) return null;
+  const path = s.split('?')[0];
+  if (isAuthRoute(path)) return null;
+  return s;
+}
+// loginHrefWithReturn — 로그인 필요 기능에서 로그인 화면으로 보낼 때 현재(또는 지정) 경로를 next로 싣는다.
+// (공개 홈 #/은 복귀 목적지로 의미가 없어 next를 붙이지 않는다 — 로그인 후 대시보드.)
+function returnTargetOrNull(returnHash) {
+  const target = safeInternalRoute(returnHash || location.hash);
+  if (!target || target.split('?')[0] === ROUTES.home) return null;
+  return target;
+}
+function loginHrefWithReturn(returnHash) {
+  const target = returnTargetOrNull(returnHash);
+  return target ? ROUTES.login + '?next=' + encodeURIComponent(target) : ROUTES.login;
+}
+function signupHrefWithReturn(returnHash) {
+  const target = returnTargetOrNull(returnHash);
+  return target ? ROUTES.signup + '?next=' + encodeURIComponent(target) : ROUTES.signup;
+}
+// lastNonAuthPath — 세션 만료로 401 → 로그인 화면으로 튕긴 경우, 로그인 성공 후 돌아갈 곳(next
+// 파라미터가 없을 때의 폴백). route()가 인증/가입 화면이 아닌 경로에 도착할 때마다 갱신.
+let lastNonAuthPath = null;
+// postLoginTarget — 로그인 성공 후 이동할 곳: ?next(검증됨) → 세션 만료 직전 경로 → 대시보드.
+function postLoginTarget() {
+  const qs = new URLSearchParams(location.hash.split('?')[1] || '');
+  const next = returnTargetOrNull(qs.get('next'));
+  if (next) return next;
+  const back = safeInternalRoute(lastNonAuthPath);
+  if (back && back.split('?')[0] !== ROUTES.home) return back;
+  return ROUTES.appDashboard;
+}
+// setPageMeta — 공개 페이지별 title/description/canonical(§12). app 라우트에서는 기본값으로 되돌린다.
+const DEFAULT_META_DESCRIPTION = document.getElementById('meta-description').getAttribute('content');
+let currentPageMetaTitle = '';
+function setPageMeta(opts) {
+  const brand = currentBrandName || DEFAULT_BRAND_NAME;
+  currentPageMetaTitle = (opts && opts.title) || '';
+  document.title = currentPageMetaTitle ? `${currentPageMetaTitle} | ${brand}` : brand;
+  const desc = document.getElementById('meta-description');
+  if (desc) desc.setAttribute('content', (opts && opts.description) || DEFAULT_META_DESCRIPTION);
+  const canon = document.getElementById('link-canonical');
+  if (canon) {
+    const path = (opts && opts.path) || '';
+    canon.setAttribute('href', location.origin + location.pathname + (path && path !== ROUTES.home ? path : ''));
+  }
+}
 
 function h(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content; }
 
@@ -4299,16 +4585,20 @@ const SIDEBAR_ICONS = {
 // 뒤집었다). 공지사항은 원래부터 인증 불필요(PUBLIC_ROUTES)였는데
 // 사이드바에만 있어 비로그인 사용자가 못 찾았다 — 랜딩페이지 헤더/푸터로
 // 옮기고 회원 사이드바에서는 뺐다.
+// 2026-08-18 공개/앱 영역 분리: 경로는 ROUTES(중앙 맵) 참조. match = active 표시용 접두어 목록
+// (기본은 path 자신). 공고 검색(#/notices)은 공유 라우트라 로그인 상태에선 App Shell 안에서 열린다.
+// "제안서"(#/app/proposals)는 이번에 신설된 초안 목록 허브.
 const SIDEBAR_MENU = [
-  { path: '#/dashboard', label: '대시보드', icon: 'home' },
-  { path: '#/notices', label: '공고 검색', icon: 'search' },
-  { path: '#/me/saved-searches', label: '맞춤공고', icon: 'bookmark' },
-  { path: '#/pipeline', label: '참여 준비', icon: 'pipeline' },
-  { path: '#/notifications', label: '알림', icon: 'bell' },
-  { path: '#/calendar', label: '캘린더', icon: 'calendar' },
-  { path: '#/me/company', label: '회사정보', icon: 'user' },
-  { path: '#/growth', label: '성장분석', icon: 'chart' },
-  { path: '#/me/subscription', label: '구독 관리', icon: 'card' },
+  { path: ROUTES.appDashboard, label: '대시보드', icon: 'home' },
+  { path: ROUTES.notices, label: '공고 검색', icon: 'search', match: ['#/notices'] },
+  { path: ROUTES.appNotices, label: '맞춤공고', icon: 'bookmark' },
+  { path: ROUTES.appPipeline, label: '참여 준비', icon: 'pipeline', match: ['#/app/pipeline', '#/pipeline/'] },
+  { path: ROUTES.appProposals, label: '제안서', icon: 'profile', match: ['#/app/proposals', '#/proposal-drafts/'] },
+  { path: ROUTES.notifications, label: '알림', icon: 'bell' },
+  { path: ROUTES.calendar, label: '캘린더', icon: 'calendar' },
+  { path: ROUTES.appCompany, label: '회사정보', icon: 'user' },
+  { path: ROUTES.growth, label: '성장분석', icon: 'chart' },
+  { path: ROUTES.appBilling, label: '구독 관리', icon: 'card', match: ['#/app/billing', '#/billing/'] },
 ];
 // 모바일 하단 탭바 — PC 사이드바와 다른 5개 구성(요청사항). '진행중'은
 // 사이드바의 파이프라인과 동일 라우트. '관심공고'가 원래 이 자리(원래
@@ -4318,23 +4608,26 @@ const SIDEBAR_MENU = [
 // 마지막 자리가 "내정보"(#/me/profile)에서 "맞춤공고"(#/me/saved-searches,
 // 사이드바와 동일 아이콘)로 바뀌었다.
 const TABBAR_MENU = [
-  { path: '#/dashboard', label: '대시보드', icon: 'home' },
-  { path: '#/notices', label: '검색', icon: 'search' },
-  { path: '#/pipeline', label: '참여준비', icon: 'pipeline' },
-  { path: '#/notifications', label: '알림', icon: 'bell' },
-  { path: '#/me/saved-searches', label: '맞춤공고', icon: 'bookmark' },
+  { path: ROUTES.appDashboard, label: '대시보드', icon: 'home' },
+  { path: ROUTES.notices, label: '검색', icon: 'search', match: ['#/notices'] },
+  { path: ROUTES.appPipeline, label: '참여준비', icon: 'pipeline', match: ['#/app/pipeline', '#/pipeline/'] },
+  { path: ROUTES.notifications, label: '알림', icon: 'bell' },
+  { path: ROUTES.appNotices, label: '맞춤공고', icon: 'bookmark' },
 ];
 
 function renderSidebar() {
   const menu = document.getElementById('sidebar-menu');
   menu.innerHTML = '';
   menu.appendChild(h(SIDEBAR_MENU.map(item => `
-    <a href="${item.path}" class="sidebar-menu-item" data-path="${escapeAttr(item.path)}">
+    <a href="${item.path}" class="sidebar-menu-item" data-path="${escapeAttr(item.path)}" data-match="${escapeAttr((item.match || [item.path]).join(' '))}">
       <span class="sidebar-menu-icon">${SIDEBAR_ICONS[item.icon]}</span>
       <span class="sidebar-menu-label">${escapeHtml(item.label)}</span>
     </a>
   `).join('')));
   updateSidebarActiveState();
+  // 로고 목적지(§3): 로그인=사용자 대시보드, 비회원=공개 홈.
+  const brandLink = document.getElementById('sidebar-brand-link');
+  if (brandLink) brandLink.setAttribute('href', appHomeHref());
 
   const footer = document.getElementById('sidebar-footer');
   footer.innerHTML = '';
@@ -4354,37 +4647,55 @@ function renderSidebar() {
         ? '<a href="#/admin" class="dropdown-menu-item">관리자</a>' : '';
       const menu = openDropdown(e.currentTarget, `
         ${adminItemHtml}
-        <a href="#/me/account" class="dropdown-menu-item">계정정보</a>
+        <a href="${ROUTES.account}" class="dropdown-menu-item">계정정보</a>
         <hr class="dropdown-divider">
         <button type="button" class="dropdown-menu-item dropdown-menu-item--danger" id="sidebar-logout-item">로그아웃</button>
       `, { align: 'left' });
       if (!menu) return;
       menu.querySelector('#sidebar-logout-item').addEventListener('click', async () => {
         closeActiveDropdown();
-        try { await apiRequest('POST', '/api/auth/logout'); } catch (err) { /* ignore */ }
-        currentUser = null;
-        currentProfile = null;
-        renderHeader();
-        location.hash = '#/';
+        await logoutAndGoHome();
       });
     });
   } else {
     footer.appendChild(h(`
-      <a href="#/auth/login" class="btn btn-secondary btn-block">로그인</a>
-      <a href="#/auth/signup" class="btn btn-primary btn-block" style="margin-top:0.6rem">회원가입</a>
+      <a href="${ROUTES.login}" class="btn btn-secondary btn-block">로그인</a>
+      <a href="${ROUTES.signup}" class="btn btn-primary btn-block" style="margin-top:0.6rem">회원가입</a>
     `));
   }
+}
+
+// logoutAndGoHome — 로그아웃 공용(사이드바 드롭다운/모바일 헤더). 클라이언트 상태를 지우고
+// 공개 홈으로 보낸다(로그아웃 후엔 Public Area). 서버 로그아웃 실패는 무시(세션 쿠키가 남아도
+// 다음 부팅의 loadMe가 진실을 다시 확인한다).
+async function logoutAndGoHome() {
+  try { await apiRequest('POST', '/api/auth/logout'); } catch (err) { /* ignore */ }
+  currentUser = null;
+  currentProfile = null;
+  currentEntitlements = {};
+  currentUsage = {};
+  currentCapacities = {};
+  currentEffectivePlan = 'free';
+  lastNonAuthPath = null;
+  renderHeader();
+  location.hash = ROUTES.home;
 }
 
 // updateSidebarActiveState — route()가 바뀔 때마다 호출(로그인 상태는
 // 안 바뀌므로 renderSidebar 전체를 다시 그릴 필요 없이 active 클래스만
 // 갱신). 공고/파이프라인 상세화면(#/notices/xxx, #/pipeline/xxx)도
 // 각각 목록 메뉴가 활성 상태로 보이도록 접두어로 비교한다.
+// navItemMatches — 메뉴 항목의 data-match(공백 구분 접두어 목록, 없으면 data-path)로 현재 경로 판정.
+// 예전엔 path.startsWith(itemPath)뿐이라 #/pipeline/{id}(상세)만 잡혔는데, 이제 새 경로(#/app/*)와
+// 예전 상세 경로(#/pipeline/…, #/proposal-drafts/…)를 함께 본다.
+function navItemMatches(el, path) {
+  const prefixes = (el.dataset.match || el.dataset.path || '').split(' ').filter(Boolean);
+  return prefixes.some(pfx => path === pfx || path.startsWith(pfx.endsWith('/') ? pfx : pfx + '/') || path.startsWith(pfx + '?'));
+}
 function updateSidebarActiveState() {
   const path = (location.hash || '#/').split('?')[0];
   document.querySelectorAll('.sidebar-menu-item').forEach(el => {
-    const itemPath = el.dataset.path;
-    el.classList.toggle('is-active', path.startsWith(itemPath));
+    el.classList.toggle('is-active', navItemMatches(el, path));
   });
 }
 
@@ -4392,7 +4703,7 @@ function renderTabbar() {
   const tabbar = document.getElementById('tabbar');
   tabbar.innerHTML = '';
   tabbar.appendChild(h(TABBAR_MENU.map(item => `
-    <a href="${item.path}" class="tabbar-item" data-path="${escapeAttr(item.path)}">
+    <a href="${item.path}" class="tabbar-item" data-path="${escapeAttr(item.path)}" data-match="${escapeAttr((item.match || [item.path]).join(' '))}">
       <span class="tabbar-icon">${SIDEBAR_ICONS[item.icon]}</span>
       <span class="tabbar-label">${escapeHtml(item.label)}</span>
     </a>
@@ -4403,8 +4714,7 @@ function renderTabbar() {
 function updateTabbarActiveState() {
   const path = (location.hash || '#/').split('?')[0];
   document.querySelectorAll('.tabbar-item').forEach(el => {
-    const itemPath = el.dataset.path;
-    el.classList.toggle('is-active', path.startsWith(itemPath));
+    el.classList.toggle('is-active', navItemMatches(el, path));
   });
 }
 
@@ -4942,7 +5252,9 @@ let currentBrandName = DEFAULT_BRAND_NAME;
 // 즉시 적용).
 function applyBrandName(name) {
   currentBrandName = (name && name.trim()) || DEFAULT_BRAND_NAME;
-  document.title = currentBrandName;
+  // 공개 페이지가 setPageMeta로 정한 페이지 제목이 있으면 "페이지 | 브랜드"를 유지한다(브랜드명 fetch가
+  // 나중에 도착해도 페이지 제목을 덮어쓰지 않게, 2026-08-18).
+  document.title = currentPageMetaTitle ? `${currentPageMetaTitle} | ${currentBrandName}` : currentBrandName;
   document.querySelectorAll('.brand-name-text').forEach(el => {
     el.textContent = currentBrandName;
   });
@@ -5034,28 +5346,27 @@ function renderHeader() {
     nav.appendChild(h(`
       ${reviewLink}
       ${adminLink}
-      <a href="#/calendar">캘린더</a>
-      <a href="#/growth">성장분석</a>
-      <a href="#/me/subscription">내 구독</a>
-      <a href="#/billing/plans">요금제</a>
-      <a href="#/me/account">계정정보</a>
+      <a href="${ROUTES.calendar}">캘린더</a>
+      <a href="${ROUTES.growth}">성장분석</a>
+      <a href="${ROUTES.appProposals}">제안서</a>
+      <a href="${ROUTES.appCompany}">회사정보</a>
+      <a href="${ROUTES.appBilling}">내 구독</a>
+      <a href="${ROUTES.billingPlans}">요금제</a>
+      <a href="${ROUTES.account}">계정정보</a>
       <button type="button" id="logout-btn" class="link-btn">로그아웃</button>
     `));
-    document.getElementById('logout-btn').addEventListener('click', async () => {
-      try { await apiRequest('POST', '/api/auth/logout'); } catch (err) { /* ignore */ }
-      currentUser = null;
-      currentProfile = null;
-      renderHeader();
-      location.hash = '#/';
-    });
+    document.getElementById('logout-btn').addEventListener('click', logoutAndGoHome);
   } else {
     nav.innerHTML = '';
     nav.appendChild(h(`
-      <a href="#/billing/plans">요금제</a>
-      <a href="#/auth/login">로그인</a>
-      <a href="#/auth/signup">회원가입</a>
+      <a href="${ROUTES.pricing}">요금제</a>
+      <a href="${ROUTES.login}">로그인</a>
+      <a href="${ROUTES.signup}">회원가입</a>
     `));
   }
+  // 모바일 헤더 로고 목적지(§3): 로그인=대시보드, 비회원=공개 홈.
+  const brand = document.getElementById('header-brand-link');
+  if (brand) brand.setAttribute('href', appHomeHref());
   renderSidebar();
   renderTabbar();
 }
@@ -5185,31 +5496,99 @@ function legalMarkdownToHtml(text) {
 // 더 맞는다는 사용자 확정. renderLandingPage도 아래로 이 두 HTML
 // 함수를 그대로 가져다 쓴다(중복 정의 금지 — 헤더/푸터를 두 곳에서
 // 따로 관리하면 하나만 고치는 사고가 남).
+// PUBLIC_NAV_ITEMS — 공개 헤더/푸터 메뉴(§4 순서 고정): 공고 검색 → 맞춤공고 → 주요 기능 → 요금제 → 문의하기.
+// (로그인/무료로 시작하기는 별도 액션 버튼.) 메뉴명 "맞춤공고"는 공개 안내 페이지(Public Matching Page,
+// #/matching)이고, 로그인 후 사이드바의 "맞춤공고"(Authenticated Matched Notices Page, #/app/notices)와
+// route/renderer가 분리돼 있다.
+const PUBLIC_NAV_ITEMS = [
+  { path: ROUTES.notices, label: '공고 검색', match: ['#/notices'] },
+  { path: ROUTES.matching, label: '맞춤공고' },
+  { path: ROUTES.features, label: '주요 기능' },
+  { path: ROUTES.pricing, label: '요금제' },
+  { path: ROUTES.contact, label: '문의하기' },
+];
+function publicNavLinksHtml(currentPath) {
+  return PUBLIC_NAV_ITEMS.map(it => {
+    const prefixes = it.match || [it.path];
+    const active = prefixes.some(pfx => currentPath === pfx || currentPath.startsWith(pfx + '/') || currentPath.startsWith(pfx + '?'));
+    return `<a href="${it.path}" class="${active ? 'is-active' : ''}"${active ? ' aria-current="page"' : ''}>${escapeHtml(it.label)}</a>`;
+  }).join('');
+}
+// landingChromeHeaderHtml — Public Header(§4). 데스크톱 가로 메뉴 + [로그인][무료로 시작하기](구분),
+// 모바일 햄버거(initPublicHeader가 토글). 로그인 상태면 우측 액션이 "대시보드로 이동" 하나로 바뀐다
+// (기존 2026-08-05 결정 유지). 로고는 appHomeHref(로그인=대시보드, 비회원=공개 홈).
 function landingChromeHeaderHtml() {
+  const currentPath = (location.hash || ROUTES.home).split('?')[0];
+  const actions = currentUser
+    ? `<a href="${ROUTES.appDashboard}" class="home-cta-primary">대시보드로 이동</a>`
+    : `<a href="${loginHrefWithReturn()}" class="home-cta-secondary">로그인</a><a href="${ROUTES.signup}" class="home-cta-primary">무료로 시작하기</a>`;
+  const mobileActions = currentUser
+    ? `<a href="${ROUTES.appDashboard}" class="home-cta-primary">대시보드로 이동</a>`
+    : `<a href="${loginHrefWithReturn()}" class="home-cta-secondary">로그인</a><a href="${ROUTES.signup}" class="home-cta-primary">무료로 시작하기</a>`;
   return `
-    <header class="landing-header">
-      <a href="#/" class="landing-logo brand-name-text">공공사업 AI 비서</a>
-      <div class="landing-header-actions">
-        <a href="#/announcements" class="link-btn">공지사항</a>
-        ${currentUser
-          ? '<a href="#/dashboard" class="home-cta-primary">대시보드로 이동</a>'
-          : '<a href="#/auth/login" class="home-cta-secondary">로그인</a><a href="#/auth/signup" class="home-cta-primary">무료로 시작하기</a>'}
+    <header class="landing-header public-header" id="public-header">
+      <div class="public-header-inner">
+        <a href="${appHomeHref()}" class="landing-logo brand-name-text" id="public-brand-link">공공사업 AI 비서</a>
+        <nav class="public-nav" aria-label="공개 메뉴">${publicNavLinksHtml(currentPath)}</nav>
+        <div class="landing-header-actions">${actions}</div>
+        <button type="button" class="public-menu-toggle" id="public-menu-toggle" aria-label="메뉴 열기" aria-expanded="false" aria-controls="public-mobile-menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
       </div>
+      <nav class="public-mobile-menu" id="public-mobile-menu" aria-label="공개 메뉴(모바일)">
+        ${publicNavLinksHtml(currentPath)}
+        <a href="${ROUTES.announcements}" class="${currentPath.startsWith(ROUTES.announcements) ? 'is-active' : ''}">공지사항</a>
+        <div class="public-mobile-actions">${mobileActions}</div>
+      </nav>
     </header>
   `;
 }
+// initPublicHeader — 햄버거 토글/외부 클릭·Escape 닫기. renderWithLandingChrome/renderLandingPage가
+// 헤더 HTML을 붙인 뒤 호출한다(route()마다 헤더가 새로 그려지므로 그때마다 다시 바인딩).
+function initPublicHeader(container) {
+  const header = container.querySelector('#public-header');
+  const toggle = container.querySelector('#public-menu-toggle');
+  if (!header || !toggle) return;
+  const close = () => { header.classList.remove('is-open'); toggle.setAttribute('aria-expanded', 'false'); };
+  toggle.addEventListener('click', () => {
+    const open = header.classList.toggle('is-open');
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+  header.querySelectorAll('.public-mobile-menu a').forEach(a => a.addEventListener('click', close));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); }, { once: true });
+}
+// PUBLIC_DATA_SOURCE_NOTE — 푸터 데이터 출처(§5). 실제 수집 출처명(cmd/apiserver/main.go의 pgstore.Open
+// sourceName: "조달청_나라장터 입찰공고정보서비스", "중소벤처기업부_기업마당")을 그대로 쓴다 — 임의 문구 금지.
+const PUBLIC_DATA_SOURCE_NOTE = '공고 데이터 출처: 조달청 나라장터 입찰공고정보서비스, 중소벤처기업부 기업마당. 공고 내용은 자동 수집·추출된 정보이므로 반드시 원문 공고를 함께 확인해 주세요.';
+// landingChromeFooterHtml — Public Footer(§5): 서비스명·설명 / 메뉴 5 / 정책(공지·약관·개인정보·환불정책) /
+// 사업자정보(company_info, renderLandingCompanyInfo가 채움 — 기존 값 재사용) / 데이터 출처.
+// 환불정책은 별도 문서가 없고 이용약관 "제9조 (환불 및 해지 정책)"에 있어 그 조항으로 스크롤한다
+// (#/terms?section=refund) — 새 문서를 만들지 않는다.
 function landingChromeFooterHtml(year) {
   return `
     <footer class="landing-footer">
       <div class="landing-container">
-        <div class="landing-footer-top">
-          <div class="landing-footer-info" id="landing-footer-info"></div>
-          <div class="landing-footer-links">
-            <a href="#/announcements">공지사항</a>
-            <a href="#/terms">이용약관</a>
-            <a href="#/privacy">개인정보처리방침</a>
+        <div class="public-footer-grid">
+          <div>
+            <div class="public-footer-brand brand-name-text">공공사업 AI 비서</div>
+            <p class="public-footer-desc">나라장터·기업마당 공고를 한곳에서 검색하고, 등록한 회사정보를 기준으로 참여 가능 여부와 준비할 서류를 확인하는 공공사업 참여 비서입니다.</p>
+          </div>
+          <div class="public-footer-col">
+            <h4>서비스</h4>
+            ${PUBLIC_NAV_ITEMS.map(it => `<a href="${it.path}">${escapeHtml(it.label)}</a>`).join('')}
+          </div>
+          <div class="public-footer-col">
+            <h4>안내</h4>
+            <a href="${ROUTES.announcements}">공지사항</a>
+            <a href="${ROUTES.terms}">이용약관</a>
+            <a href="${ROUTES.privacy}">개인정보처리방침</a>
+            <a href="${ROUTES.terms}?section=refund">환불정책</a>
           </div>
         </div>
+        <div class="landing-footer-top">
+          <div class="landing-footer-info" id="landing-footer-info"></div>
+        </div>
+        <p class="public-footer-source">${escapeHtml(PUBLIC_DATA_SOURCE_NOTE)}</p>
         <div class="landing-footer-bottom">
           &copy; ${year} <span class="brand-name-text">공공사업 AI 비서</span>. All rights reserved.
         </div>
@@ -5217,21 +5596,22 @@ function landingChromeFooterHtml(year) {
     </footer>
   `;
 }
-// renderWithLandingChrome — contentHtml을 랜딩 헤더/푸터 사이의
-// .landing-container(1100px 중앙정렬)에 얹어 그린다. is-landing을 여기서
-// 직접 붙이는 이유: route()도 dispatch 직전에 동기적으로 미리 붙이지만
-// (#/ 전용 FOUC 방지 로직 재사용, 아래 route() 참고), 이 함수를 실수로
-// 다른 경로에서 단독 호출해도 항상 올바른 레이아웃이 되도록 방어적으로
-// 한 번 더 보장한다(멱등이라 무해).
-function renderWithLandingChrome(container, contentHtml) {
+// renderWithLandingChrome — contentHtml을 Public Header/Footer 사이의 .landing-container(1100px)에
+// 얹어 그린다(Public Layout). is-landing을 여기서 직접 붙이는 이유: route()도 dispatch 직전에
+// 동기적으로 미리 붙이지만, 이 함수를 실수로 다른 경로에서 단독 호출해도 항상 올바른
+// 레이아웃이 되도록 방어적으로 한 번 더 보장한다(멱등이라 무해). opts.plain=true면
+// .landing-chrome-content 패딩 없이(공개 마케팅 페이지가 자체 섹션 여백을 갖는 경우).
+function renderWithLandingChrome(container, contentHtml, opts) {
+  opts = opts || {};
   document.body.classList.add('is-landing');
   const year = new Date().getFullYear();
   container.innerHTML = '';
   container.appendChild(h(`
     ${landingChromeHeaderHtml()}
-    <main class="landing-chrome-content"><div class="landing-container">${contentHtml}</div></main>
+    <main class="landing-chrome-content${opts.plain ? ' public-page' : ''}"><div class="landing-container">${contentHtml}</div></main>
     ${landingChromeFooterHtml(year)}
   `));
+  initPublicHeader(container);
   applyBrandName(currentBrandName);
   renderLandingCompanyInfo();
 }
@@ -5255,6 +5635,15 @@ async function renderLegalDocument(container, docType) {
       <div class="legal-doc-content">${legalMarkdownToHtml(data.content)}</div>
     </div>
   `);
+  setPageMeta({ title: docType === 'terms' ? '이용약관' : '개인정보처리방침', path: docType === 'terms' ? ROUTES.terms : ROUTES.privacy });
+  // 푸터 "환불정책"(#/terms?section=refund) — 별도 문서 없이 이용약관의 환불 조항(제9조 환불 및 해지
+  // 정책)으로 스크롤한다. 조항이 없는 버전이면 그냥 문서 상단.
+  const section = new URLSearchParams(location.hash.split('?')[1] || '').get('section');
+  if (docType === 'terms' && section === 'refund') {
+    const heading = [...container.querySelectorAll('.legal-doc-content h1, .legal-doc-content h2, .legal-doc-content h3')]
+      .find(el => el.textContent.includes('환불'));
+    if (heading) setTimeout(() => heading.scrollIntoView({ block: 'start' }), 50);
+  }
 }
 
 // tryRenderPopupLayer — 활성 팝업 중 오늘 아직 "하루 보지 않기"로 안 닫은
@@ -5573,14 +5962,12 @@ async function renderLandingPricing(gridEl) {
     gridEl.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
     return;
   }
-  gridEl.innerHTML = config.plans.map(p => `
-    <div class="landing-plan-card${p.plan === 'pro' ? ' landing-plan-card--highlight' : ''}">
-      <h3 class="landing-plan-name">${escapeHtml(p.name)}</h3>
-      <p class="landing-plan-price">${p.amount > 0 ? escapeHtml(formatBudget(p.amount)) + '<small>/월</small>' : '무료'}</p>
-      <ul class="landing-plan-features">${(PLAN_FEATURES[p.plan] || []).map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>
-      <a href="#/auth/signup" class="home-cta-primary">가입하기</a>
-    </div>
-  `).join('');
+  // 2026-08-18: 공개 요금제 페이지(#/pricing)와 같은 카드(pricingPlanCardsHtml)를 재사용 — 가격/한도
+  // 표기가 두 화면에서 어긋나지 않게 한다. CTA도 같은 규칙(비회원 가입/로그인, 로그인 결제 흐름, Business 문의).
+  const currentPlan = await loadCurrentPlanForPricing();
+  gridEl.className = 'pricing-plan-grid';
+  gridEl.innerHTML = pricingPlanCardsHtml(config.plans || [], currentPlan) +
+    `<p class="landing-section-desc" style="grid-column:1/-1;margin:1rem auto 0">전체 한도 비교는 <a href="${ROUTES.pricing}">요금제 페이지</a>에서 확인하세요.</p>`;
 }
 
 async function renderLandingPage(container) {
@@ -5718,6 +6105,7 @@ async function renderLandingPage(container) {
     ${landingChromeFooterHtml(year)}
   `));
 
+  initPublicHeader(container);
   initLandingFaqToggles(container);
   initLandingRevealAnimations(container);
   renderLandingPricing(document.getElementById('landing-pricing-grid'));
@@ -11911,6 +12299,11 @@ function renderDetail(container, id) {
       renderParticipationJudgment(document.getElementById('participation-judgment-section'), data.participationJudgment, {
         refetch: async () => (await apiRequest('GET', '/api/notices/' + encodeURIComponent(id))).participationJudgment,
       });
+      // 비회원(§6): 참여 가능 여부는 로그인 필요 — 공개 홈으로 보내지 않고 이 자리에서 안내 + 로그인 후 이 공고로 복귀.
+      if (!currentUser && !isSupport) {
+        const pjSection = document.getElementById('participation-judgment-section');
+        if (pjSection) { pjSection.innerHTML = ''; pjSection.appendChild(h(guestGateHtml(GUEST_LOGIN_REQUIRED_MESSAGE, '#/notices/' + n.id))); }
+      }
       renderParticipationSection(document.getElementById('ai-participation-section'), data.participationScore, data.confidenceTier);
       renderChangeImpact(document.getElementById('change-impact-section'), data.changeImpact);
       // 입찰 진행현황 — 우선 공고 일정만으로 그리고(개찰 경과 여부는 시간으로 단정하지 않음), 개찰결과가
@@ -12007,7 +12400,11 @@ function wireDetailTabs(body) {
 // 파이프라인에 있으면 버튼 대신 "진행 중 → 이동" 링크).
 function renderPipelineReviewAction(container, noticeId, existingPipelineEntryId, notice) {
   container.innerHTML = '';
-  if (!currentUser) return;
+  if (!currentUser) {
+    // 비회원(§6): 참여 준비 등록(파이프라인)·참여 가능 여부 확인 등은 로그인 필요 — 안내만(공개 홈으로 보내지 않음).
+    container.appendChild(h(`<p class="public-notice-actions-hint">참여 준비 등록, 참여 가능 여부 확인, 제안서 초안, 알림 설정은 <a href="${loginHrefWithReturn('#/notices/' + noticeId)}">로그인</a> 후 이용할 수 있습니다.</p>`));
+    return;
+  }
 
   if (existingPipelineEntryId) {
     renderAlreadyInPipeline(container, noticeId, existingPipelineEntryId);
@@ -12832,16 +13229,31 @@ function openPaidFeatureModal() {
   body.querySelector('#prop-paywall-close').addEventListener('click', closeModal);
 }
 
-function openLoginRequiredModal() {
+// GUEST_LOGIN_REQUIRED_MESSAGE — 비회원이 로그인 필요 기능을 눌렀을 때의 공통 안내(§6). 공개 홈으로
+// 보내지 않고 그 자리에서 안내 + [로그인][무료로 시작하기]. 로그인 후 현재 공고로 복귀(next).
+const GUEST_LOGIN_REQUIRED_MESSAGE = '회사정보를 기준으로 참여 가능 여부를 확인하려면 로그인이 필요합니다.';
+function guestGateHtml(message, returnHash) {
+  return `
+    <div class="public-guest-gate" role="note">
+      <p>${escapeHtml(message || GUEST_LOGIN_REQUIRED_MESSAGE)}</p>
+      <div class="public-actions">
+        <a href="${loginHrefWithReturn(returnHash)}" class="btn btn-primary">로그인</a>
+        <a href="${signupHrefWithReturn(returnHash)}" class="btn btn-secondary">무료로 시작하기</a>
+      </div>
+    </div>`;
+}
+function openLoginRequiredModal(message) {
   const body = openModal('로그인이 필요한 서비스입니다', `
     <div class="prop-paywall">
-      <p>제안서 초안 기능은 로그인 후 이용할 수 있습니다.</p>
+      <p>${escapeHtml(message || GUEST_LOGIN_REQUIRED_MESSAGE)}</p>
       <div class="prop-paywall-actions">
-        <a href="#/auth/login" class="btn btn-primary" id="prop-login-go">로그인하고 계속하기</a>
+        <a href="${loginHrefWithReturn()}" class="btn btn-primary" id="prop-login-go">로그인</a>
+        <a href="${signupHrefWithReturn()}" class="btn btn-secondary" id="prop-signup-go">무료로 시작하기</a>
         <button type="button" class="btn btn-secondary" id="prop-login-close">닫기</button>
       </div>
     </div>`);
   body.querySelector('#prop-login-go').addEventListener('click', () => closeModal());
+  body.querySelector('#prop-signup-go').addEventListener('click', () => closeModal());
   body.querySelector('#prop-login-close').addEventListener('click', closeModal);
 }
 
@@ -12887,7 +13299,7 @@ function renderProposalSection(container, noticeId, notice) {
     if (actions) actions.insertAdjacentHTML('afterend', `<p class="prop-intro-note" data-proposal-usage>${note}</p>`);
   }
   container.querySelector('#prop-start-btn').addEventListener('click', () => {
-    if (!currentUser) { openLoginRequiredModal(); return; }
+    if (!currentUser) { openLoginRequiredModal('제안서 초안은 로그인 후 회사정보를 바탕으로 만들 수 있습니다.'); return; }
     if (!canUseProposalDraft()) { openPaidFeatureModal(); return; }
     loadProposalReadiness(container, noticeId, notice, false);
   });
@@ -14666,7 +15078,10 @@ function setupPhoneOtpVerification(form, onChange) {
 async function renderSignup(container) {
   document.body.classList.add('is-auth');
   container.innerHTML = '';
+  // 이미 로그인된 상태의 회원가입 화면 진입 → 대시보드(가입 화면을 다시 볼 이유가 없음, §3).
+  if (currentUser) { location.hash = ROUTES.appDashboard; return; }
   container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  const signupNext = safeInternalRoute(new URLSearchParams(location.hash.split('?')[1] || '').get('next'));
   let phoneVerificationRequired = true;
   try {
     const cfg = await apiRequest('GET', '/api/auth/config');
@@ -14693,7 +15108,7 @@ async function renderSignup(container) {
         <button type="submit" class="btn btn-primary btn-block" id="signup-submit-btn" disabled>회원가입</button>
       </form>
       ${oauthButtonsHtml()}
-      <p class="auth-switch">이미 계정이 있으신가요? <a href="#/auth/login">로그인</a></p>
+      <p class="auth-switch">이미 계정이 있으신가요? <a href="${signupNext ? loginHrefWithReturn(signupNext) : ROUTES.login}">로그인</a></p>
     </div>
   `));
   const form = document.getElementById('signup-form');
@@ -14740,7 +15155,9 @@ async function renderSignup(container) {
       if (pendingInviteToken) {
         await acceptPendingInviteIfAny();
       }
-      location.hash = '#/dashboard';
+      // 신규 가입은 이메일 인증/온보딩 게이트를 먼저 거친다(route()가 순서대로 안내). 게이트를 다
+      // 통과한 뒤의 목적지는 대시보드 — 가입 전 보던 공고(next)로의 복귀는 로그인 흐름에만 적용된다.
+      location.hash = ROUTES.appDashboard;
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -14835,18 +15252,30 @@ async function renderOAuthProfileStep(container) {
   await renderOAuthOnboardingStep(container);
 }
 
-function renderLogin(container) {
+async function renderLogin(container) {
   document.body.classList.add('is-auth');
   container.innerHTML = '';
+  // 2026-08-18(§3): 이미 로그인된 상태로 로그인 화면에 오면(북마크, 또는 세션이 만료돼 다른 화면이
+  // 401로 보낸 경우) 서버에 세션을 한 번 재확인한다 — 유효하면 로그인 폼 대신 복귀 경로/대시보드로,
+  // 실제로 만료됐으면 클라이언트 상태를 지우고 폼을 보여준다("인증이 실제로 만료됐을 때만 로그인").
+  if (currentUser) {
+    container.appendChild(h('<div class="loading">확인 중...</div>'));
+    await loadMe();
+    if (currentUser) { location.hash = postLoginTarget(); return; }
+    container.innerHTML = '';
+  }
   // 소셜 로그인 콜백 실패 시 서버가 #/auth/login?oauthError=1로 돌려보낸다
   // (oauth_login.go의 oauthFailureRedirect) — state 위조 시도든 provider
   // 쪽 일시적 오류든 원인을 구분해 보여줄 방법이 없어(사용자에게 원인
   // 상세를 노출할 필요도 없고) 안내 문구 하나로 통일.
-  const oauthFailed = location.hash.split('?')[1] === 'oauthError=1';
+  const loginParams = new URLSearchParams(location.hash.split('?')[1] || '');
+  const oauthFailed = loginParams.get('oauthError') === '1';
+  const nextParam = safeInternalRoute(loginParams.get('next'));
   container.appendChild(h(`
     <div class="auth-card">
-      <a href="#/" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
+      <a href="${ROUTES.home}" class="auth-page-logo brand-name-text">${escapeHtml(currentBrandName)}</a>
       <h2>로그인</h2>
+      ${nextParam ? '<p class="auth-step-hint">로그인하면 보고 있던 화면으로 돌아갑니다.</p>' : ''}
       ${oauthFailed ? '<div class="oauth-error-banner">간편 로그인에 실패했습니다. 다시 시도해주세요.</div>' : ''}
       <form id="login-form" class="auth-form">
         <label>이메일<input type="email" name="email" required></label>
@@ -14856,7 +15285,7 @@ function renderLogin(container) {
       </form>
       ${oauthButtonsHtml()}
       <p class="auth-switch"><a href="#/auth/find-account">아이디/비밀번호 찾기</a></p>
-      <p class="auth-switch">계정이 없으신가요? <a href="#/auth/signup">회원가입</a></p>
+      <p class="auth-switch">계정이 없으신가요? <a href="${nextParam ? signupHrefWithReturn(nextParam) : ROUTES.signup}">회원가입</a></p>
     </div>
   `));
   const form = document.getElementById('login-form');
@@ -14873,7 +15302,8 @@ function renderLogin(container) {
       renderHeader();
       await loadMe();
       await acceptPendingInviteIfAny();
-      location.hash = '#/dashboard';
+      // 로그인 성공 → ?next(내부 경로만) → 세션 만료 직전 경로 → 사용자 대시보드(§3/§6).
+      location.hash = postLoginTarget();
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -17067,14 +17497,8 @@ function renderReviewList(listEl, items) {
 const PLAN_DISPLAY_NAMES = { free: 'Free', basic: 'Basic', pro: 'Pro', business: 'Business' };
 const PLAN_STATUS_LABELS = { active: '이용 중', pending: '결제 대기', cancelled: '해지됨', expired: '만료됨' };
 const PLAN_STATUS_BADGE_TONE = { active: 'badge--success', pending: 'badge--warn', cancelled: 'badge--gray', expired: 'badge--gray' };
-// 백엔드(GET /api/billing/config)는 가격/한도 숫자만 주고, 마케팅 문구
-// (기획서 기준 기능 bullet)는 여기서 따로 관리한다.
-const PLAN_FEATURES = {
-  free: ['파이프라인 3건', 'AI 분석 없음'],
-  basic: ['파이프라인 무제한', 'AI 분석 월 5건'],
-  pro: ['AI 분석 월 20건', '실적매칭 가능'],
-  business: ['사용자 3명', 'AI 분석 월 60건'],
-};
+// (2026-08-18) 예전 PLAN_FEATURES(고정 bullet 문구)는 폐기 — 카드 bullet은 GET /api/billing/config의
+// 정책 숫자(관리자 오버라이드 반영)로 planFeatureBullets()가 만든다(공개 요금제 페이지와 동일 출처).
 
 async function renderPricingPlans(container) {
   container.innerHTML = '';
@@ -17102,7 +17526,7 @@ async function renderPricingPlans(container) {
 
   const cards = config.plans.map(p => {
     const isCurrent = currentPlan === p.plan;
-    const features = (PLAN_FEATURES[p.plan] || []).map(f => `<li>${escapeHtml(f)}</li>`).join('');
+    const features = planFeatureBullets(p).map(f => `<li>${escapeHtml(f)}</li>`).join('');
     let actionHtml;
     if (isCurrent) {
       actionHtml = '<span class="plan-current-badge">현재 플랜</span>';
@@ -17878,6 +18302,7 @@ async function renderAdminDashboard(container) {
         <a href="#/admin/announcements" class="btn btn-secondary btn-sm">공지 게시판</a>
         <a href="#/admin/broadcast" class="btn btn-secondary btn-sm">회원 알림 메시지</a>
         <a href="#/admin/company-info" class="btn btn-secondary btn-sm">회사 정보(랜딩페이지 푸터)</a>
+        <a href="${ROUTES.adminInquiries}" class="btn btn-secondary btn-sm">문의 관리</a>
       </div>
     </div>
     <div class="detail-card" id="admin-settings-section"></div>
@@ -19218,6 +19643,7 @@ async function renderAnnouncementList(container) {
     <h2>공지사항</h2>
     <div class="detail-card">${rowsHtml}</div>
   `);
+  setPageMeta({ title: '공지사항', path: ROUTES.announcements });
 }
 
 async function renderAnnouncementDetail(container, id) {
@@ -19678,6 +20104,610 @@ async function renderInviteAccept(container) {
   }
 }
 
+// ================================================================
+// Public Area 페이지(2026-08-18 공개/앱 영역 분리 통합 패치)
+//   - renderPublicNoticesPage / renderPublicNoticeDetailPage : 기존 renderList/renderDetail을 Public Layout
+//     안에서 그대로 재사용(공고 카드·검색 API 동일, 비회원은 이용 가능한 행동만 다름).
+//   - renderPublicMatchingPage(Public Matching Page)         : 맞춤 추천 기능 안내 + 가입 유도. 로그인 후의
+//     실제 맞춤공고(Authenticated Matched Notices Page = renderSavedSearches, #/app/notices)와 별개 route/renderer.
+//   - renderPublicFeaturesPage / renderPublicPricingPage / renderPublicContactPage / renderPublicNotFoundPage
+//   - renderAppNotFound / renderAppForbidden(App Shell 안 404/403), renderProposalsPage(#/app/proposals),
+//     renderAdminInquiries(#/admin/inquiries)
+//   화면 문구에 내부 용어(entitlement/feature_usage/LLM/quota)를 쓰지 않는다. 확인되지 않은 수치·보장 표현 금지.
+// ================================================================
+
+// publicPageShell — Public Layout 안에 Page Header(카드 아님) + 본문을 그린다. 이후 각 페이지가 setPageMeta.
+function publicPageShell(container, opts) {
+  renderWithLandingChrome(container, `
+    <div class="public-page-header${opts.narrow ? ' is-narrow' : ''}${opts.compact ? ' is-compact' : ''}">
+      ${opts.eyebrow ? `<p class="public-eyebrow">${escapeHtml(opts.eyebrow)}</p>` : ''}
+      <h1${opts.hideTitle ? ' class="sr-only"' : ''}>${opts.titleHtml || escapeHtml(opts.title)}</h1>
+      ${opts.lead ? `<p class="public-lead">${escapeHtml(opts.lead)}</p>` : ''}
+      ${opts.actionsHtml ? `<div class="public-actions">${opts.actionsHtml}</div>` : ''}
+    </div>
+    <div id="public-page-body" class="${opts.bodyClass || ''}">${opts.bodyHtml || ''}</div>
+  `, { plain: true });
+  setPageMeta({ title: opts.metaTitle || opts.title, description: opts.description, path: opts.path });
+  return document.getElementById('public-page-body');
+}
+
+// ---------- 공개 공고 검색(#/notices, 비회원) ----------
+function renderPublicNoticesPage(container) {
+  const body = publicPageShell(container, {
+    eyebrow: '공고 검색',
+    title: '공공사업 공고 통합검색',
+    lead: '나라장터 입찰공고와 기업마당 지원사업을 한곳에서 검색합니다. 키워드·지역·공고 종류·발주기관·예산·마감 여부로 조건을 좁힐 수 있고, 로그인하면 등록한 회사정보로 참여 가능 여부까지 확인할 수 있습니다.',
+    actionsHtml: `<a href="${signupHrefWithReturn(ROUTES.notices)}" class="home-cta-primary">무료로 시작하기</a><a href="${ROUTES.matching}" class="home-cta-secondary">맞춤공고 알아보기</a>`,
+    bodyClass: 'public-page-body', narrow: true,
+    path: ROUTES.notices,
+    description: '나라장터 입찰공고와 기업마당 지원사업을 키워드·지역·공고 종류·발주기관·예산·마감 여부로 검색하고 원문 출처와 모집 기간을 확인하세요.',
+  });
+  // 기존 검색 화면 그대로(같은 API·같은 공고 카드). 비회원은 판정 배지/참여 준비 버튼이 서버·프론트
+  // 조건상 자연히 빠진다(로그인 상태에 따라 데이터 표현을 바꾸지 않는다 — 행동만 다름).
+  renderList(body);
+}
+
+// ---------- 공개 공고 상세(#/notices/{id}, 비회원) ----------
+function renderPublicNoticeDetailPage(container, id) {
+  const body = publicPageShell(container, {
+    eyebrow: '공고 상세',
+    title: '공고 상세',
+    // 본문(detail-card)의 공고명 h2와 중복되지 않게 h1은 시각적으로 숨긴다(문서 구조/SEO용 h1은 유지).
+    hideTitle: true, narrow: true, compact: true,
+    bodyClass: 'public-page-body',
+    path: '#/notices/' + id,
+    description: '공고 기본정보·일정·원문 출처를 확인합니다. 회사정보 기준 참여 가능 여부는 로그인 후 확인할 수 있습니다.',
+  });
+  // 상세 렌더 후 제목을 페이지 제목/메타에 반영(공고명은 API 응답에서 — 렌더 완료 시점 감지).
+  renderDetail(body, id);
+  const headerTitle = container.querySelector('.public-page-header h1');
+  const observer = new MutationObserver(() => {
+    const h2 = body.querySelector('.detail-card-head h2');
+    if (h2 && h2.textContent) {
+      const t = h2.textContent.trim();
+      if (headerTitle) headerTitle.textContent = t;
+      setPageMeta({ title: t, path: '#/notices/' + id, description: t + ' — 공고 기본정보·일정·원문 출처. 참여 가능 여부는 로그인 후 회사정보 기준으로 확인.' });
+      observer.disconnect();
+    }
+  });
+  observer.observe(body, { childList: true, subtree: true });
+}
+
+// ---------- 공개 맞춤공고 안내(#/matching, Public Matching Page) ----------
+const PUBLIC_MATCHING_FAQS = [
+  { q: '맞춤공고는 어떤 기준으로 추천되나요?', a: '회사정보(지역·업종·기업규모)와 등록한 면허·인증·실적을 공고의 참가 조건과 대조합니다. 조건이 확인되지 않는 항목은 "확인 필요"로 표시하고 원문 확인을 안내합니다.' },
+  { q: '참여 가능으로 표시되면 낙찰이 되나요?', a: '아닙니다. 참여 가능 여부는 공고의 참가 자격 조건 충족 여부를 회사정보 기준으로 확인한 결과이며, 낙찰이나 선정을 보장하지 않습니다. 제출 전 반드시 원문 공고와 회사 서류를 직접 확인해 주세요.' },
+  { q: '회사정보를 얼마나 입력해야 하나요?', a: '지역·업종·기업규모만 입력해도 기본 매칭이 시작됩니다. 면허·인증·실적·인력·재무를 추가로 등록하면 더 많은 조건이 자동으로 확인됩니다.' },
+  { q: '무료로도 사용할 수 있나요?', a: '무료 플랜에서도 공고 검색과 맞춤공고 저장(1개), 참여 가능 여부 확인(월 3개 공고)을 이용할 수 있습니다. 자세한 한도는 요금제 페이지를 확인해 주세요.' },
+  { q: '알림은 어떻게 받나요?', a: '저장한 맞춤공고 조건에 맞는 새 공고를 이메일·인앱·웹 푸시로 알려드리며, 유료 플랜에서는 담당자 문자 알림도 설정할 수 있습니다.' },
+];
+function renderPublicMatchingPage(container) {
+  const body = publicPageShell(container, {
+    eyebrow: '맞춤공고',
+    titleHtml: '우리 회사 조건에 맞는 공고만<br>골라서 보여드립니다',
+    metaTitle: '맞춤공고',
+    lead: '매일 올라오는 수백 건의 공고를 하나씩 읽지 않아도 됩니다. 회사정보와 공고의 참가 조건을 비교해, 참여를 검토할 만한 공고와 그 이유·확인해야 할 조건을 정리해 드립니다.',
+    actionsHtml: `<a href="${ROUTES.signup}" class="home-cta-primary">무료로 맞춤공고 확인하기</a><a href="${ROUTES.notices}" class="home-cta-secondary">먼저 공고 검색해 보기</a>`,
+    path: ROUTES.matching,
+    description: '회사정보(지역·업종·규모·면허·인증·실적)와 공고 조건을 비교해 참여 검토 대상 공고, 추천 사유, 확인해야 할 조건을 알려주는 맞춤공고 안내.',
+  });
+  body.innerHTML = `
+    <section class="public-section">
+      <h2>공고를 직접 찾을 때 생기는 문제</h2>
+      <div class="public-grid-3">
+        <div class="public-card"><h3>너무 많은 공고</h3><p>나라장터와 기업마당에 매일 새 공고가 올라오지만, 우리 회사가 실제로 참여할 수 있는 공고는 그중 일부입니다.</p></div>
+        <div class="public-card"><h3>조건 대조가 어렵다</h3><p>지역 제한, 업종·면허 요건, 실적 기준이 공고문과 첨부파일 곳곳에 흩어져 있어 하나씩 확인해야 합니다.</p></div>
+        <div class="public-card"><h3>놓치는 마감</h3><p>검토하는 사이 참가자격 등록 마감이나 제출 마감이 지나 버리는 경우가 생깁니다.</p></div>
+      </div>
+    </section>
+    <section class="public-section">
+      <h2>회사정보와 공고 조건을 이렇게 비교합니다</h2>
+      <p class="public-section-desc">등록한 회사정보를 기준으로 공고의 참가 조건을 항목별로 확인합니다. 확인할 수 없는 항목은 단정하지 않고 "확인 필요"로 남깁니다.</p>
+      <div class="public-steps">
+        <div class="public-step"><h3>회사정보 등록</h3><p>사업자등록증을 올리면 지역·업종·업력 등 기본 정보를 채우고, 면허·인증·실적·인력은 필요할 때 추가합니다.</p></div>
+        <div class="public-step"><h3>조건별 대조</h3><p>공고의 지역·업종·기업규모 제한과 면허·인증·실적 요건을 회사정보와 항목별로 비교합니다.</p></div>
+        <div class="public-step"><h3>결과와 이유 제시</h3><p>참여 검토 대상 여부와 추천 사유, 직접 확인해야 할 조건을 정리하고, 답변하면 회사정보에 저장돼 다음 공고에도 재사용됩니다.</p></div>
+      </div>
+    </section>
+    <section class="public-section">
+      <h2>맞춤공고 결과 예시</h2>
+      <p class="public-section-desc">아래는 화면 구성을 보여드리기 위한 예시이며 실제 공고·회사 데이터가 아닙니다.</p>
+      <div class="public-grid-2">
+        <div class="public-card">
+          <span class="public-badge public-badge--info">예시 · 추천 사유</span>
+          <h3 style="margin-top:0.6rem">○○시 정보시스템 유지관리 용역</h3>
+          <div class="public-inset">지역 조건 일치(서울) · 업종 일치(정보시스템 유지관리) · 예산 범위 안</div>
+          <div class="public-inset">확인 필요: 유사 실적 1건 이상 — 등록된 실적이 없어 직접 확인해 주세요.</div>
+        </div>
+        <div class="public-card">
+          <span class="public-badge public-badge--info">예시 · 판정 결과 표시</span>
+          <ul class="public-example-list" style="margin-top:0.6rem">
+            <li><span class="public-badge public-badge--ok">참여 권장</span>확인된 조건을 모두 충족하고 확인 필요 항목이 없는 경우</li>
+            <li><span class="public-badge public-badge--warn">조건부 참여 가능</span>일부 조건은 충족, 일부는 서류나 원문으로 직접 확인이 필요한 경우</li>
+            <li><span class="public-badge public-badge--muted">확인 필요</span>회사정보 또는 공고 조건이 부족해 자동으로 판단할 수 없는 경우</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+    <section class="public-section">
+      <h2>맞춤 분석에 사용하는 회사정보</h2>
+      <div class="public-grid-4">
+        <div class="public-card"><h3>기본 정보</h3><p>지역, 업종, 기업규모, 업력, 직원 수 등 사업자등록증과 기업 정보</p></div>
+        <div class="public-card"><h3>면허·인증</h3><p>보유 면허와 인증서 — 공고의 필수 면허·인증 요건과 대조</p></div>
+        <div class="public-card"><h3>실적·인력</h3><p>완료한 사업 실적과 투입 가능 인력 — 실적 기준과 제안 준비에 활용</p></div>
+        <div class="public-card"><h3>재무</h3><p>매출·자본 등 재무 정보 — 참가 자격의 재무 요건 확인에 활용</p></div>
+      </div>
+    </section>
+    <section class="public-section">
+      <h2>실제 사용자 화면 미리보기</h2>
+      <p class="public-section-desc">로그인 후 대시보드에서 오늘 검토할 공고와 참여 준비 현황을 한눈에 봅니다.</p>
+      <div class="public-screenshot"><img src="/screenshots/dashboard.png" alt="${escapeAttr(currentBrandName)} 대시보드 화면 — 오늘 검토할 공고와 참여 준비 현황" data-brand-alt-suffix="${escapeAttr(' 대시보드 화면 — 오늘 검토할 공고와 참여 준비 현황')}" loading="lazy"></div>
+    </section>
+    <div class="public-cta-band">
+      <h2>무료로 맞춤공고를 확인해 보세요</h2>
+      <p>회사정보를 등록하면 바로 참여 검토 대상 공고를 보여드립니다. 결과를 보장하지 않으며, 제출 전 원문 확인은 필수입니다.</p>
+      <a href="${ROUTES.signup}" class="home-cta-primary">무료로 시작하기</a>
+    </div>
+    <section class="public-section public-faq">
+      <h2>자주 묻는 질문</h2>
+      <div class="landing-faq-list">
+        ${PUBLIC_MATCHING_FAQS.map((f, i) => `
+          <div class="landing-faq-item" data-index="${i}">
+            <button type="button" class="landing-faq-question"><span>${escapeHtml(f.q)}</span><span class="landing-faq-icon">+</span></button>
+            <div class="landing-faq-answer"><p>${escapeHtml(f.a)}</p></div>
+          </div>`).join('')}
+      </div>
+    </section>
+  `;
+  initLandingFaqToggles(body);
+  applyBrandName(currentBrandName);
+}
+
+// ---------- 주요 기능(#/features) ----------
+// 실제 구현된 기능만 소개(§8). 각 항목은 현재 코드의 화면/기능에 1:1로 대응한다.
+const PUBLIC_FEATURE_ITEMS = [
+  { title: '공공사업 공고 통합검색', desc: '나라장터 입찰공고와 기업마당 지원사업을 키워드·지역·공고 종류·발주기관·예산·마감 여부로 검색하고 원문 출처를 확인합니다.', icon: 'search' },
+  { title: '회사정보 기반 맞춤공고', desc: '지역·업종·기업규모와 저장한 조건에 맞는 공고를 모아 보여주고, 새 공고를 알림으로 알려드립니다.', icon: 'bookmark' },
+  { title: '참여 가능 여부 확인', desc: '공고의 참가 조건을 회사정보와 항목별로 대조해 충족·확인 필요·미충족을 표시합니다. 확인할 수 없는 항목은 단정하지 않습니다.', icon: 'pipeline' },
+  { title: '추천 근거와 확인 필요 조건', desc: '왜 이 공고가 추천됐는지, 제출 전에 무엇을 직접 확인해야 하는지 조건별로 이유를 보여줍니다.', icon: 'notice' },
+  { title: '참여 검토에 추가(참여 준비)', desc: '검토할 공고를 참여 준비 목록에 추가하고 검토중·준비중·제출완료 단계로 관리합니다.', icon: 'card' },
+  { title: '참여 파이프라인 관리', desc: '준비할 서류 체크리스트, 마감 D-day, 담당자, 공고 정정 감지, 개찰 결과 확인까지 한 흐름으로 관리합니다.', icon: 'calendar' },
+  { title: '평가기준 기반 제안서 초안', desc: '공고 첨부의 평가항목·배점을 추출하고 등록된 회사정보·실적을 대응시켜 수정 가능한 제안서 초안을 만듭니다(유료).', icon: 'profile' },
+  { title: 'DOCX 다운로드', desc: '만든 제안서 초안을 DOCX 파일로 내려받아 바로 편집합니다.', icon: 'profile' },
+  { title: '이메일·SMS 알림', desc: '맞춤공고 도착, 마감 임박, 공고 정정, 결과 확인 알림을 이메일·인앱·웹 푸시로, 유료 플랜은 담당자 문자로도 받습니다.', icon: 'bell' },
+  { title: '회사정보·면허·인증·실적 재사용', desc: '한 번 등록한 면허·인증·실적·인력·재무 정보는 이후 모든 공고의 참여 가능 여부 확인과 제안서 초안에 자동으로 재사용됩니다.', icon: 'user' },
+  { title: '플랜별 사용량 관리', desc: '참여 가능 여부 확인, 제안서 초안, 문자 알림 등의 이번 달 사용량을 화면에서 확인하고 플랜을 관리합니다.', icon: 'chart' },
+];
+function renderPublicFeaturesPage(container) {
+  const body = publicPageShell(container, {
+    eyebrow: '주요 기능',
+    titleHtml: '공고 검색부터 제안서 초안까지,<br>참여 검토에 필요한 기능',
+    metaTitle: '주요 기능',
+    lead: '현재 서비스에서 실제로 제공하는 기능입니다. 각 기능은 등록한 회사정보를 기준으로 동작하며, 결과는 참고용으로 제출 전 원문 확인이 필요합니다.',
+    actionsHtml: `<a href="${ROUTES.signup}" class="home-cta-primary">무료로 시작하기</a><a href="${ROUTES.pricing}" class="home-cta-secondary">요금제 보기</a>`,
+    path: ROUTES.features,
+    description: '공고 통합검색, 회사정보 기반 맞춤공고, 참여 가능 여부 확인, 참여 파이프라인, 평가기준 기반 제안서 초안·DOCX, 이메일·SMS 알림, 플랜별 사용량 관리 등 주요 기능 소개.',
+  });
+  body.innerHTML = `
+    <section class="public-section">
+      <div class="public-grid-3">
+        ${PUBLIC_FEATURE_ITEMS.map(f => `
+          <div class="public-card">
+            <div class="public-card-icon">${SIDEBAR_ICONS[f.icon] || SIDEBAR_ICONS.notice}</div>
+            <h3>${escapeHtml(f.title)}</h3>
+            <p>${escapeHtml(f.desc)}</p>
+          </div>`).join('')}
+      </div>
+    </section>
+    <section class="public-section">
+      <h2>화면 미리보기</h2>
+      <div class="public-grid-3">
+        <div class="public-screenshot"><img src="/screenshots/dashboard.png" alt="대시보드 화면" loading="lazy"></div>
+        <div class="public-screenshot"><img src="/screenshots/pipeline-kanban.png" alt="참여 준비 파이프라인 칸반 보드 화면" loading="lazy"></div>
+        <div class="public-screenshot"><img src="/screenshots/growth-analytics.png" alt="성장분석 화면" loading="lazy"></div>
+      </div>
+    </section>
+    <div class="public-cta-band">
+      <h2>지금 무료로 시작해 보세요</h2>
+      <p>공고 검색은 로그인 없이, 회사정보 기준 참여 가능 여부 확인은 무료 플랜에서 바로 이용할 수 있습니다.</p>
+      <a href="${ROUTES.signup}" class="home-cta-primary">무료로 시작하기</a>
+    </div>
+  `;
+}
+
+// ---------- 요금제(#/pricing) ----------
+// 가격·한도는 GET /api/billing/config(관리자 system_settings basic_price_krw/pro_price_krw 오버라이드
+// 반영, PlanInfo 한도 additive 필드)에서만 읽는다 — 프론트에 새 가격 하드코딩 없음(§9). 불러오지
+// 못하면 오류 상태만 표시(임의 가격 표시 금지).
+function planLimitLabel(v, unit, opts) {
+  opts = opts || {};
+  if (v == null) return '—';
+  if (v < 0) return '무제한';
+  if (v === 0) return opts.zeroLabel || '이용 불가';
+  return (opts.prefix || '') + v.toLocaleString('ko-KR') + (unit || '');
+}
+function planFeatureBullets(p) {
+  const bullets = [];
+  bullets.push('맞춤검색 저장 ' + planLimitLabel(p.maxSavedSearches, '개'));
+  bullets.push('참여 가능 여부 확인 ' + planLimitLabel(p.maxParticipationReviewsPerMonth, '공고', { prefix: '월 ' }));
+  if (p.plan === 'free') {
+    bullets.push('제안서 초안 ' + (p.freeProposalTrialLifetime > 0 ? `평생 무료 체험 ${p.freeProposalTrialLifetime}회` : '이용 불가'));
+  } else {
+    bullets.push('제안서 초안 ' + planLimitLabel(p.maxProposalDraftsPerMonth, '회', { prefix: '월 ' }));
+  }
+  bullets.push('SMS 알림 ' + planLimitLabel(p.maxSMSPerMonth, '건', { prefix: '월 ' }));
+  bullets.push('사업자등록증 분석 ' + planLimitLabel(p.maxBusinessRegistrationOCRPerMonth, '회', { prefix: '월 ' }));
+  bullets.push('파이프라인 ' + planLimitLabel(p.maxPipelineEntries, '개'));
+  bullets.push('AI 분석·문서 ' + planLimitLabel(p.maxAIAnalysisPerMonth, '회', { prefix: '월 ', zeroLabel: '0회' }));
+  bullets.push('팀원 ' + planLimitLabel(p.maxTeamMembers, '명'));
+  return bullets;
+}
+// pricingPlanCtaHtml — CTA 목적지(§9): 비회원=가입/로그인, 로그인=기존 결제 흐름(#/billing/plans → checkout),
+// 현재 플랜=이용 중. Business는 판매 확장 없이 문의로 연결(로그인 상태의 기존 #/billing/plans 정책은 그대로).
+function pricingPlanCtaHtml(p, currentPlan) {
+  if (currentPlan && currentPlan === p.plan) return '<span class="pricing-plan-current">현재 이용 중</span>';
+  if (p.plan === 'free') {
+    return currentUser ? '' : `<a href="${ROUTES.signup}" class="home-cta-primary pricing-plan-cta">무료로 시작하기</a>`;
+  }
+  if (p.plan === 'business') {
+    return `<a href="${ROUTES.contact}?type=business" class="home-cta-secondary pricing-plan-cta">기업용 문의</a>`;
+  }
+  const label = p.name + (currentUser && currentPlan && currentPlan !== 'free' ? ' 업그레이드' : ' 시작하기');
+  const href = currentUser ? (ROUTES.billingPlans) : loginHrefWithReturn(ROUTES.pricing);
+  return `<a href="${href}" class="home-cta-primary pricing-plan-cta">${escapeHtml(label)}</a>`;
+}
+function pricingPlanCardsHtml(plans, currentPlan) {
+  return plans.map(p => `
+    <div class="public-card pricing-plan${p.plan === 'pro' ? ' pricing-plan--highlight' : ''}${currentPlan === p.plan ? ' pricing-plan--current' : ''}">
+      <h3 class="pricing-plan-name">${escapeHtml(p.name)}${p.plan === 'pro' ? '<span class="public-badge public-badge--info">추천</span>' : ''}${p.plan === 'business' ? '<span class="public-badge public-badge--muted">기업용</span>' : ''}</h3>
+      <p class="pricing-plan-price">${p.amount > 0 ? escapeHtml(formatBudget(p.amount)) + '<small>/월</small>' : '무료'}</p>
+      <ul>${planFeatureBullets(p).map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>
+      ${pricingPlanCtaHtml(p, currentPlan)}
+    </div>`).join('');
+}
+function pricingTableHtml(plans, currentPlan) {
+  const rows = [
+    ['맞춤검색 저장', p => planLimitLabel(p.maxSavedSearches, '개')],
+    ['참여 가능 여부 확인', p => planLimitLabel(p.maxParticipationReviewsPerMonth, '공고', { prefix: '월 ' })],
+    ['제안서 초안', p => p.plan === 'free' ? (p.freeProposalTrialLifetime > 0 ? `평생 무료 체험 ${p.freeProposalTrialLifetime}회` : '이용 불가') : planLimitLabel(p.maxProposalDraftsPerMonth, '회', { prefix: '월 ' })],
+    ['SMS', p => planLimitLabel(p.maxSMSPerMonth, '건', { prefix: '월 ' })],
+    ['사업자등록증 분석', p => planLimitLabel(p.maxBusinessRegistrationOCRPerMonth, '회', { prefix: '월 ' })],
+    ['파이프라인', p => planLimitLabel(p.maxPipelineEntries, '개')],
+    ['AI 분석·문서', p => planLimitLabel(p.maxAIAnalysisPerMonth, '회', { prefix: '월 ', zeroLabel: '0회' })],
+    ['팀원', p => planLimitLabel(p.maxTeamMembers, '명')],
+    ['월 요금', p => p.amount > 0 ? formatBudget(p.amount) : '무료'],
+  ];
+  return `
+    <div class="pricing-table-wrap">
+      <table class="pricing-table">
+        <thead><tr><th scope="col">항목</th>${plans.map(p => `<th scope="col"${currentPlan === p.plan ? ' class="is-current"' : ''}>${escapeHtml(p.name)}${currentPlan === p.plan ? ' (이용 중)' : ''}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(([label, fn]) => `<tr><td>${escapeHtml(label)}</td>${plans.map(p => `<td${currentPlan === p.plan ? ' class="is-current"' : ''}>${escapeHtml(fn(p))}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+}
+async function loadCurrentPlanForPricing() {
+  if (!currentUser) return null;
+  try {
+    const sub = await apiRequest('GET', '/api/me/subscription');
+    return sub.status === 'active' ? sub.plan : 'free';
+  } catch (err) {
+    return currentEffectivePlan || null;
+  }
+}
+async function renderPublicPricingPage(container) {
+  const body = publicPageShell(container, {
+    eyebrow: '요금제',
+    titleHtml: '우리 회사에 맞는 플랜을<br>선택하세요',
+    metaTitle: '요금제',
+    lead: '무료 플랜으로 시작하고, 참여 검토 건수와 제안서 초안이 더 필요해지면 언제든 올릴 수 있습니다. 표시되는 가격과 한도는 현재 적용 중인 정책입니다.',
+    path: ROUTES.pricing,
+    description: 'Free·Basic·Pro·Business 플랜의 월 요금과 맞춤검색 저장, 참여 가능 여부 확인, 제안서 초안, SMS, 사업자등록증 분석, 파이프라인, 팀원 한도 비교.',
+  });
+  body.innerHTML = '<div class="loading">요금제를 불러오는 중...</div>';
+  let config;
+  try {
+    config = await apiRequest('GET', '/api/billing/config');
+  } catch (err) {
+    // 임의 가격을 표시하지 않는다 — 오류 상태 + 재시도만(§9).
+    body.innerHTML = '';
+    body.appendChild(h(`<div class="public-card"><h3>요금제 정보를 불러오지 못했습니다</h3><p>${escapeHtml(err.message)}</p><div class="public-actions" style="margin-top:0.9rem"><button type="button" class="btn btn-secondary" id="pricing-retry">다시 시도</button></div></div>`));
+    body.querySelector('#pricing-retry').addEventListener('click', () => renderPublicPricingPage(container));
+    return;
+  }
+  const currentPlan = await loadCurrentPlanForPricing();
+  const plans = config.plans || [];
+  body.innerHTML = `
+    <section class="public-section">
+      <div class="pricing-plan-grid">${pricingPlanCardsHtml(plans, currentPlan)}</div>
+    </section>
+    <section class="public-section">
+      <h2>플랜별 한도 비교</h2>
+      <p class="public-section-desc">"무제한"은 정책상 상한이 없다는 뜻이며 공정 이용 원칙이 적용됩니다. 참여 가능 여부 확인은 같은 달에 같은 공고를 다시 봐도 추가로 세지 않습니다.</p>
+      ${pricingTableHtml(plans, currentPlan)}
+    </section>
+    <section class="public-section">
+      <h2>자주 묻는 질문</h2>
+      <div class="landing-faq-list public-faq">
+        ${[
+          ['결제는 어떻게 하나요?', '로그인 후 구독 관리에서 플랜을 선택하면 카드 결제 창이 열립니다. 결제 즉시 해당 플랜 한도가 적용됩니다.'],
+          ['환불과 해지는 어떻게 되나요?', '이용약관의 환불 및 해지 정책을 따릅니다. 자세한 내용은 아래 링크에서 확인해 주세요.'],
+          ['Business 플랜은 어떻게 이용하나요?', 'Business는 팀원 3명과 확장된 한도를 제공하는 기업용 플랜입니다. 도입 문의를 남겨 주시면 안내해 드립니다.'],
+        ].map(([q, a], i) => `
+          <div class="landing-faq-item" data-index="${i}">
+            <button type="button" class="landing-faq-question"><span>${escapeHtml(q)}</span><span class="landing-faq-icon">+</span></button>
+            <div class="landing-faq-answer"><p>${escapeHtml(a)}${i === 1 ? ` <a href="${ROUTES.terms}?section=refund">환불정책 보기</a>` : ''}</p></div>
+          </div>`).join('')}
+      </div>
+    </section>
+  `;
+  initLandingFaqToggles(body);
+}
+
+// ---------- 문의하기(#/contact) ----------
+const CONTACT_INQUIRY_TYPE_OPTIONS = [
+  ['service', '서비스 이용 문의'], ['billing', '요금제·결제 문의'], ['business', '기업용(Business) 문의'],
+  ['partnership', '제휴 문의'], ['bug', '오류 신고'], ['other', '기타'],
+];
+const CONTACT_MESSAGE_MAX = 2000;
+const CONTACT_MESSAGE_MIN = 10;
+const CONTACT_ERROR_MESSAGES = {
+  missing_required: '필수 항목을 모두 입력해 주세요.',
+  invalid_email: '이메일 형식을 확인해 주세요.',
+  privacy_agreement_required: '개인정보 수집·이용에 동의해 주세요.',
+  message_too_long: `문의 내용은 ${CONTACT_MESSAGE_MAX}자 이내로 입력해 주세요.`,
+  message_too_short: `문의 내용을 ${CONTACT_MESSAGE_MIN}자 이상 입력해 주세요.`,
+  field_too_long: '입력 길이가 너무 깁니다. 이름 50자, 회사명 100자, 연락처 30자 이내로 입력해 주세요.',
+  invalid_inquiry_type: '문의 유형을 선택해 주세요.',
+  rate_limited: '잠시 후 다시 시도해 주세요. (같은 위치에서 1분에 1회, 하루 5회까지 접수할 수 있습니다)',
+};
+function renderPublicContactPage(container) {
+  const presetType = new URLSearchParams(location.hash.split('?')[1] || '').get('type') || '';
+  const body = publicPageShell(container, {
+    eyebrow: '문의하기',
+    title: '무엇이든 문의해 주세요',
+    lead: '서비스 이용, 요금제·결제, 기업용 도입, 제휴, 오류 신고 등 어떤 내용이든 남겨 주시면 확인 후 이메일로 답변드립니다.',
+    path: ROUTES.contact,
+    description: '서비스 이용, 요금제·결제, 기업용(Business) 도입, 제휴, 오류 신고 문의를 남겨 주세요. 접수 내용은 운영팀이 확인 후 이메일로 답변드립니다.',
+  });
+  const prefillEmail = currentUser && currentUser.email ? currentUser.email : '';
+  const prefillCompany = currentProfile && currentProfile.companyName ? currentProfile.companyName : '';
+  body.innerHTML = `
+    <section class="public-section">
+      <div class="public-grid-2" style="grid-template-columns: 1.6fr 1fr; align-items: start;">
+        <div class="public-panel">
+          <form id="contact-form" class="contact-form" novalidate>
+            <label><span class="contact-label">이름<span class="required-mark" aria-hidden="true">*</span></span><input type="text" name="name" maxlength="50" required autocomplete="name"></label>
+            <label><span class="contact-label">회사명</span><input type="text" name="companyName" maxlength="100" value="${escapeAttr(prefillCompany)}" autocomplete="organization"></label>
+            <label><span class="contact-label">이메일<span class="required-mark" aria-hidden="true">*</span></span><input type="email" name="email" maxlength="254" required value="${escapeAttr(prefillEmail)}" autocomplete="email"></label>
+            <label><span class="contact-label">연락처</span><input type="tel" name="phone" maxlength="30" placeholder="예: 010-1234-5678" autocomplete="tel"></label>
+            <label class="is-wide"><span class="contact-label">문의 유형<span class="required-mark" aria-hidden="true">*</span></span>
+              <select name="inquiryType" required>
+                <option value="">선택해 주세요</option>
+                ${CONTACT_INQUIRY_TYPE_OPTIONS.map(([v, l]) => `<option value="${v}"${v === presetType ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+              </select>
+            </label>
+            <label class="is-wide"><span class="contact-label">문의 내용<span class="required-mark" aria-hidden="true">*</span></span>
+              <textarea name="message" maxlength="${CONTACT_MESSAGE_MAX}" required placeholder="문의 내용을 ${CONTACT_MESSAGE_MIN}자 이상 입력해 주세요."></textarea>
+              <span class="contact-char-count" id="contact-char-count">0 / ${CONTACT_MESSAGE_MAX}</span>
+            </label>
+            <div class="contact-honeypot" aria-hidden="true"><label><span class="contact-label">웹사이트</span><input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
+            <div class="contact-form-footer">
+              <label class="checkbox-label"><input type="checkbox" name="privacyAgreed" required> 문의 처리를 위한 개인정보(이름·이메일·연락처) 수집·이용에 동의합니다. (필수) <a href="${ROUTES.privacy}" target="_blank" rel="noopener">개인정보처리방침 보기</a></label>
+              <div id="contact-error" class="error" style="display:none" role="alert"></div>
+              <div id="contact-success" class="public-inset" style="display:none" role="status"></div>
+              <div><button type="submit" class="btn btn-primary" id="contact-submit-btn">문의 접수</button></div>
+            </div>
+          </form>
+        </div>
+        <div>
+          <div class="public-card">
+            <h3>운영 안내</h3>
+            <ul class="contact-info-list" id="contact-info-list"><li>접수된 문의는 운영팀이 확인 후 입력하신 이메일로 답변드립니다.</li></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+  applyBrandName(currentBrandName);
+  // 운영 연락처(company_info, 기존 값 재사용 — 없으면 줄 자체를 만들지 않음).
+  apiRequest('GET', '/api/company-info').then(info => {
+    const list = document.getElementById('contact-info-list');
+    if (!list) return;
+    if (info.contactEmail) list.appendChild(h(`<li>이메일: ${escapeHtml(info.contactEmail)}</li>`));
+    if (info.partnershipEmail && info.partnershipEmail !== info.contactEmail) list.appendChild(h(`<li>제휴 문의: ${escapeHtml(info.partnershipEmail)}</li>`));
+    if (info.mainPhone) list.appendChild(h(`<li>대표전화: ${escapeHtml(info.mainPhone)}</li>`));
+  }).catch(() => { /* 안내 카드 보조정보 — 실패해도 폼은 정상 */ });
+
+  const form = document.getElementById('contact-form');
+  const errorBox = document.getElementById('contact-error');
+  const successBox = document.getElementById('contact-success');
+  const submitBtn = document.getElementById('contact-submit-btn');
+  const counter = document.getElementById('contact-char-count');
+  const messageEl = form.querySelector('textarea[name="message"]');
+  const updateCount = () => { counter.textContent = `${[...messageEl.value].length} / ${CONTACT_MESSAGE_MAX}`; };
+  messageEl.addEventListener('input', updateCount);
+  updateCount();
+  attachPhoneAutoFormat(form.phone);
+  let submitting = false;
+  const showError = (msg) => { errorBox.textContent = msg; errorBox.style.display = 'block'; successBox.style.display = 'none'; };
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (submitting) return; // 중복 제출 방지
+    errorBox.style.display = 'none';
+    const fd = new FormData(form);
+    const payload = {
+      name: String(fd.get('name') || '').trim(),
+      companyName: String(fd.get('companyName') || '').trim(),
+      email: String(fd.get('email') || '').trim(),
+      phone: String(fd.get('phone') || '').trim(),
+      inquiryType: String(fd.get('inquiryType') || ''),
+      message: String(fd.get('message') || '').trim(),
+      privacyAgreed: !!fd.get('privacyAgreed'),
+      website: String(fd.get('website') || ''),
+    };
+    // 클라이언트 선검증(서버가 최종 검증) — 필수/이메일 형식/동의/길이.
+    if (!payload.name || !payload.email || !payload.inquiryType || !payload.message) { showError(CONTACT_ERROR_MESSAGES.missing_required); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) { showError(CONTACT_ERROR_MESSAGES.invalid_email); form.email.focus(); return; }
+    if ([...payload.message].length < CONTACT_MESSAGE_MIN) { showError(CONTACT_ERROR_MESSAGES.message_too_short); messageEl.focus(); return; }
+    if ([...payload.message].length > CONTACT_MESSAGE_MAX) { showError(CONTACT_ERROR_MESSAGES.message_too_long); messageEl.focus(); return; }
+    if (!payload.privacyAgreed) { showError(CONTACT_ERROR_MESSAGES.privacy_agreement_required); return; }
+    submitting = true;
+    submitBtn.disabled = true;
+    const originalLabel = submitBtn.textContent;
+    submitBtn.textContent = '접수 중...';
+    try {
+      await apiRequest('POST', '/api/contact', payload);
+      form.reset();
+      updateCount();
+      successBox.textContent = '문의가 접수되었습니다. 입력하신 이메일로 답변드리겠습니다.';
+      successBox.style.display = 'block';
+      showToast('문의가 접수되었습니다.', 'success');
+    } catch (err) {
+      showError(CONTACT_ERROR_MESSAGES[err.code] || err.message || '문의 접수에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      submitting = false;
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel;
+    }
+  });
+}
+
+// ---------- 공개 404 / 앱 404 / 앱 403 ----------
+function renderPublicNotFoundPage(container) {
+  publicPageShell(container, {
+    eyebrow: '404',
+    title: '페이지를 찾을 수 없습니다',
+    lead: '주소가 바뀌었거나 삭제된 페이지입니다. 아래 메뉴에서 원하는 화면으로 이동해 주세요.',
+    actionsHtml: `<a href="${ROUTES.home}" class="home-cta-primary">홈으로</a><a href="${ROUTES.notices}" class="home-cta-secondary">공고 검색</a>`,
+    metaTitle: '페이지를 찾을 수 없습니다', path: null,
+  });
+}
+// renderAppNotFound — App Shell(사이드바/상단바 유지) 안의 404. 공개 홈으로 보내지 않는다(§3).
+function renderAppNotFound(container) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="detail-card app-not-found">
+      <h2>페이지를 찾을 수 없습니다</h2>
+      <p>주소가 바뀌었거나 삭제된 화면입니다. 대시보드로 돌아가 다시 찾아보세요.</p>
+      <a href="${ROUTES.appDashboard}" class="btn btn-primary">대시보드로 이동</a>
+    </div>`));
+}
+function renderAppForbidden(container) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <div class="detail-card app-not-found">
+      <h2>접근 권한이 없습니다</h2>
+      <p>관리자 전용 화면입니다.</p>
+      <a href="${ROUTES.appDashboard}" class="btn btn-primary">대시보드로 이동</a>
+    </div>`));
+}
+
+// ---------- 제안서 목록(#/app/proposals) ----------
+// GET /api/proposal-drafts(회사 소유 초안 메타) — 초안 생성은 공고 상세의 "평가기준 맞춤 제안서" 섹션에서만
+// (기존 흐름 무변경). 여기서는 목록·이동·정정(stale) 표시만.
+async function renderProposalsPage(container) {
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <h2>제안서</h2>
+    <p class="detail-sub">공고 상세에서 만든 평가기준 맞춤 제안서 초안 목록입니다. 초안은 공고 상세 &gt; 평가기준 맞춤 제안서 섹션에서 새로 만들 수 있습니다.</p>
+    <div id="proposal-list-body"><div class="loading">불러오는 중...</div></div>
+  `));
+  const body = document.getElementById('proposal-list-body');
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/proposal-drafts');
+  } catch (err) {
+    if (err.status === 401) { location.hash = loginHrefWithReturn(); return; }
+    body.innerHTML = '';
+    body.appendChild(h(`<p class="error">${escapeHtml(err.message)}</p>`));
+    return;
+  }
+  const items = data.items || [];
+  const usage = currentUsage && currentUsage.proposal_draft;
+  const usageLine = usage && usage.limit != null
+    ? `<p class="prop-intro-note">${usage.period === 'lifetime' ? '무료 체험' : '이번 달'} 제안서 초안 ${usage.used} / ${usage.limit < 0 ? '무제한' : usage.limit}</p>`
+    : '';
+  if (!items.length) {
+    body.innerHTML = '';
+    body.appendChild(h(`
+      <div class="detail-card">
+        ${usageLine}
+        <p class="empty">아직 만든 제안서 초안이 없습니다.</p>
+        <p class="detail-sub">참여를 검토 중인 공고의 상세 화면에서 "제안서 초안 만들기"를 누르면 공고의 평가기준과 회사정보를 반영한 초안이 만들어집니다.</p>
+        <div class="license-toolbar"><a href="${ROUTES.appPipeline}" class="btn btn-primary">참여 준비 목록으로</a><a href="${ROUTES.notices}" class="btn btn-secondary">공고 검색</a></div>
+      </div>`));
+    return;
+  }
+  body.innerHTML = '';
+  body.appendChild(h(`
+    <div class="detail-card">
+      ${usageLine}
+      ${items.map(d => `
+        <div class="proposal-list-row">
+          <div>
+            <a href="#/proposal-drafts/${escapeAttr(d.id)}" class="proposal-list-title">${escapeHtml(d.title || d.noticeTitle || '제안서 초안')}</a>
+            ${d.stale ? ' <span class="badge badge--warn">공고 정정됨</span>' : ''}
+            <div class="proposal-list-meta">${escapeHtml(d.organizationName || '')}${d.organizationName ? ' · ' : ''}${escapeHtml(d.noticeTitle || '')}${d.applicationEndAt ? ' · 마감 ' + formatKoreanDate(d.applicationEndAt) : ''} · 수정 ${formatDate(d.updatedAt)}</div>
+          </div>
+          <div class="proposal-list-actions">
+            <a href="#/proposal-drafts/${escapeAttr(d.id)}" class="btn btn-primary btn-sm">열기</a>
+            <a href="#/notices/${escapeAttr(d.noticeId)}" class="btn btn-secondary btn-sm">공고 보기</a>
+          </div>
+        </div>`).join('')}
+    </div>`));
+}
+
+// ---------- 관리자: 문의 목록(#/admin/inquiries) ----------
+async function renderAdminInquiries(container) {
+  container.innerHTML = '';
+  container.appendChild(h('<div class="loading">불러오는 중...</div>'));
+  let data;
+  try {
+    data = await apiRequest('GET', '/api/admin/inquiries?limit=100');
+  } catch (err) {
+    if (err.status === 401) { location.hash = loginHrefWithReturn(); return; }
+    container.innerHTML = '';
+    container.appendChild(h(`<p class="error">${err.status === 403 ? '관리자 권한이 필요합니다.' : escapeHtml(err.message)}</p>`));
+    return;
+  }
+  const STATUS_LABELS = { new: '신규', in_progress: '처리 중', done: '완료' };
+  container.innerHTML = '';
+  container.appendChild(h(`
+    <a href="${ROUTES.admin}" class="back-link">&larr; 관리자 대시보드로</a>
+    <h2>문의 관리 <span class="badge badge--gray">${data.total}건</span></h2>
+    <div class="detail-card">
+      ${(data.items || []).length ? '' : '<p class="empty">접수된 문의가 없습니다.</p>'}
+      ${(data.items || []).map(it => `
+        <div class="cms-row" data-id="${escapeAttr(it.id)}">
+          <div class="cms-row-main">
+            <strong>${escapeHtml(it.inquiryTypeLabel || it.inquiryType)}</strong> · ${escapeHtml(it.name)}${it.companyName ? ' (' + escapeHtml(it.companyName) + ')' : ''}
+            <span class="badge ${it.status === 'done' ? 'badge--success' : it.status === 'in_progress' ? 'badge--warn' : 'badge--blue'}">${STATUS_LABELS[it.status] || it.status}</span>
+            <div class="license-card-meta">${escapeHtml(it.email)}${it.phone ? ' · ' + escapeHtml(it.phone) : ''} · ${formatDate(it.createdAt)}</div>
+            <p style="white-space:pre-wrap;margin:0.5rem 0 0">${escapeHtml(it.message)}</p>
+          </div>
+          <div class="cms-row-actions">
+            <select class="select-input inquiry-status-select" data-id="${escapeAttr(it.id)}" aria-label="처리 상태">
+              ${Object.entries(STATUS_LABELS).map(([v, l]) => `<option value="${v}"${v === it.status ? ' selected' : ''}>${l}</option>`).join('')}
+            </select>
+          </div>
+        </div>`).join('')}
+    </div>
+  `));
+  container.querySelectorAll('.inquiry-status-select').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      sel.disabled = true;
+      try {
+        await apiRequest('PATCH', '/api/admin/inquiries/' + encodeURIComponent(sel.dataset.id), { status: sel.value });
+        showToast('처리 상태를 변경했습니다.', 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        sel.disabled = false;
+      }
+    });
+  });
+}
+
 // PUBLIC_ROUTES — 비로그인 상태로 접근 가능한 라우트(요청사항 [1]).
 // 이 목록/isPublicRoute에 없는 모든 경로는 currentUser가 없으면 route()가
 // #/auth/login으로 즉시 리다이렉트한다(각 render 함수가 API 401을 받고서야
@@ -19688,22 +20718,54 @@ async function renderInviteAccept(container) {
 // 유지 — 전자는 가입 전 가격 비교가 마케팅 퍼널상 필요하고, 후자는 계정
 // 없는 사람도 초대 내용을 먼저 봐야 하기 때문(단, "참여하기" 버튼 자체는
 // renderInviteAccept가 currentUser 유무로 이미 분기해 로그인 후에만 활성화).
+// 2026-08-18 공개/앱 영역 분리: 공고 검색(#/notices)·공고 상세(#/notices/{id})·맞춤공고 안내·주요 기능·
+// 요금제·문의하기가 공개로 추가됐다(§1~§2). 상세의 참여판단 보고서(#/notices/{id}/report)는 앱 전용.
 const PUBLIC_ROUTES = new Set([
-  '#/', '#/announcements', '#/terms', '#/privacy',
-  '#/auth/signup', '#/auth/login', '#/invite',
+  ROUTES.home, ROUTES.announcements, ROUTES.terms, ROUTES.privacy,
+  ROUTES.notices, ROUTES.matching, ROUTES.features, ROUTES.pricing, ROUTES.contact,
+  ROUTES.signup, ROUTES.login, '#/invite',
   '#/auth/find-account', '#/auth/reset-password',
   '#/auth/verify-email',
-  '#/billing/plans', '#/billing/fail',
+  ROUTES.billingPlans, '#/billing/fail',
 ]);
 function isPublicRoute(path) {
-  return PUBLIC_ROUTES.has(path) || path.startsWith('#/announcements/');
+  return PUBLIC_ROUTES.has(path) || path.startsWith('#/announcements/') || isSharedNoticeRoute(path);
+}
+// redirectRoute — 예전 경로 → 새 경로 치환. history에 항목을 남기지 않기 위해 replaceState 후 route()를
+// 직접 다시 부른다(hashchange는 replaceState로는 발생하지 않음). LEGACY_ROUTE_REDIRECTS는 순환이 없다.
+function redirectRoute(target) {
+  history.replaceState(null, '', location.pathname + location.search + target);
+  route();
+}
+// resolveLegacyRedirect — 정확히 일치하는 예전 경로(+쿼리 유지)와 예전 상세 접두어(#/pipeline/{id} →
+// #/app/pipeline/{id})를 새 경로로. 해당 없으면 null.
+function resolveLegacyRedirect(hash) {
+  const [path, qs] = hash.split('?');
+  const suffix = qs ? '?' + qs : '';
+  if (LEGACY_ROUTE_REDIRECTS[path]) return LEGACY_ROUTE_REDIRECTS[path] + suffix;
+  const legacyPipeline = path.match(/^#\/pipeline\/(.+)$/);
+  if (legacyPipeline) return ROUTES.appPipeline + '/' + legacyPipeline[1] + suffix;
+  return null;
 }
 
 function route() {
   const hash = location.hash || '#/';
+  // 예전 경로 호환(#/dashboard, #/me/*, #/pipeline …) — 새 경로로 치환 후 재진입.
+  const legacyTarget = resolveLegacyRedirect(hash);
+  if (legacyTarget && legacyTarget !== hash) { redirectRoute(legacyTarget); return; }
   const path = hash.split('?')[0];
+  // 비회원 App/Admin 접근 → 로그인 화면(+복귀 경로 next). 로그인 후 원래 화면으로 돌아온다(§3/§6).
   if (!isPublicRoute(path) && !currentUser) {
-    location.hash = '#/auth/login';
+    location.hash = loginHrefWithReturn(hash);
+    return;
+  }
+  // 비회원 #/billing/plans(예전 공개 요금제) → 공개 요금제 페이지. 로그인 상태는 기존 결제 흐름 유지.
+  if (path === ROUTES.billingPlans && !currentUser) { redirectRoute(ROUTES.pricing); return; }
+  // Admin Area: system_admin이 아닌 로그인 사용자는 앱 셸 안의 권한 없음 화면(공개 홈/로그인으로 보내지 않음).
+  if (isAdminRoute(path) && currentUser && currentUser.role !== 'system_admin') {
+    document.body.classList.remove('is-landing', 'is-auth');
+    updateSidebarActiveState(); updateTabbarActiveState(); setPageMeta(null);
+    renderAppForbidden(app);
     return;
   }
   // 회원가입/온보딩 단계 게이트 3개(약관동의/이메일인증/사업자등록) 공용
@@ -19801,8 +20863,10 @@ function route() {
   // 필요해졌다 — 단, 이 화면들은 renderHomeOverlay를 안 쓰므로 배너/팝업
   // 오버레이 정리는 그대로 필요하다(#/dashboard와 동일하게 "is-landing은
   // 켜되 오버레이는 정리" 취급).
-  const LANDING_CHROME_ROUTES = new Set(['#/', '#/terms', '#/privacy', '#/announcements']);
-  const usesLandingChrome = LANDING_CHROME_ROUTES.has(path) || path.startsWith('#/announcements/');
+  // Public Layout 여부(2026-08-18): 공개 마케팅/정보 페이지는 항상, 공유 라우트(공고 검색/상세)는
+  // 비로그인일 때만 Public Layout. 그 외는 App Shell(사이드바/헤더/탭바).
+  const usesLandingChrome = PUBLIC_LAYOUT_ROUTES.has(path) || path.startsWith('#/announcements/') || (isSharedNoticeRoute(path) && !currentUser);
+  if (!isAuthRoute(path)) lastNonAuthPath = hash;
   if (path === '#/') {
     // ⚠️2026-08-05(2차 변경, 사용자 확정): "#/는 로그인 상태면 #/dashboard로
     // 자동 리다이렉트"를 다시 뒤집었다 — 이제 #/는 로그인 여부와 무관하게
@@ -19814,7 +20878,7 @@ function route() {
     document.getElementById('banner-layer-overlay')?.remove();
     document.body.style.overflow = '';
     document.body.classList.add('is-landing');
-  } else if (path === '#/dashboard') {
+  } else if (path === ROUTES.appDashboard) {
     document.body.classList.remove('is-landing');
   } else {
     document.getElementById('banner-layer-overlay')?.remove();
@@ -19840,11 +20904,31 @@ function route() {
   // 헤더의 "대시보드로 이동" 버튼(로그인 상태일 때만 노출), (2) 로그인
   // 폼 제출 성공 직후의 리다이렉트(handleLogin 성공 콜백, 아래
   // renderLogin 참고 — 이건 그대로 유지) 두 경로로만 일어난다.
+  // 앱 라우트 기본 메타(공개 페이지 renderer가 각자 setPageMeta로 덮어쓴다).
+  setPageMeta(null);
   if (path === '#/') {
     renderLandingPage(app);
     return;
   }
-  if (path === '#/dashboard') { renderHome(app); return; }
+  // ---- Public Area(2026-08-18) ----
+  if (path === ROUTES.matching) { renderPublicMatchingPage(app); return; }
+  if (path === ROUTES.features) { renderPublicFeaturesPage(app); return; }
+  if (path === ROUTES.pricing) { renderPublicPricingPage(app); return; }
+  if (path === ROUTES.contact) { renderPublicContactPage(app); return; }
+  if (path === ROUTES.notices) {
+    if (currentUser) { renderList(app); } else { renderPublicNoticesPage(app); }
+    return;
+  }
+  // ---- App Area(#/app/*) ----
+  if (path === ROUTES.appDashboard) { renderHome(app); return; }
+  if (path === ROUTES.appNotices) { renderSavedSearches(app); return; }
+  if (path === ROUTES.appPipeline) { renderPipelineList(app); return; }
+  if (path === ROUTES.appProposals) { renderProposalsPage(app); return; }
+  if (path === ROUTES.appCompany) { renderCompanyInfo(app); return; }
+  if (path === ROUTES.appBilling) { renderMySubscription(app); return; }
+  const appPipelineDetailMatch = path.match(/^#\/app\/pipeline\/(.+)$/);
+  if (appPipelineDetailMatch) { renderPipelineDetail(app, decodeURIComponent(appPipelineDetailMatch[1])); return; }
+  if (path.startsWith('#/app/')) { renderAppNotFound(app); return; }
   if (path === '#/auth/signup') { renderSignup(app); return; }
   if (path === '#/auth/login') { renderLogin(app); return; }
   if (path === '#/auth/find-account') { renderFindAccount(app); return; }
@@ -19859,24 +20943,17 @@ function route() {
   // renderLicenses는 더 이상 라우트 진입점이 아니지만, 그 안의
   // 렌더 함수들 — renderProfileBasicTab 등 — 은 탭 콘텐츠로 계속 쓰인다).
   // 옛 회사프로필/면허 URL은 이제 회사정보 화면으로(IA 재정리 2026-08-10, 하위호환).
-  if (path === '#/me/profile' || path === '#/me/licenses') { location.hash = '#/me/company'; return; }
-  if (path === '#/me/company') { renderCompanyInfo(app); return; }
+  // (#/me/profile·#/me/licenses·#/me/company·#/me/bookmarks·#/me/saved-searches·#/me/subscription·
+  //  #/dashboard·#/pipeline은 LEGACY_ROUTE_REDIRECTS로 #/app/*에 치환됨 — 위 route() 상단 참고.)
   if (path === '#/me/account') { renderAccountSettings(app); return; }
-  // 관심공고(#/me/bookmarks)는 폐지됨(2026-08-08, 참여검토와 기능이 겹쳐 제거) —
-  // 옛 링크/북마크는 공고 검색으로 보낸다.
-  if (path === '#/me/bookmarks') { location.hash = '#/notices'; return; }
-  if (path === '#/me/saved-searches') { renderSavedSearches(app); return; }
   if (path === '#/notifications') { renderNotifications(app); return; }
   if (path === '#/review') { renderReviewQueue(app); return; }
-  if (path === '#/notices') { renderList(app); return; }
-  if (path === '#/pipeline') { renderPipelineList(app); return; }
   if (path === '#/calendar') { renderCalendarView(app); return; }
   if (path === '#/ai-usage') { renderAIUsage(app); return; }
   if (path === '#/billing/plans') { renderPricingPlans(app); return; }
   if (path === '#/billing/checkout') { renderBillingCheckout(app); return; }
   if (path === '#/billing/success') { renderBillingSuccess(app); return; }
   if (path === '#/billing/fail') { renderBillingFail(app); return; }
-  if (path === '#/me/subscription') { renderMySubscription(app); return; }
   if (path === '#/growth') { renderGrowthAnalytics(app); return; }
   if (path === '#/invite') { renderInviteAccept(app); return; }
   if (path === '#/admin') { renderAdminDashboard(app); return; }
@@ -19891,6 +20968,7 @@ function route() {
   if (path === '#/admin/company-info') { renderAdminCompanyInfo(app); return; }
   if (path === '#/admin/plan-settings') { renderAdminPlanSettings(app); return; }
   if (path === '#/admin/legal-documents') { renderAdminLegalDocuments(app); return; }
+  if (path === ROUTES.adminInquiries) { renderAdminInquiries(app); return; }
   if (path === '#/announcements') { renderAnnouncementList(app); return; }
   if (path === '#/terms') { renderLegalDocument(app, 'terms'); return; }
   if (path === '#/privacy') { renderLegalDocument(app, 'privacy'); return; }
@@ -19902,11 +20980,6 @@ function route() {
   const adminMemberDetailMatch = path.match(/^#\/admin\/members\/(.+)$/);
   if (adminMemberDetailMatch) {
     renderAdminMemberDetail(app, decodeURIComponent(adminMemberDetailMatch[1]));
-    return;
-  }
-  const pipelineDetailMatch = path.match(/^#\/pipeline\/(.+)$/);
-  if (pipelineDetailMatch) {
-    renderPipelineDetail(app, decodeURIComponent(pipelineDetailMatch[1]));
     return;
   }
   const proposalDraftMatch = path.match(/^#\/proposal-drafts\/(.+)$/);
@@ -19921,10 +20994,14 @@ function route() {
   }
   const detailMatch = path.match(/^#\/notices\/(.+)$/);
   if (detailMatch) {
-    renderDetail(app, decodeURIComponent(detailMatch[1]));
+    const noticeId = decodeURIComponent(detailMatch[1]);
+    if (currentUser) { renderDetail(app, noticeId); } else { renderPublicNoticeDetailPage(app, noticeId); }
     return;
   }
-  renderHome(app);
+  // 알 수 없는 경로(§3): 예전엔 대시보드를 인라인 렌더(주소와 화면 불일치). 이제 로그인 사용자는 앱 셸 안의
+  // 404, 비회원은 공개 404 — 어느 쪽도 공개 홈으로 몰래 보내지 않는다.
+  if (currentUser) { renderAppNotFound(app); return; }
+  renderPublicNotFoundPage(app);
 }
 
 // 맨 위로 올라가기 — #app 밖에 고정 배치된 버튼이라 route()가 매번
@@ -19958,7 +21035,11 @@ headerRight.addEventListener('click', (e) => {
   if (e.target.tagName === 'A') closeMobileMenu();
 });
 
-window.addEventListener('hashchange', () => { closeMobileMenu(); route(); });
+// appBooted — loadMe()가 끝나기 전에 hashchange가 오면(부팅 중 사용자가 링크를 누르거나 브라우저가 해시를
+// 바꾸는 경우) route()의 인증 게이트가 currentUser=null만 보고 로그인 화면으로 잘못 보낸다(§3 "인증 확인
+// 완료 전 redirect"). 부팅이 끝나면 어차피 현재 해시로 route()를 한 번 실행하므로 그전 이벤트는 무시한다.
+let appBooted = false;
+window.addEventListener('hashchange', () => { closeMobileMenu(); if (!appBooted) return; route(); });
 
 // Phase 6(PWA/웹푸시): 서비스워커는 로그인 여부와 무관하게 항상 등록해둔다
 // (등록 자체는 알림 권한을 요구하지 않음 — 실제 구독은 #/notifications의
@@ -19981,6 +21062,7 @@ if ('serviceWorker' in navigator) {
 loadBrandName();
 (async () => {
   await loadMe();
+  appBooted = true;
   route();
   document.body.classList.remove('app-booting');
 })();

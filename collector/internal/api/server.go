@@ -125,6 +125,7 @@ func (s *Server) Routes() http.Handler {
 	// 평가기준 맞춤 제안서(2026-08-16, 유료 기능 — 모든 엔드포인트가 서버 entitlement 검사)
 	mux.HandleFunc("GET /api/notices/{id}/proposal-readiness", s.handleProposalReadiness)
 	mux.HandleFunc("POST /api/notices/{id}/proposal-drafts", s.handleCreateProposalDraft)
+	mux.HandleFunc("GET /api/proposal-drafts", s.handleListProposalDrafts) // 2026-08-18 사용자 앱 "제안서" 목록(로그인+회사, 소유 스코프)
 	mux.HandleFunc("GET /api/proposal-drafts/{id}", s.handleGetProposalDraft)
 	mux.HandleFunc("PATCH /api/proposal-drafts/{id}", s.handlePatchProposalDraft)
 	mux.HandleFunc("GET /api/proposal-drafts/{id}/docx", s.handleProposalDraftDocx)
@@ -278,6 +279,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/admin/announcements/{id}", s.handleAdminUpdateAnnouncement)
 	mux.HandleFunc("DELETE /api/admin/announcements/{id}", s.handleAdminDeleteAnnouncement)
 	mux.HandleFunc("GET /api/company-info", s.handleGetCompanyInfo)
+	// 공개 문의하기(2026-08-18, contact_inquiries.go) — 접수는 공개, 목록/상태변경은 system_admin.
+	mux.HandleFunc("POST /api/contact", s.handleCreateContactInquiry)
+	mux.HandleFunc("GET /api/admin/inquiries", s.handleAdminListContactInquiries)
+	mux.HandleFunc("PATCH /api/admin/inquiries/{id}", s.handleAdminUpdateContactInquiry)
 	mux.HandleFunc("GET /api/legal-documents/{type}", s.handleGetLegalDocument)
 	mux.HandleFunc("GET /api/admin/legal-documents", s.handleAdminListLegalDocuments)
 	mux.HandleFunc("POST /api/admin/legal-documents", s.handleAdminPublishLegalDocument)
