@@ -340,7 +340,7 @@ func (s *Server) sendDeadlineReminders(ctx context.Context, offsetDays int, even
 			}
 			if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
 				msg := fmt.Sprintf("[제출마감 D-%d] %s 제출마감이 D-%d일 남았습니다.", offsetDays, truncateForSMS(t.title, 25), offsetDays)
-				s.sendNotificationSMS(ctx, eventType, c.phone, nil, &contactID, &entryID, &noticeID, msg)
+				s.sendNotificationSMS(ctx, t.profileID, eventType, c.phone, nil, &contactID, &entryID, &noticeID, msg)
 			}
 		}
 	}
@@ -889,7 +889,7 @@ func (s *Server) notifyAssigneeStatusChange(ctx context.Context, profileID, pipe
 		}
 		if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
 			msg := fmt.Sprintf("[상태변경] %s %s(으)로 변경", truncateForSMS(noticeTitle, 25), newStatus)
-			s.sendNotificationSMS(ctx, notifyEventAssigneeStatusChange, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
+			s.sendNotificationSMS(ctx, profileID, notifyEventAssigneeStatusChange, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
 		}
 	}
 
@@ -1043,7 +1043,7 @@ func (s *Server) notifyNoticeCorrected(ctx context.Context, profileID, pipelineE
 		}
 		if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
 			msg := fmt.Sprintf("[공고 정정] %s 내용 변경(%s)", truncateForSMS(noticeTitle, 20), changedSummary)
-			s.sendNotificationSMS(ctx, notifyEventNoticeCorrected, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
+			s.sendNotificationSMS(ctx, profileID, notifyEventNoticeCorrected, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
 		}
 	}
 
@@ -1089,7 +1089,7 @@ func (s *Server) notifyNoticeCancelled(ctx context.Context, profileID, pipelineE
 		}
 		if smsAllowed && c.smsEnabled && c.phone != "" && !c.smsAlreadySent {
 			msg := fmt.Sprintf("[공고 취소] %s 공고가 취소되었습니다", truncateForSMS(noticeTitle, 20))
-			s.sendNotificationSMS(ctx, notifyEventNoticeCancelled, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
+			s.sendNotificationSMS(ctx, profileID, notifyEventNoticeCancelled, c.phone, nil, &contactID, &pipelineEntryID, &noticeID, msg)
 		}
 	}
 
@@ -1258,9 +1258,34 @@ func (s *Server) sendNotificationEmail(ctx context.Context, eventType, recipient
 // "not configured" 에러가 status='failed'로 로그에 남는다 — 실제 발송키
 // 없이도 발송대상 조회 로직이 끝까지 도는지 검증할 수 있는 이유(이메일과
 // 동일한 관례).
-func (s *Server) sendNotificationSMS(ctx context.Context, eventType, recipientPhone string, userID, contactID, pipelineEntryID, noticeID *string, msg string) {
+//
+// 2026-08-18 플랜 사용량: 문자 알림은 회사당 월 한도(Basic 10/Pro 100, Free 0은 호출부의
+// smsAllowedForPlan이 먼저 막음, Business 무제한). 발송 전에 (회사, sms, 월, subject)를 예약하고
+// provider가 실패하면 되돌린다(실패 미차감). subject = eventType|entry|notice|contact라 같은 알림을
+// 재시도해도 이중 소비되지 않는다. 한도 초과면 provider를 부르지 않고 status='skipped_quota'로만
+// 기록한다(관리자 화면이 스킵 건수를 볼 수 있게 — Free 이메일 한도와 같은 관례).
+func (s *Server) sendNotificationSMS(ctx context.Context, profileID, eventType, recipientPhone string, userID, contactID, pipelineEntryID, noticeID *string, msg string) {
 	if s.smsNotify == nil {
 		return
+	}
+	period, subject, reserved := usagePeriodMonth(time.Now()), smsUsageSubject(eventType, pipelineEntryID, noticeID, contactID, recipientPhone), false
+	if profileID != "" {
+		dec, qerr := s.reserveSMSUsage(ctx, profileID, period, subject)
+		if qerr != nil {
+			s.logger.Error("notify: sms usage reserve failed", "error", qerr)
+		} else if !dec.Allowed {
+			s.logger.Info("notify: sms skipped (quota)", "eventType", eventType, "profileId", profileID, "used", dec.Used, "limit", dec.Limit)
+			if _, logErr := s.db.ExecContext(ctx, `
+				INSERT INTO notification_log (event_type, channel, recipient_phone, user_id, contact_id, pipeline_entry_id, notice_id, subject, status)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'skipped_quota')`,
+				eventType, notifyChannelSMS, recipientPhone, userID, contactID, pipelineEntryID, noticeID, msg,
+			); logErr != nil {
+				s.logger.Error("notify: sms skipped log insert failed", "error", logErr)
+			}
+			return
+		} else {
+			reserved = dec.NewlyCounted
+		}
 	}
 	err := s.smsNotify.Send(ctx, recipientPhone, msg)
 	status, errMsg := "sent", sql.NullString{}
@@ -1268,6 +1293,9 @@ func (s *Server) sendNotificationSMS(ctx context.Context, eventType, recipientPh
 		status = "failed"
 		errMsg = sql.NullString{String: err.Error(), Valid: true}
 		s.logger.Error("notify: sms send failed", "eventType", eventType, "recipient", recipientPhone, "error", err)
+		if reserved {
+			s.releaseFeatureUsage(ctx, profileID, billing.UsageSMS, period, subject)
+		}
 	}
 	if _, logErr := s.db.ExecContext(ctx, `
 		INSERT INTO notification_log (event_type, channel, recipient_phone, user_id, contact_id, pipeline_entry_id, notice_id, subject, status, error_message)
@@ -1276,6 +1304,27 @@ func (s *Server) sendNotificationSMS(ctx context.Context, eventType, recipientPh
 	); logErr != nil {
 		s.logger.Error("notify: sms log insert failed", "error", logErr)
 	}
+}
+
+// smsUsageSubject — SMS 사용량 dedup 키. 같은 이벤트·대상·수신자 조합의 재시도는 1건.
+func smsUsageSubject(eventType string, pipelineEntryID, noticeID, contactID *string, phone string) string {
+	d := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	return eventType + "|" + d(pipelineEntryID) + "|" + d(noticeID) + "|" + d(contactID) + "|" + phone
+}
+
+// reserveSMSUsage — 회사의 플랜 월 한도로 SMS 1건을 예약(consume). 실패 시 releaseFeatureUsage.
+func (s *Server) reserveSMSUsage(ctx context.Context, profileID, period, subject string) (usageDecision, error) {
+	plan, err := s.effectivePlan(ctx, profileID)
+	if err != nil {
+		return usageDecision{}, err
+	}
+	limit := s.effectivePlanInfo(ctx, plan).MonthlyLimit(billing.UsageSMS)
+	return s.consumeFeatureUsage(ctx, nil, profileID, billing.UsageSMS, period, subject, limit)
 }
 
 // truncateForSMS shortens a title so SMS messages stay within Aligo's SMS

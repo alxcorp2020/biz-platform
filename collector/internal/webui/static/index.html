@@ -4780,6 +4780,7 @@ const ERROR_MESSAGES = {
   ai_analysis_quota_exceeded: '이번달 AI 분석 한도를 모두 사용했습니다. 직접 입력하시거나 다음달에 다시 시도해주세요.',
   document_not_found: '해당 서류를 찾을 수 없습니다.',
   paid_feature_required: '유료 플랜에서 이용할 수 있는 서비스입니다.',
+  quota_exceeded: '이번 달 이용량을 모두 사용했습니다. 유료 플랜에서 계속 이용할 수 있습니다.',
   draft_exists: '이 공고에 작성 중인 제안서 초안이 있습니다.',
   no_evaluation_criteria: '현재 수집된 공고자료에서 제안서 평가기준을 찾지 못했습니다.',
   draft_not_found: '제안서 초안을 찾을 수 없습니다.',
@@ -4904,6 +4905,11 @@ let currentProfile = null;
 // currentEntitlements — GET /api/me의 기능 권한 맵(예: proposal_draft_docx). 클릭 시
 // 결제 안내 모달을 띄울지 판단하는 데만 쓰고, 실제 기능 API는 서버가 다시 검사한다.
 let currentEntitlements = {};
+// 플랜 사용량(2026-08-18): /api/me의 usage(소비형: 참여 가능 여부·제안서·문자·사업자등록증 분석)와
+// capacities(보유형: 맞춤공고). 표시용이며 강제는 서버 게이트가 한다. -1 = 무제한.
+let currentUsage = {};
+let currentCapacities = {};
+let currentEffectivePlan = 'free';
 
 // ---------- 다크 모드 ----------
 // 색 변수만 뒤집는 방식(:root[data-theme="dark"]). <head>의 조기 스크립트가
@@ -4967,10 +4973,16 @@ async function loadMe() {
     currentUser = data.user;
     currentProfile = data.companyProfile;
     currentEntitlements = data.entitlements || {};
+    currentUsage = data.usage || {};
+    currentCapacities = data.capacities || {};
+    currentEffectivePlan = data.effectivePlan || 'free';
   } catch (err) {
     currentUser = null;
     currentProfile = null;
     currentEntitlements = {};
+    currentUsage = {};
+    currentCapacities = {};
+    currentEffectivePlan = 'free';
   }
   renderHeader();
   if (currentUser) refreshUnreadNotificationCount();
@@ -11895,6 +11907,7 @@ function renderDetail(container, id) {
         <div class="detail-flow">${sectionsHtml}</div>
       `));
       renderAISummary(document.getElementById('ai-summary-section'), data.aiSummary, n.officialUrl);
+      renderParticipationReviewUsage(document.getElementById('participation-judgment-section'), data.participationReview);
       renderParticipationJudgment(document.getElementById('participation-judgment-section'), data.participationJudgment, {
         refetch: async () => (await apiRequest('GET', '/api/notices/' + encodeURIComponent(id))).participationJudgment,
       });
@@ -12835,6 +12848,7 @@ function openLoginRequiredModal() {
 // handleProposalApiError — 403 paid_feature_required → 결제 모달, 그 외 toast. true면 처리됨.
 function handleProposalApiError(err) {
   if (err && err.code === 'paid_feature_required') { openPaidFeatureModal(); return true; }
+  if (err && err.code === 'quota_exceeded') { showToast(ERROR_MESSAGES.quota_exceeded, 'error'); return true; }
   if (err && err.status === 401) { openLoginRequiredModal(); return true; }
   return false;
 }
@@ -12863,6 +12877,15 @@ function renderProposalSection(container, noticeId, notice) {
     </div>
     <div id="prop-readiness" class="prop-readiness" hidden></div>
   `));
+  // 사용량 안내(2026-08-18): Free는 "체험 1회", 유료는 "이번 달 n / limit". 무제한(-1)은 표시 안 함.
+  const pu = currentUsage && currentUsage.proposal_draft;
+  if (currentUser && pu && pu.limit != null && pu.limit >= 0) {
+    const note = pu.period === 'lifetime'
+      ? (pu.used < pu.limit ? `무료 체험 ${pu.limit - pu.used}회 남음` : '무료 체험을 모두 사용했습니다.')
+      : `이번 달 제안서 초안 ${pu.used} / ${pu.limit}`;
+    const actions = container.querySelector('.prop-intro-actions');
+    if (actions) actions.insertAdjacentHTML('afterend', `<p class="prop-intro-note" data-proposal-usage>${note}</p>`);
+  }
   container.querySelector('#prop-start-btn').addEventListener('click', () => {
     if (!currentUser) { openLoginRequiredModal(); return; }
     if (!canUseProposalDraft()) { openPaidFeatureModal(); return; }
@@ -13917,10 +13940,34 @@ const PJ_CONDITION_TERM = {
   '필수 면허·자격': { label: '사업 수행 자격·면허', desc: '이 공고 참여에 필요한 자격·면허입니다. 공고문 분석이 끝나면 구체적으로 안내합니다.' },
 };
 
+// renderParticipationReviewUsage — 참여 가능 여부 확인 사용량(플랜 정책 2026-08-18). 서버가
+// participationReview{used,limit,locked}를 내려주면 판정 섹션 상단에 "이번 달 2 / 3" 같은 사용량을
+// 조용히 표시하고, 한도를 다 쓴 경우(locked)에만 안내 카드 + 유료 플랜 CTA를 보여준다(팝업 없음).
+// limit -1은 무제한이라 아무것도 표시하지 않는다.
+function renderParticipationReviewUsage(container, review) {
+  if (!container || !review || review.limit == null || review.limit < 0) return;
+  container.innerHTML = '';
+  if (review.locked) {
+    container.appendChild(h(`
+      <div class="prop-empty">
+        <p class="prop-empty-title">이번 달 참여 가능 여부 확인 이용량을 모두 사용했습니다.</p>
+        <p>이번 달 ${review.used} / ${review.limit}개 공고를 확인했습니다.<br>다음 달에 다시 확인하거나, 유료 플랜에서 계속 확인할 수 있습니다.</p>
+        <div class="prop-intro-actions">
+          <a href="#/billing/plans" class="btn btn-primary">요금제 보기</a>
+        </div>
+      </div>`));
+    return;
+  }
+  container.appendChild(h(`<p class="prop-intro-note" data-review-usage>이번 달 참여 가능 여부 확인 ${review.used} / ${review.limit}</p>`));
+}
+
 function renderParticipationJudgment(container, j, opts) {
   if (!container) return;
   opts = opts || {};
+  // 사용량 표시/한도 안내(renderParticipationReviewUsage)는 판정 렌더 전에 그려지므로 유지한다.
+  const usageNode = container.querySelector('[data-review-usage], .prop-empty');
   container.innerHTML = '';
+  if (usageNode) container.appendChild(usageNode);
   if (!j || !j.conditions || !j.conditions.length) return;
   const tone = PARTICIPATION_GRADE_TONE[j.grade] || 'pj-grade--review';
   // "확인할 것 먼저" — 사용자가 해야 할 것(FAIL/REVIEW/UNKNOWN)을 위로, 자동확인된

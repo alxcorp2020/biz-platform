@@ -72,6 +72,7 @@ func TestProposalDrafts_EndToEnd(t *testing.T) {
 		}
 		_, _ = db.ExecContext(ctx, `DELETE FROM raw_documents WHERE external_notice_id LIKE $1`, "PROPTEST-%-"+tag)
 		for _, a := range actors {
+			_, _ = db.ExecContext(ctx, `DELETE FROM feature_usage WHERE company_profile_id = $1`, a.profileID)
 			_, _ = db.ExecContext(ctx, `DELETE FROM subscriptions WHERE company_profile_id = $1`, a.profileID)
 			_, _ = db.ExecContext(ctx, `DELETE FROM company_track_records WHERE company_profile_id = $1`, a.profileID)
 			_, _ = db.ExecContext(ctx, `DELETE FROM company_members WHERE company_profile_id = $1`, a.profileID)
@@ -91,11 +92,17 @@ func TestProposalDrafts_EndToEnd(t *testing.T) {
 		return a
 	}
 	free := mk("free", "free")
+	// 2026-08-18 플랜 정책: Free는 평생 체험 1회가 남아 있으면 entitled다. 이 E2E는 "체험을 이미 쓴
+	// Free"(=유료 게이트 거부 경로)를 검증하므로 체험 사용 기록을 시드한다. 체험 자체는
+	// TestFeatureUsage_ProposalTrialAndMonthly가 검증.
+	must(`INSERT INTO feature_usage (company_profile_id, feature_key, period_key, subject_key) VALUES ($1,'proposal_draft','lifetime','seed-trial-used') RETURNING id`, free.profileID)
 	paid := mk("paid", "basic")
 	other := mk("other", "pro")
 	// 만료된 유료 구독은 Free 취급(effectivePlanFromRow) — 게이트가 구독 만료를 존중하는지.
 	expired := mk("expired", "free")
 	must(`INSERT INTO subscriptions (company_profile_id, plan, status, started_at, expires_at, amount) VALUES ($1,'pro','active', now() - interval '60 days', now() - interval '1 day', 49000) RETURNING id`, expired.profileID)
+	// 만료 → Free 취급이므로 역시 "체험 소진" 상태로 시드(위 free와 동일 이유).
+	must(`INSERT INTO feature_usage (company_profile_id, feature_key, period_key, subject_key) VALUES ($1,'proposal_draft','lifetime','seed-trial-used') RETURNING id`, expired.profileID)
 
 	// paid 회사에 실제 실적 1건(가짜 생성 금지 검증용). 인력은 없음(CASE D).
 	must(`INSERT INTO company_track_records (company_profile_id, project_name, client_name, period_start, period_end, contract_amount, is_completed, confidence) VALUES ($1,'실제 등록 실적 사업','실제 발주처','2025-01-01','2025-06-30',120000000,true,'A') RETURNING id`, paid.profileID)
@@ -299,10 +306,12 @@ func TestProposalDrafts_EndToEnd(t *testing.T) {
 			t.Fatalf("docx missing %q", want)
 		}
 	}
-	// 무료 사용자 DOCX 직접 호출 → 403 (자기 회사 초안이어도 유료 아님)
+	// 무료 사용자(다른 회사) DOCX 직접 호출 → 404 (2026-08-18: 초안 조회/DOCX는 유료 게이트가 아니라
+	// 소유 검사 — 다른 회사 초안은 존재 여부도 숨김. 자기 회사 체험 초안은 Free여도 다운로드 가능:
+	// TestFeatureUsage_ProposalTrialAndMonthly)
 	code, m, _ = do(free, "GET", "/api/proposal-drafts/"+draftID+"/docx", nil)
-	if code != 403 || m["error"] != errorPaidFeatureRequired {
-		t.Fatalf("free docx: %d %v", code, m)
+	if code != 404 || m["error"] != "draft_not_found" {
+		t.Fatalf("free docx (other company): %d %v", code, m)
 	}
 
 	// CASE H: IDOR — 다른 회사(유료) 사용자 → 404, 수정/다운로드 불가

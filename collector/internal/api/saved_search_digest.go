@@ -10,6 +10,7 @@
 package api
 
 import (
+	"biz-platform/collector/internal/billing"
 	"context"
 	"database/sql"
 	"fmt"
@@ -540,9 +541,11 @@ func (s *Server) sendSavedSearchDeadlineReminders(ctx context.Context, offsetDay
 		}
 
 		emailAllowed, smsAllowed := true, false
+		smsProfileID := ""
 		if profileID, err := s.companyProfileIDForUser(ctx, sr.userID); err == nil && profileID != "" {
 			emailAllowed = s.checkEmailNotificationQuota(ctx, profileID)
 			smsAllowed = s.smsAllowedForPlan(ctx, profileID)
+			smsProfileID = profileID
 		}
 
 		for _, rec := range recipients {
@@ -614,6 +617,30 @@ func (s *Server) sendSavedSearchDeadlineReminders(ctx context.Context, offsetDay
 				} else {
 					msg = fmt.Sprintf("[맞춤공고 D-%d] \"%s\" 조건 마감임박 공고 %d건, 앱에서 확인하세요.", offsetDays, truncateForSMS(sr.name, 15), len(dueForRec))
 				}
+				// 플랜 월 사용량 예약(2026-08-18): subject = 이벤트|맞춤공고|수신자|날짜라 같은 날 재실행은 1건.
+				// 한도 초과면 provider를 부르지 않고 skipped_quota로만 기록.
+				smsPeriod := usagePeriodMonth(time.Now())
+				recContact := ""
+				if rec.contactID != nil {
+					recContact = *rec.contactID
+				}
+				smsSubject := eventType + "|" + sr.id + "|" + recContact + "|" + rec.phone + "|" + time.Now().In(kstZone).Format("2006-01-02")
+				smsReserved := false
+				if smsProfileID != "" {
+					dec, qerr := s.reserveSMSUsage(ctx, smsProfileID, smsPeriod, smsSubject)
+					if qerr != nil {
+						s.logger.Error("notify: saved-search sms usage reserve failed", "error", qerr)
+					} else if !dec.Allowed {
+						ids := make([]string, len(dueForRec))
+						for i, n := range dueForRec {
+							ids[i] = n.id
+						}
+						s.logSavedSearchNoticeSMS(ctx, eventType, rec, ids, msg, "skipped_quota", sql.NullString{})
+						continue
+					} else {
+						smsReserved = dec.NewlyCounted
+					}
+				}
 				sendErr := s.smsNotify.Send(ctx, rec.phone, msg)
 				status := "sent"
 				var errMsg sql.NullString
@@ -621,6 +648,9 @@ func (s *Server) sendSavedSearchDeadlineReminders(ctx context.Context, offsetDay
 					status = "failed"
 					errMsg = sql.NullString{String: sendErr.Error(), Valid: true}
 					s.logger.Error("notify: saved-search reminder sms send failed", "recipient", rec.phone, "error", sendErr)
+					if smsReserved {
+						s.releaseFeatureUsage(ctx, smsProfileID, billing.UsageSMS, smsPeriod, smsSubject)
+					}
 				}
 				ids := make([]string, len(dueForRec))
 				for i, n := range dueForRec {

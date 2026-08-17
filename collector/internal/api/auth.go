@@ -5,6 +5,7 @@
 package api
 
 import (
+	"biz-platform/collector/internal/billing"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
@@ -556,6 +557,13 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	if profile != nil {
 		profileID = profile.ID
 	}
+	mePlan := billing.PlanFree
+	if profileID != "" {
+		if p, err := s.effectivePlan(r.Context(), profileID); err == nil {
+			mePlan = p
+		}
+	}
+	meUsage, meCaps := s.usageSummaryFor(r.Context(), profileID, mePlan)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": map[string]any{
 			"id": userID, "email": email, "role": role, "plan": plan,
@@ -563,6 +571,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		},
 		"companyProfile": profile,
 		"entitlements":   s.entitlementsFor(r.Context(), profileID),
+		// usage/capacities/effectivePlan(2026-08-18 플랜 정책): 프론트 사용량 표시("2 / 3", "체험 1회 남음")용.
+		// 실제 강제는 각 기능 API의 서버 게이트(feature_usage.go)가 한다. -1 = 무제한.
+		"effectivePlan": string(mePlan),
+		"usage":         meUsage,
+		"capacities":    meCaps,
 	})
 }
 

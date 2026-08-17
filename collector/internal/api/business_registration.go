@@ -8,6 +8,10 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+
+	"biz-platform/collector/internal/billing"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -140,8 +144,36 @@ func (s *Server) handleExtractBusinessRegistration(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// Fair Use(2026-08-18 플랜 정책): 회사 프로필이 있으면 회사당 월 상한(Free 5/유료 20)을 적용한다 —
+	// 원가 방어(외부 모델 호출). subject=파일 해시라 같은 파일을 여러 번 올려도 1건만 소비.
+	// "예약 → 호출 → 실패 시 release"로 provider 실패는 차감하지 않는다. 프로필이 아직 없는
+	// 온보딩 첫 호출은 위 authLookupRateLimited(1분 1회·1일 5회)만 적용된다.
+	var ocrProfileID, ocrPeriod, ocrSubject string
+	ocrReserved := false
+	if profile, perr := s.getCompanyProfile(r, userID); perr == nil && profile != nil {
+		if plan, err := s.effectivePlan(ctx, profile.ID); err == nil {
+			sum := sha256.Sum256(body)
+			ocrProfileID, ocrPeriod, ocrSubject = profile.ID, usagePeriodMonth(time.Now()), hex.EncodeToString(sum[:])
+			limit := s.effectivePlanInfo(ctx, plan).MonthlyLimit(billing.UsageBusinessRegistrationOCR)
+			dec, qerr := s.consumeFeatureUsage(ctx, nil, ocrProfileID, billing.UsageBusinessRegistrationOCR, ocrPeriod, ocrSubject, limit)
+			if qerr != nil {
+				s.logger.Error("extract-business-registration: usage consume failed", "error", qerr)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+				return
+			}
+			if !dec.Allowed {
+				writeQuotaExceeded(w, string(billing.UsageBusinessRegistrationOCR), dec.Used, dec.Limit)
+				return
+			}
+			ocrReserved = dec.NewlyCounted
+		}
+	}
+
 	candidate, err := s.extractBusinessRegistrationCandidate(ctx, body, ext, mediaType)
 	if err != nil {
+		if ocrReserved {
+			s.releaseFeatureUsage(ctx, ocrProfileID, billing.UsageBusinessRegistrationOCR, ocrPeriod, ocrSubject)
+		}
 		s.logger.Error("extract-business-registration: claude extraction failed", "error", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "extraction_failed"})
 		return

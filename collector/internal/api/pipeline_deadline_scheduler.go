@@ -384,7 +384,7 @@ func (s *Server) dispatchDeadlineEvent(ctx context.Context, e deadlineScheduleRo
 		}
 		if smsAllowed && c.smsEnabled && c.phone != "" {
 			msg := fmt.Sprintf("[%s] %s %s", def.tag, truncateForSMS(e.title, 20), head)
-			s.sendNotificationSMS(ctx, def.eventType, c.phone, nil, &contactID, &entryID, &noticeID, msg)
+			s.sendNotificationSMS(ctx, e.profileID, def.eventType, c.phone, nil, &contactID, &entryID, &noticeID, msg)
 		}
 	}
 }

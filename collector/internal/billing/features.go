@@ -24,6 +24,21 @@ var planFeatures = map[Plan]map[Feature]bool{
 	PlanBusiness: {FeatureProposalDraftDocx: true},
 }
 
+// UsageFeature — 소비형 사용량(feature_usage 테이블)의 기능 키. Entitlement(Feature)와
+// 별개다: 예를 들어 제안서는 Entitlement(proposal_draft_docx)로 "쓸 수 있는가"를, UsageProposalDraft로
+// "이번 달 몇 개 만들었는가"를 각각 본다.
+type UsageFeature string
+
+const (
+	UsageParticipationReview     UsageFeature = "participation_review"
+	UsageProposalDraft           UsageFeature = "proposal_draft"
+	UsageBusinessRegistrationOCR UsageFeature = "business_registration_ocr"
+	UsageSMS                     UsageFeature = "sms"
+)
+
+// AllUsageFeatures — /api/me usage 맵 순서 고정용.
+var AllUsageFeatures = []UsageFeature{UsageParticipationReview, UsageProposalDraft, UsageBusinessRegistrationOCR, UsageSMS}
+
 // AllFeatures — 프론트에 내려주는 entitlements 맵을 안정적으로 만들기 위한
 // 전체 기능 키 목록(순서 고정).
 var AllFeatures = []Feature{FeatureProposalDraftDocx}

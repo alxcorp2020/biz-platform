@@ -535,7 +535,7 @@ func (s *Server) dispatchResultNotification(ctx context.Context, t resultLookupR
 			}
 		}
 		if smsAllowed && c.smsEnabled && c.phone != "" {
-			s.sendNotificationSMS(ctx, eventType, c.phone, nil, &contactID, &entryID, &noticeID,
+			s.sendNotificationSMS(ctx, t.profileID, eventType, c.phone, nil, &contactID, &entryID, &noticeID,
 				fmt.Sprintf("%s %s", truncateForSMS(t.title, 20), body))
 		}
 	}

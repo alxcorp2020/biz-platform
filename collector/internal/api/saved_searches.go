@@ -380,10 +380,41 @@ func (s *Server) findDuplicateSavedSearch(ctx context.Context, userID, excludeID
 	return nil, rows.Err()
 }
 
+// enforceSavedSearchCapacity — Capacity 게이트(2026-08-18 플랜 정책): 회사 소속 사용자가 보유한
+// 맞춤공고 수가 플랜 상한(Free 1/Basic 5/Pro 20, Business 무제한)에 닿았으면 403 quota_exceeded.
+// 온보딩 자동생성분(origin=onboarding)도 보유 수에 포함되므로 Free는 사실상 그 1개만 갖는다.
+// 삭제하면 자리가 비어 다시 만들 수 있다. 회사 프로필이 없으면(온보딩 이전) 막지 않는다.
+// 통과 시 true. 실패/거부 시 응답을 이미 썼다.
+func (s *Server) enforceSavedSearchCapacity(w http.ResponseWriter, r *http.Request, userID string) bool {
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error("saved-search capacity: profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return false
+	}
+	if profile == nil {
+		return true
+	}
+	ok, used, limit, err := s.checkSavedSearchCapacity(r.Context(), profile.ID)
+	if err != nil {
+		s.logger.Error("saved-search capacity check failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return false
+	}
+	if !ok {
+		writeQuotaExceeded(w, "saved_search", used, limit)
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleCreateSavedSearch(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.currentUserID(r)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	if !s.enforceSavedSearchCapacity(w, r, userID) {
 		return
 	}
 	var req savedSearchRequest
@@ -720,6 +751,9 @@ func (s *Server) handleDuplicateSavedSearch(w http.ResponseWriter, r *http.Reque
 	userID, ok := s.currentUserID(r)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	if !s.enforceSavedSearchCapacity(w, r, userID) {
 		return
 	}
 	id := r.PathValue("id")

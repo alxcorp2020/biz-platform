@@ -19,12 +19,28 @@ const errorPaidFeatureRequired = "paid_feature_required"
 
 // canUseFeature — profileID(회사)의 effective 플랜이 feature를 쓸 수 있는가.
 // 구독 행이 없으면 Free(=거부).
+//
+// 2026-08-18 Free 제안서 체험: proposal_draft_docx는 플랜 표(Free=false)를 그대로 두되, Free 회사에
+// 평생 체험 1회(billing.FreeProposalTrialLifetime)가 남아 있으면 "새 초안을 만들 수 있는 상태"로
+// 본다 — 프론트 entitlements 맵과 readiness/생성 게이트가 이 판정을 공유한다. 체험을 이미 썼으면
+// 다시 false(결제 안내). 체험으로 만든 기존 초안의 조회/수정/DOCX는 소유 검사만 한다
+// (requireOwnedDraft) — 플랜 강등 후에도 자기 초안은 계속 열 수 있다.
 func (s *Server) canUseFeature(ctx context.Context, profileID string, feature billing.Feature) (bool, billing.Plan, error) {
 	plan, err := s.effectivePlan(ctx, profileID)
 	if err != nil {
 		return false, "", err
 	}
-	return billing.PlanHasFeature(plan, feature), plan, nil
+	if billing.PlanHasFeature(plan, feature) {
+		return true, plan, nil
+	}
+	if feature == billing.FeatureProposalDraftDocx && plan == billing.PlanFree {
+		used, err := s.countFeatureUsage(ctx, profileID, billing.UsageProposalDraft, usagePeriodLifetime)
+		if err != nil {
+			return false, plan, err
+		}
+		return used < billing.FreeProposalTrialLifetime, plan, nil
+	}
+	return false, plan, nil
 }
 
 // entitlementsFor — GET /api/me용. profileID가 비어 있으면(회사 미생성) 전부 false.
@@ -36,13 +52,13 @@ func (s *Server) entitlementsFor(ctx context.Context, profileID string) map[stri
 	if profileID == "" {
 		return out
 	}
-	plan, err := s.effectivePlan(ctx, profileID)
-	if err != nil {
-		s.logger.Warn("entitlements: effective plan lookup failed; denying", "error", err)
-		return out
-	}
 	for _, f := range billing.AllFeatures {
-		out[string(f)] = billing.PlanHasFeature(plan, f)
+		allowed, _, err := s.canUseFeature(ctx, profileID, f)
+		if err != nil {
+			s.logger.Warn("entitlements: feature check failed; denying", "feature", string(f), "error", err)
+			allowed = false
+		}
+		out[string(f)] = allowed
 	}
 	return out
 }

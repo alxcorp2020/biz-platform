@@ -971,34 +971,66 @@ func (s *Server) handleGetNotice(w http.ResponseWriter, r *http.Request) {
 	// 참여판정 신뢰성 확장(2026-08-09): 입찰 공고에 한해 기존 3요소 판정에
 	// 면허·인증·직접생산확인을 이어붙여 조건별 PASS/REVIEW/FAIL/UNKNOWN을 만든다.
 	// 지원사업은 판정 기준이 달라 제외. DB 변경 없음(조회 시점 계산).
+	// 참여 가능 여부 확인 사용량(2026-08-18 플랜 정책): 회사당 월 "서로 다른 공고" 수 제한
+	// (Free 3/Basic 30/Pro 200). 같은 공고 재조회·답변 후 재판정은 같은 subject(공고 id)라 추가
+	// 소비 없음. 한도 초과면 판정을 계산하지 않고(participationJudgment=null) 프론트가
+	// participationReview.locked로 안내한다. 파이프라인 상세(/api/pipeline/{id})는 이미 등록한
+	// 공고라 이 게이트를 타지 않는다.
 	var partJudgment *participationJudgment
-	if it.NoticeType == "procurement" && versionID != "" {
+	var participationReview map[string]any
+	if it.NoticeType == "procurement" && versionID != "" && profileID != "" {
+		locked := false
+		if plan, perr := s.effectivePlan(r.Context(), profileID); perr == nil {
+			period := usagePeriodMonth(time.Now())
+			limit := s.effectivePlanInfo(r.Context(), plan).MonthlyLimit(billing.UsageParticipationReview)
+			var dec usageDecision
+			var uerr error
+			if already, herr := s.hasFeatureUsageSubject(r.Context(), profileID, billing.UsageParticipationReview, period, id); herr == nil && already {
+				used, _ := s.countFeatureUsage(r.Context(), profileID, billing.UsageParticipationReview, period)
+				dec = usageDecision{Allowed: true, AlreadyCounted: true, Used: used, Limit: limit}
+			} else {
+				dec, uerr = s.consumeFeatureUsage(r.Context(), nil, profileID, billing.UsageParticipationReview, period, id, limit)
+			}
+			if uerr != nil {
+				s.logger.Error("participation review usage failed", "error", uerr)
+			} else {
+				locked = !dec.Allowed
+				participationReview = map[string]any{"used": dec.Used, "limit": dec.Limit, "locked": locked, "period": period}
+			}
+		} else {
+			s.logger.Error("participation review: plan lookup failed", "error", perr)
+		}
+		if !locked {
+			partJudgment = s.buildParticipationJudgment(r.Context(), versionID, profileID, score, requiredDocuments)
+		}
+	} else if it.NoticeType == "procurement" && versionID != "" {
 		partJudgment = s.buildParticipationJudgment(r.Context(), versionID, profileID, score, requiredDocuments)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"notice":                   it,
-		"changes":                  changes,
-		"eligibilityConditions":    eligibilityConditions,
-		"requiredDocuments":        requiredDocuments,
-		"licenseMatches":           licenseMatches,
-		"documentAnalysisStatus":   documentAnalysisStatus,
-		"documentReadiness":        map[string]int{"total": len(requiredDocuments), "checked": checkedCount},
-		"attachments":              attachments,
-		"detail":                   rawDetail,
-		"supportDetail":            supportDetail,
-		"supportConditions":        supportConditions,
-		"participationScore":       score,
-		"participationJudgment":    partJudgment,
-		"confidenceTier":           confidenceTier,
-		"aiSummary":                aiSummary,
-		"changeImpact":             impact,
-		"organizationAwardHistory": awardHistory,
-		"hasCompetitiveOverlap":    hasCompetitiveOverlap,
-		"existingPipelineEntryId":  existingPipelineEntryID,
-		"participationRegions":     participationRegions,
+		"notice":                    it,
+		"changes":                   changes,
+		"eligibilityConditions":     eligibilityConditions,
+		"requiredDocuments":         requiredDocuments,
+		"licenseMatches":            licenseMatches,
+		"documentAnalysisStatus":    documentAnalysisStatus,
+		"documentReadiness":         map[string]int{"total": len(requiredDocuments), "checked": checkedCount},
+		"attachments":               attachments,
+		"detail":                    rawDetail,
+		"supportDetail":             supportDetail,
+		"supportConditions":         supportConditions,
+		"participationScore":        score,
+		"participationJudgment":     partJudgment,
+		"participationReview":       participationReview,
+		"confidenceTier":            confidenceTier,
+		"aiSummary":                 aiSummary,
+		"changeImpact":              impact,
+		"organizationAwardHistory":  awardHistory,
+		"hasCompetitiveOverlap":     hasCompetitiveOverlap,
+		"existingPipelineEntryId":   existingPipelineEntryID,
+		"participationRegions":      participationRegions,
 		"participationRegionStatus": participationRegionStatus,
-		"licenseLimits":            licenseLimits,
+		"licenseLimits":             licenseLimits,
 	})
 }
 

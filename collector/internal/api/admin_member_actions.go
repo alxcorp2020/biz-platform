@@ -190,6 +190,7 @@ func companyDataCascadeStmts(profileID string) []cascadeStmt {
 		{`DELETE FROM reports WHERE company_profile_id = $1`, []any{profileID}},
 		{`DELETE FROM payment_log WHERE subscription_id IN (SELECT id FROM subscriptions WHERE company_profile_id = $1)`, []any{profileID}},
 		{`DELETE FROM subscriptions WHERE company_profile_id = $1`, []any{profileID}},
+		{`DELETE FROM feature_usage WHERE company_profile_id = $1`, []any{profileID}},
 		{`DELETE FROM company_members WHERE company_profile_id = $1`, []any{profileID}},
 		{`DELETE FROM company_profiles WHERE id = $1`, []any{profileID}},
 	}

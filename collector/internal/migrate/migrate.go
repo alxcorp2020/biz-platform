@@ -316,7 +316,33 @@ func Apply(ctx context.Context, db *sql.DB) error {
 	if err := ensureAttachmentExtractionWorkerColumns(ctx, db); err != nil {
 		return fmt.Errorf("migrate attachment extraction worker columns: %w", err)
 	}
+	if err := ensureFeatureUsageTable(ctx, db); err != nil {
+		return fmt.Errorf("migrate feature_usage table: %w", err)
+	}
 	return nil
+}
+
+// ensureFeatureUsageTable — 플랜별 소비형 사용량(2026-08-18). 기능별 테이블을 만들지 않고
+// 범용 1테이블: (회사, 기능키, 기간키, 대상키) 유일. 기간키 = 'YYYY-MM'(월) 또는 'lifetime'
+// (Free 제안서 체험). 대상키로 같은 대상의 재시도/재조회를 1건으로 dedup한다(참여판정=공고 id,
+// 제안서=초안 id, OCR=파일 해시, SMS=알림 식별자). 월 초기화는 배치 없이 기간키로 자연 분리.
+// 기존 quota(회사서류 AI 월 한도·Free 이메일·파이프라인·팀원)는 이 테이블로 이전하지 않는다.
+func ensureFeatureUsageTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS feature_usage (
+			id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			company_profile_id UUID NOT NULL REFERENCES company_profiles(id) ON DELETE CASCADE,
+			feature_key        TEXT NOT NULL,
+			period_key         TEXT NOT NULL,
+			subject_key        TEXT NOT NULL,
+			quantity           INTEGER NOT NULL DEFAULT 1,
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (company_profile_id, feature_key, period_key, subject_key)
+		);
+		CREATE INDEX IF NOT EXISTS idx_feature_usage_lookup
+			ON feature_usage(company_profile_id, feature_key, period_key);
+	`)
+	return err
 }
 
 // ensureAttachmentExtractionWorkerColumns — 운영 첨부 텍스트 추출 워커
@@ -326,8 +352,9 @@ func Apply(ctx context.Context, db *sql.DB) error {
 // claim/stale 복구/재시도 상한에 필요한 최소 메타 3컬럼만 additive로 둔다:
 //   - extraction_attempts   claim 횟수(재시도 상한 판정)
 //   - extraction_started_at 마지막 claim 시각(stale processing 판정 +
-//                           일시 실패 후 재시도 backoff 기준 — 컬럼 추가 없이 겸용)
+//     일시 실패 후 재시도 backoff 기준 — 컬럼 추가 없이 겸용)
 //   - extraction_completed_at 완료 시각
+//
 // extraction_status CHECK(pending/processing/completed/failed/unsupported)는
 // 001_init.sql에 이미 5값이 있어 constraint 변경 없음. 부분 인덱스는 claim
 // 쿼리(pending/processing만 훑음)가 첨부 수만 건에서도 seq scan을 안 하게.

@@ -779,14 +779,47 @@ func (s *Server) handleCreateProposalDraft(w http.ResponseWriter, r *http.Reques
 	ansJSON, _ := json.Marshal(body.Answers)
 	contJSON, _ := json.Marshal(content)
 	missJSON, _ := json.Marshal(content.Missing)
+	// 사용량(2026-08-18): 초안 INSERT와 사용량 소비를 한 트랜잭션으로 — composer는 결정론(외부 호출
+	// 없음)이라 트랜잭션이 짧고, 한도 초과면 초안도 함께 롤백된다(실패 미차감). Free는 평생 체험
+	// 1회(lifetime), 유료는 월 한도. subject=새 초안 id라 새 초안이 성공적으로 생성될 때만 1건.
+	// 같은 공고 재생성(force)도 새 초안이므로 1건 — 기존 초안의 GET/PATCH/DOCX는 소비 없음.
+	plan, err := s.effectivePlan(ctx, profile.ID)
+	if err != nil {
+		s.logger.Error("proposal-draft-create: plan lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	periodKey, limit := proposalDraftUsagePeriod(plan, s.effectivePlanInfo(ctx, plan), time.Now())
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	defer tx.Rollback()
 	var id string
-	err = s.db.QueryRowContext(ctx, `INSERT INTO proposal_drafts (notice_id, notice_version_id, company_profile_id, created_by_user_id, status, title,
+	err = tx.QueryRowContext(ctx, `INSERT INTO proposal_drafts (notice_id, notice_version_id, company_profile_id, created_by_user_id, status, title,
 			evaluation_snapshot, company_snapshot, answers, content, missing_information, generation_model, generated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12, now()) RETURNING id`,
 		noticeID, notice.NoticeVersionID, profile.ID, userID, proposalDraftStatusDraft, content.Title,
 		string(evalJSON), string(compJSON), string(ansJSON), string(contJSON), string(missJSON), proposalDraftEngine).Scan(&id)
 	if err != nil {
 		s.logger.Error("proposal draft generation failed", "error", err, "noticeId", noticeID, "profileId", profile.ID)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	dec, err := s.consumeFeatureUsage(ctx, tx, profile.ID, billing.UsageProposalDraft, periodKey, id, limit)
+	if err != nil {
+		s.logger.Error("proposal-draft-create: usage consume failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return
+	}
+	if !dec.Allowed {
+		// 롤백(defer) — 초안도 사용량도 남지 않는다.
+		s.logger.Info("proposal draft quota exceeded", "plan", string(plan), "profileId", profile.ID, "used", dec.Used, "limit", dec.Limit)
+		writeQuotaExceeded(w, string(billing.UsageProposalDraft), dec.Used, dec.Limit)
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
 		return
 	}
@@ -799,10 +832,23 @@ func (s *Server) handleCreateProposalDraft(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, s.draftDTO(ctx, d))
 }
 
-// requireOwnedDraft — 유료 게이트 + 소유(회사) 검사. 다른 회사 초안은 404(존재 여부도 숨김).
+// requireOwnedDraft — 인증 + 회사 + 소유(회사) 검사. 다른 회사 초안은 404(존재 여부도 숨김).
+// 2026-08-18: 유료 게이트를 여기서 빼고 소유 검사만 한다 — Free 체험으로 만든 초안이나 플랜 강등
+// 후의 기존 초안도 조회/수정/DOCX는 계속 가능해야 한다(새 초안 생성만 플랜/사용량 게이트).
 func (s *Server) requireOwnedDraft(w http.ResponseWriter, r *http.Request, logTag string) (*proposalDraftRow, *companyProfileDTO, bool) {
-	_, profile, ok := s.requirePaidFeature(w, r, billing.FeatureProposalDraftDocx, logTag)
+	userID, ok := s.currentUserID(r)
 	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return nil, nil, false
+	}
+	profile, err := s.getCompanyProfile(r, userID)
+	if err != nil {
+		s.logger.Error(logTag+": profile lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query_failed"})
+		return nil, nil, false
+	}
+	if profile == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "company_profile_required"})
 		return nil, nil, false
 	}
 	id := r.PathValue("id")
