@@ -72,10 +72,19 @@ const (
 	evalStatusFound    = "found"
 	evalStatusNotFound = "not_found"
 	evalStatusError    = "error"
+	// evalStatusPending — 이 버전의 첨부 텍스트 추출(Cron 워커)이 아직 진행 중이라 평가기준을
+	// 판단할 수 없는 상태. **응답 전용**이며 notice_versions에 저장하지 않는다(부정 캐시 금지) —
+	// 텍스트가 도착한 뒤의 첫 요청이 정상 추출을 수행한다. 이 상태에서는 모델 호출도 하지 않는다.
+	evalStatusPending = "pending"
 
 	// evalNotFoundRecheckAfter — not_found/error는 첨부 텍스트 추출(1시간 배치)이 뒤늦게
 	// 도착할 수 있어 이 시간이 지나면 다시 시도한다.
 	evalNotFoundRecheckAfter = 6 * time.Hour
+	// evalPendingExtractionMaxAge — 첨부가 pending/processing인 채로 이보다 오래됐으면
+	// "추출 진행 중"으로 보지 않는다(기존 not_found 정책으로 처리). Cron 워커는 새 첨부를 보통
+	// 15분 안에 처리하므로, 이보다 오래 pending인 첨부는 워커 컷오버 이전 backlog이거나 정체된
+	// 것 — 그런 공고에서 readiness가 영원히 "분석 중"으로 남지 않게 하는 상한.
+	evalPendingExtractionMaxAge = 48 * time.Hour
 	evalContextMaxRunes      = 14000
 	evalWindowLines          = 70
 	evalAITimeout            = 60 * time.Second
@@ -139,6 +148,25 @@ type evalSourceDoc struct {
 	name string
 	text string
 	rank int // 낮을수록 우선(제안요청서/평가표 파일)
+}
+
+// evaluationSourceExtractionInProgress — 이 버전의 첨부 중 텍스트 추출이 아직 안 끝난 것
+// (extraction_status pending/processing)이 있는지. completed/failed/unsupported는 종결 상태라
+// 제외. evalPendingExtractionMaxAge보다 오래된 pending은 워커 컷오버 이전 backlog/정체로 보고
+// "진행 중"에서 제외한다(그 공고는 기존 not_found 정책으로).
+func (s *Server) evaluationSourceExtractionInProgress(ctx context.Context, versionID string) (bool, error) {
+	var inProgress bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM attachments
+			WHERE notice_version_id = $1
+			  AND extraction_status IN ('pending','processing')
+			  AND created_at > $2)`,
+		versionID, time.Now().Add(-evalPendingExtractionMaxAge)).Scan(&inProgress)
+	if err != nil {
+		return false, err
+	}
+	return inProgress, nil
 }
 
 // fetchEvaluationSourceDocs — 현재 버전의 첨부 extracted_text(있는 것만). 제안요청서/
@@ -300,6 +328,13 @@ func (s *Server) getOrExtractEvaluationCriteria(ctx context.Context, versionID s
 		if err != nil {
 			return nil, "", err
 		}
+		if status2 == "" {
+			// 선행 요청이 아무것도 저장하지 않고 끝남 = 첨부 텍스트 추출 진행 중(pending, 미저장) —
+			// 대기자도 같은 판단을 돌려준다(빈 상태를 "평가기준 없음"으로 오해하지 않게).
+			if inProgress, err := s.evaluationSourceExtractionInProgress(ctx, versionID); err == nil && inProgress {
+				return nil, evalStatusPending, nil
+			}
+		}
 		return set2, status2, nil
 	}
 	defer releaseEvalInflight(versionID, ch)
@@ -307,13 +342,25 @@ func (s *Server) getOrExtractEvaluationCriteria(ctx context.Context, versionID s
 	if set3, status3, at3, err := s.fetchStoredEvaluationCriteria(ctx, versionID); err == nil && evalCachedDecision(set3, status3, at3, force) {
 		return set3, status3, nil
 	}
-	if evalExtractionObserver != nil {
-		evalExtractionObserver(versionID)
-	}
 	// prevFound — 강제 재추출이 실패해도 기존 완료 결과는 덮어쓰지 않는다.
 	var prevFound *evaluationCriteriaSet
 	if status == evalStatusFound && set != nil {
 		prevFound = set
+	}
+	// 첨부 텍스트 추출이 아직 진행 중이면 판단을 보류한다(모델 호출 0·저장 0). 이 시점에 추출하면
+	// 제안요청서가 도착하기 전의 공고서만으로 not_found(6h 부정 캐시)나 부분 결과 found(영구 캐시)를
+	// 만들 수 있다. 이미 found가 있으면(강제 재확인) 기존 결과를 그대로 돌려주고, 새 첨부 텍스트가
+	// 다 도착한 뒤의 재확인에서 재추출한다.
+	if inProgress, err := s.evaluationSourceExtractionInProgress(ctx, versionID); err != nil {
+		return nil, "", err
+	} else if inProgress {
+		if prevFound != nil {
+			return prevFound, evalStatusFound, nil
+		}
+		return nil, evalStatusPending, nil
+	}
+	if evalExtractionObserver != nil {
+		evalExtractionObserver(versionID)
 	}
 	docs, err := s.fetchEvaluationSourceDocs(ctx, versionID)
 	if err != nil {

@@ -12909,10 +12909,15 @@ function renderProposalReadiness(box, noticeId, notice, data) {
       </ul>
     </div>` : '';
   if (data.status !== 'ready') {
+    // criteriaStatus=pending: 첨부파일 텍스트 추출이 아직 진행 중(서버가 판단을 보류, 부정 캐시 없음)
+    // → "찾지 못함"이 아니라 "분석 중"으로 안내한다. 그 외는 기존 문구.
+    const pendingText = data.criteriaStatus === 'pending';
     box.appendChild(h(`
       <div class="prop-empty">
-        <p class="prop-empty-title">평가기준을 확인할 수 없습니다.</p>
-        <p>현재 수집된 공고자료에서 제안서 평가기준을 찾지 못했습니다.<br>공고 첨부파일의 제안요청서 또는 평가표를 확인해 주세요.</p>
+        <p class="prop-empty-title">${pendingText ? '첨부파일을 분석하고 있습니다.' : '평가기준을 확인할 수 없습니다.'}</p>
+        <p>${pendingText
+          ? '공고 첨부파일의 내용을 아직 정리하는 중입니다.<br>잠시 후 다시 확인해 주세요.'
+          : '현재 수집된 공고자료에서 제안서 평가기준을 찾지 못했습니다.<br>공고 첨부파일의 제안요청서 또는 평가표를 확인해 주세요.'}</p>
         <div class="prop-intro-actions">
           <a href="#section-documents" class="btn btn-secondary" id="prop-goto-attachments">첨부파일 확인</a>
           <button type="button" class="btn btn-ghost btn-sm" id="prop-recheck">다시 확인</button>

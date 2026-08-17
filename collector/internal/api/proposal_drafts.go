@@ -682,9 +682,16 @@ func (s *Server) handleProposalReadiness(w http.ResponseWriter, r *http.Request)
 		drafts = []map[string]any{}
 	}
 	if set == nil || status != evalStatusFound || len(set.Criteria) == 0 {
+		// criteriaStatus=pending: 첨부 텍스트 추출(워커)이 아직 진행 중이라 판단을 보류한 상태 —
+		// "찾지 못함"이 아니라 "아직 분석 중"이며 부정 캐시 없이 다음 확인에서 정상 추출된다.
+		// 최상위 status는 기존 계약(ready | no_criteria)을 유지하고 문구/criteriaStatus로만 구분한다.
+		message := "현재 수집된 공고자료에서 제안서 평가기준을 찾지 못했습니다. 공고 첨부파일의 제안요청서 또는 평가표를 확인해 주세요."
+		if status == evalStatusPending {
+			message = "첨부파일을 분석하고 있습니다. 잠시 후 다시 확인해 주세요."
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "no_criteria", "criteriaStatus": status, "notice": notice, "drafts": drafts,
-			"message": "현재 수집된 공고자료에서 제안서 평가기준을 찾지 못했습니다. 공고 첨부파일의 제안요청서 또는 평가표를 확인해 주세요.",
+			"message": message,
 		})
 		return
 	}

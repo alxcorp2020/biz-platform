@@ -466,3 +466,263 @@ func TestEvaluationCriteria_ConcurrentExtractionDedup(t *testing.T) {
 		t.Fatalf("not_found within TTL must not re-extract, ran %d", got)
 	}
 }
+
+// TestEvaluationCriteria_PendingExtractionNoNegativeCache — 첨부 텍스트 추출(워커)이 아직 진행 중이면
+// readiness/추출이 not_found를 저장하거나 모델을 호출하지 않고 pending을 돌려준다(부정 캐시 금지).
+// 추출이 끝나면(completed) 기존 not_found/found 정책이 그대로 적용된다.
+func TestEvaluationCriteria_PendingExtractionNoNegativeCache(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+	ctx := context.Background()
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	if err := migrate.Apply(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	srv := &Server{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	must := func(q string, args ...any) string {
+		var id string
+		if err := db.QueryRowContext(ctx, q, args...).Scan(&id); err != nil {
+			t.Fatalf("seed [%.60s]: %v", q, err)
+		}
+		return id
+	}
+	var sourceID string
+	if err := db.QueryRowContext(ctx, `SELECT id FROM data_sources LIMIT 1`).Scan(&sourceID); err != nil {
+		t.Fatalf("data_sources: %v", err)
+	}
+	tag := time.Now().Format("150405.000000")
+	ext := "PROPTEST-PEND-" + tag
+	nid := must(`INSERT INTO notices (source_id, external_notice_id, notice_type, title, organization_name, current_version) VALUES ($1,$2,'procurement','추출대기 테스트','기관',1) RETURNING id`, sourceID, ext)
+	defer func() {
+		_, _ = db.ExecContext(ctx, `DELETE FROM attachments WHERE notice_version_id IN (SELECT id FROM notice_versions WHERE notice_id = $1)`, nid)
+		_, _ = db.ExecContext(ctx, `DELETE FROM notice_versions WHERE notice_id = $1`, nid)
+		_, _ = db.ExecContext(ctx, `DELETE FROM raw_documents WHERE external_notice_id = $1`, ext)
+		_, _ = db.ExecContext(ctx, `DELETE FROM notices WHERE id = $1`, nid)
+	}()
+	rawID := must(`INSERT INTO raw_documents (source_id, external_notice_id, request_url, response_status, raw_content, content_hash, collector_version) VALUES ($1,$2,'test://pend',200,'{}',$3,'test') RETURNING id`, sourceID, ext, "h-"+ext)
+	vid := must(`INSERT INTO notice_versions (notice_id, version_number, raw_document_id, change_type, is_current) VALUES ($1,1,$2,'initial',true) RETURNING id`, nid, rawID)
+	// 공고서는 이미 추출됨(anchor 없음), 제안요청서는 아직 pending — 실제 수집 직후 상태.
+	must(`INSERT INTO attachments (notice_version_id, original_filename, stored_filename, file_hash, download_status, extraction_status, analysis_status, extracted_text) VALUES ($1,'공고서.pdf','a.pdf',$2,'completed','completed','completed','입찰에 부치는 사항. 참가자격 등.') RETURNING id`, vid, "fh-pa-"+tag)
+	rfpID := must(`INSERT INTO attachments (notice_version_id, original_filename, stored_filename, file_hash, download_status, extraction_status, analysis_status) VALUES ($1,'제안요청서.hwp','b.hwp',$2,'completed','pending','pending') RETURNING id`, vid, "fh-pb-"+tag)
+
+	var runs int32
+	evalExtractionObserver = func(v string) {
+		if v == vid {
+			atomic.AddInt32(&runs, 1)
+		}
+	}
+	defer func() { evalExtractionObserver = nil }()
+	storedStatus := func() string {
+		var st sql.NullString
+		_ = db.QueryRowContext(ctx, `SELECT evaluation_criteria_status FROM notice_versions WHERE id = $1`, vid).Scan(&st)
+		return st.String
+	}
+
+	// 1) pending → pending 반환, 저장 없음, 추출(모델/규칙) 0회. force(refresh=1)여도 동일.
+	for _, force := range []bool{false, true, false} {
+		set, st, err := srv.getOrExtractEvaluationCriteria(ctx, vid, force)
+		if err != nil || st != evalStatusPending || set != nil {
+			t.Fatalf("pending expected (force=%v): st=%s set=%v err=%v", force, st, set, err)
+		}
+	}
+	if storedStatus() != "" {
+		t.Fatalf("pending must not be stored, got %q", storedStatus())
+	}
+	if got := atomic.LoadInt32(&runs); got != 0 {
+		t.Fatalf("no extraction while pending, ran %d", got)
+	}
+	// 2) processing(워커가 claim) → 동일.
+	if _, err := db.ExecContext(ctx, `UPDATE attachments SET extraction_status='processing' WHERE id=$1`, rfpID); err != nil {
+		t.Fatal(err)
+	}
+	if _, st, err := srv.getOrExtractEvaluationCriteria(ctx, vid, false); err != nil || st != evalStatusPending {
+		t.Fatalf("processing → pending expected: %s %v", st, err)
+	}
+	if storedStatus() != "" || atomic.LoadInt32(&runs) != 0 {
+		t.Fatalf("processing must not store/extract: stored=%q runs=%d", storedStatus(), atomic.LoadInt32(&runs))
+	}
+	// 5) pending 상태 동시 호출 → 전원 pending, 저장 0, 추출 0(inflight 경로 회귀 없음).
+	{
+		const n = 8
+		var wg sync.WaitGroup
+		statuses := make([]string, n)
+		for i := 0; i < n; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				_, statuses[i], _ = srv.getOrExtractEvaluationCriteria(ctx, vid, false)
+			}(i)
+		}
+		wg.Wait()
+		for i, st := range statuses {
+			if st != evalStatusPending {
+				t.Fatalf("concurrent caller %d: %s", i, st)
+			}
+		}
+		if storedStatus() != "" || atomic.LoadInt32(&runs) != 0 {
+			t.Fatalf("concurrent pending must not store/extract: stored=%q runs=%d", storedStatus(), atomic.LoadInt32(&runs))
+		}
+	}
+	// 3) 추출 완료됐지만 평가기준 source 없음 → 기존 not_found + 저장(6h TTL) 정책 유지, 추출 1회.
+	if _, err := db.ExecContext(ctx, `UPDATE attachments SET extraction_status='completed', extracted_text='과업 범위와 일정만 기술. 배점표 없음.' WHERE id=$1`, rfpID); err != nil {
+		t.Fatal(err)
+	}
+	if _, st, err := srv.getOrExtractEvaluationCriteria(ctx, vid, false); err != nil || st != evalStatusNotFound {
+		t.Fatalf("completed without source → not_found expected: %s %v", st, err)
+	}
+	if storedStatus() != evalStatusNotFound || atomic.LoadInt32(&runs) != 1 {
+		t.Fatalf("not_found policy: stored=%q runs=%d", storedStatus(), atomic.LoadInt32(&runs))
+	}
+	// 4) source 도착(제안요청서에 배점표) + refresh=1(force) → 기존 found 경로(규칙 폴백), 저장 found.
+	if _, err := db.ExecContext(ctx, `UPDATE attachments SET extracted_text=E'평가항목 및 배점\n1) 사업 이해도 (20점)\n2) 수행계획 (30점)\n3) 수행실적 (50점)\n' WHERE id=$1`, rfpID); err != nil {
+		t.Fatal(err)
+	}
+	set, st, err := srv.getOrExtractEvaluationCriteria(ctx, vid, true)
+	if err != nil || st != evalStatusFound || set == nil || len(set.Criteria) != 3 {
+		t.Fatalf("found expected after source arrives: %s %v %v", st, err, set)
+	}
+	if storedStatus() != evalStatusFound || atomic.LoadInt32(&runs) != 2 {
+		t.Fatalf("found policy: stored=%q runs=%d", storedStatus(), atomic.LoadInt32(&runs))
+	}
+	// 6) found 이후 새 첨부가 다시 pending(정정 등)이어도 기존 found 유지(덮어쓰기/pending 강등 없음).
+	must(`INSERT INTO attachments (notice_version_id, original_filename, stored_filename, file_hash, download_status, extraction_status, analysis_status) VALUES ($1,'정정첨부.hwp','c.hwp',$2,'completed','pending','pending') RETURNING id`, vid, "fh-pc-"+tag)
+	if set2, st2, err := srv.getOrExtractEvaluationCriteria(ctx, vid, true); err != nil || st2 != evalStatusFound || set2 == nil || len(set2.Criteria) != 3 {
+		t.Fatalf("found must be kept while new attachment pending: %s %v", st2, err)
+	}
+	if atomic.LoadInt32(&runs) != 2 {
+		t.Fatalf("no re-extraction while pending after found, ran %d", atomic.LoadInt32(&runs))
+	}
+	// 7) 오래된(48h 초과) pending 첨부만 남은 버전 → 진행 중으로 보지 않음(기존 not_found 정책).
+	rawID2 := must(`INSERT INTO raw_documents (source_id, external_notice_id, request_url, response_status, raw_content, content_hash, collector_version) VALUES ($1,$2,'test://pend2',200,'{}',$3,'test') RETURNING id`, sourceID, ext, "h2-"+ext)
+	vid2 := must(`INSERT INTO notice_versions (notice_id, version_number, raw_document_id, change_type, is_current) VALUES ($1,2,$2,'correction',false) RETURNING id`, nid, rawID2)
+	must(`INSERT INTO attachments (notice_version_id, original_filename, stored_filename, file_hash, download_status, extraction_status, analysis_status, created_at) VALUES ($1,'오래된.hwp','d.hwp',$2,'completed','pending','pending', now() - interval '3 days') RETURNING id`, vid2, "fh-pd-"+tag)
+	if _, st3, err := srv.getOrExtractEvaluationCriteria(ctx, vid2, false); err != nil || st3 != evalStatusNotFound {
+		t.Fatalf("stale pending (>48h) must fall back to not_found: %s %v", st3, err)
+	}
+}
+
+// TestProposalReadiness_PendingThenCompleted_NoRefreshResumes — 핵심 acceptance:
+// 첨부 pending 상태에서 일반 readiness(refresh 없음) → criteriaStatus=pending·DB 미저장·추출 0
+// → fixture로 첨부를 completed+usable 텍스트로 전환(Cron 대체) → 다시 일반 readiness(refresh 없음)
+// → 정상 추출 found(저장·추출 1회) → 세 번째 일반 호출 → found 캐시(추출 추가 0).
+func TestProposalReadiness_PendingThenCompleted_NoRefreshResumes(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+	ctx := context.Background()
+	t.Setenv("ANTHROPIC_API_KEY", "") // 규칙 추출 경로(외부 호출 없음)
+	if err := migrate.Apply(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	srv := &Server{db: db, logger: slog.New(slog.NewTextHandler(io.Discard, nil)), sessionSecret: []byte("proposal-test-secret-0123456789abcdef")}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/notices/{id}/proposal-readiness", srv.handleProposalReadiness)
+	must := func(q string, args ...any) string {
+		var id string
+		if err := db.QueryRowContext(ctx, q, args...).Scan(&id); err != nil {
+			t.Fatalf("seed [%.60s]: %v", q, err)
+		}
+		return id
+	}
+	tag := time.Now().Format("150405.000000")
+	ext := "PROPTEST-ACC-" + tag
+	var userID, profileID, nid string
+	defer func() {
+		if nid != "" {
+			_, _ = db.ExecContext(ctx, `DELETE FROM proposal_drafts WHERE notice_id = $1`, nid)
+			_, _ = db.ExecContext(ctx, `DELETE FROM attachments WHERE notice_version_id IN (SELECT id FROM notice_versions WHERE notice_id = $1)`, nid)
+			_, _ = db.ExecContext(ctx, `DELETE FROM notice_versions WHERE notice_id = $1`, nid)
+			_, _ = db.ExecContext(ctx, `DELETE FROM notices WHERE id = $1`, nid)
+		}
+		_, _ = db.ExecContext(ctx, `DELETE FROM raw_documents WHERE external_notice_id = $1`, ext)
+		if profileID != "" {
+			_, _ = db.ExecContext(ctx, `DELETE FROM subscriptions WHERE company_profile_id = $1`, profileID)
+			_, _ = db.ExecContext(ctx, `DELETE FROM company_members WHERE company_profile_id = $1`, profileID)
+			_, _ = db.ExecContext(ctx, `DELETE FROM company_profiles WHERE id = $1`, profileID)
+		}
+		if userID != "" {
+			_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
+		}
+	}()
+	userID = must(`INSERT INTO users (email, password_hash, role, plan) VALUES ($1,'x','user','free') RETURNING id`, "acc-"+tag+"@proposal.test")
+	profileID = must(`INSERT INTO company_profiles (user_id, company_name, representative_name, address, region, industry, business_type) VALUES ($1,'수락 테스트 주식회사','홍길동','서울시 테스트구','서울','{"행사기획"}','{"서비스업"}') RETURNING id`, userID)
+	must(`INSERT INTO company_members (company_profile_id, user_id, role) VALUES ($1,$2,'owner') RETURNING id`, profileID, userID)
+	must(`INSERT INTO subscriptions (company_profile_id, plan, status, started_at, expires_at, amount) VALUES ($1,'basic','active', now(), now() + interval '30 days', 19900) RETURNING id`, profileID)
+	var sourceID string
+	if err := db.QueryRowContext(ctx, `SELECT id FROM data_sources LIMIT 1`).Scan(&sourceID); err != nil {
+		t.Fatalf("data_sources: %v", err)
+	}
+	nid = must(`INSERT INTO notices (source_id, external_notice_id, notice_type, title, organization_name, budget_amount, current_version, success_bid_method_name) VALUES ($1,$2,'procurement','수락 테스트 용역','테스트발주기관',50000000,1,'협상에 의한 계약') RETURNING id`, sourceID, ext)
+	rawID := must(`INSERT INTO raw_documents (source_id, external_notice_id, request_url, response_status, raw_content, content_hash, collector_version) VALUES ($1,$2,'test://acc',200,'{}',$3,'test') RETURNING id`, sourceID, ext, "h-"+ext)
+	vid := must(`INSERT INTO notice_versions (notice_id, version_number, raw_document_id, change_type, is_current) VALUES ($1,1,$2,'initial',true) RETURNING id`, nid, rawID)
+	// 1) 수집 직후: 제안요청서 첨부는 pending, extracted_text 없음.
+	attID := must(`INSERT INTO attachments (notice_version_id, original_filename, stored_filename, file_hash, download_status, extraction_status, analysis_status) VALUES ($1,'제안요청서.hwp','x.hwp',$2,'completed','pending','pending') RETURNING id`, vid, "fh-acc-"+tag)
+
+	var runs int32
+	evalExtractionObserver = func(v string) {
+		if v == vid {
+			atomic.AddInt32(&runs, 1)
+		}
+	}
+	defer func() { evalExtractionObserver = nil }()
+
+	readiness := func() (int, map[string]any) {
+		req := httptest.NewRequest("GET", "/api/notices/"+nid+"/proposal-readiness", nil) // refresh 없음
+		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: srv.signSession(userID, time.Now().Add(time.Hour))})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		var m map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &m)
+		return rec.Code, m
+	}
+	stored := func() (status string, hasAt bool, hasSet bool) {
+		var st sql.NullString
+		var at sql.NullTime
+		var set []byte
+		_ = db.QueryRowContext(ctx, `SELECT evaluation_criteria_status, evaluation_criteria_extracted_at, evaluation_criteria FROM notice_versions WHERE id = $1`, vid).Scan(&st, &at, &set)
+		return st.String, at.Valid, len(set) > 0
+	}
+
+	// 2) 일반 readiness → pending, DB 미저장(status/extracted_at/criteria 전부 NULL), 추출 0.
+	code, m := readiness()
+	if code != 200 || m["status"] != "no_criteria" || m["criteriaStatus"] != evalStatusPending {
+		t.Fatalf("step2 pending expected: %d %v", code, m)
+	}
+	if !strings.Contains(m["message"].(string), "분석하고 있습니다") {
+		t.Fatalf("step2 message: %v", m["message"])
+	}
+	if st, hasAt, hasSet := stored(); st != "" || hasAt || hasSet {
+		t.Fatalf("step2 must not persist anything: status=%q extracted_at=%v criteria=%v", st, hasAt, hasSet)
+	}
+	if got := atomic.LoadInt32(&runs); got != 0 {
+		t.Fatalf("step2 extraction must not run, ran %d", got)
+	}
+	// 3) Cron 대체: 같은 첨부를 completed + usable 텍스트로 전환(fixture만 변경).
+	if _, err := db.ExecContext(ctx, `UPDATE attachments SET extraction_status='completed', extracted_text=E'제안요청서\n3. 평가항목 및 배점기준\n1) 사업 이해도 (20점)\n2) 수행계획의 적정성 (25점)\n3) 전문인력 (20점)\n4) 유사사업 수행실적 (20점)\n5) 사후관리 (15점)\n계 100\n', extraction_completed_at=now() WHERE id=$1`, attID); err != nil {
+		t.Fatal(err)
+	}
+	// 4) 다시 일반 readiness(refresh 없음) → 정상 추출 found, 저장 found, 추출 정확히 1회.
+	code, m = readiness()
+	if code != 200 || m["status"] != "ready" {
+		t.Fatalf("step4 found expected without refresh: %d %v", code, m)
+	}
+	if crit, ok := m["criteria"].([]any); !ok || len(crit) != 5 {
+		t.Fatalf("step4 criteria: %v", m["criteria"])
+	}
+	if st, hasAt, hasSet := stored(); st != evalStatusFound || !hasAt || !hasSet {
+		t.Fatalf("step4 must persist found: status=%q extracted_at=%v criteria=%v", st, hasAt, hasSet)
+	}
+	if got := atomic.LoadInt32(&runs); got != 1 {
+		t.Fatalf("step4 extraction must run exactly once, ran %d", got)
+	}
+	// 5) 세 번째 일반 호출 → found 캐시 재사용, 추출 추가 0.
+	code, m = readiness()
+	if code != 200 || m["status"] != "ready" {
+		t.Fatalf("step5 cached found: %d %v", code, m)
+	}
+	if got := atomic.LoadInt32(&runs); got != 1 {
+		t.Fatalf("step5 must reuse cache, ran %d", got)
+	}
+	if st, _, _ := stored(); st != evalStatusFound {
+		t.Fatalf("step5 stored: %q", st)
+	}
+}
