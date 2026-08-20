@@ -81,6 +81,9 @@
     --radius-card: 20px;
     --shadow-soft: 0 1px 2px rgba(0,0,0,0.03);
     --sidebar-width: 240px;
+    /* 공개 페이지 narrow 본문 폭(2026-08-18): .landing-container(1100px)=공개 전체 컨테이너,
+       narrow=검색/상세처럼 읽기 폭을 제한하는 본문. 페이지 전용 magic number 승격. */
+    --layout-content-narrow: 860px;
 
     /* ── Toss 계열 시각 정리 토큰(CSS ONLY, 2026-08-12) — 기존 색/토큰을 재사용하는
        의미별칭 + spacing/radius 스케일. 색은 기존 flip-aware 변수를 가리켜 다크모드 자동 대응. ── */
@@ -4071,20 +4074,25 @@
   .public-section > .public-section-desc { font-size: 0.95rem; color: var(--ink-soft); line-height: 1.7; margin: 0 0 1.25rem; max-width: 720px; }
   .public-card {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-soft); padding: 22px 24px;
+    box-shadow: var(--shadow-soft); padding: 1.75rem 1.5rem; /* landing-feature-card와 동일(공개 정보 카드 공통) */
   }
   .public-card h3 { font-size: 1rem; font-weight: 700; color: var(--ink); margin: 0 0 0.4rem; }
   .public-card p { font-size: 0.9rem; color: var(--ink-soft); line-height: 1.7; margin: 0; }
   .public-card .public-card-icon { width: 36px; height: 36px; border-radius: 10px; background: rgba(49,130,246,0.1); color: var(--accent-blue); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 0.8rem; }
   .public-card .public-card-icon svg { width: 20px; height: 20px; }
-  .public-inset { background: var(--bg-soft); border-radius: var(--radius-md); padding: 14px 16px; font-size: 0.88rem; color: var(--ink-soft); line-height: 1.65; }
+  .public-inset { background: var(--bg-soft); border-radius: var(--radius-md); padding: 0.75rem 1rem; font-size: 0.88rem; color: var(--ink-soft); line-height: 1.65; } /* padding=extraction-banner와 동일(연배경 보조 영역 공통) */
   .public-inset + .public-inset { margin-top: 0.6rem; }
   .public-panel {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-soft); padding: 28px 28px 24px;
+    box-shadow: var(--shadow-soft); padding: 1.75rem 1.75rem 1.5rem;
   }
   .public-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
   .public-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+  /* 문의 페이지 폼(1.6fr)+운영 안내(1fr) 레이아웃 — inline style이 600px 이하 1열 미디어쿼리를
+     덮어쓰던 문제 수정(2026-08-18): 데스크톱/태블릿만 여기서 열 비율을 정하고, 600px 이하는
+     아래 공통 1fr 규칙이 그대로 적용된다. */
+  .contact-layout { grid-template-columns: 1.6fr 1fr; align-items: start; }
+  @media (max-width: 600px) { .contact-layout { grid-template-columns: 1fr; } }
   .public-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
   @media (max-width: 899px) { .public-grid-3, .public-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 600px) { .public-grid-3, .public-grid-2, .public-grid-4 { grid-template-columns: 1fr; } .public-page-header h1 { font-size: 1.55rem; } .public-page-header { padding: 2.25rem 0 1.5rem; } }
@@ -4099,9 +4107,9 @@
   .public-step p { margin: 0; font-size: 0.88rem; color: var(--ink-soft); line-height: 1.65; }
   @media (max-width: 899px) { .public-steps { grid-template-columns: 1fr; } }
   .public-badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; border: 1px solid transparent; }
-  .public-badge--ok { background: rgba(31,138,95,0.1); color: var(--success); }
+  .public-badge--ok { background: rgba(31,138,95,0.12); color: var(--success); } /* badge--success와 동일 */
   .public-badge--warn { background: rgba(196,132,29,0.12); color: var(--warn); }
-  .public-badge--info { background: rgba(49,130,246,0.1); color: var(--accent-blue); }
+  .public-badge--info { background: rgba(49,130,246,0.12); color: var(--accent-blue); } /* badge--blue와 동일 */
   .public-badge--muted { background: var(--bg-soft); color: var(--ink-soft); border-color: var(--border); }
   .public-example-list { display: flex; flex-direction: column; gap: 0.6rem; margin: 0; padding: 0; list-style: none; }
   .public-example-list li { display: flex; align-items: flex-start; gap: 0.6rem; font-size: 0.9rem; color: var(--ink); line-height: 1.6; }
@@ -4114,17 +4122,17 @@
   .public-cta-band h2 { color: #fff; margin: 0 0 0.6rem; font-size: 1.4rem; }
   .public-cta-band p { color: rgba(255,255,255,0.88); margin: 0 0 1.25rem; }
   .public-cta-band .home-cta-primary { background: #fff; color: var(--accent-blue-deep); }
-  .public-cta-band .home-cta-primary:hover { background: #f1f5ff; }
-  .public-screenshot { border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); box-shadow: 0 16px 40px rgba(20,33,61,0.12); background: var(--surface); }
+  .public-cta-band .home-cta-primary:hover { background: var(--bg-soft); }
+  .public-screenshot { border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); box-shadow: 0 24px 60px rgba(20,33,61,0.18); background: var(--surface); } /* landing-browser-frame과 동일 */
   .public-screenshot img { display: block; width: 100%; height: auto; }
-  .public-page-body { max-width: 860px; margin: 0 auto; }
-  .public-page-header.is-narrow { max-width: 860px; margin-left: auto; margin-right: auto; }
+  .public-page-body { max-width: var(--layout-content-narrow); margin: 0 auto; }
+  .public-page-header.is-narrow { max-width: var(--layout-content-narrow); margin-left: auto; margin-right: auto; }
   .public-page-header.is-compact { padding-bottom: 0.5rem; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   /* 공개 공고 검색/상세: 앱과 같은 renderList/renderDetail 재사용 — 게스트에게는 행동만 다르다. */
   .public-guest-gate {
     background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius-lg);
-    padding: 20px 22px; margin: 0.5rem 0;
+    padding: var(--space-md) 1.5rem; margin: 0.5rem 0;
   }
   .public-guest-gate p { margin: 0 0 0.9rem; font-size: 0.92rem; color: var(--ink); line-height: 1.6; }
   .public-guest-gate .public-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
@@ -4141,7 +4149,7 @@
   @media (max-width: 1000px) { .pricing-plan-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
   @media (max-width: 560px) { .pricing-plan-grid { grid-template-columns: 1fr; } }
   .pricing-plan { position: relative; display: flex; flex-direction: column; }
-  .pricing-plan--highlight { border-color: var(--accent-blue); box-shadow: 0 8px 28px rgba(49,130,246,0.14); }
+  .pricing-plan--highlight { border-color: var(--accent-blue); box-shadow: 0 4px 20px rgba(49,130,246,0.15); } /* landing-plan-card--highlight와 동일 */
   .pricing-plan--current { border-color: var(--success); }
   .pricing-plan .pricing-plan-name { font-size: 1.05rem; font-weight: 800; color: var(--navy); margin: 0 0 0.25rem; display: flex; align-items: center; gap: 0.5rem; }
   .pricing-plan .pricing-plan-price { font-size: 1.6rem; font-weight: 800; color: var(--ink); margin: 0.2rem 0 0.9rem; }
@@ -4150,13 +4158,15 @@
   .pricing-plan ul li { font-size: 0.86rem; color: var(--ink-soft); padding-left: 1.2rem; position: relative; }
   .pricing-plan ul li::before { content: '✓'; position: absolute; left: 0; color: var(--accent-blue); font-weight: 800; }
   .pricing-plan .pricing-plan-cta { display: block; text-align: center; }
-  .pricing-plan .pricing-plan-current { display: inline-block; text-align: center; padding: 0.6rem; border-radius: 10px; background: rgba(31,138,95,0.1); color: var(--success); font-weight: 700; font-size: 0.9rem; }
+  .pricing-plan .pricing-plan-current { display: inline-block; text-align: center; padding: 0.6rem; border-radius: 10px; background: rgba(31,138,95,0.12); color: var(--success); font-weight: 700; font-size: 0.9rem; }
   /* 문의 폼(Work Panel) */
   .contact-form { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 1.25rem; }
   .contact-form label { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; color: var(--ink); }
   .contact-form label.is-wide { grid-column: 1 / -1; }
+  /* 기존 공통 폼(.auth-form input/.profile-form input: padding 0.8rem 0.9rem, radius 12px,
+     font-size 0.95rem, border/focus 동일)과 정합. 배경은 base와 같은 var(--surface). */
   .contact-form input, .contact-form select, .contact-form textarea {
-    font: inherit; font-size: 0.95rem; padding: 0.7rem 0.85rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--ink);
+    font: inherit; font-size: 0.95rem; padding: 0.8rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--ink);
   }
   .contact-form textarea { min-height: 160px; resize: vertical; }
   .contact-form input:focus, .contact-form select:focus, .contact-form textarea:focus { outline: 2px solid var(--accent-blue); outline-offset: 1px; border-color: var(--accent-blue); }
@@ -4166,7 +4176,7 @@
   .contact-form .required-mark { color: var(--danger); margin-left: 0.15rem; }
   .contact-form .contact-label { display: block; }
   .contact-honeypot { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
-  @media (max-width: 640px) { .contact-form { grid-template-columns: 1fr; } .public-panel { padding: 20px 18px; } }
+  @media (max-width: 640px) { .contact-form { grid-template-columns: 1fr; } .public-panel { padding: var(--space-md); } }
   .contact-info-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.9rem; color: var(--ink-soft); }
   /* 앱 전용 404 / 권한 없음 */
   .app-not-found { text-align: center; padding: 4rem 1rem; }
@@ -4242,7 +4252,7 @@ const ROUTES = {
   terms: '#/terms', privacy: '#/privacy',
   login: '#/auth/login', signup: '#/auth/signup',
   // App
-  appDashboard: '#/app/dashboard', appNotices: '#/app/notices',
+  appDashboard: '#/app/dashboard', appSearch: '#/app/search', appNotices: '#/app/notices',
   appPipeline: '#/app/pipeline', appProposals: '#/app/proposals', appCompany: '#/app/company',
   appBilling: '#/app/billing',
   notifications: '#/notifications', calendar: '#/calendar', growth: '#/growth', account: '#/me/account',
@@ -4266,11 +4276,17 @@ const LEGACY_ROUTE_REDIRECTS = {
   '#/app/saved-notices': ROUTES.appPipeline,
 };
 // 공개 마케팅/정보 페이지: 로그인 여부와 무관하게 Public Layout(공개 헤더/푸터).
-const PUBLIC_LAYOUT_ROUTES = new Set([ROUTES.home, ROUTES.matching, ROUTES.features, ROUTES.pricing, ROUTES.contact, ROUTES.terms, ROUTES.privacy, ROUTES.announcements]);
-// 공유 라우트: 비로그인은 Public Layout, 로그인은 App Shell(같은 renderer — 로그인 여부로 데이터
-// 표현을 바꾸지 않고 이용 가능한 행동만 달라진다). 공고 검색/상세.
+const PUBLIC_LAYOUT_ROUTES = new Set([ROUTES.home, ROUTES.notices, ROUTES.matching, ROUTES.features, ROUTES.pricing, ROUTES.contact, ROUTES.terms, ROUTES.privacy, ROUTES.announcements]);
+// 공고 검색은 두 개다(2026-08-18 후속 지시): 공개 영역 #/notices(항상 Public Layout, 노출 제한 —
+// 참여 가능 여부/추천 사유/참여 준비 담기/맞춤 추천 없음)와 앱 영역 #/app/search(App Shell, 전체 기능).
+// 공고 상세 #/notices/{id}만 공유 라우트: 비로그인=Public Layout(제한), 로그인=App Shell(전체) —
+// 대시보드/파이프라인/이메일의 기존 상세 딥링크를 그대로 살리기 위함.
 function isSharedNoticeRoute(path) {
-  return path === ROUTES.notices || (path.startsWith('#/notices/') && !path.endsWith('/report'));
+  return path.startsWith('#/notices/') && !path.endsWith('/report');
+}
+// noticeSearchHref — 앱 내부 링크가 가리킬 공고 검색 경로(로그인=앱 검색, 비회원=공개 검색).
+function noticeSearchHref(query) {
+  return (currentUser ? ROUTES.appSearch : ROUTES.notices) + (query ? '?' + query : '');
 }
 function isAdminRoute(path) { return path === ROUTES.admin || path.startsWith('#/admin/'); }
 function isAuthRoute(path) { return path.startsWith('#/auth/'); }
@@ -4590,7 +4606,7 @@ const SIDEBAR_ICONS = {
 // "제안서"(#/app/proposals)는 이번에 신설된 초안 목록 허브.
 const SIDEBAR_MENU = [
   { path: ROUTES.appDashboard, label: '대시보드', icon: 'home' },
-  { path: ROUTES.notices, label: '공고 검색', icon: 'search', match: ['#/notices'] },
+  { path: ROUTES.appSearch, label: '공고 검색', icon: 'search', match: ['#/app/search', '#/notices/'] },
   { path: ROUTES.appNotices, label: '맞춤공고', icon: 'bookmark' },
   { path: ROUTES.appPipeline, label: '참여 준비', icon: 'pipeline', match: ['#/app/pipeline', '#/pipeline/'] },
   { path: ROUTES.appProposals, label: '제안서', icon: 'profile', match: ['#/app/proposals', '#/proposal-drafts/'] },
@@ -4609,7 +4625,7 @@ const SIDEBAR_MENU = [
 // 사이드바와 동일 아이콘)로 바뀌었다.
 const TABBAR_MENU = [
   { path: ROUTES.appDashboard, label: '대시보드', icon: 'home' },
-  { path: ROUTES.notices, label: '검색', icon: 'search', match: ['#/notices'] },
+  { path: ROUTES.appSearch, label: '검색', icon: 'search', match: ['#/app/search', '#/notices/'] },
   { path: ROUTES.appPipeline, label: '참여준비', icon: 'pipeline', match: ['#/app/pipeline', '#/pipeline/'] },
   { path: ROUTES.notifications, label: '알림', icon: 'bell' },
   { path: ROUTES.appNotices, label: '맞춤공고', icon: 'bookmark' },
@@ -5831,7 +5847,7 @@ function publicBidFitBannerHtml(fit) {
     ? '음식점·카페·미용실 등 일반 소비자 대상 업종은 나라장터 입찰 대상이 거의 없습니다. 대신 우리 앱에 모인 소상공인 지원사업 공고를 확인해보세요.'
     : '입찰 공고가 많지 않은 업종입니다. 소상공인 지원사업도 함께 확인해보세요.';
   // 인앱 지원사업(bizinfo 수집분) — 공고 검색의 지원사업 필터로 바로 이동(1순위 CTA).
-  const inAppCta = `<a href="#/notices?noticeType=support_program" class="public-bid-fit-link public-bid-fit-link--primary">앱에서 지원사업 공고 보기 →</a>`;
+  const inAppCta = `<a href="${noticeSearchHref('noticeType=support_program')}" class="public-bid-fit-link public-bid-fit-link--primary">앱에서 지원사업 공고 보기 →</a>`;
   const links = [
     { label: '기업마당(정부 지원사업)', url: 'https://www.bizinfo.go.kr' },
     { label: '소상공인마당', url: 'https://www.sbiz.or.kr' },
@@ -10481,6 +10497,11 @@ const REGION_OPTIONS = [
 // 불러온 항목 + 스크롤 위치"를 그대로 복원할 수 있다. key가 현재 검색
 // 조건(q/region/industry/sort)과 다르면 새 검색으로 보고 캐시를 버린다.
 let noticeListState = null;
+// noticeListPublicMode — 공개 영역 공고 검색(#/notices)일 때 true. renderList(container, {publicMode})가
+// 설정하며 noticeRowHtml/renderSearchTopReco/submit 경로가 참조한다: 공개 모드에서는 로그인 상태여도
+// 참여 판정 등급·추천 사유·참여 준비 담기·맞춤 추천 strip을 노출하지 않는다(로그인 후 검색 #/app/search와
+// 노출 범위를 명확히 구분). 목록 데이터(제목·기관·지역·예산·마감·원문)는 동일.
+let noticeListPublicMode = false;
 
 // searchTopRecoCache — 공고검색 상단 "내 회사에 맞는 입찰공고" strip이 재사용하는
 // GET /api/dashboard.recommendations의 세션 캐시(모듈 레벨). 검색/필터/정렬을 바꿀
@@ -10537,8 +10558,8 @@ async function renderSearchTopReco(container, noticeType) {
   const allHeading = document.getElementById('notice-all-heading');
   const hideAll = () => { if (allHeading) allHeading.hidden = true; }; // 추천 없으면 "전체 공고" 구분 heading도 숨김
   hideAll();
-  // 게이트: 미로그인/프로필 없음 → 숨김. 지원사업 필터 → 숨김(추천 데이터 자체가 없음).
-  if (!currentUser || !currentProfile) return;
+  // 게이트: 미로그인/프로필 없음 → 숨김. 공개 영역 검색(noticeListPublicMode) → 숨김. 지원사업 필터 → 숨김.
+  if (!currentUser || !currentProfile || noticeListPublicMode) return;
   if (noticeType === 'support_program') return;
 
   // 추천 데이터는 세션 캐시 재사용(없을 때 1회만 /api/dashboard 조회). 실패는 조용히 숨김.
@@ -10599,7 +10620,7 @@ async function renderSearchTopReco(container, noticeType) {
 const SAVED_SEARCH_ONLY_PARAMS = ['organizationName', 'budgetMin', 'budgetMax', 'keywordsInclude', 'keywordsExclude'];
 
 function noticeListKey(params) {
-  return params.toString();
+  return (noticeListPublicMode ? 'public|' : 'app|') + params.toString();
 }
 
 function noticeListApiParams(filterParams) {
@@ -10702,7 +10723,10 @@ function highlightMatch(text, q) {
   catch { return esc; }
 }
 
-function renderList(container) {
+function renderList(container, opts) {
+  opts = opts || {};
+  noticeListPublicMode = !!opts.publicMode;
+  const searchBasePath = noticeListPublicMode ? ROUTES.notices : ROUTES.appSearch;
   const params = new URLSearchParams(location.hash.split('?')[1] || '');
   const key = noticeListKey(params);
   const currentSort = params.get('sort') || 'new';
@@ -10724,7 +10748,8 @@ function renderList(container) {
 
   container.innerHTML = '';
   container.appendChild(h(`
-    ${savedSearchName ? `<div class="extraction-banner"><span aria-hidden="true">🔖</span> 맞춤공고 "${escapeHtml(savedSearchName)}" 조건 결과입니다 — <a href="#/me/saved-searches">맞춤공고 관리로 돌아가기</a></div>` : ''}
+    ${savedSearchName ? `<div class="extraction-banner"><span aria-hidden="true">🔖</span> 맞춤공고 "${escapeHtml(savedSearchName)}" 조건 결과입니다 — <a href="${ROUTES.appNotices}">맞춤공고 관리로 돌아가기</a></div>` : ''}
+    ${noticeListPublicMode && currentUser ? `<div class="extraction-banner"><span aria-hidden="true">ℹ</span> 공개 검색에서는 기본 정보만 보입니다. 참여 가능 여부·추천 사유·참여 준비 담기는 <a href="${ROUTES.appSearch}">앱의 공고 검색</a>에서 확인하세요.</div>` : ''}
     <form class="search-form" id="filter-form">
       <div class="search-bar">
         <div class="search-input-wrap">
@@ -10816,7 +10841,7 @@ function renderList(container) {
     addRecentSearch(fd.get('q')); // 검색어가 있으면 최근 검색어로 저장(빈 값은 무시)
     hideSearchSuggest();
     noticeListState = null; // 새 검색/정렬 — 이전 무한스크롤 캐시는 폐기
-    location.hash = '#/notices?' + p.toString();
+    location.hash = searchBasePath + '?' + p.toString();
   };
   filterForm.addEventListener('submit', (e) => { e.preventDefault(); submitFilterForm(); });
 
@@ -10948,20 +10973,22 @@ async function loadMoreNotices(listBody, key, filterParams, isFirstPage) {
 // 서버가 아예 grade를 안 내려주므로(server.go 참고) 그때는 자연히 빈
 // 문자열이라 배지가 안 뜬다 — 프론트에서 로그인 여부를 따로 안 봐도 됨.
 function noticeRowHtml(n, showMatchReasons) {
+  // 공개 영역 검색(noticeListPublicMode)에서는 로그인 여부와 무관하게 판정 등급·추천 사유·참여 준비 담기를 숨긴다.
+  if (noticeListPublicMode) showMatchReasons = false;
   const matchReasonsHtml = showMatchReasons && n.matchReasons && n.matchReasons.length
     ? `<div class="row-card-match-reasons">${n.matchReasons.map(r => `<span class="badge badge--blue">${escapeHtml(r)}</span>`).join('')}</div>`
     : '';
-  const gradeHtml = n.grade ? gradeBadgeHtml(n.grade, GRADE_LABELS[n.grade] || n.grade) : '';
+  const gradeHtml = (n.grade && !noticeListPublicMode) ? gradeBadgeHtml(n.grade, GRADE_LABELS[n.grade] || n.grade) : '';
   // 공동수급 검토 서브태그(배지). 등급/공동수급의 "사유 텍스트 줄"은 목록을 심플하게
   // 유지하려고 2026-08-08 카드에서 제거했다(사유는 공고 상세에서 확인).
-  const jointVentureBadgeHtml = n.jointVentureRecommended
+  const jointVentureBadgeHtml = (n.jointVentureRecommended && !noticeListPublicMode)
     ? '<span class="badge badge--warn" title="실적 규모가 이 공고 예산 대비 작아 보입니다 — 참고용 신호일 뿐 메인 등급은 그대로입니다">공동수급 검토 권장</span>'
     : '';
   // 목록에서 바로 "참여 검토"에 담기/취소(토글). 로그인 + 회사 프로필이 있을 때만
   // 노출. n.pipelineStatus(서버가 내려줌)로 새로고침 후에도 담김 상태를 반영한다 —
   // "제외"(취소됨)와 미담김은 참여검토로, 그 외 담긴 상태는 담김으로 본다.
   const inPipeline = !!(n.pipelineStatus && n.pipelineStatus !== '제외');
-  const pipelineBtnHtml = (currentUser && currentProfile)
+  const pipelineBtnHtml = (currentUser && currentProfile && !noticeListPublicMode)
     ? `<button type="button" class="btn btn-secondary btn-sm notice-row-pipeline-btn${inPipeline ? ' notice-row-pipeline-btn--active' : ''}" data-id="${escapeAttr(n.id)}" data-entry-id="${escapeAttr(n.pipelineEntryId || '')}" data-in-pipeline="${inPipeline ? 'true' : 'false'}" title="${inPipeline ? '담김 — 클릭하면 참여 준비 취소' : '참여 준비에 담기'}">${inPipeline ? '담김 ✓' : '참여 준비'}</button>`
     : '';
   return `
@@ -11594,7 +11621,7 @@ function savedSearchResultsHash(item) {
   if (item.keywordsInclude && item.keywordsInclude.length) p.set('keywordsInclude', item.keywordsInclude.join(','));
   if (item.keywordsExclude && item.keywordsExclude.length) p.set('keywordsExclude', item.keywordsExclude.join(','));
   p.set('savedSearchName', item.name);
-  return '#/notices?' + p.toString();
+  return noticeSearchHref(p.toString());
 }
 
 // savedSearchNotificationSummary — 카드에 보여줄 "알림 설정" 요약 줄.
@@ -12129,7 +12156,7 @@ function renderSavedSearchForm(formSlot, item, contacts, onSaved) {
 function renderDetail(container, id) {
   container.innerHTML = '';
   container.appendChild(h(`
-    <a href="#/notices" class="back-link">&larr; 목록으로</a>
+    <a href="${noticeSearchHref()}" class="back-link">&larr; 목록으로</a>
     <div id="detail-body">${skeletonDetailHtml()}</div>
   `));
   const body = document.getElementById('detail-body');
@@ -13468,12 +13495,12 @@ function renderProposalDraftPage(container, draftId) {
   container.appendChild(h(`<div class="proposal-page" id="proposal-page"><p class="prop-loading" role="status">제안서 초안을 불러오는 중…</p></div>`));
   const page = container.querySelector('#proposal-page');
   if (!currentUser) { location.hash = '#/auth/login'; return; }
-  if (!canUseProposalDraft()) { page.innerHTML = ''; openPaidFeatureModal(); page.appendChild(h(`<a href="#/notices" class="back-link">&larr; 공고 검색으로</a><p class="section-empty">유료 플랜에서 이용할 수 있는 서비스입니다.</p>`)); return; }
+  if (!canUseProposalDraft()) { page.innerHTML = ''; openPaidFeatureModal(); page.appendChild(h(`<a href="${noticeSearchHref()}" class="back-link">&larr; 공고 검색으로</a><p class="section-empty">유료 플랜에서 이용할 수 있는 서비스입니다.</p>`)); return; }
   apiRequest('GET', '/api/proposal-drafts/' + encodeURIComponent(draftId))
     .then(draft => renderProposalDraftBody(page, draft))
     .catch(err => {
       page.innerHTML = '';
-      page.appendChild(h(`<a href="#/notices" class="back-link">&larr; 공고 검색으로</a><p class="section-empty">${escapeHtml(err.message || '초안을 불러오지 못했습니다.')}</p>`));
+      page.appendChild(h(`<a href="${noticeSearchHref()}" class="back-link">&larr; 공고 검색으로</a><p class="section-empty">${escapeHtml(err.message || '초안을 불러오지 못했습니다.')}</p>`));
       handleProposalApiError(err);
     });
 }
@@ -15749,7 +15776,7 @@ async function loadMoreNotifications(listBody) {
 
 function notificationRowHtml(n) {
   const target = n.pipelineEntryId ? '#/pipeline/' + n.pipelineEntryId
-    : n.noticeId ? '#/notices/' + n.noticeId : '#/notices';
+    : n.noticeId ? '#/notices/' + n.noticeId : noticeSearchHref();
   return `
     <div class="row-card notification-row${n.read ? '' : ' notification-row--unread'}" data-id="${escapeAttr(n.id)}" data-target="${escapeAttr(target)}">
       <span class="row-card-icon">${notificationIconHtml(n.eventType)}</span>
@@ -20137,14 +20164,16 @@ function renderPublicNoticesPage(container) {
     eyebrow: '공고 검색',
     title: '공공사업 공고 통합검색',
     lead: '나라장터 입찰공고와 기업마당 지원사업을 한곳에서 검색합니다. 키워드·지역·공고 종류·발주기관·예산·마감 여부로 조건을 좁힐 수 있고, 로그인하면 등록한 회사정보로 참여 가능 여부까지 확인할 수 있습니다.',
-    actionsHtml: `<a href="${signupHrefWithReturn(ROUTES.notices)}" class="home-cta-primary">무료로 시작하기</a><a href="${ROUTES.matching}" class="home-cta-secondary">맞춤공고 알아보기</a>`,
+    actionsHtml: currentUser
+      ? `<a href="${ROUTES.appSearch}" class="home-cta-primary">앱에서 공고 검색(참여 가능 여부 포함)</a><a href="${ROUTES.appDashboard}" class="home-cta-secondary">대시보드로 이동</a>`
+      : `<a href="${signupHrefWithReturn(ROUTES.notices)}" class="home-cta-primary">무료로 시작하기</a><a href="${ROUTES.matching}" class="home-cta-secondary">맞춤공고 알아보기</a>`,
     bodyClass: 'public-page-body', narrow: true,
     path: ROUTES.notices,
     description: '나라장터 입찰공고와 기업마당 지원사업을 키워드·지역·공고 종류·발주기관·예산·마감 여부로 검색하고 원문 출처와 모집 기간을 확인하세요.',
   });
-  // 기존 검색 화면 그대로(같은 API·같은 공고 카드). 비회원은 판정 배지/참여 준비 버튼이 서버·프론트
-  // 조건상 자연히 빠진다(로그인 상태에 따라 데이터 표현을 바꾸지 않는다 — 행동만 다름).
-  renderList(body);
+  // 기존 검색 화면(같은 API·같은 공고 카드)을 공개 모드로: 로그인 여부와 무관하게 참여 판정 등급·추천 사유·
+  // 참여 준비 담기·맞춤 추천 strip을 노출하지 않는다(로그인 후 검색 #/app/search와 노출 범위 구분).
+  renderList(body, { publicMode: true });
 }
 
 // ---------- 공개 공고 상세(#/notices/{id}, 비회원) ----------
@@ -20473,7 +20502,7 @@ function renderPublicContactPage(container) {
   const prefillCompany = currentProfile && currentProfile.companyName ? currentProfile.companyName : '';
   body.innerHTML = `
     <section class="public-section">
-      <div class="public-grid-2" style="grid-template-columns: 1.6fr 1fr; align-items: start;">
+      <div class="public-grid-2 contact-layout">
         <div class="public-panel">
           <form id="contact-form" class="contact-form" novalidate>
             <label><span class="contact-label">이름<span class="required-mark" aria-hidden="true">*</span></span><input type="text" name="name" maxlength="50" required autocomplete="name"></label>
@@ -20915,12 +20944,10 @@ function route() {
   if (path === ROUTES.features) { renderPublicFeaturesPage(app); return; }
   if (path === ROUTES.pricing) { renderPublicPricingPage(app); return; }
   if (path === ROUTES.contact) { renderPublicContactPage(app); return; }
-  if (path === ROUTES.notices) {
-    if (currentUser) { renderList(app); } else { renderPublicNoticesPage(app); }
-    return;
-  }
+  if (path === ROUTES.notices) { renderPublicNoticesPage(app); return; }
   // ---- App Area(#/app/*) ----
   if (path === ROUTES.appDashboard) { renderHome(app); return; }
+  if (path === ROUTES.appSearch) { renderList(app, { publicMode: false }); return; }
   if (path === ROUTES.appNotices) { renderSavedSearches(app); return; }
   if (path === ROUTES.appPipeline) { renderPipelineList(app); return; }
   if (path === ROUTES.appProposals) { renderProposalsPage(app); return; }
